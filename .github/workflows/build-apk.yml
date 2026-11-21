@@ -1,0 +1,135 @@
+name: Build Sinhala Player APK
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# One run per branch/PR: a new push cancels the stale run instead of queueing it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lab:
+    name: Cast protocol lab (gating)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Repo hygiene + zero-accessibility proof
+        run: |
+          set -euo pipefail
+          echo "--- tracked .zip files (must be 0) ---"
+          ZIPS=$(git ls-files '*.zip' | wc -l)
+          echo "zip files tracked: $ZIPS"
+          [ "$ZIPS" -eq 0 ]
+          echo "--- AccessibilityService API usage in the shipped app (must be 0) ---"
+          python3 -c "import re,sys;sys.stdout.write(re.sub(r'<!--.*?-->','',open('AndroidManifest.xml',encoding='utf-8').read(),flags=re.S))" > /tmp/manifest.xml
+          if grep -nE 'BIND_ACCESSIBILITY_SERVICE|android\.accessibilityservice|<service[^>]*Accessibility' /tmp/manifest.xml; then
+            echo "::error title=Zero-accessibility violated::an AccessibilityService declaration was found in AndroidManifest.xml"
+            exit 1
+          fi
+          if grep -rnE 'extends AccessibilityService|AccessibilityServiceInfo|BIND_ACCESSIBILITY_SERVICE' src/ lab/; then
+            echo "::error title=Zero-accessibility violated::an AccessibilityService API reference was found in the app sources"
+            exit 1
+          fi
+          echo "AccessibilityService declarations: 0, API references: 0"
+          echo "--- forbidden signed artifacts in the tree (must be 0) ---"
+          git ls-files '*.apk' '*.jks' '*.keystore' '*.p12' | wc -l
+
+      - name: Compile the engines + run the cast-protocol lab (mandatory)
+        run: |
+          chmod +x lab/run_lab.sh
+          bash lab/run_lab.sh
+
+      - name: Summarise the lab report
+        if: always()
+        run: |
+          {
+            echo '### Cast protocol lab'
+            echo ''
+            echo '```'
+            grep -E 'Lab result|  PASS |  FAIL ' lab/out/lab.txt | head -80 || echo 'no report'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lab-report
+          path: lab/out/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  apk:
+    name: APK (JDK 17 + Android SDK 34, signed + verified)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK pieces
+        run: sdkmanager --install "platforms;android-34" "build-tools;35.0.1" > /dev/null
+
+      - name: Build + sign + verify the APK
+        env:
+          KS_BASE64: ${{ secrets.KS_BASE64 }}
+          KS_PASS: ${{ secrets.KS_PASS }}
+          KS_KEYPASS: ${{ secrets.KS_KEYPASS }}
+          KS_ALIAS: ${{ secrets.KS_ALIAS }}
+        run: |
+          set -euo pipefail
+          chmod +x build.sh
+          bash build.sh
+
+      - name: Assert the artifact is a real, signed, installable APK
+        run: |
+          set -euo pipefail
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          APK=dist/AnantPlay-Sinhala-Player.apk
+          test -s "$APK"
+          echo "size: $(stat -c %s "$APK") bytes"
+          "$BT/apksigner" verify --verbose --print-certs "$APK"
+          "$BT/zipalign" -c 4 "$APK"
+          "$BT/aapt2" dump badging "$APK" | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)"
+          unzip -l "$APK" | grep -E "classes.*dex|AndroidManifest.xml|assets/fonts/NotoSansSinhala-Regular.ttf"
+          sha256sum "$APK" | tee dist/sha256.txt
+
+      - name: Upload the installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnantPlay-Sinhala-Player-apk
+          path: dist/AnantPlay-Sinhala-Player.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: APK summary
+        if: always()
+        run: |
+          {
+            echo '### Signed APK'
+            echo ''
+            echo '| item | value |'
+            echo '| --- | --- |'
+            echo "| file | AnantPlay-Sinhala-Player.apk |"
+            [ -f dist/AnantPlay-Sinhala-Player.apk ] && echo "| bytes | $(stat -c %s dist/AnantPlay-Sinhala-Player.apk) |"
+            [ -f dist/sha256.txt ] && echo "| sha256 | $(cut -d' ' -f1 dist/sha256.txt) |"
+          } >> "$GITHUB_STEP_SUMMARY"

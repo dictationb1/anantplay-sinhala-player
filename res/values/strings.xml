@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AnantPlay සිංහල Player</string>
+    <string name="tile_label">සිංහල Cast</string>
+    <string name="tile_on">ready · සක්‍රියයි</string>
+    <string name="tile_off">off · ක්‍රියාත්මක කරන්න</string>
+    <string name="channel_name">Sinhala Cast receiver</string>
+    <string name="channel_desc">Keeps the AnantPlay cast receiver ready; shows cast and subtitle events.</string>
+    <string name="notif_title">අ — Sinhala Player cast ready</string>
+    <string name="notif_text">AnantPlay එකේ Cast බොත්තම ඔබලා "සිංහල Player" තෝරන්න</string>
+    <string name="notif_test">Check</string>
+    <string name="notif_stop">Stop</string>
+    <string name="notif_failed">අ — port bind failed · receiver not armed</string>
+    <string name="channel_cast_name">Cast arrivals</string>
+    <string name="channel_cast_desc">High-priority prompts when a cast needs one tap (open the player, allow video access).</string>
+    <string name="cast_ready_title">Cast received · %1$s</string>
+    <string name="cast_ready_text">Tap to watch here with Sinhala subtitles (no overlay permission needed).</string>
+    <string name="chk_service">Cast receiver service</string>
+    <string name="chk_announced">mDNS announcement</string>
+    <string name="chk_discovery">Same-device discovery (the real test)</string>
+    <string name="chk_wifi">Wi-Fi</string>
+    <string name="announced_ok">cast entry visible</string>
+    <string name="announced_wait">announce pending — retry self-test</string>
+    <string name="btn_arm">▶ Start receiver</string>
+    <string name="btn_selftest">🧪 Self-test</string>
+    <string name="btn_testplayer">🎬 Test player right now (video + Sinhala)</string>
+    <string name="btn_openanant">Open AnantPlay</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_autofetch">Auto-fetch subs: %1$s</string>
+    <string name="selftest_idle">Self-test: loopback → mDNS → bridge.</string>
+    <string name="pick_srt">Pick .srt / .zip</string>
+    <string name="need_media_title">Downloaded video cast needs media access</string>
+    <string name="need_media_text">Tap, then allow Videos access to play "%1$s" here with Sinhala subs.</string>
+</resources>

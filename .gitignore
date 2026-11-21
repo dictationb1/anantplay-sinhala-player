@@ -1,0 +1,32 @@
+# build output (build.sh writes these; CI uploads the APK as an artifact instead)
+build/
+dist/
+out/
+lab/out/
+
+# installable/binary artifacts must never be tracked
+*.apk
+*.idsig
+*.zip
+*.aab
+*.dex
+
+# signing material — never commit a keystore or its passwords
+*.jks
+*.keystore
+*.p12
+*.pepk
+keystore/
+*.b64
+
+# editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+.vscode/
+
+# java noise
+*.class
+*.log
+hs_err_pid*

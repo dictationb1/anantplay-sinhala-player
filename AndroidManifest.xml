@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="lk.techworld.anantplay.sicast">
+
+    <!-- The cast-receiver permission set — a strict subset of what official AnantPlay
+         itself holds (its AndroidManifest.xml). NO AccessibilityService, NO
+         BIND_ACCESSIBILITY_SERVICE: the failure the old companion died of cannot
+         exist here, because there is nothing to flip to "Not working".
+
+         Android 14–16 / HyperOS notes (verified against the platform rules):
+         * FOREGROUND_SERVICE_CONNECTED_DEVICE is required for the connectedDevice type.
+         * The connectedDevice type additionally needs at least ONE of the "device
+           connection" permissions at runtime, otherwise startForeground() throws
+           SecurityException on Android 14+ — CHANGE_WIFI_STATE / CHANGE_NETWORK_STATE
+           are normal (auto-granted) permissions that satisfy it for a LAN receiver.
+         * ACCESS_NETWORK_STATE / ACCESS_WIFI_STATE are needed by ConnectivityManager
+           (NsdAnnouncer's network callback + the setup checklist). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- AnantPlay's own Cast$Keep type (Cast.java:209-222): the same survival pattern -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- one-time system toggle: lets the receiver take the screen when a cast arrives.
+         NOT required for casting itself — without it the cast arrives as a tap-to-open
+         high-priority notification (see ReceiverService.onPlay). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <!-- the guided "No restrictions" request dialog (best-effort, falls back to settings) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- Downloaded-video casts (file:// from AnantPlay's own downloads) need one of these,
+         requested at runtime only when such a cast actually arrives. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+
+    <!-- Package visibility (Android 11+): we only ever look at / launch official AnantPlay -->
+    <queries>
+        <package android:name="me.champdev.weblock"/>
+    </queries>
+
+    <!-- usesCleartextTraffic: the cast payload AnantPlay hands us is whatever the site
+         served — including plain http:// streams and LAN URLs. Blocking cleartext (the
+         targetSdk 28+ default) would break those casts at the Media3 layer. -->
+    <application
+        android:name=".App"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@style/AppTheme"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true"
+        android:supportsRtl="true">
+
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <!-- Our player: the same orientation/PiP/configChanges shape as AnantPlay's own
+             PlayerActivity (AndroidManifest.xml:49-51) so rotation never restarts it.
+             singleTask: a second cast re-targets the open player instead of stacking. -->
+        <activity android:name=".PlayActivity" android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="fullUser"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode"/>
+
+        <!-- THE receiver: a connectedDevice foreground service hosting the cast server
+             (AnantPlay's own Cast$Keep is declared exactly like this). exported=false:
+             nothing outside this app can bind or start it with an Intent. -->
+        <service android:name=".ReceiverService" android:exported="false"
+            android:foregroundServiceType="connectedDevice"/>
+
+        <service android:name=".CastTileService" android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+
+        <!-- BOOT_COMPLETED: allowed to launch a connectedDevice FGS on Android 14+
+             (the boot exemption covers it). MY_PACKAGE_REPLACED keeps the receiver
+             alive across sideloaded updates. -->
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
