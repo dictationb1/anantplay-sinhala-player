@@ -17,19 +17,29 @@ SDK=${ANDROID_HOME:-$HOME/Android/Sdk}
 cd "$(dirname "$0")"
 
 BT=""
-for d in "$SDK"/build-tools/*; do
+# Deterministic first choice: the exact toolchain this release is audited against.
+# (Keeps CI reproducible even when the runner image also exposes a newer or an
+# older build-tools directory.)
+[ -x "$SDK/build-tools/35.0.1/aapt2" ] && BT="$SDK/build-tools/35.0.1"
+#…else fall back to the highest build-tools that is new enough for d8 8.6.
+[ -n "$BT" ] || for d in "$SDK"/build-tools/*; do
   [ -x "$d/aapt2" ] || continue
+  # d8 8.2 (build-tools 34) crashes on jars carrying unnamed MethodParameters
+  # ("Cannot invoke String.length() because <parameter1> is null") — 35.0.1+ (D8 8.6) is fine.
+  case "$d" in
+    */34.0.*|*/3[0-3].*) continue ;;   # too old — d8 8.2 bug (see comment above)
+  esac
   if [ -z "$BT" ] || [ "$(printf '%s\n%s\n' "$BT" "$d" | sort -V | tail -1)" = "$d" ]; then BT=$d; fi
 done
 JAR=$SDK/platforms/android-34/android.jar
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=2.1.0
-VERSION_CODE=20100
+VERSION_NAME=2.2.0
+VERSION_CODE=20200
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-[ -n "$BT" ] || die "no build-tools with aapt2 under $SDK/build-tools — install build-tools;35.0.1"
+[ -n "$BT" ] || die "no build-tools >= 35.0.1 under $SDK/build-tools — d8 8.2 (34.x) crashes on the shipped jars; install build-tools;35.0.1"
 [ -f "$JAR" ] || die "$JAR missing. Install with: sdkmanager \"platforms;android-34\" \"build-tools;35.0.1\""
 ls libs/media3-exoplayer-*.jar >/dev/null 2>&1 || die "libs/ missing — media3 jars ship with this repo (Apache-2.0)"
 [ -d src/lk/techworld/anantplay/sicast ] || die "src/ missing"

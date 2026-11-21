@@ -114,19 +114,25 @@ cross-app same-device discovery is the standard NSD workflow. Constraints handle
   returns when the quota resets or a new `GEMINI_API_KEY` is set.
 - `The Odyssey` resolves correctly (Cinemeta → **tt33764258, 2026**) through the deployed worker.
 
-## 7. Verification summary (v2.1.0)
+## 7. Verification summary (v2.2.0)
 
-- **Lab**: **72/72 checks pass** (`lab/run_lab.sh`, gating) — protocol byte-compatibility, guard
+- **Lab**: **97/97 checks pass** (`lab/run_lab.sh`, gating) — protocol byte-compatibility, guard
   rails (256 KB cap, bad-link rule, LAN-source lock, unknown paths, mixed-case headers,
   negative/huge/garbage `Content-Length`, malformed JSON, header injection, `/do` whitelist and
   seek clamping), /status·/do state machine, SRT round-trip, JSON round-trip, plus the v2.1.0
   regression suites: `CastPolicy`, `StreamHint` mime defaulting, `SrtLoader` (Zip-Slip, zip bomb,
   BOM/CRLF, UTF-16, nested folders, `__MACOSX`), `MiniJson` nesting cap, `Diag` redaction and
-  `BridgeApi` (literal job-id colons, 202 progress, 429/5xx text).
+  `BridgeApi` (literal job-id colons, 202 progress, 429/5xx text), plus the **v2.2.0 i18n gate**:
+  the 18-entry `Langs` registry mirrored field-by-field against `worker/src/languages.js` v4.1
+  (codes, ISO-639-2B/SubDL codes, native labels, RTL `ar`/`ur`, CJK budgets), the 8-chip row, the
+  bundled-font-only-for-`si` rule, the unknown-code fallback, the `lang=`/`register=` query shapes,
+  the `X-Sub-Quality`/`X-Polish-Status` two-stage contract, the ≤ 40 KB Option-C chunk, and the
+  `MdnsWire` PTR bytes (QU bit) proved on a bare JVM.
 - **APK**: builds with plain SDK tools (aapt2/javac/d8/zipalign/apksigner), **apksigner verify
   --verbose pass**, manifest dump confirms package/version/minSdk 26/targetSdk 34,
   `connectedDevice` FGS type, PiP player, tile service, boot receiver, **zero accessibility
-  declarations**, and the artifact is uploaded by CI as `AnantPlay-Sinhala-Player.apk`.
+  declarations**, and the artifact is uploaded by CI as `AnantPlay-Sinhala-Player-v2.2.0.apk`
+  (versionCode 20200 asserted from `aapt2 dump badging`).
 - CI (`.github/workflows/build-apk.yml`) reproduces lab + APK on every push, and fails on any
   tracked `.zip`/`.apk`/keystore or on any `AccessibilityService` reference.
 

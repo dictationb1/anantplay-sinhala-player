@@ -9,8 +9,6 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
-import android.net.nsd.NsdManager;
-import android.net.nsd.NsdServiceInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -32,12 +30,29 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /* The Xiaomi HyperOS guided setup + live diagnostics — every requirement shows its
  * real state with a one-tap jump to the exact screen that fixes it. Nothing here can
  * die silently: the receiver's whole life is in the Diagnostics log below, and the
  * Self-test exercises the actual end-to-end chain (HTTP loopback → same-device mDNS
- * discovery → the Cloudflare bridge) on the user's own phone. */
+ * discovery → the Cloudflare bridge) on the user's own phone.
+ *
+ * v2.1 (this upgrade) — the UX overhaul for real HyperOS phones:
+ *   · THE INVISIBLE-TITLES BUG: permRow() built the title TextView but never called
+ *     setText(title) — the permission cards showed only "✓ granted" with a BLANK
+ *     title. Fixed: every card has a bold bilingual title + a one-line WHY.
+ *   · EXPLICIT HIGH-CONTRAST COLORS on EVERY text: titles #F1F5F9, descriptions
+ *     #94A3B8, granted #22C55E, warning #F59E0B, error #EF4444 — MIUI Force Dark
+ *     Mode can no longer eat a single label (styles.xml also sets
+ *     android:forceDarkAllowed=false on the theme).
+ *   · BOTTOM GESTURE-BAR CLIPPING: the ScrollView now pads by the real navigation
+ *     bar insets (WindowInsets) so "Play URL in Sinhala Player" is never cut off.
+ *   · CLEAR BILINGUAL HELPERS under every setting: Worker URL, Auto-fetch subs,
+ *     AdGuard/VPN card (the 2-step exclusion), Self-test, Test player.
+ *   · SELF-TEST v2: mDNS is proven by the RAW-SOCKET PROBE (NsdAnnouncer.probeSelf)
+ *     + legacy discovery, and a failure now says WHY — Wi-Fi off vs router/VPN
+ *     blocking multicast vs filtered — in Sinhala + English with the exact fix. */
 public class MainActivity extends Activity {
 
     private SharedPreferences prefs;
@@ -49,6 +64,15 @@ public class MainActivity extends Activity {
     /** READ_MEDIA_VIDEO on 33+, READ_EXTERNAL_STORAGE below — only used for file:// casts. */
     private static final String MEDIA_PERM = Build.VERSION.SDK_INT >= 33
         ? "android.permission.READ_MEDIA_VIDEO" : "android.permission.READ_EXTERNAL_STORAGE";
+
+    // ── the v2.1 palette: explicit, never inherited from a theme ──────────────
+    static final int COL_TITLE = 0xFFF1F5F9;     // card/section titles
+    static final int COL_TEXT = 0xFFE2E8F0;      // body text + buttons
+    static final int COL_DESC = 0xFF94A3B8;      // one-line explanations
+    static final int COL_OK = 0xFF22C55E;        // granted / pass
+    static final int COL_WARN = 0xFFF59E0B;      // recommended
+    static final int COL_ERR = 0xFFEF4444;       // failed / error
+    static final int COL_ACCENT = 0xFF7FE7FF;    // self-test line
 
     @Override
     protected void onCreate(Bundle b) {
@@ -110,6 +134,16 @@ public class MainActivity extends Activity {
         root.setPadding(dp(18), dp(22), dp(18), dp(24));
         root.setBackgroundColor(0xFF0B1020);
         scroll.addView(root);
+        // THE GESTURE-BAR FIX: pad the scroll content by the real bottom insets so
+        // the last button is never half-swallowed by Xiaomi's navigation bar.
+        scroll.setOnApplyWindowInsetsListener((v, insets) -> {
+            int bottom = insets.getSystemWindowInsetBottom();
+            int top = insets.getSystemWindowInsetTop();
+            v.setPadding(v.getPaddingLeft(), top + dp(4), v.getPaddingRight(), bottom + dp(16));
+            return insets;
+        });
+        scroll.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        scroll.setFitsSystemWindows(false);
 
         TextView h = head("AnantPlay · සිංහල Player", 21);
         root.addView(h);
@@ -117,6 +151,8 @@ public class MainActivity extends Activity {
             + "Official AnantPlay stays untouched — inside its player tap the Cast button and pick "
             + "\"සිංහල Player - AnantPlay (Recommended)\". The movie then plays HERE with native, "
             + "frame-exact Sinhala subtitles. No Accessibility permission is ever requested."));
+        root.addView(cap("මෙය AnantPlay CAST RECEIVER එකකි — AnantPlay එක තුළ Cast ඔබා \"සිංහල Player\" "
+            + "තෝරන්න. චිත්‍රපටිය මෙතැනින් විවෘත වී සිංහල උපසිරැසි සමඟ පානවා."));
 
         // ── what AnantPlay will see ──
         root.addView(head("Cast status · Cast තත්ත්වය", 16));
@@ -132,7 +168,7 @@ public class MainActivity extends Activity {
         check(getString(R.string.chk_discovery), () -> selfTestDiscoveryText(),
             NsdAnnouncerTest.lastKnown(), null);
         check(getString(R.string.chk_wifi), () -> NsdAnnouncer.onWifiLikeNetwork(this)
-                ? "✓ Wi-Fi on (same-device cast needs it)" : "✗ Wi-Fi off — turn it on", 
+                ? "✓ Wi-Fi on (same-device cast needs it)" : "✗ Wi-Fi off — turn it on",
             NsdAnnouncer.onWifiLikeNetwork(this), null);
         refreshers.add(() -> {
             bind(0, ReceiverService.isUp(), ReceiverService.isUp()
@@ -144,25 +180,35 @@ public class MainActivity extends Activity {
                 ? "✓ Wi-Fi on" : "✗ Wi-Fi off — turn it on");
         });
 
-        // ── Xiaomi permission wizard ──
+        // ── Xiaomi permission wizard (v2.1: real titles + WHY + status badge) ──
         root.addView(head("Xiaomi HyperOS permissions · MIUI අවසර", 16));
         if (!Miui.isXiaomi()) root.addView(cap("Not a Xiaomi device — the battery and overlay toggles still apply."));
         LinearLayout pm = new LinearLayout(this);
         pm.setOrientation(LinearLayout.VERTICAL);
         root.addView(pm);
 
-        final int iAuto = permRow(pm, "Autostart", "MIUI only — best effort (also under Other permissions)",
+        final int iAuto = permRow(pm,
+            "1. Autostart · ස්වයංක්‍රීය ආරම්භය",
+            "MIUI පමණි — boot වූ විට receiver එක ස්වයංක්‍රීයව ඇරෙන්නට (Other permissions තුළත් තිබේ) · MIUI only — lets the receiver auto-start at boot",
             Miui.isXiaomi(), v -> Miui.openAutostart(this), v -> Miui.openOtherPermissions(this));
-        final int iBatt = permRow(pm, "Battery saver → No restrictions", "stops powerkeeper from killing the idle receiver",
+        final int iBatt = permRow(pm,
+            "2. Battery saver → No restrictions · බැටරි සීමා නැති",
+            "powerkeeper එක idle receiver එක මරා නොදමන්නට · stops MIUI's powerkeeper from killing the idle receiver",
             Miui.batteryUnrestricted(this), v -> Miui.requestBattery(this), null);
-        final int iOverlay = permRow(pm, "Display over other apps", "one-tap takeover when the cast arrives; WITHOUT it a cast still lands as a tap-to-open notification",
+        final int iOverlay = permRow(pm,
+            "3. Display over other apps · වෙනත් ඇප් මත පෙන්වීම",
+            "Cast ආව විගස චිත්‍රපටය ස්වයංක්‍රීයව තිරයට ගෙන ඒමට · one-tap takeover when the cast arrives; without it the cast still lands as a tap-to-open notification",
             Miui.overlayGranted(this), v -> Miui.openOverlay(this), null);
-        final int iNotif = permRow(pm, "Notifications", "the receiver's status + cast prompts (Android 13+ runtime permission)",
+        final int iNotif = permRow(pm,
+            "4. Notifications · දැනුම්දීම්",
+            "receiver එකේ status + cast දැනුම්දීම් (Android 13+ runtime) · the receiver's status + cast prompts (Android 13+ runtime permission)",
             Miui.notifGranted(this), v -> {
                 if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7);
                 else Miui.openAppDetails(this);
             }, null);
-        final int iMedia = permRow(pm, "Videos access", "only needed for file:// casts of AnantPlay-downloaded videos",
+        final int iMedia = permRow(pm,
+            "5. Videos access · වීඩියෝ ප්‍රවේශය",
+            "බාගත කළ වීඩියෝ cast සඳහා පමණි (file://) · only needed for file:// casts of AnantPlay-downloaded videos",
             mediaGranted(), v -> requestMediaPermission(), null);
         refreshers.add(() -> {
             bind(iAuto, Miui.isXiaomi(), Miui.isXiaomi() ? "✓ MIUI/HyperOS — open Autostart + Other permissions" : "— not needed on stock Android");
@@ -171,6 +217,16 @@ public class MainActivity extends Activity {
             bind(iNotif, Miui.notifGranted(this), Miui.notifGranted(this) ? "✓ granted" : "✗ not granted — tap Open setting / ⋮ Allow restricted settings");
             bind(iMedia, mediaGranted(), mediaGranted() ? "✓ granted" : "— tap to allow (file:// casts only)");
         });
+
+        // ── the AdGuard / VPN help card (v2.1) ──
+        root.addView(head("AdGuard / VPN help · AdGuard උදව්", 16));
+        root.addView(cap("• Private DNS (dns.adguard-dns.com / DoT 853) mDNS සඳහා බාධාවක් නොවේ — එය unicast DNS පමණක් සංකේතනය කරයි. "
+            + "· Private DNS (DoT) does NOT affect casting: it only encrypts unicast DNS, never the UDP 5353 multicast mDNS uses."));
+        root.addView(cap("• AdGuard ANDROID APP (local VPN) mDNS multicast බ්ලොක් කළ හැක. එවිට 2 පියවර: "
+            + "(1) AdGuard → Settings → Network → \"AnantPlay සිංහල Player\" එකේ Route through AdGuard OFF කරන්න; "
+            + "(2) නැතහොත් AdGuard → Protection method → \"Local VPN\" වෙනුවට \"Manual proxy/HTTPS filtering\" තෝරන්න. "
+            + "· The AdGuard ANDROID APP (local VPN) can block mDNS multicast. Two-step fix: (1) AdGuard → Settings → Network → turn OFF \"Route through AdGuard\" for this app; "
+            + "(2) or switch AdGuard's protection method from \"Local VPN\" to manual proxy mode."));
 
         // ── actions ──
         root.addView(head("Actions", 16));
@@ -183,28 +239,36 @@ public class MainActivity extends Activity {
         test.setOnClickListener(v -> runSelfTest());
         row.addView(test, new LinearLayout.LayoutParams(0, -2, 1f));
         root.addView(row);
+        root.addView(cap("Self-test: loopback HTTP → mDNS (raw probe + discovery) → the Cloudflare bridge. "
+            + "· තත්පර 10ක් පමණ ගත වේ — නොසඟවා ප්‍රතිඵලය පෙන්වයි."));
 
         Button player = btn(getString(R.string.btn_testplayer), true);
         player.setOnClickListener(v -> startActivity(new Intent(this, PlayActivity.class)
             .putExtra("test", true).putExtra("title", "Sinhala Player Test")));
         root.addView(player);
+        root.addView(cap("Test player · පරීක්ෂණ වීඩියෝව — Sinhala rendering + cast protocol ඔබේම දුරකථනයේ පරීක්ෂා කරයි."));
 
         Button anant = btn(getString(R.string.btn_openanant), false);
         anant.setOnClickListener(v -> Miui.openAnantPlay(this));
         root.addView(anant);
+        root.addView(cap("Open AnantPlay · AnantPlay විවෘත කරන්න — එහි player එකේ Cast බොත්තම ඔබන්න."));
 
         selfTestLine = new TextView(this);
-        selfTestLine.setTextColor(0xFF7FE7FF);
+        selfTestLine.setTextColor(COL_ACCENT);
         selfTestLine.setTextSize(13);
         selfTestLine.setPadding(0, dp(6), 0, dp(4));
         selfTestLine.setText(getString(R.string.selftest_idle));
         root.addView(selfTestLine);
 
-        // ── manual URL + settings ──
-        root.addView(head("Worker & manual play", 16));
+        // ── manual URL + settings (v2.1: helpers under every setting) ──
+        root.addView(head("Worker & manual play · Worker සැකසුම්", 16));
+        root.addView(cap("Worker URL · Cloudflare bridge ලිපිනය — සිංහල උපසිරැසි සොයන/පරිවර්තනය කරන සේවාදායකය. "
+            + "· The Cloudflare bridge that finds/translates Sinhala subtitles. Default works as-is."));
         final EditText url = new EditText(this);
         url.setText(prefs.getString("workerUrl", BridgeApi.DEFAULT_WORKER_URL));
         url.setTextSize(12.5f);
+        url.setTextColor(COL_TEXT);
+        url.setHintTextColor(COL_DESC);
         url.setBackground(rounded(0xFF0E1526));
         url.setPadding(dp(10), dp(8), dp(10), dp(8));
         root.addView(url);
@@ -224,10 +288,38 @@ public class MainActivity extends Activity {
         });
         srow.addView(auto, new LinearLayout.LayoutParams(0, -2, 1f));
         root.addView(srow);
+        root.addView(cap("Auto-fetch subs · ස්වයංක්‍රීය උපසිරැසි ලබාගැනීම — ON නම් video එක විවෘත වූ විගස "
+            + "සිංහල උපසිරැසි සොයා/පරිවර්තනය කර පෙන්වයි. OFF නම් player එකේ \"සිං\" බොත්තමෙන් අතින් ලබාගන්න. "
+            + "· ON: Sinhala subs are fetched/translated automatically as soon as a video opens. OFF: fetch them yourself from the player's \"සිං\" panel."));
+
+        // ── v2.2: Default Subtitle Language (the 18-language registry) ──
+        root.addView(cap("Default subtitle language · පෙරනිමි උපසිරැසි භාෂාව — වීඩියෝ විවෘත වූ විගස ලබාගන්න භාෂාව "
+            + "(සිංහල පෙරනිමියයි; player එකේදී භාෂා chip එකකින් ඕනෑම වෙලාවක මාරු කළ හැක). "
+            + "· The language fetched automatically when a video opens (Sinhala by default; switch any time from the player's language chips)."));
+        final Button langBtn = btn(Langs.nativeOf(prefs.getString("defaultLang", Langs.DEFAULT)) + " · " + Langs.englishOf(prefs.getString("defaultLang", Langs.DEFAULT)), false);
+        langBtn.setOnClickListener(v -> {
+            String[] labels = new String[Langs.ALL.size()];
+            for (int i = 0; i < Langs.ALL.size(); i++) {
+                Langs.Lang l = Langs.ALL.get(i);
+                labels[i] = l.nativeName + " (" + l.english + ")";
+            }
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("Default subtitle language · පෙරනිමි භාෂාව")
+                .setItems(labels, (d, which) -> {
+                    prefs.edit().putString("defaultLang", Langs.ALL.get(which).code).apply();
+                    langBtn.setText(Langs.ALL.get(which).nativeName + " · " + Langs.ALL.get(which).english);
+                    toast(Langs.ALL.get(which).nativeName + " ✓");
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+        });
+        root.addView(langBtn);
 
         final EditText play = new EditText(this);
         play.setHint("paste any stream URL to play here (m3u8/mpd/mp4)");
         play.setTextSize(12.5f);
+        play.setTextColor(COL_TEXT);
+        play.setHintTextColor(COL_DESC);
         play.setBackground(rounded(0xFF0E1526));
         play.setPadding(dp(10), dp(8), dp(10), dp(8));
         root.addView(play, new LinearLayout.LayoutParams(-1, -2));
@@ -279,11 +371,11 @@ public class MainActivity extends Activity {
         row.setPadding(0, dp(8), 0, dp(8));
         TextView t = new TextView(this);
         t.setText(title);
-        t.setTextColor(Color.WHITE);
+        t.setTextColor(COL_TITLE);
         t.setTextSize(15);
         row.addView(t);
         TextView d = new TextView(this);
-        d.setTextColor(0xFF9FB0D8);
+        d.setTextColor(COL_DESC);
         d.setTextSize(12.5f);
         d.setPadding(dp(4), dp(2), 0, 0);
         row.addView(d);
@@ -298,18 +390,22 @@ public class MainActivity extends Activity {
         rowTexts.get(i).setText(detail);
     }
 
+    /** A permission card: BOLD bilingual title + WHY line + status badge + fix buttons.
+     *  (v1 bug fixed: the title was never set — the cards showed blank titles.) */
     private int permRow(LinearLayout box, String title, String note, boolean ok,
-                         View.OnClickListener fix, View.OnClickListener fix2) {
+                        View.OnClickListener fix, View.OnClickListener fix2) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(0, dp(7), 0, dp(7));
+        row.setPadding(dp(2), dp(7), dp(2), dp(7));
         TextView t = new TextView(this);
-        t.setTextColor(Color.WHITE);
+        t.setText(title);                       // ← THE FIX: the title is actually set
+        t.setTextColor(COL_TITLE);
         t.setTextSize(14.5f);
+        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         row.addView(t);
         TextView n = new TextView(this);
         n.setText(note);
-        n.setTextColor(0xFF7C8DB5);
+        n.setTextColor(COL_DESC);
         n.setTextSize(11.5f);
         n.setPadding(dp(4), dp(1), 0, dp(4));
         row.addView(n);
@@ -332,13 +428,13 @@ public class MainActivity extends Activity {
         return rowIcons.size() - 1;
     }
 
-    // ── the self-test: loopback HTTP → same-device mDNS → the bridge ──────────
+    // ── the self-test v2: loopback HTTP → mDNS (probe + discovery) → the bridge ─
 
     private String selfTestDiscoveryText() {
         Boolean d = NsdAnnouncerTest.result;
         if (d == null) return "… run the Self-test";
         return d ? "✓ our cast entry is discoverable from this phone — AnantPlay will list it"
-                 : "✗ not seen yet — Wi-Fi on? run again / see log";
+                 : "✗ not seen — run the Self-test for the exact reason (Wi-Fi / router / VPN)";
     }
 
     private void runSelfTest() {
@@ -368,21 +464,53 @@ public class MainActivity extends Activity {
                     Diag.w("selftest", "loopback: " + e);
                 }
             }
-            // 2. same-device mDNS discovery — the make-or-break of the cast path
-            boolean discovered = NsdAnnouncerTest.discoverSelf(MainActivity.this, 6000);
-            NsdAnnouncerTest.result = discovered;
-            report.append(discovered ? "mDNS self-discovery ok, " : "mDNS self-discovery FAILED, ");
-            if (!discovered) pass[0] = false;
-            // 3. the Cloudflare bridge
+
+            // 2a. THE RAW mDNS PROBE — the layer-1 proof that survives OEM same-uid
+            //     discovery filters (the HyperOS failure the user saw).
+            NsdAnnouncer.ProbeResult probe = NsdAnnouncer.probeSelf(MainActivity.this, NsdAnnouncer.PROBE_TIMEOUT_MS);
+            Diag.i("selftest", "mdns probe: answered=" + probe.answered + " reason=" + probe.reason
+                + " sent=" + probe.packetsSent + " recv=" + probe.packetsReceived
+                + " vpn=" + probe.vpnActive + " lock=" + probe.multicastLockHeld
+                + " detail=" + probe.detail);
+
+            // 2b. legacy NsdManager discovery — a bonus when the OEM stack allows it
+            boolean legacy = NsdAnnouncerTest.discoverSelf(MainActivity.this, 3000);
+            Diag.i("selftest", "mdns legacy discovery: " + legacy);
+
+            boolean mDnsOk = probe.answered || legacy;
+            NsdAnnouncerTest.result = mDnsOk;
+            if (mDnsOk) {
+                report.append("mDNS ").append(probe.answered ? "probe ok" : "discovery ok").append(", ");
+            } else {
+                pass[0] = false;
+                report.append("mDNS FAILED (").append(probe.reason).append("), ");
+                // THE WHY: a per-cause bilingual instruction line, appended to the report
+                if (NsdAnnouncer.ProbeResult.WIFI_OFF.equals(probe.reason)) {
+                    report.append("[Wi-Fi ක්‍රියාත්මක නැත — Wi-Fi on කර නැවත උත්සාහ කරන්න · Turn Wi-Fi on and retry] ");
+                } else if (probe.vpnActive) {
+                    report.append("[VPN (AdGuard app?) multicast බ්ලොක් කරයි — AdGuard → Settings → Network → මෙම ඇප් එකෙන් Route through AdGuard OFF කරන්න · "
+                        + "A VPN (the AdGuard app?) is blocking multicast — AdGuard → Settings → Network → turn OFF Route-through-AdGuard for this app] ");
+                } else {
+                    report.append("[රවුටරය multicast බ්ලොක් කරයි (AP isolation) — රවුටර් සැකසුම් පරීක්ෂා කරන්න · "
+                        + "the router filters multicast (AP isolation?) — check the router's AP-isolation/multicast settings] ");
+                }
+            }
+
+            // 3. the Cloudflare bridge — v4: the storage warning is surfaced too
             try {
                 HttpURLConnection c = (HttpURLConnection) new URL(
                     prefs.getString("workerUrl", BridgeApi.DEFAULT_WORKER_URL) + "/health").openConnection();
                 c.setConnectTimeout(2500);
                 c.setReadTimeout(2500);
                 int code = c.getResponseCode();
+                String body = code == 200 ? new String(readAll(c.getInputStream()), StandardCharsets.UTF_8) : "";
                 c.disconnect();
                 report.append("bridge ").append(code == 200 ? "ok" : "HTTP " + code).append(".");
-                Diag.i("selftest", "bridge: " + code);
+                Diag.i("selftest", "bridge: " + code + " " + BridgeApi.brief(body, 200));
+                if (body.contains("cache+memory")) {
+                    report.append(" [⚠ Worker KV නැත (storage=cache+memory) — jobs isolate මාරුවේදී නැති වේ; "
+                        + "wrangler kv namespace create SUBS_KV කර bind කරන්න · the worker has NO KV bound — jobs vanish on isolate restarts; bind SUBS_KV]");
+                }
             } catch (Exception e) {
                 report.append("bridge unreachable (").append(e.getMessage()).append(").");
                 Diag.w("selftest", "bridge: " + e);
@@ -391,7 +519,7 @@ public class MainActivity extends Activity {
             final boolean p = pass[0];
             main.post(() -> {
                 selfTestLine.setText((p ? "✓ " : "✗ ") + report);
-                selfTestLine.setTextColor(p ? 0xFF8CFF8C : 0xFFFF9F9F);
+                selfTestLine.setTextColor(p ? COL_OK : COL_ERR);
                 refresh();
             });
         }, "si-selftest").start();
@@ -409,7 +537,7 @@ public class MainActivity extends Activity {
     private TextView head(String t, float sp) {
         TextView v = new TextView(this);
         v.setText(t);
-        v.setTextColor(Color.WHITE);
+        v.setTextColor(COL_TITLE);
         v.setTextSize(sp);
         v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         v.setPadding(0, dp(14), 0, dp(4));
@@ -419,7 +547,7 @@ public class MainActivity extends Activity {
     private TextView cap(String t) {
         TextView v = new TextView(this);
         v.setText(t);
-        v.setTextColor(0xFF9FB0D8);
+        v.setTextColor(COL_DESC);
         v.setTextSize(12.5f);
         v.setLineSpacing(dp(2), 1f);
         v.setPadding(0, dp(2), 0, dp(6));
@@ -431,7 +559,7 @@ public class MainActivity extends Activity {
         b.setAllCaps(false);
         b.setText(t);
         b.setTextSize(13);
-        b.setTextColor(Color.WHITE);
+        b.setTextColor(COL_TEXT);
         b.setBackground(rounded(primary ? 0xFF3B82F6 : 0xFF1A2440));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.topMargin = dp(6);
@@ -455,9 +583,12 @@ public class MainActivity extends Activity {
         return sb.toString();
     }
 
-    /** Runs NSD discovery from THIS phone to prove AnantPlay's own path end to end. */
+    /** Runs NSD discovery from THIS phone — the LEGACY self-test layer (v2). On
+     *  HyperOS this can legitimately NOT see our own registration (the OEM daemon
+     *  filters same-uid services), so it is a bonus signal only; the raw probe is
+     *  the authoritative proof. */
     static final class NsdAnnouncerTest {
-        static volatile Boolean result;                 // last self-test outcome
+        static volatile Boolean result;                 // last self-test outcome (probe OR legacy)
         private static volatile Boolean lastKnown;      // announced + discovered at least once
 
         static boolean lastKnown() {
@@ -469,21 +600,21 @@ public class MainActivity extends Activity {
             try {
                 final Object done = new Object();
                 final boolean[] found = {false};
-                NsdManager nsd = c.getSystemService(NsdManager.class);
+                android.net.nsd.NsdManager nsd = c.getSystemService(android.net.nsd.NsdManager.class);
                 if (nsd == null) return false;
-                NsdManager.DiscoveryListener l = new NsdManager.DiscoveryListener() {
-                    @Override public void onServiceFound(NsdServiceInfo i) {
+                android.net.nsd.NsdManager.DiscoveryListener l = new android.net.nsd.NsdManager.DiscoveryListener() {
+                    @Override public void onServiceFound(android.net.nsd.NsdServiceInfo i) {
                         String n = i.getServiceName() == null ? "" : i.getServiceName();
                         Diag.i("nsdtest", "found: " + n);
                         if (n.contains(NsdAnnouncer.NAME)) found[0] = true;
                     }
-                    @Override public void onServiceLost(NsdServiceInfo i) { }
+                    @Override public void onServiceLost(android.net.nsd.NsdServiceInfo i) { }
                     @Override public void onDiscoveryStarted(String t) { }
                     @Override public void onDiscoveryStopped(String t) { }
                     @Override public void onStartDiscoveryFailed(String t, int e) { Diag.w("nsdtest", "start fail " + e); }
                     @Override public void onStopDiscoveryFailed(String t, int e) { }
                 };
-                nsd.discoverServices(NsdAnnouncer.TYPE, NsdManager.PROTOCOL_DNS_SD, l);
+                nsd.discoverServices(NsdAnnouncer.TYPE, android.net.nsd.NsdManager.PROTOCOL_DNS_SD, l);
                 long end = System.currentTimeMillis() + timeoutMs;
                 while (System.currentTimeMillis() < end && !found[0]) Thread.sleep(150);
                 try { nsd.stopServiceDiscovery(l); } catch (Throwable ignored) { }

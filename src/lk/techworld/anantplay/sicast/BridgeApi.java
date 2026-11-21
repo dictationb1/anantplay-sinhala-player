@@ -105,13 +105,26 @@ public final class BridgeApi {
         return "⚠ සිංහල උපසිරැසි: " + m + " · subtitle fetch failed";
     }
 
-    /** The progress line for a 202 body ({status:"translating",done,total}). */
+    /** The progress line for a 202 body ({status:"translating",done,total,provider}). */
     public static String progressText(Map<String, Object> p) {
         Object done = p == null ? null : p.get("done");
         Object total = p == null ? null : p.get("total");
+        Object provider = p == null ? null : p.get("provider");
+        String via = provider == null ? "" : String.valueOf(provider);
+        if (via.contains("+")) via = "failover";                      // a split batch across providers
+        else if (via.startsWith("azure")) via = "Azure";
+        else if (via.startsWith("google")) via = "Google";
+        else if (via.startsWith("gemini")) via = "Gemini";
+        else if (via.startsWith("workers_ai")) via = "Workers AI";
+        else if (!via.isEmpty()) via = via.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + via.substring(1);
         if (done != null && total != null)
-            return "Gemini · batch " + done + "/" + total + " · සිංහලට හරවමින්…";
-        return "Gemini · සිංහලට හරවමින්… (translating)";
+            return "පරිවර්තනය වෙමින්… " + done + "/" + total + " (" + (via.isEmpty() ? "AI" : via) + ") · translating batch " + done + "/" + total;
+        return "පරිවර්තනය වෙමින්… · translating (" + (via.isEmpty() ? "AI" : via) + ")";
+    }
+
+    /** A searching state line (layer 1: human Sinhala subs). */
+    public static String searchingText() {
+        return "සිංහල සබ් සොයමින්… (Searching human Sinhala subs…)";
     }
 
     // ── typed calls ─────────────────────────────────────────────────────────────
@@ -127,12 +140,23 @@ public final class BridgeApi {
     }
 
     /** The main job call. Returns the parsed body either way (status field says what happened). */
+    /** v2.1: the v4 job (kept verbatim — the si default job). */
     public Map<String, Object> subtitles(String type, String imdb, int season, int episode, String title) throws IOException {
+        return subtitles(type, imdb, season, episode, title, Langs.DEFAULT, null);
+    }
+
+    /** v2.2: the multi-language job — lang from the registry (si default =
+     *  byte-identical v2.1 request) and an optional register override
+     *  (auto|spoken|formal; auto lets the worker pick by movie genre). */
+    public Map<String, Object> subtitles(String type, String imdb, int season, int episode, String title,
+                                         String lang, String register) throws IOException {
         String q = "/subtitles/" + type + "/" + imdb + ".json";
-        boolean first = true;
-        if (season > 0) { q += (first ? "?" : "&") + "season=" + season; first = false; }
-        if (episode > 0) { q += (first ? "?" : "&") + "episode=" + episode; first = false; }
-        if (title != null && !title.isEmpty()) { q += (first ? "?" : "&") + "title=" + enc(title); first = false; }
+        String l = Langs.isKnown(lang) ? lang : Langs.DEFAULT;
+        q += "?lang=" + l;
+        if (season > 0) q += "&season=" + season;
+        if (episode > 0) q += "&episode=" + episode;
+        if (title != null && !title.isEmpty()) q += "&title=" + enc(title);
+        if (register != null && (register.equals("spoken") || register.equals("formal"))) q += "&register=" + register;
         return Cue.statusOf(getJson(q));
     }
 
@@ -162,6 +186,44 @@ public final class BridgeApi {
         return Cue.statusOf(getJson("/api/status"));
     }
 
+    /** v4: translate a cast-supplied English .srt directly (AnantPlay's `subs` extra
+     *  or a side-loaded file). POST /api/subs-direct {srt, name} → the same job
+     *  shape as /subtitles (the worker caches per content hash — the same file is
+     *  translated once, forever). */
+    public Map<String, Object> subsDirect(String srtText, String name) throws IOException {
+        return subsDirect(srtText, name, Langs.DEFAULT, null);
+    }
+
+    /** v2.2: the direct-sub job for any registry language. */
+    public Map<String, Object> subsDirect(String srtText, String name, String lang, String register) throws IOException {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("srt", srtText);
+        body.put("lang", Langs.isKnown(lang) ? lang : Langs.DEFAULT);
+        if (register != null && (register.equals("spoken") || register.equals("formal"))) body.put("register", register);
+        if (name != null && !name.isEmpty()) body.put("name", name);
+        String json = MiniJson.write(body);
+        HttpURLConnection c = (HttpURLConnection) new URL(urlFor("/api/subs-direct")).openConnection();
+        c.setRequestMethod("POST");
+        c.setConnectTimeout(timeoutMs);
+        c.setReadTimeout(timeoutMs);
+        c.setDoOutput(true);
+        c.setRequestProperty("Content-Type", "application/json");
+        c.setRequestProperty("User-Agent", "AnantPlaySiCompanion/1.0");
+        try {
+            c.getOutputStream().write(json.getBytes(StandardCharsets.UTF_8));
+            int code = c.getResponseCode();
+            InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+            byte[] b = readAll(in == null ? new ByteArrayInputStream(new byte[0]) : in, 8 * 1024 * 1024);
+            String resp = new String(b, StandardCharsets.UTF_8);
+            if (code >= 400) throw new HttpException(code, resp);
+            return Cue.statusOf(resp);
+        } catch (java.net.SocketTimeoutException e) {
+            throw new java.net.SocketTimeoutException("worker timeout after " + (timeoutMs / 1000) + " s");
+        } finally {
+            c.disconnect();
+        }
+    }
+
     // ── transport ───────────────────────────────────────────────────────────────
 
     String getJson(String path) throws IOException {
@@ -169,6 +231,17 @@ public final class BridgeApi {
     }
 
     byte[] getBytes(String path) throws IOException {
+        return getBytesWithHeaders(path, null);
+    }
+
+    /** v2.2 two-stage delivery: fetch the .srt AND the X-Sub-Quality /
+     *  X-Polish-Status headers (the player hot-swaps when quality flips to
+     *  cinema-polished). headersOut may be null (plain fetch). */
+    byte[] getBytes(String path, java.util.Map<String, String> headersOut) throws IOException {
+        return getBytesWithHeaders(path, headersOut);
+    }
+
+    private byte[] getBytesWithHeaders(String path, java.util.Map<String, String> headersOut) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(urlFor(path)).openConnection();
         c.setRequestMethod("GET");
         c.setConnectTimeout(timeoutMs);
@@ -180,12 +253,27 @@ public final class BridgeApi {
             InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
             byte[] body = readAll(in == null ? new ByteArrayInputStream(new byte[0]) : in, 8 * 1024 * 1024);
             if (code >= 400) throw new HttpException(code, new String(body, StandardCharsets.UTF_8));
+            if (headersOut != null) {
+                headersOut.put("X-Sub-Quality", orEmpty(c.getHeaderField("X-Sub-Quality")));
+                headersOut.put("X-Polish-Status", orEmpty(c.getHeaderField("X-Polish-Status")));
+                headersOut.put("X-Sub-Lang", orEmpty(c.getHeaderField("X-Sub-Lang")));
+            }
             return body;
         } catch (java.net.SocketTimeoutException e) {
             throw new java.net.SocketTimeoutException("worker timeout after " + (timeoutMs / 1000) + " s");
         } finally {
             c.disconnect();
         }
+    }
+
+    private static String orEmpty(String v) { return v == null ? "" : v; }
+
+    /** v2.2: the .srt text + the two-stage quality headers in one call. */
+    public java.util.Map<String, String> srtWithQuality(String token) throws IOException {
+        java.util.Map<String, String> out = new java.util.LinkedHashMap<>();
+        byte[] body = getBytesWithHeaders("/sub/" + token + ".srt", out);
+        out.put("text", new String(body, StandardCharsets.UTF_8));
+        return out;
     }
 
     private static byte[] readAll(InputStream in, int max) throws IOException {

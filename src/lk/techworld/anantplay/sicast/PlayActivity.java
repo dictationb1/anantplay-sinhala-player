@@ -151,6 +151,13 @@ public class PlayActivity extends Activity {
     private View spinner;
     private LinearLayout hud, panel;
     private TextView errorBox;
+    /** v2.2: the language chip row + register/Option-C row (shown with the pill). */
+    private LinearLayout langChips;
+    private LinearLayout extraActions;
+
+    /** v2.1: the never-silent subtitle status pill + its 1-tap action row. */
+    private TextView statusPill;
+    private LinearLayout subActions;
     private Typeface siFont;
 
     private String url, title, headersJson, cookie, mime;
@@ -158,6 +165,9 @@ public class PlayActivity extends Activity {
     private boolean live, testMode, dragging, dashFlag;
     private int season, episode;
     private String imdb;
+    /** AnantPlay's cast payload `subs` URLs — side-loaded subtitle files the phone
+     *  player already had (Cast.describe forwards every StringArrayList extra). */
+    private java.util.ArrayList<String> castSubs;
 
     private volatile List<Cue> cues = new ArrayList<>();
     private volatile long subDelayMs;                  // the ±nudge display offset
@@ -165,6 +175,14 @@ public class PlayActivity extends Activity {
     private volatile int fetchGen;                     // a re-cast invalidates the in-flight fetch
     private String state = "idle";                     // idle|fetching|ready|local|not-found|needs-key|error
     private String stateDetail = "";
+    /** v2.2: the active subtitle language (registry code, si default) + the
+     *  register override (null = auto: the worker picks by movie genre). */
+    private volatile String activeLang = Langs.DEFAULT;
+    private volatile String registerOverride = null;
+    /** v2.2 two-stage: set when a base-nmt .srt is showing and a silent cinema
+     *  upgrade may still land (the delayed re-check hot-swaps it). */
+    private volatile String polishWatchToken = null;
+    private volatile boolean polishHotSwapped = false;
     private boolean hudVisible = true;
     private boolean finished;
     private volatile boolean expectTakeover = true;   // cleared ~3 s after open: PiP waits for the hand-over
@@ -179,6 +197,8 @@ public class PlayActivity extends Activity {
         currentInstance = this;
         snapshot = ReceiverServer.loadingJson();
         prefs = getSharedPreferences("sicast", MODE_PRIVATE);
+        // v2.2: the user's default subtitle language (si default)
+        activeLang = Langs.isKnown(prefs.getString("defaultLang", null)) ? prefs.getString("defaultLang", Langs.DEFAULT) : Langs.DEFAULT;
         store = new SubtitleStore(getFilesDir());
         api = new BridgeApi(prefs.getString("workerUrl", BridgeApi.DEFAULT_WORKER_URL));
         try {
@@ -237,6 +257,11 @@ public class PlayActivity extends Activity {
                 live = lv != null && lv;
                 Boolean dash = (Boolean) MiniJson.objGet(m, "dash");
                 dashFlag = dash != null && dash;
+                Object subsObj = MiniJson.objGet(m, "subs");
+                if (subsObj instanceof List) {
+                    castSubs = new java.util.ArrayList<>();
+                    for (Object so : (List<?>) subsObj) if (so != null) castSubs.add(String.valueOf(so));
+                }
             }
         }
         if (url == null) {   // nothing playable arrived
@@ -273,6 +298,13 @@ public class PlayActivity extends Activity {
     @Override
     protected void onDestroy() {
         finished = true;
+        // v2.2 leak fix: the two-stage Cinema Polish re-check (and the 4 Hz ticker,
+        // the HUD/pill hide timers, the delayed PiP arming) all live on `main`.
+        // Clearing the queue here is what makes the re-check "cancelled in
+        // onDestroy()" true rather than merely no-op'd by the `finished` flag —
+        // nothing keeps the Activity, its ExoPlayer or its store reachable after
+        // the screen is gone, and no late hot-swap can touch a dead view.
+        if (main != null) main.removeCallbacksAndMessages(null);
         if (currentInstance == this) {
             currentInstance = null;
             snapshot = ReceiverServer.idleJson();
@@ -432,11 +464,15 @@ public class PlayActivity extends Activity {
     // Sinhala subtitles — the worker pipeline (bg thread) + the native renderer
     // ───────────────────────────────────────────────────────────────────────────
 
-    /** The subtitle pipeline, tuned to the deployed worker's memory-mode reality
-     *  (jobs live per-isolate): poll the DETERMINISTIC /sub/<token>.srt endpoint
-     *  (200 .srt | 202 progress | 404 → re-request /subtitles to resume), never
-     *  the isolate-sensitive /api/paired path. The .srt is all our timeline
-     *  renderer needs — cue-lock pairing was the overlay era's requirement. */
+    /** The subtitle pipeline v2.1 — the full chain, never silent:
+     *   0. local cache (instant, offline)
+     *   1. CAST-SUPPLIED SUBS (v2.1): AnantPlay's own `subs` URLs — the English
+     *      .srt the phone player already had is handed to the worker's
+     *      /api/subs-direct for instant translation (no IMDb needed, cached forever)
+     *   2. the worker's /subtitles job: human Sinhala first, else multi-provider AI
+     *      translation (azure → google_v3 → gemini → workers_ai), polled on the
+     *      deterministic token URL (200 .srt | 202 progress | 404 → re-ensure).
+     * Every state change lands in the status pill; every failure names its cause. */
     private void fetchSinhala() {
         if (fetching || testMode) return;
         fetching = true;
@@ -445,13 +481,43 @@ public class PlayActivity extends Activity {
             try {
                 boolean series = episode > 0 || season > 0;
                 String type = series ? "series" : "movie";
-                String key = type + ":t:" + (title == null ? "" : title.toLowerCase(Locale.ROOT)) + ":" + season + ":" + episode;
+                String key = type + ":t:" + (title == null ? "" : title.toLowerCase(Locale.ROOT)) + ":" + season + ":" + episode + ":" + activeLang;
                 List<Cue> cached = store.load(key);
                 if (cached != null) {
                     applyCues(cached, "cached");
                     return;
                 }
-                setState("fetching", "worker…");
+                setState("fetching", BridgeApi.searchingText());
+                // ── 1. cast-supplied subs first (v2.1): instant, no IMDb needed ──
+                if (castSubs != null && !castSubs.isEmpty()) {
+                    for (String subUrl : castSubs) {
+                        if (myGen != fetchGen) return;
+                        if (subUrl == null || !(subUrl.startsWith("http://") || subUrl.startsWith("https://"))) continue;
+                        try {
+                            setState("fetching", "cast subtitle ලබාගනිමින්… · fetching the cast's own subtitle…");
+                            byte[] raw = httpGet(subUrl, null);
+                            String text = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
+                            List<Cue> enCues = SrtLoader.load(raw, "cast.srt");
+                            if (enCues.size() < 8) continue;   // not a real track
+                            setState("fetching", "cast subtitle පරිවර්තනය වෙමින්… · translating the cast's subtitle…");
+                            Map<String, Object> job = api.subsDirect(text, title, activeLang, registerOverride);
+                            String token = tokenOf(job);
+                            if (pollToDone(token, myGen)) {
+                                List<Cue> got = SrtLoader.load(api.srt(token).getBytes(java.nio.charset.StandardCharsets.UTF_8), "si.srt");
+                                if (myGen != fetchGen) return;
+                                applyCues(got, "cast-subs → " + String.valueOf(job.get("provider")));
+                                store.save(key, got);
+                                return;
+                            }
+                        } catch (BridgeApi.HttpException he) {
+                            Diag.w("subs", "cast subs leg: HTTP " + he.status);
+                            if (he.status == 429 || he.status >= 500) continue;  // try the next leg
+                        } catch (Exception e) {
+                            Diag.w("subs", "cast subs leg: " + e);
+                        }
+                    }
+                }
+                // ── 2. the worker job (human Sinhala → multi-provider AI) ──
                 String id = imdb;
                 if (id == null || id.isEmpty()) {
                     Map<String, Object> r = api.resolve(title, series, season, episode);
@@ -463,65 +529,49 @@ public class PlayActivity extends Activity {
                     id = String.valueOf(r.get("imdb"));
                 }
                 for (int round = 0; round < 4; round++) {
-                    Map<String, Object> job = api.subtitles(type, id, season, episode, title);
+                    Map<String, Object> job = api.subtitles(type, id, season, episode, title, activeLang, registerOverride);
                     String status = String.valueOf(job.get("status"));
                     if ("needs-key".equals(status)) {
-                        setState("needs-key", "සිංහල උපසිරැසි නැහැ — Worker එකේ `wrangler secret put GEMINI_API_KEY` කරන්න");
+                        setState("needs-key", "සිංහල උපසිරැසි නැහැ — Worker එකේ provider key එකක් set කරන්න "
+                            + "(AZURE_TRANSLATOR_KEY / GOOGLE_V3_KEY / GEMINI_API_KEY) · no translation provider configured on the worker");
                         fallbackEnglishTrack();
                         return;
                     }
                     if ("not-found".equals(status)) {
-                        setState("not-found", "මෙම තේමාවට උපසිරැසි හමු නොවීය — local .srt loader එක බාවිතා කරන්න");
+                        setState("not-found", "මෙම තේමාවට උපසිරැසි හමු නොවීය — local .srt loader එක බාවිතා කරන්න · "
+                            + "no subtitles found — use the local .srt loader");
                         fallbackEnglishTrack();
                         return;
                     }
                     Map<String, Object> si = (Map<String, Object>) MiniJson.objGet(job, "si");
                     String token = si == null ? null : String.valueOf(si.get("token"));
                     if ("done".equals(status) && token != null && !token.isEmpty()) {
-                        String text = api.srt(token);   // 200 straight away
+                        // v2.2 two-stage: read the quality headers with the .srt
+                        java.util.Map<String, String> withQ = api.srtWithQuality(token);
+                        String text = withQ.get("text");
                         List<Cue> got = SrtLoader.load(text.getBytes(java.nio.charset.StandardCharsets.UTF_8), "si.srt");
                         if (myGen != fetchGen) return;   // re-cast happened meanwhile
-                        applyCues(got, String.valueOf(job.get("source")));
+                        String quality = withQ.containsKey("X-Sub-Quality") ? withQ.get("X-Sub-Quality") : "";
+                        String polish = withQ.containsKey("X-Polish-Status") ? withQ.get("X-Polish-Status") : "";
+                        String source = String.valueOf(job.get("source"));
+                        if ("base-nmt".equals(quality) && "pending".equals(polish)) {
+                            polishWatchToken = token;      // the delayed re-check hot-swaps it
+                            polishHotSwapped = false;
+                            schedulePolishRecheck(key, myGen);
+                        } else if ("cinema-polished".equals(quality)) {
+                            polishHotSwapped = true;       // already upgraded
+                        }
+                        applyCues(got, source + ("cinema-polished".equals(quality) ? " · ✨ cinema" : ""));
                         store.save(key, got);            // save THIS list, not the shared field
                         return;
                     }
                     if ("translating".equals(status) && token != null && !token.isEmpty()) {
-                        // poll the deterministic token URL: 202 progress → 200 .srt
-                        for (int poll = 0; poll < 240; poll++) {
-                            try {
-                                String body = api.srt(token);
-                                if (body.trim().startsWith("{")) {
-                                    Map<String, Object> p = null;
-                                    try { p = Cue.statusOf(body); } catch (Exception ignored) { }
-                                    if (p != null && "translating".equals(p.get("status"))) {
-                                        setState("fetching", BridgeApi.progressText(p));
-                                        SystemClock.sleep(4000);
-                                        continue;
-                                    }
-                                }
-                                List<Cue> got = SrtLoader.load(body.getBytes(java.nio.charset.StandardCharsets.UTF_8), "si.srt");
-                                if (myGen != fetchGen) return;   // re-cast happened meanwhile
-                                applyCues(got, String.valueOf(job.get("source")));
-                                store.save(key, got);            // save THIS list, not the shared field
-                                return;
-                            } catch (BridgeApi.HttpException he) {
-                                if (he.status == 404) break;      // isolate miss → /subtitles again resumes it
-                                if (he.status == 429) {
-                                    // Gemini quota: never spin silently — say it, back off, keep going
-                                    Diag.w("subs", "worker 429 (quota) at poll " + poll + " — backing off 15 s");
-                                    setState("fetching", BridgeApi.explain(429));
-                                    SystemClock.sleep(15000);
-                                    continue;
-                                }
-                                if (he.status == 410 || he.status >= 500) {
-                                    Diag.e("subs", "worker HTTP " + he.status + ": " + BridgeApi.brief(he.body, 300));
-                                    setState("error", BridgeApi.explain(he.status)
-                                        + " · " + BridgeApi.brief(he.body, 90));
-                                    fallbackEnglishTrack();
-                                    return;
-                                }
-                                SystemClock.sleep(4000);
-                            }
+                        if (pollToDone(token, myGen)) {
+                            List<Cue> got = SrtLoader.load(api.srt(token).getBytes(java.nio.charset.StandardCharsets.UTF_8), "si.srt");
+                            if (myGen != fetchGen) return;
+                            applyCues(got, String.valueOf(job.get("provider")));
+                            store.save(key, got);
+                            return;
                         }
                         continue;   // token went cold — re-ensure the job on a warm isolate
                     }
@@ -532,7 +582,7 @@ public class PlayActivity extends Activity {
                 setState("error", "subtitles did not become ready — try Refetch");
                 fallbackEnglishTrack();
             } catch (BridgeApi.HttpException he) {
-                // 429 (Gemini quota) / 5xx / 401 — said out loud in the status bar, logged
+                // 429 (quota) / 5xx / 401 — said out loud in the status bar, logged
                 Diag.e("subs", "worker HTTP " + he.status + ": " + BridgeApi.brief(he.body, 300));
                 setState("error", BridgeApi.explain(he.status) + " · " + BridgeApi.brief(he.body, 90));
                 fallbackEnglishTrack();
@@ -548,6 +598,55 @@ public class PlayActivity extends Activity {
                 fetching = false;
             }
         }, "si-subs").start();
+    }
+
+    /** Extract the si token from a job body ({si:{token}} in both paths). */
+    private static String tokenOf(Map<String, Object> job) {
+        Map<String, Object> si = (Map<String, Object>) MiniJson.objGet(job, "si");
+        return si == null ? null : String.valueOf(si.get("token"));
+    }
+
+    /** Poll the deterministic /sub/<token>.srt URL until it answers a real .srt.
+     *  Returns true with the text in `polledSrt`, false when the token went cold
+     *  (isolate miss → caller re-ensures the job) or the job errored. */
+    private String polledSrt;
+    private boolean pollToDone(String token, int myGen) throws Exception {
+        for (int poll = 0; poll < 240; poll++) {
+            if (myGen != fetchGen) return false;
+            try {
+                String body = api.srt(token);
+                if (body.trim().startsWith("{")) {
+                    Map<String, Object> p = null;
+                    try { p = Cue.statusOf(body); } catch (Exception ignored) { }
+                    if (p != null && "translating".equals(p.get("status"))) {
+                        setState("fetching", BridgeApi.progressText(p));
+                        SystemClock.sleep(4000);
+                        continue;
+                    }
+                    if (p != null && "error".equals(p.get("status"))) {
+                        setState("error", "worker job error: " + BridgeApi.brief(String.valueOf(p.get("error")), 120));
+                        return false;
+                    }
+                }
+                polledSrt = body;
+                return true;
+            } catch (BridgeApi.HttpException he) {
+                if (he.status == 404) return false;      // isolate miss → caller re-ensures
+                if (he.status == 429) {
+                    Diag.w("subs", "worker 429 (quota) at poll " + poll + " — backing off 15 s");
+                    setState("fetching", BridgeApi.explain(429));
+                    SystemClock.sleep(15000);
+                    continue;
+                }
+                if (he.status == 410 || he.status >= 500) {
+                    Diag.e("subs", "worker HTTP " + he.status + ": " + BridgeApi.brief(he.body, 300));
+                    setState("error", BridgeApi.explain(he.status) + " · " + BridgeApi.brief(he.body, 90));
+                    return false;
+                }
+                SystemClock.sleep(4000);
+            }
+        }
+        return false;
     }
 
     /** Manual fetch with a title override (the subs panel's Go button). */
@@ -595,7 +694,8 @@ public class PlayActivity extends Activity {
         }
         main.post(() -> {
             if (subView != null) {
-                subView.setTypeface(Typeface.DEFAULT_BOLD);
+                // the stream's own CC track: system font, base direction from the language
+                applyLangStyle();
                 subView.setText(sb);
                 subView.setVisibility(sb.length() == 0 ? View.GONE : View.VISIBLE);
             }
@@ -608,6 +708,60 @@ public class PlayActivity extends Activity {
         enFallbackOn = false;
         setState("local", name + " · " + loaded.size() + " cues");
         Diag.i("subs", "local " + name + ": " + loaded.size() + " cues");
+    }
+
+    /**
+     * v2.2 two-stage: ONE delayed re-check (worker docs: polish lands in
+     * ~15–30 s). If the SAME token now serves cinema-polished quality, the
+     * SubtitleStore hot-swaps silently mid-playback — playback never pauses,
+     * the status pill flashes "✨ Cinema Polish Ready". Runs at most twice.
+     */
+    private void schedulePolishRecheck(final String key, final int myGen) {
+        main.postDelayed(() -> {
+            if (myGen != fetchGen || finished) return;
+            new Thread(() -> {
+                try {
+                    String token = polishWatchToken;
+                    if (token == null || polishHotSwapped) return;
+                    java.util.Map<String, String> withQ = api.srtWithQuality(token);
+                    if (!"cinema-polished".equals(withQ.get("X-Sub-Quality"))) {
+                        // still pending → one more polite look, then stop asking
+                        if (!polishHotSwapped) main.postDelayed(() -> {
+                            if (myGen == fetchGen && !finished && !polishHotSwapped) {
+                                new Thread(() -> {
+                                    try {
+                                        String t2 = polishWatchToken;
+                                        if (t2 == null) return;
+                                        java.util.Map<String, String> w2 = api.srtWithQuality(t2);
+                                        if ("cinema-polished".equals(w2.get("X-Sub-Quality"))) hotSwapCues(w2.get("text"), key);
+                                    } catch (Exception ignored) { }
+                                }).start();
+                            }
+                        }, 20000);
+                        return;
+                    }
+                    hotSwapCues(withQ.get("text"), key);
+                } catch (Exception ignored) { }
+            }).start();
+        }, 20000);
+    }
+
+    /** The silent upgrade: same timestamps contract, fresh wording. */
+    private void hotSwapCues(String text, String key) {
+        try {
+            List<Cue> got = SrtLoader.load(text.getBytes(java.nio.charset.StandardCharsets.UTF_8), "si.srt");
+            if (got.isEmpty()) return;
+            polishHotSwapped = true;
+            polishWatchToken = null;
+            main.post(() -> {
+                cues = got;                       // SubtitleStore swap without touching playback
+                setState(state, "✨ Cinema Polish Ready · සිනමා ප්‍රඥප්තිය සූදානම්");
+                Diag.i("subs", "cinema polish hot-swapped (" + got.size() + " cues)");
+            });
+            store.save(key, got);
+        } catch (Exception e) {
+            Diag.w("subs", "polish swap skipped: " + e);
+        }
     }
 
     private void applyTestCues() {
@@ -636,7 +790,10 @@ public class PlayActivity extends Activity {
                 }
                 if (hit != null) {
                     String text = hit.si == null || hit.si.isEmpty() ? hit.en : hit.si;
-                    subView.setTypeface(siFont);
+                    // v2.2 script-safe: the bundled NotoSansSinhala ONLY for si;
+                    // every other language renders with the system font stack,
+                    // and RTL languages (ar/ur) get RTL text direction.
+                    applyLangStyle();
                     subView.setText(text == null ? "" : text);
                     subView.setVisibility(View.VISIBLE);
                 } else {
@@ -658,15 +815,41 @@ public class PlayActivity extends Activity {
         state = s;
         stateDetail = detail == null ? "" : detail;
         main.post(this::showStatus);
+        if ("error".equals(s) || "not-found".equals(s) || "needs-key".equals(s)) {
+            main.post(this::showSubActions);   // failures expose their 1-tap fixes
+        }
     }
 
+    /** The status pill state → bilingual line + color (the never-silent HUD). */
     private void showStatus() {
         if (hudStatus != null) {
             boolean good = "ready".equals(state) || "local".equals(state);
-            hudStatus.setText((good ? "✓ " : "… ") + stateDetail);
-            hudStatus.setTextColor(good ? 0xFF8CFF8C : 0xFF9FB0D8);
+            boolean warn = "fetching".equals(state);
+            hudStatus.setText((good ? "✓ " : warn ? "… " : "⚠ ") + stateDetail);
+            hudStatus.setTextColor(good ? 0xFF8CFF8C : warn ? 0xFFF59E0B : 0xFFFFB3B3);
+            hudStatus.setVisibility(View.VISIBLE);
+            if (good) main.postDelayed(hudStatusHide, 3000);   // success auto-hides after 3 s
+        }
+        if (statusPill != null) {
+            boolean good = "ready".equals(state) || "local".equals(state);
+            statusPill.setText((good ? "✓ " : "fetching".equals(state) ? "… " : "⚠ ") + stateDetail);
+            statusPill.setTextColor(good ? 0xFF8CFF8C : "fetching".equals(state) ? 0xFFFDE68A : 0xFFFFB3B3);
+            statusPill.setVisibility(View.VISIBLE);
+            if (good) main.postDelayed(pillHide, 3000);
         }
     }
+
+    private final Runnable hudStatusHide = new Runnable() {
+        @Override public void run() { if (hudStatus != null && ("ready".equals(state) || "local".equals(state))) hudStatus.setVisibility(View.INVISIBLE); }
+    };
+
+    private final Runnable pillHide = new Runnable() {
+        @Override public void run() {
+            if (statusPill != null && ("ready".equals(state) || "local".equals(state))) {
+                statusPill.setVisibility(View.GONE);
+            }
+        }
+    };
 
     // ───────────────────────────────────────────────────────────────────────────
     // the UI — built in code (the project's own idiom; no XML layouts anywhere)
@@ -686,9 +869,15 @@ public class PlayActivity extends Activity {
         surface.getHolder().setFormat(PixelFormat.OPAQUE);
         root.addView(surface, new FrameLayout.LayoutParams(-1, -1));
 
-        // the subtitle view — bottom center, Sinhala font, mask, like AnantPlay's own (PlayerActivity.java:396-401)
+        // the subtitle view — bottom center, script-correct font, mask, like AnantPlay's own (PlayerActivity.java:396-401)
         subView = new TextView(this);
-        subView.setTypeface(siFont);
+        // v2.2: the bundled NotoSansSinhala is loaded ONCE (onCreate) and applied
+        // only when the active language is Sinhala; every other script uses the
+        // system font stack (the OS already covers Tamil/Devanagari/CJK/Arabic).
+        // applyLangStyle() is the ONE place that derives both the typeface and the
+        // base direction from `activeLang` — startup, language switch and every
+        // rendered cue all go through it, so the two can never disagree.
+        applyLangStyle();
         subView.setGravity(Gravity.CENTER);
         subView.setTextColor(Color.WHITE);
         subView.setTextSize(prefs.getInt("fontSp", 22));
@@ -708,6 +897,77 @@ public class PlayActivity extends Activity {
         notice.setGravity(Gravity.CENTER);
         notice.setVisibility(View.GONE);
         root.addView(notice, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+
+        // ── v2.1: the subtitle status pill — the never-silent HUD ──
+        // Auto-hides 3 s after success; on error it STAYS with the exact reason
+        // and the action row below carries the 1-tap fixes.
+        statusPill = new TextView(this);
+        statusPill.setTextColor(0xFFFDE68A);
+        statusPill.setTextSize(12.5f);
+        statusPill.setMaxLines(3);
+        statusPill.setPadding(dp(14), dp(8), dp(14), dp(8));
+        GradientDrawable pillBg = new GradientDrawable();
+        pillBg.setColor(0xE60E1424);
+        pillBg.setCornerRadius(dp(14));
+        pillBg.setStroke(dp(1), 0x33FFFFFF);
+        statusPill.setBackground(pillBg);
+        statusPill.setVisibility(View.GONE);
+        FrameLayout.LayoutParams pillLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        pillLp.topMargin = dp(64);
+        root.addView(statusPill, pillLp);
+
+        // ── v2.1: the subtitle action row (pill's fixes, one tap each) ──
+        subActions = new LinearLayout(this);
+        subActions.setOrientation(LinearLayout.HORIZONTAL);
+        subActions.setGravity(Gravity.CENTER);
+        subActions.setPadding(dp(6), dp(6), dp(6), dp(6));
+        GradientDrawable rowBg = new GradientDrawable();
+        rowBg.setColor(0xE60E1424);
+        rowBg.setCornerRadius(dp(16));
+        subActions.setBackground(rowBg);
+        subActions.setVisibility(View.GONE);
+        subActions.addView(pillBtn("↻ Retry", v -> { subActions.setVisibility(View.GONE); fetchGen++; fetching = false; fetchSinhala(); }));
+        subActions.addView(pillBtn("⇄ Provider", v -> { subActions.setVisibility(View.GONE); fetchGen++; fetching = false; prefs.edit().putBoolean("preferCastSubs", true).apply(); fetchSinhala(); }));
+        subActions.addView(pillBtn("📄 Local .srt", v -> { subActions.setVisibility(View.GONE); pickLocal(); }));
+        subActions.addView(pillBtn("⏱ ±0.25s", v -> nudge(250)));
+
+        // ── v2.2: the language chip row (8 registry languages + More) ──
+        LinearLayout langRow = new LinearLayout(this);
+        langRow.setOrientation(LinearLayout.HORIZONTAL);
+        langRow.setGravity(Gravity.CENTER);
+        langRow.setPadding(dp(4), dp(4), dp(4), dp(4));
+        GradientDrawable langBg = new GradientDrawable();
+        langBg.setColor(0xE60E1424);
+        langBg.setCornerRadius(dp(16));
+        langRow.setBackground(langBg);
+        for (final Langs.Lang l : Langs.chips()) {
+            langRow.addView(pillBtn(l.nativeName, v -> switchLang(l.code)));
+        }
+        langRow.addView(pillBtn("+ More", v -> showLangSheet()));
+        FrameLayout.LayoutParams langLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        langLp.topMargin = dp(104);
+        root.addView(langRow, langRowLp(langRow));
+        langChips = langRow;
+
+        // ── v2.2: register toggle + Option-C power-user item (shown with the pill) ──
+        LinearLayout extraRow = new LinearLayout(this);
+        extraRow.setOrientation(LinearLayout.HORIZONTAL);
+        extraRow.setGravity(Gravity.CENTER);
+        extraRow.setPadding(dp(4), dp(4), dp(4), dp(4));
+        GradientDrawable extraBg = new GradientDrawable();
+        extraBg.setColor(0xE60E1424);
+        extraBg.setCornerRadius(dp(16));
+        extraRow.setBackground(extraBg);
+        extraRow.addView(pillBtn("🗣 Spoken/Formal", v -> toggleRegister()));
+        extraRow.addView(pillBtn("✨ AI Studio", v -> openAiStudioBridge()));
+        FrameLayout.LayoutParams extraLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        extraLp.topMargin = dp(144);
+        root.addView(extraRow, extraLp);
+        extraActions = extraRow;
+
+        FrameLayout.LayoutParams actLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        actLp.topMargin = dp(64);
+        root.addView(subActions, actLp);
 
         spinner = new android.view.View(this);
         try {
@@ -908,6 +1168,162 @@ public class PlayActivity extends Activity {
         t.setBackground(g);
         t.setOnClickListener(click);
         return t;
+    }
+
+    /** v2.1: a compact pill button for the subtitle action row. */
+    private View pillBtn(String label, View.OnClickListener click) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextColor(0xFFE2E8F0);
+        t.setTextSize(12f);
+        t.setGravity(Gravity.CENTER);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(0xFF1E2A4A);
+        g.setCornerRadius(dp(14));
+        t.setBackground(g);
+        t.setPadding(dp(12), dp(8), dp(12), dp(8));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.leftMargin = lp.rightMargin = dp(4);
+        t.setLayoutParams(lp);
+        t.setOnClickListener(click);
+        return t;
+    }
+
+    /** v2.1: show the pill's action row (called on error / long-press states). */
+    private void showSubActions() {
+        if (subActions != null) subActions.setVisibility(View.VISIBLE);
+        if (statusPill != null) statusPill.setVisibility(View.VISIBLE);
+        if (langChips != null) langChips.setVisibility(View.VISIBLE);
+        if (extraActions != null) extraActions.setVisibility(View.VISIBLE);
+        main.postDelayed(() -> {
+            if (subActions != null) subActions.setVisibility(View.GONE);
+            if (langChips != null) langChips.setVisibility(View.GONE);
+            if (extraActions != null) extraActions.setVisibility(View.GONE);
+        }, 12000);
+    }
+
+    private FrameLayout.LayoutParams langRowLp(LinearLayout row) { return new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL); }
+
+    /** v2.2 script-safe styling — the ONE place the subtitle view's typeface and
+     *  base text direction are derived from the active language.
+     *
+     *  Fix (v2.2.0 audit): the subtitle TextView must NOT be initialised in
+     *  NotoSansSinhala unconditionally. The bundled font is a Sinhala-only asset —
+     *  applied ONLY for `si`; every other language uses the system stack
+     *  (`Typeface.DEFAULT_BOLD`, resolved once, never re-loaded per cue), and the
+     *  RTL languages `ar`/`ur` get `TEXT_DIRECTION_ANY_RTL` while everything else
+     *  is explicitly LTR. Called on startup (buildUi), on every language switch
+     *  (switchLang) and before each rendered cue, so a saved `ta`/`ar`/`ja`
+     *  default can never open in the Sinhala font or the wrong direction. */
+    private void applyLangStyle() {
+        if (subView == null) return;
+        subView.setTypeface(Langs.useBundledSinhalaFont(activeLang) ? siFont : Typeface.DEFAULT_BOLD);
+        subView.setTextDirection(Langs.isRtl(activeLang)
+            ? android.view.View.TEXT_DIRECTION_ANY_RTL : android.view.View.TEXT_DIRECTION_LTR);
+    }
+
+    /** v2.2: 1-tap language switch — refetch in the new language (cached jobs
+     *  return instantly; the store keys per language). */
+    void switchLang(String code) {
+        if (!Langs.isKnown(code) || code.equals(activeLang)) return;
+        activeLang = code;
+        applyLangStyle();                 // font + RTL direction follow the switch immediately
+        polishWatchToken = null;
+        polishHotSwapped = false;
+        fetchGen++;
+        fetching = false;
+        cues = new ArrayList<>();
+        setState("fetching", Langs.nativeOf(code) + " උපසිරැසි ලබාගනිමින්… · fetching " + Langs.englishOf(code) + " subtitles…");
+        fetchSinhala();
+        if (subActions != null) subActions.setVisibility(View.GONE);
+        if (langChips != null) langChips.setVisibility(View.GONE);
+        if (extraActions != null) extraActions.setVisibility(View.GONE);
+    }
+
+    /** v2.2: the full registry sheet (the "+ More" chip). */
+    private void showLangSheet() {
+        String[] labels = new String[Langs.ALL.size()];
+        for (int i = 0; i < Langs.ALL.size(); i++) {
+            Langs.Lang l = Langs.ALL.get(i);
+            labels[i] = l.nativeName + " (" + l.english + ")";
+        }
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Subtitle language · උපසිරැසි භාෂාව")
+            .setItems(labels, (d, which) -> switchLang(Langs.ALL.get(which).code))
+            .setNegativeButton(android.R.string.cancel, null)
+            .show();
+    }
+
+    /** v2.2: Spoken ⇄ Formal override (null = auto by genre). */
+    private void toggleRegister() {
+        registerOverride = registerOverride == null ? "spoken" : ("spoken".equals(registerOverride) ? "formal" : null);
+        String label = registerOverride == null ? "auto (genre)" : registerOverride;
+        setState(state, "Register: " + label + " — refetching… · රටාව: " + label);
+        fetchGen++; fetching = false;
+        fetchSinhala();
+    }
+
+    /**
+     * v2.2 Option-C — the SAFE power-user bridge (zero automation, zero ToS
+     * risk): build the cinema-grade prompt + a ≤40 KB chunk of the English
+     * cues, copy it to the clipboard, and open the user's REAL browser on
+     * AI Studio (a Custom-Tab-style ACTION_VIEW — NEVER a WebView). The user
+     * pastes, gets the polished result, and imports it via the .srt loader.
+     *
+     * Two hard guarantees the audit asked for, both enforced here:
+     *   · the clipboard payload can never exceed AI_STUDIO_MAX_BYTES (40 KB) —
+     *     the budget is measured in UTF-8 bytes as we append, so a pathological
+     *     cue list cannot produce a truncated/corrupt paste;
+     *   · a device with no browser at all raises ActivityNotFoundException, which
+     *     is caught by name and reported as "prompt copied, install a browser"
+     *     instead of a stack trace or a crash.
+     */
+    private static final int AI_STUDIO_MAX_BYTES = 40 * 1024;   // Binder transaction-safe
+
+    private void openAiStudioBridge() {
+        StringBuilder prompt = new StringBuilder();
+        int n = 0;
+        try {
+            String head = "You are a professional cinema subtitle localizer. Movie: "
+                + (title == null ? "this movie" : title)
+                + ". Polish the machine draft below into natural SPOKEN movie dialogue — "
+                + "meaning, names and dashes kept, ≤42 chars/line.\n\n";
+            prompt.append(head);
+            for (Cue c : cues) {
+                String en = c.en == null || c.en.isEmpty() ? c.si : c.en;
+                if (en == null || en.isEmpty()) continue;
+                String line = (n + 1) + "|EN: " + en + " | DRAFT: " + (c.si == null ? "" : c.si) + '\n';
+                // measure the REAL payload, not the character count
+                if (java.nio.charset.StandardCharsets.UTF_8.encode(prompt + line).remaining() > AI_STUDIO_MAX_BYTES) break;
+                prompt.append(line);
+                n++;
+            }
+        } catch (Throwable t) {
+            Diag.w("subs", "ai studio prompt build: " + t);
+        }
+        try {
+            String payload = prompt.toString();
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("AI Studio prompt (" + n + " cues)", payload));
+            }
+            try {
+                startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://aistudio.google.com/")));
+                setState(state, "✅ " + n + " cues copied — paste into AI Studio, then 📄 Local .srt to import · "
+                    + n + " පේළි පිටපත් — AI Studio එකට paste කරන්න");
+            } catch (android.content.ActivityNotFoundException anf) {
+                // no browser installed — the prompt is already on the clipboard, so the
+                // user can still paste it anywhere; say exactly that instead of crashing
+                Diag.w("subs", "ai studio bridge: no browser (" + anf + ")");
+                setState(state, "✅ " + n + " cues copied — but this phone has no browser to open AI Studio · "
+                    + n + " පේළි පිටපත් විය, නමුත් browser එකක් නැත");
+            }
+        } catch (Throwable e) {
+            Diag.w("subs", "ai studio bridge: " + e);
+            setState(state, "AI Studio bridge failed: " + e.getMessage());
+        }
     }
 
     // ── gestures: tap = HUD, double-tap sides = ±10 s, left/right edge swipe = brightness/volume ──

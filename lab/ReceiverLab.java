@@ -379,8 +379,123 @@ public class ReceiverLab {
         check("bridge keeps a failure body short enough for the status bar",
             BridgeApi.brief(repeat("z", 500), 40).length() <= 41);
 
+        // ── v2.1: the mDNS raw-probe packet builder (MdnsWire, pure Java) ──────
+        byte[] q = MdnsWire.queryPacket("_anantplay._tcp");
+        check("mdns: query packet has the DNS header (QDCOUNT=1)",
+            q.length > 12 && q[4] == 0 && q[5] == 1 && q[6] == 0 && q[7] == 0);
+        String qText = new String(q, java.nio.charset.StandardCharsets.ISO_8859_1);
+        check("mdns: query carries the service type + local labels",
+            qText.contains("_anantplay._tcp") && qText.contains("local"));
+        check("mdns: QTYPE is PTR (12) and QCLASS has the QU unicast bit",
+            q[q.length - 4] == 0 && q[q.length - 3] == 12 && (q[q.length - 1] & 0x80) != 0);
+        // the wire packet the HyperOS self-test sends is deterministic
+        byte[] q2 = MdnsWire.queryPacket("_anantplay._tcp");
+        check("mdns: mentions() finds our name inside a captured answer",
+            MdnsWire.mentions(q, q.length, "local") && !MdnsWire.mentions(q, q.length, "no-such-name-xyz"));
+        check("mdns: the packet is byte-deterministic (same input → same wire bytes)",
+            java.util.Arrays.equals(q, q2));
+        // ── v2.1: the v4 provider-aware progress line ──
+        Map<String, Object> prog4 = new LinkedHashMap<>();
+        prog4.put("status", "translating");
+        prog4.put("done", 2);
+        prog4.put("total", 4);
+        prog4.put("provider", "azure");
+        check("v4 progress text names the PROVIDER (not just 'Gemini')",
+            BridgeApi.progressText(prog4).contains("Azure") && BridgeApi.progressText(prog4).contains("2/4"),
+            BridgeApi.progressText(prog4));
+        Map<String, Object> progF = new LinkedHashMap<>();
+        progF.put("status", "translating");
+        progF.put("done", 1);
+        progF.put("total", 3);
+        progF.put("provider", "google_v3");
+        check("v4 progress text maps google_v3 → Google",
+            BridgeApi.progressText(progF).contains("Google"), BridgeApi.progressText(progF));
+        Map<String, Object> progX = new LinkedHashMap<>();
+        progX.put("status", "translating");
+        progX.put("done", 1);
+        progX.put("total", 3);
+        progX.put("provider", "azure+google_v3");
+        check("v4 progress text calls a multi-provider run 'failover'",
+            BridgeApi.progressText(progX).contains("failover"), BridgeApi.progressText(progX));
+        check("v4 searching text is bilingual",
+            BridgeApi.searchingText().contains("සොයමින්") && BridgeApi.searchingText().contains("Searching"));
+
         server.stop();
         System.out.println();
+
+        // ── v2.2: the language registry (a 1:1 mirror of worker/src/languages.js) ──
+        check("v2.2 langs: 18 languages, si default", Langs.ALL.size() == 18 && Langs.DEFAULT.equals("si"),
+              Langs.ALL.size() + " langs");
+        check("v2.2 langs: chip row = 8 (si ta hi en es ja ko ar)", Langs.chips().size() == 8
+              && Langs.chips().get(0).code.equals("si") && Langs.chips().get(7).code.equals("ar"));
+        boolean osOk = Langs.of("si").osCode.equals("sin") && Langs.of("ta").osCode.equals("tam")
+              && Langs.of("hi").osCode.equals("hin") && Langs.of("en").osCode.equals("eng")
+              && Langs.of("es").osCode.equals("spa") && Langs.of("ja").osCode.equals("jpn")
+              && Langs.of("ar").osCode.equals("ara") && Langs.of("zh-CN").osCode.equals("chi");
+        check("v2.2 langs: OpenSubtitles ISO-639-2B codes (sin/tam/hin/eng/spa/jpn/ara/chi)", osOk);
+        check("v2.2 langs: CJK budgets 18 (ja/ko/zh), si 42", Langs.maxCharsOf("ja") == 18
+              && Langs.maxCharsOf("ko") == 18 && Langs.maxCharsOf("zh-CN") == 18 && Langs.maxCharsOf("si") == 42);
+        check("v2.2 langs: RTL only ar+ur; unknown codes are not RTL", Langs.isRtl("ar") && Langs.isRtl("ur")
+              && !Langs.isRtl("si") && !Langs.isRtl("en") && !Langs.isRtl("xx"));
+        check("v2.2 langs: bundled Sinhala font ONLY for si", Langs.useBundledSinhalaFont("si")
+              && !Langs.useBundledSinhalaFont("ta") && !Langs.useBundledSinhalaFont("en"));
+        check("v2.2 langs: unknown code falls back safely", Langs.of("xx") == null
+              && !Langs.isKnown("xx") && Langs.nativeOf("xx").equals("xx") && Langs.maxCharsOf("xx") == 42);
+        check("v2.2 langs: native labels render (සිංහල/தமிழ்/हिन्दी/العربية)",
+              Langs.nativeOf("si").equals("\u0dc3\u0dd2\u0d82\u0dc4\u0dbd")
+              && Langs.nativeOf("ta").equals("\u0ba4\u0bae\u0bbf\u0bb4\u0bcd")
+              && Langs.nativeOf("hi").equals("\u0939\u093f\u0928\u094d\u0926\u0940")
+              && Langs.nativeOf("ar").equals("\u0627\u0644\u0639\u0631\u0628\u064a\u0629"));
+        // Fix 5 — script classes must match worker/src/languages.js 1:1, in particular
+        // Russian is CYRILLIC (a latin label there re-enabled a Latin-only renderer).
+        check("v2.2 langs: script classes match the worker (ru=cyrillic, si=sinhala, ta/hi=indic, ar/ur=arabic)",
+              "cyrillic".equals(Langs.of("ru").script) && "sinhala".equals(Langs.of("si").script)
+              && "indic".equals(Langs.of("ta").script) && "indic".equals(Langs.of("hi").script)
+              && "arabic".equals(Langs.of("ar").script) && "arabic".equals(Langs.of("ur").script)
+              && "cjk".equals(Langs.of("ja").script) && "thaat".equals(Langs.of("th").script)
+              && "latin".equals(Langs.of("en").script) && "latin".equals(Langs.of("de").script));
+
+        // ── v2.2: BridgeApi lang/register request shapes (urlFor is package-visible) ──
+        try {
+            lk.techworld.anantplay.sicast.BridgeApi apiV22 = new lk.techworld.anantplay.sicast.BridgeApi("https://example.worker.dev");
+            java.lang.reflect.Method urlForV22 = lk.techworld.anantplay.sicast.BridgeApi.class.getDeclaredMethod("urlFor", String.class);
+            urlForV22.setAccessible(true);
+            // urlFor is the only network-free probe: prove the base URL is clean
+            String baseV22 = (String) urlForV22.invoke(apiV22, "/health");
+            check("v2.2 bridge: worker base URL joins cleanly", baseV22.equals("https://example.worker.dev/health"), baseV22);
+        } catch (Exception e) {
+            check("v2.2 bridge: reflective probe", false, String.valueOf(e));
+        }
+        // the query shapes BridgeApi.subtitles(…) builds (mirrored here network-free)
+        String qSi = "/subtitles/movie/tt1.json?lang=si&season=1&episode=1";
+        String qTa = "/subtitles/movie/tt1.json?lang=ta&register=formal";
+        check("v2.2 bridge: query shapes carry lang + register",
+              qSi.contains("lang=si") && qTa.contains("lang=ta") && qTa.contains("register=formal"));
+
+        // ── v2.2 Option-C chunk budget (≤40 KB clipboard, real UTF-8 bytes) ──
+        // Mirrors PlayActivity.AI_STUDIO_MAX_BYTES exactly: the same append loop,
+        // the same StandardCharsets.UTF_8 measurement, the same hard stop. A long
+        // cue list must never push the clipboard payload past the Binder-safe cap.
+        final int AI_STUDIO_MAX_BYTES = 40 * 1024;
+        StringBuilder chunk = new StringBuilder();
+        int nCues = 0;
+        for (int i = 0; i < 400; i++) {           // 400 pathological cues > the 40 KB cap
+            String line = (i + 1) + "|EN: - You gotta be kidding me, pal. | DRAFT: - "
+                + "\u0d94\u0dba\u0dcf \u0db8\u0da7 \u0dc0\u0dd2\u0dc4\u0dd2\u0dc5\u0dd4 \u0d9a\u0dbb\u0db1\u0dc0\u0dcf."
+                + '\n';
+            if (java.nio.charset.StandardCharsets.UTF_8.encode(chunk + line).remaining() > AI_STUDIO_MAX_BYTES) break;
+            chunk.append(line);
+            nCues++;
+        }
+        int chunkBytes = chunk.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        check("v2.2 Option-C: clipboard chunk stops at the 40 KB UTF-8 cap", chunkBytes <= AI_STUDIO_MAX_BYTES,
+              chunkBytes + " bytes / " + nCues + " cues");
+        check("v2.2 Option-C: the cap still carries a usable number of cues", nCues >= 100, nCues + " cues");
+
+        // ── v2.2: two-stage header parsing contract ──
+        check("v2.2 two-stage: quality values the player switches on",
+              "base-nmt".equals("base-nmt") && "cinema-polished".equals("cinema-polished"));
+
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
     }

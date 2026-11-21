@@ -21,6 +21,11 @@ ships, so the Media3 playback stack is identical byte-for-byte at the API level.
 | `assets/fonts/NotoSansSinhala-Regular.ttf` | Google Noto (Sinhala, Regular) | **SIL Open Font License 1.1** | https://github.com/notofonts/sinhala | Bundled so Sinhala cues render with correct conjuncts on every OEM build. OFL allows embedding in an application; the font itself is not sold separately and is redistributed unmodified. |
 | `tools/core-lambda-stubs.jar` | OpenJDK `core-lambda-stubs` | **GPL-2.0 with the Classpath Exception** | https://openjdk.org | Build-time only (`javac -bootclasspath`) to compile Java 8 lambdas against `android.jar`. **Not** packaged into the APK. |
 
+In v2.2 the bundled Sinhala font is applied **only** when the active subtitle language is
+Sinhala (`si`) — see `Langs.useBundledSinhalaFont()`; Tamil, Devanagari, CJK, Arabic and the
+Latin-script languages render with the platform font stack, so the OFL font is never used as a
+general-purpose bundled typeface.
+
 `libs/*.jar` are the only binary inputs to the APK; `tools/core-lambda-stubs.jar` is used
 only by the compiler and never reaches `dist/AnantPlay-Sinhala-Player.apk` (verify with
 `unzip -l dist/AnantPlay-Sinhala-Player.apk`).
