@@ -151,6 +151,17 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      - name: Publish the APK facts as run annotations
+        if: always()
+        run: |
+          APK=dist/AnantPlay-Sinhala-Player.apk
+          if [ -s "$APK" ]; then
+            echo "::notice title=APK bytes (AnantPlay-Sinhala-Player.apk)::$(stat -c %s "$APK")"
+          fi
+          if [ -f dist/sha256.txt ]; then
+            echo "::notice title=APK sha256::$(cut -d' ' -f1 dist/sha256.txt)"
+          fi
+
       - name: APK summary
         if: always()
         run: |

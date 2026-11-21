@@ -1,4 +1,4 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v2.0.0
+# AnantPlay Sinhala Player (SI Cast Receiver) v2.1.0
 
 **The zero-accessibility, zero-fork Sinhala subtitle solution for the 100% official, unmodified
 AnantPlay app** — built for the hardest target: a **Xiaomi HyperOS (Android 14–16)** phone.
@@ -72,11 +72,22 @@ The media3 1.11.1 + guava jars (the exact set AnantPlay ships in its `libs/`, Ap
 ## Verify
 
 ```sh
-./lab/run_lab.sh     # the cast-protocol lab: 23 checks, byte-compatible with Cast.java
+./lab/run_lab.sh     # the gating lab — 72 checks, byte-compatible with Cast.java
 ```
 
 The lab drives `ReceiverServer` with the exact requests official AnantPlay's
-`Cast.call()`/`describe()` produce, plus the SRT round-trip through the very code the APK ships.
+`Cast.call()`/`describe()` produce, plus the SRT round-trip through the very code the APK ships —
+and it gates every hardening claim below: the cast policy (scheme/action whitelists, seek
+clamping), defensive HTTP parsing (mixed-case headers, negative/huge/garbage `Content-Length`,
+header-injection, malformed JSON), `SrtLoader` (Zip-Slip, zip bomb, BOM/CRLF, UTF-16, nested
+folders, `__MACOSX`), `MiniJson` nesting, `Diag` secret redaction, `BridgeApi` (literal job-id
+colons, HTTP 429/5xx/202 UX) and `StreamHint` mime defaulting. The live worker E2E
+(`lab/BridgeLab.java`) is recorded but never gating — an offline runner or a Gemini 429 must not
+turn the build red.
+
+CI (`.github/workflows/build-apk.yml`) runs that lab, then builds, signs and `apksigner verify`s
+the APK on JDK 17 + Android SDK 34 with **zero Gradle**, and uploads
+`AnantPlay-Sinhala-Player.apk` as a downloadable artifact.
 
 ## The user-facing flow
 
@@ -87,6 +98,8 @@ The lab drives `ReceiverServer` with the exact requests official AnantPlay's
    **සිංහල Player - AnantPlay (Recommended)**.
 4. The movie opens here with Sinhala subs. Stop casting / close → AnantPlay's own player resumes
    exactly where you were.
+5. No overlay permission? The cast still succeeds: a high-priority "Cast received" notification
+   opens the player on one tap (nothing crashes, nothing is silently dropped).
 
 Sinhala setup guide: **SETUP-SI.md** · Full architecture + audit trail: **docs/CAST-VERIFICATION.md**
 
@@ -102,14 +115,34 @@ src/.../sicast/
   PlayActivity.java          media3 player + native Sinhala renderer + worker pipeline
   MainActivity.java          Xiaomi HyperOS guided setup + Self-test + diagnostics
   CastTileService.java       Quick Settings tile
+  CastPolicy.java            cast-arrival policy (schemes, /do whitelist, seek clamp) — pure Java
+  StreamHint.java            Media3 mime defaulting for extensionless HLS/DASH — pure Java
   BridgeApi/Cue/MiniJson/SrtLoader/SubtitleStore   the proven v1 engines (pure Java)
-lab/ReceiverLab.java         the 23-check cast-protocol lab
+lab/ReceiverLab.java         the 72-check gating lab (protocol + security regressions)
 lab/BridgeLab.java           live worker E2E (best effort)
 docs/CAST-VERIFICATION.md    every AnantPlay file:line this is built on
+THIRD_PARTY.md               licenses of every bundled jar + the Sinhala font
 SETUP-SI.md                  the Sinhala setup checklist
 ```
+
+## Hardening summary (v2.1.0 audit)
+
+| Area | What changed |
+| --- | --- |
+| Zero accessibility | Manifest has no `AccessibilityService`/`BIND_ACCESSIBILITY_SERVICE`; CI greps the sources and fails the build if one ever appears. |
+| Android 14–16 FGS | `startForeground()` runs first in `onCreate` (5 s window); `connectedDevice` type now backed by `CHANGE_WIFI_STATE`/`CHANGE_NETWORK_STATE` (Android 14 requires a device-connection permission for that type); every background start path catches `ForegroundServiceStartNotAllowedException` and logs why; the notification is stopped in `onDestroy`. |
+| Notifications | `POST_NOTIFICATIONS` requested at runtime with a result callback; receiver channel raised to `IMPORTANCE_LOW` (an `IMPORTANCE_MIN` FGS notification can be invisible on Android 13+) plus a HIGH-priority cast channel. |
+| Overlay | Optional. Without it a cast returns `ok:true` and lands as a tap-to-open high-priority notification — no crash, no dead cast. |
+| LAN isolation | `isSelf` (loopback, own interfaces, v4-mapped form); foreign peers get a content-free refusal. |
+| HTTP | Locale-safe headers, defensive `Content-Length`, 12-connection cap, whitelisted `/do`, clamped seeks, fixed response headers (no injection), explicit flush. |
+| Secrets | `Diag` redacts cookies, tokens, `Authorization`/`Bearer`, JWTs and API keys, and caps each line, so *Copy log* can never leak a stream credential. |
+| Subtitles | `SrtLoader` rejects Zip-Slip names (`..`, absolute, `C:\`, backslashes), enforces a shared 5 MB decompression budget, ignores `__MACOSX`, honours UTF-16 BOMs; `MiniJson` caps nesting. |
+| Worker UX | HTTP **429 (Gemini quota)**, 5xx, 401/403, 410, 202 progress and 404 are each said out loud in Sinhala + English in the player status bar and Diag. |
+| Media3 | Extensionless HLS/DASH defaulting, progressive mp4/mkv/webm/flv/ts never fed to the HLS parser, cached `Typeface`, PiP auto-enter, `player.release()` on destroy. |
 
 ## License
 
 MIT (this app's code). `libs/` are the unmodified Apache-2.0 jars AnantPlay itself ships;
-`assets/fonts/NotoSansSinhala-Regular.ttf` is the SIL OFL font.
+`assets/fonts/NotoSansSinhala-Regular.ttf` is the SIL OFL font; `tools/core-lambda-stubs.jar`
+is GPL-2.0 + Classpath Exception and is used at build time only. Every bundled artifact and its
+license is listed in **THIRD_PARTY.md**.

@@ -1,4 +1,4 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v2.0.0)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v2.1.0)
 
 > **අලුත්ම ක්‍රමය: Accessibility අවසරයක් අවශ්‍ය නැත.** AnantPlay හි **Cast** බොත්තමෙන් චිත්‍රපටිය
 > **මෙම app එකටම** එවනවා — සිංහල උපසිරැසි සහිතව. AnantPlay නිල app එක තවමත් 100% නොවෙනස්ව තිබේ.
@@ -14,6 +14,10 @@
 App එක ඇතුළලේ **"Display over other apps"** පේළියේ ❌ දුටුවහම **Open setting** ඔබලා
 ඔබේ app එකට **Allow** කරන්න (Settings → Apps → Special access → Display over other apps).
 මෙය cast එක ආදාම තිරය අල්ලාගැනීමට අවශ්‍ය එකම පද්ධති ටොගලයයි — **Accessibility නොවේ**.
+
+> **මෙය අනිවාර්ය නොවේ.** අවසරය නොදුන්නත් cast එක **සාර්ථක වේ** — එවිට ඉහළ ප්‍රමුඛතා
+> "Cast received" දැනුම්දීමක් පැමිණේ; එය tap කළ විට සිංහල player එක විවෘත වේ
+> (crash එකක් හෝ නිශ්ශබ්ද අසාර්ථක වීමක් නැත).
 
 ## 3 · Xiaomi HyperOS / MIUI අවසර (අපේ app එක ඇතුළත "Open setting" බොත්තමෙන්)
 

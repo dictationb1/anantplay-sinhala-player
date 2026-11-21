@@ -114,12 +114,38 @@ cross-app same-device discovery is the standard NSD workflow. Constraints handle
   returns when the quota resets or a new `GEMINI_API_KEY` is set.
 - `The Odyssey` resolves correctly (Cinemeta → **tt33764258, 2026**) through the deployed worker.
 
-## 7. Verification summary
+## 7. Verification summary (v2.1.0)
 
-- **Lab**: 23/23 checks pass (`lab/run_lab.sh`) — protocol byte-compatibility, guard rails
-  (256 KB cap, bad-link rule, LAN-source lock, unknown paths), /status·/do state machine, SRT
-  round-trip, JSON round-trip.
-- **APK**: builds with plain SDK tools (aapt2/javac/d8/zipalign/apksigner), **apksigner verify:
-  v2+v3 pass**, manifest dump confirms package/version/minSdk 26/targetSdk 34, `connectedDevice`
-  FGS type, PiP player, tile service, boot receiver, **zero accessibility declarations**.
-- CI (`.github/workflows/build-apk.yml`) reproduces lab + APK on every push.
+- **Lab**: **72/72 checks pass** (`lab/run_lab.sh`, gating) — protocol byte-compatibility, guard
+  rails (256 KB cap, bad-link rule, LAN-source lock, unknown paths, mixed-case headers,
+  negative/huge/garbage `Content-Length`, malformed JSON, header injection, `/do` whitelist and
+  seek clamping), /status·/do state machine, SRT round-trip, JSON round-trip, plus the v2.1.0
+  regression suites: `CastPolicy`, `StreamHint` mime defaulting, `SrtLoader` (Zip-Slip, zip bomb,
+  BOM/CRLF, UTF-16, nested folders, `__MACOSX`), `MiniJson` nesting cap, `Diag` redaction and
+  `BridgeApi` (literal job-id colons, 202 progress, 429/5xx text).
+- **APK**: builds with plain SDK tools (aapt2/javac/d8/zipalign/apksigner), **apksigner verify
+  --verbose pass**, manifest dump confirms package/version/minSdk 26/targetSdk 34,
+  `connectedDevice` FGS type, PiP player, tile service, boot receiver, **zero accessibility
+  declarations**, and the artifact is uploaded by CI as `AnantPlay-Sinhala-Player.apk`.
+- CI (`.github/workflows/build-apk.yml`) reproduces lab + APK on every push, and fails on any
+  tracked `.zip`/`.apk`/keystore or on any `AccessibilityService` reference.
+
+## 8. The v2.1.0 audit fixes, by file
+
+| File | Fix |
+| --- | --- |
+| `AndroidManifest.xml` | `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE`, `CHANGE_NETWORK_STATE` (the Android 14 connectedDevice requirement), `READ_MEDIA_VIDEO` / `READ_EXTERNAL_STORAGE (maxSdk 32)`, `usesCleartextTraffic`, `MY_PACKAGE_REPLACED`. Zero accessibility declarations (CI-enforced). |
+| `ReceiverServer.java` | Locale-safe header matching, defensive `Content-Length` (negative/huge/garbage → silent drop), 12 in-flight connection cap, `AtomicLong` counters, v4-mapped loopback (`::ffff:127.0.0.1`), `/do` whitelist + seek clamp, fixed response headers + flush. |
+| `CastPolicy.java` *(new)* | Single source of truth for cast acceptance: `http(s)://` plus permission-gated `file://`; rejects `content://`, `javascript:`, `ftp://`; the five remote actions; seek clamping. Shared by the service **and** the lab. |
+| `BridgeApi.java` | Bilingual HTTP 429 (Gemini quota) / 5xx / 401 / 410 / 202 / 404 text, `urlFor()` (literal colons proven by the lab), timeout message, truncated bodies. |
+| `StreamHint.java` *(new)* | Media3 mime defaulting: `.m3u8`/extensionless → HLS, `.mpd`/dash flag → DASH, `.mp4`/`.mkv`/`.webm`/`.flv`/`.ts` resolved before Media3 sees them; explicit payload mime always wins. |
+| `SrtLoader.java` | `safeEntryName()` (rejects `..`, absolute, `C:\`, backslashes), shared 5 MB decompression budget, `__MACOSX`/dot-file skip, UTF-16 BOM support. |
+| `MiniJson.java` | Nesting depth cap (64) — a hostile body can no longer `StackOverflow` a receiver thread. |
+| `Diag.java` | `redact()` on every line (cookie/token/`Authorization`/Bearer/JWT/API key), 2 000-char line cap. |
+| `ReceiverService.java` | `startForeground()` first, explicit `ForegroundServiceStartNotAllowedException` handling, `stopForeground` on destroy, no-overlay cast → high-priority tap-to-open notification + `ok:true`, media-permission notification, `/info` diagnostics. |
+| `MainActivity.java` | `POST_NOTIFICATIONS` + media runtime requests with callbacks, per-row live permission state, "Videos access" row, Autostart row honesty on non-Xiaomi. |
+| `NsdAnnouncer.java` | Per-type registration state (one failure no longer marks both down), Wi-Fi multicast lock, `onLost` handling, no callback leaks. |
+| `App.java` | Receiver channel `IMPORTANCE_LOW` (visible FGS notification) + `IMPORTANCE_HIGH` cast channel. |
+| `PlayActivity.java` | Worker errors in the status bar + Diag, saves the fetched cue list (was a racy volatile field), PiP auto-enter and panel hide, clean `finish()` without a URL. |
+| `CastTileService.java` / `BootReceiver.java` | Tile stop path uses `startForegroundService` (a tile is not a foreground context), API-34 `PendingIntent` collapse path, update/boot actions. |
+| `build.sh` / CI | Tool discovery, `@sources.txt`, dex assertion, `zipalign -c`, release-keystore-or-debug fallback, `apksigner verify --verbose`, sha256/size, gating lab, hygiene + accessibility proof, artifact upload. |
