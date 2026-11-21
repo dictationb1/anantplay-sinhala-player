@@ -64,6 +64,20 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The proof travels with the run: the exact passed/failed counts are published
+      # as a check-run annotation, so "N/N PASS" is verifiable from the API and not
+      # only from a log blob.
+      - name: Publish the lab proof as a run annotation
+        if: always()
+        run: |
+          set -euo pipefail
+          [ -f lab/out/lab.txt ] || { echo "::warning title=Cast protocol lab::no lab.txt produced"; exit 0; }
+          PASSED=$(grep -c '  PASS ' lab/out/lab.txt || true)
+          FAILED=$(grep -c '  FAIL ' lab/out/lab.txt || true)
+          TOTAL=$((PASSED + FAILED))
+          echo "::notice title=Cast protocol lab::${PASSED}/${TOTAL} PASS, ${FAILED} FAIL — $(grep -m1 'Lab result' lab/out/lab.txt || echo 'no result line')"
+          echo "lab: ${PASSED}/${TOTAL} pass, ${FAILED} fail"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
