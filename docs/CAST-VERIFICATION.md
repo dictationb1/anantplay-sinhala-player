@@ -116,7 +116,7 @@ cross-app same-device discovery is the standard NSD workflow. Constraints handle
 
 ## 7. Verification summary (v2.2.0)
 
-- **Lab**: **97/97 checks pass** (`lab/run_lab.sh`, gating) — protocol byte-compatibility, guard
+- **Lab**: **95/95 checks pass** (`lab/run_lab.sh`, gating) — protocol byte-compatibility, guard
   rails (256 KB cap, bad-link rule, LAN-source lock, unknown paths, mixed-case headers,
   negative/huge/garbage `Content-Length`, malformed JSON, header injection, `/do` whitelist and
   seek clamping), /status·/do state machine, SRT round-trip, JSON round-trip, plus the v2.1.0
