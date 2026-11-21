@@ -1,14 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- v2.1: android:forceDarkAllowed=false — HyperOS/MIUI Force Dark Mode may
+         otherwise re-color our explicitly-set dark-theme text into invisible
+         variants. Every text color is ALSO set in code (MainActivity.COL_*),
+         so a vendor theme can never eat a label twice. -->
     <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">#0B1020</item>
         <item name="android:statusBarColor">#0B1020</item>
         <item name="android:navigationBarColor">#0B1020</item>
         <item name="android:colorAccent">#3B82F6</item>
+        <item name="android:forceDarkAllowed" tools:ignore="NewApi">false</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
     <style name="PlayerTheme" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowContentTransitions">false</item>
+        <item name="android:forceDarkAllowed" tools:ignore="NewApi">false</item>
     </style>
 </resources>

@@ -1,11 +1,14 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v2.1.0)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v2.2.0)
 
 > **අලුත්ම ක්‍රමය: Accessibility අවසරයක් අවශ්‍ය නැත.** AnantPlay හි **Cast** බොත්තමෙන් චිත්‍රපටිය
 > **මෙම app එකටම** එවනවා — සිංහල උපසිරැසි සහිතව. AnantPlay නිල app එක තවමත් 100% නොවෙනස්ව තිබේ.
+>
+> **v2.2 අලුත් දේ:** භාෂා **18ක්**, **Spoken/Formal** රටා මාරුව, **දෙවන අදියර Cinema Polish**
+> (ස්වයංක්‍රීයව උසස් වේ), සහ අවශ්‍ය නම් පමණක් **✨ AI Studio** බොත්තම.
 
 ## 1 · App එක install කරන්න
 
-`AnantPlay-Sinhala-Player.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
+`AnantPlay-Sinhala-Player-v2.2.0.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
 "Start receiver" බොත්තම ඔබන්න — ඉහළම දැනුම්දීම් තීරුවේ **"අ — Sinhala Player cast ready"**
 දැනුම්දීම පැමිණේ (එය receiver එක ක්‍රියාත්මක බවට සලකුණයි).
 
@@ -52,7 +55,39 @@ App එක ඇතුළලේ **"Display over other apps"** පේළියේ �
 4. ඉවර වුවහම: Back ඔබන්න — AnantPlay හි Remote screen එකට ආපසු යන්නේ ඔබ නතර වූ තැනින්ම;
    නැතහොත් Remote එකේ **Stop casting** → AnantPlay player එකම අඛණ්ඩව දිගටම පානවා.
 
-## 6 · ප්‍රශ්නයක් තිබෙනවා නම්
+## 6 · භාෂා 18ක් · Spoken/Formal · Cinema Polish · AI Studio (v2.2)
+
+**භාෂාව මාරු කිරීම.** Player එකේ පහළින් ඇති chips වලින් **සිංහල · தமிழ் · हिन्दी · English ·
+Español · 日本語 · 한국어 · العربية** තෝරන්න; **“+ More”** ඔබලා සියලුම භාෂා **18** බලන්න
+(ප්‍රංශ, ජර්මන්, රුසියන්, පෘතුගීසි, තායි, ඉන්දුනීසියානු, තුර්කි, වියට්නාම්, උර්දු, චීන).
+සිංහල අකුරු සඳහා app එකේම ඇති NotoSansSinhala font එක යොදනු ලැබේ; අනෙක් භාෂා දුරකථනයේ
+ම system fonts වලින් පෙන්වයි (අතිරේක download එකක් නැත). **العربية / اردو** දකුණේ සිට වමට
+නිවැරදිව පෙන්වයි.
+
+**Spoken ⇄ Formal.** උපසිරැසි පැනලයේ register pill එකෙන් `auto (genre) → spoken → formal`
+මාරු වේ. “spoken” = කථා කරන භාෂාව (සිනමා සංවාදය), “formal” = ලිඛිත/විධිමත් සිංහල
+(ලේඛන, ප්‍රවෘත්ති). මාරු කළ විට එම රටාවෙන් නැවත පරිවර්තනය වේ.
+
+**දෙවන අදියර · Cinema Polish.** පළමු පරිවර්තනය (base NMT) **වහාම** පෙනේ — චිත්‍රපටිය නතර
+නොවේ. තත්පර 20–40ක් ඇතුළත worker එකේ සිනමා සංස්කරණය සූදානම් වූ විට, උපසිරැසි **නිශ්ශබ්දව**
+(playback නතර නොකර) උසස් වේ — තිරයේ **“✨ Cinema Polish Ready”** කෙටියෙන් පෙනේ.
+එය නොපෙනුනත් base උපසිරැසි දිගටම ක්‍රියාත්මකයි; අතින් **↻ Retry** ඔබන්න.
+
+**✨ AI Studio (අවශ්‍ය නම් පමණක්).** `අ` පැනලයේ **✨ AI Studio** ඔබන විට, ඉංග්‍රීසි දෙබස්
+සහ පවතින පරිවර්තනය 40 KBකට නොවැඩි කොටසක් clipboard එකට copy වී, ඔබේ **සැබෑ browser** එකේ
+`aistudio.google.com` විවෘත වේ (WebView එකක් නොවේ — ස්වයංක්‍රීයකරණයක් නොවේ). එහි paste කර
+හොඳ සිනමා සිංහල පිටපතක් ලබාගෙන, **📄 Local .srt** මගින් නැවත import කරන්න. Browser එකක්
+නැති දුරකථනයක එය crash නොවේ — “පේළි පිටපත් විය, නමුත් browser එකක් නැත” ලෙස පවසයි.
+
+**AdGuard: Private DNS ⚠️ නොවේ, VPN ⚠️ ඔව්.** AdGuard **Private DNS**
+(`dns.adguard-dns.com`, DoT 853) casting එකට කිසිදු බලපෑමක් නොකරයි — එය encrypt කරන්නේ
+unicast DNS පමණි; mDNS භාවිතා කරන UDP 5353 multicast ට එයින් බලපෑමක් නැත. නමුත්
+AdGuard **Android app** එක (local VPN) multicast අවහිර කළ හැක. විසඳුම: AdGuard →
+Settings → Network → **DNS filtering → “Filter DNS only”** හෝ app එකේ **“Exclude AnantPlay”**
+එකතු කරන්න; නැතහොත් casting අතරතුර AdGuard app එක off කරන්න. In-app **AdGuard help**
+කාඩ්පතේ මෙම පියවර දෙකම ඇත.
+
+## 7 · ප්‍රශ්නයක් තිබෙනවා නම්
 
 - App එකේ **Diagnostics · Crash log** කොටස බලන්න — සෑම event එකක්ම වාර්තා වී තිබේ;
   **📋 Copy diagnostics log** බොත්තමෙන් copy කරගෙන bug වාර්තාවකට එකතු කරන්න.
@@ -64,7 +99,7 @@ App එක ඇතුළලේ **"Display over other apps"** පේළියේ �
 - Gemini auto-translation 429/quota දෝෂයක් නම්: worker එකේ API key quota එක අවසාන වී ඇත
   (නොමිලේ tier එක daily reset වේ) — `wrangler secret put GEMINI_API_KEY` නැවත සකසන්න.
 
-## 7 · පැරණි v1 Companion එක
+## 8 · පැරණි v1 Companion එක
 
 පැරණි `AnantPlay-SI-Companion` (accessibility overlay) app එක **disable/uninstall** කරන්න —
 නව ක්‍රමයට එය අවශ්‍ය නැත, එය HyperOS හි "Not working" තත්ත්වයටම වැටෙන බව දැනටමත්

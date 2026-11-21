@@ -64,6 +64,20 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The proof travels with the run: the exact passed/failed counts are published
+      # as a check-run annotation, so "N/N PASS" is verifiable from the API and not
+      # only from a log blob.
+      - name: Publish the lab proof as a run annotation
+        if: always()
+        run: |
+          set -euo pipefail
+          [ -f lab/out/lab.txt ] || { echo "::warning title=Cast protocol lab::no lab.txt produced"; exit 0; }
+          PASSED=$(grep -c '  PASS ' lab/out/lab.txt || true)
+          FAILED=$(grep -c '  FAIL ' lab/out/lab.txt || true)
+          TOTAL=$((PASSED + FAILED))
+          echo "::notice title=Cast protocol lab::${PASSED}/${TOTAL} PASS, ${FAILED} FAIL — $(grep -m1 'Lab result' lab/out/lab.txt || echo 'no result line')"
+          echo "lab: ${PASSED}/${TOTAL} pass, ${FAILED} fail"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -73,7 +87,7 @@ jobs:
           retention-days: 14
 
   apk:
-    name: APK (JDK 17 + Android SDK 34, signed + verified)
+    name: APK (JDK 17 + SDK 34 + build-tools 35.0.1, signed + verified)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -86,7 +100,15 @@ jobs:
 
       # No third-party SDK action: the GitHub Ubuntu image already ships an Android
       # SDK; we only fill in what is missing, and we say exactly what we found.
-      - name: Prepare Android SDK (platform 34 + build-tools)
+      #
+      # BUILD-TOOLS 35.0.1 IS A HARD REQUIREMENT — NOT "any aapt2 will do".
+      # build-tools 34.0.0 carries d8 8.2, which crashes on the media3 1.11.1 /
+      # guava 33.3.1 jars ("Cannot invoke String.length() because <parameter1> is
+      # null": unnamed MethodParameters). 35.0.1 ships d8 8.6, which is fine. The
+      # runner image may well already have 34.0.0 installed — that is exactly the
+      # trap the old `ls build-tools/*/aapt2` check fell into — so we probe for
+      # the 35.0.1 directory itself, not for "some build-tools".
+      - name: Prepare Android SDK (platform 34 + build-tools 35.0.1)
         run: |
           set -euo pipefail
           SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
@@ -108,14 +130,15 @@ jobs:
 
           NEED=""
           [ -f "$SDK/platforms/android-34/android.jar" ] || NEED="$NEED platforms;android-34"
-          ls "$SDK"/build-tools/*/aapt2 > /dev/null 2>&1 || NEED="$NEED build-tools;35.0.1"
+          [ -x "$SDK/build-tools/35.0.1/aapt2" ] || NEED="$NEED build-tools;35.0.1"
           if [ -n "$NEED" ]; then
             echo "installing:$NEED"
             [ -n "$SDKM" ] || { echo "::error::no sdkmanager available to install$NEED"; exit 1; }
             "$SDKM" --sdk_root="$SDK" --install $NEED < /dev/null
           fi
           [ -f "$SDK/platforms/android-34/android.jar" ] || { echo "::error::android-34 platform missing"; exit 1; }
-          ls "$SDK"/build-tools/*/aapt2 > /dev/null 2>&1 || { echo "::error::build-tools missing"; exit 1; }
+          [ -x "$SDK/build-tools/35.0.1/aapt2" ] || { echo "::error::build-tools;35.0.1 missing — d8 8.2 (34.x) cannot dex media3/guava"; exit 1; }
+          "$SDK/build-tools/35.0.1/d8" --version
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "--- final ---"; ls "$SDK/platforms"; ls "$SDK/build-tools"
 
@@ -130,33 +153,43 @@ jobs:
           chmod +x build.sh
           bash build.sh
 
-      - name: Assert the artifact is a real, signed, installable APK
+      - name: Assert the artifact is a real, signed, installable v2.2.0 APK
         run: |
           set -euo pipefail
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          APK=dist/AnantPlay-Sinhala-Player.apk
+          SRC=dist/AnantPlay-Sinhala-Player.apk
+          test -s "$SRC"
+          # the artifact users download carries the version in its name
+          cp "$SRC" dist/AnantPlay-Sinhala-Player-v2.2.0.apk
+          APK=dist/AnantPlay-Sinhala-Player-v2.2.0.apk
           test -s "$APK"
           echo "size: $(stat -c %s "$APK") bytes"
           "$BT/apksigner" verify --verbose --print-certs "$APK"
           "$BT/zipalign" -c 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)"
+          # the release identity is part of the contract: 2.2.0 / 20200
+          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionCode='20200'"
+          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionName='2.2.0'"
           unzip -l "$APK" | grep -E "classes.*dex|AndroidManifest.xml|assets/fonts/NotoSansSinhala-Regular.ttf"
           sha256sum "$APK" | tee dist/sha256.txt
+          echo "::notice title=APK version::2.2.0 (versionCode 20200)"
 
       - name: Upload the installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: AnantPlay-Sinhala-Player-apk
-          path: dist/AnantPlay-Sinhala-Player.apk
+          name: AnantPlay-Sinhala-Player-v2.2.0-apk
+          path: |
+            dist/AnantPlay-Sinhala-Player-v2.2.0.apk
+            dist/sha256.txt
           if-no-files-found: error
           retention-days: 90
 
       - name: Publish the APK facts as run annotations
         if: always()
         run: |
-          APK=dist/AnantPlay-Sinhala-Player.apk
+          APK=dist/AnantPlay-Sinhala-Player-v2.2.0.apk
           if [ -s "$APK" ]; then
-            echo "::notice title=APK bytes (AnantPlay-Sinhala-Player.apk)::$(stat -c %s "$APK")"
+            echo "::notice title=APK bytes (AnantPlay-Sinhala-Player-v2.2.0.apk)::$(stat -c %s "$APK")"
           fi
           if [ -f dist/sha256.txt ]; then
             echo "::notice title=APK sha256::$(cut -d' ' -f1 dist/sha256.txt)"
@@ -170,9 +203,10 @@ jobs:
             echo ''
             echo '| item | value |'
             echo '| --- | --- |'
-            echo "| file | AnantPlay-Sinhala-Player.apk |"
-            if [ -f dist/AnantPlay-Sinhala-Player.apk ]; then
-              echo "| bytes | $(stat -c %s dist/AnantPlay-Sinhala-Player.apk) |"
+            echo "| file | AnantPlay-Sinhala-Player-v2.2.0.apk |"
+            echo "| version | 2.2.0 (versionCode 20200) |"
+            if [ -f dist/AnantPlay-Sinhala-Player-v2.2.0.apk ]; then
+              echo "| bytes | $(stat -c %s dist/AnantPlay-Sinhala-Player-v2.2.0.apk) |"
             fi
             if [ -f dist/sha256.txt ]; then
               echo "| sha256 | $(cut -d' ' -f1 dist/sha256.txt) |"

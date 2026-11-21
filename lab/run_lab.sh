@@ -14,6 +14,7 @@ mkdir -p lab/out/classes
 
 echo "── compile the pure engines + the lab"
 javac -encoding UTF-8 -nowarn -d lab/out/classes \
+  src/lk/techworld/anantplay/sicast/Langs.java \
   src/lk/techworld/anantplay/sicast/ReceiverServer.java \
   src/lk/techworld/anantplay/sicast/BridgeApi.java \
   src/lk/techworld/anantplay/sicast/Cue.java \
@@ -23,6 +24,7 @@ javac -encoding UTF-8 -nowarn -d lab/out/classes \
   src/lk/techworld/anantplay/sicast/SrtLoader.java \
   src/lk/techworld/anantplay/sicast/SubtitleStore.java \
   src/lk/techworld/anantplay/sicast/Diag.java \
+  src/lk/techworld/anantplay/sicast/MdnsWire.java \
   src/lk/techworld/anantplay/sicast/AppInfo.java \
   lab/ReceiverLab.java
 

@@ -27,8 +27,17 @@
     <string name="btn_openanant">Open AnantPlay</string>
     <string name="btn_save">Save</string>
     <string name="btn_autofetch">Auto-fetch subs: %1$s</string>
-    <string name="selftest_idle">Self-test: loopback → mDNS → bridge.</string>
+    <string name="selftest_idle">Self-test: loopback → mDNS (probe + discovery) → bridge.</string>
     <string name="pick_srt">Pick .srt / .zip</string>
     <string name="need_media_title">Downloaded video cast needs media access</string>
     <string name="need_media_text">Tap, then allow Videos access to play "%1$s" here with Sinhala subs.</string>
+    <!-- v2.1: the bilingual guided-setup strings (titles are built in code with
+         Sinhala+English inline; these are the shared labels). -->
+    <string name="perm_open_setting">Open setting</string>
+    <string name="perm_other">Other permissions</string>
+    <string name="adguard_title">AdGuard / VPN help · AdGuard උදව්</string>
+    <string name="sub_retry">↻ Retry</string>
+    <string name="sub_switch_provider">⇄ Provider</string>
+    <string name="sub_local">📄 Local .srt</string>
+    <string name="sub_sync">⏱ ±0.25s</string>
 </resources>
