@@ -31,6 +31,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -74,6 +75,12 @@ public class WebBrowserView extends FrameLayout {
     };
     private String lastAutoOpened = "";
     private long lastAutoOpenAt;
+    /** v3.2.0 — the custom-links quick launcher row (Settings → Web Player &
+     *  Custom Links owns the list; this row renders it as 1-tap site chips). */
+    private LinearLayout linksRow;
+    /** v3.2.0 — the AnantPlay-style custom-fullscreen holder. */
+    private View fullscreenView;
+    private android.webkit.WebChromeClient.CustomViewCallback fullscreenCb;
 
     static final String HOME_URL = "https://duckduckgo.com/";
     private static final String UA_DESKTOP =
@@ -133,6 +140,18 @@ public class WebBrowserView extends FrameLayout {
         progress.setMax(100);
         progress.getProgressDrawable().setColorFilter(0xFF3B82F6, android.graphics.PorterDuff.Mode.SRC_IN);
         column.addView(progress, new LinearLayout.LayoutParams(-1, dp(3)));
+
+        // ── v3.2.0 — THE CUSTOM-LINKS QUICK LAUNCHER (AnantPlay's quick-sites
+        // pattern): one horizontal chip row built from Settings → Web Player &
+        // Custom Links — 1 tap loads a saved streaming site (users edit the list
+        // any time; the row rebuilds whenever the Web tab is re-entered, so a
+        // link edit is live without any app update). ──
+        linksRow = new LinearLayout(act);
+        linksRow.setOrientation(LinearLayout.HORIZONTAL);
+        linksRow.setBackgroundColor(0xFF0E1526);
+        linksRow.setPadding(dp(6), dp(5), dp(6), dp(5));
+        column.addView(linksRow, new LinearLayout.LayoutParams(-1, -2));
+        rebuildLinks();
 
         // ── the WebView ──
         web = new WebView(act);
@@ -195,11 +214,20 @@ public class WebBrowserView extends FrameLayout {
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest req) {
                 try {
                     Uri u = req.getUrl();
-                    if (u != null && (StreamSniffer.shouldReport(String.valueOf(u), null, -1))) {
+                    String us = u == null ? "" : String.valueOf(u);
+                    // v3.2.0 — the Ad/Popup Blocker is a USER toggle (Settings →
+                    // Web Player): ON by default, and when ON both the ad
+                    // REQUESTS and the navigations die (shouldOverrideUrlLoading
+                    // already refuses the same list).
+                    if (AppPrefs.adBlock(prefs) && StreamSniffer.isAdOrTracker(us)) {
+                        return new WebResourceResponse("text/plain", "utf-8",
+                            new java.io.ByteArrayInputStream(new byte[0]));   // a 0-byte refuse
+                    }
+                    if (u != null && (StreamSniffer.shouldReport(us, null, -1))) {
                         Map<String, String> h = req.getRequestHeaders();
                         StreamSniffer.Hit hit = new StreamSniffer.Hit()
-                            .url(String.valueOf(u))
-                            .kind(StreamSniffer.classify(String.valueOf(u), null));
+                            .url(us)
+                            .kind(StreamSniffer.classify(us, null));
                         if (h != null) {
                             hit.referer = h.get("Referer");
                             hit.origin = h.get("Origin");
@@ -239,6 +267,36 @@ public class WebBrowserView extends FrameLayout {
                 // the popup blocker: a window.open target is simply never created
                 Diag.i("web", "popup refused (window.open blocked)");
                 return false;
+            }
+            // ── v3.2.0 — ANANTPLAY-STYLE INLINE FULLSCREEN (WebActivity.java:276):
+            // a site's fullscreen video request is mounted on the decor with the
+            // immersive sticky flags, exactly the way official AnantPlay does. ──
+            @Override public void onShowCustomView(View v, android.webkit.WebChromeClient.CustomViewCallback cb) {
+                if (fullscreenView != null) { try { cb.onCustomViewHidden(); } catch (Throwable ignored) { } return; }
+                fullscreenView = v;
+                fullscreenCb = cb;
+                try {
+                    v.setBackgroundColor(Color.BLACK);
+                    ((android.view.ViewGroup) act.getWindow().getDecorView()).addView(v,
+                        new FrameLayout.LayoutParams(-1, -1));
+                    act.getWindow().getDecorView().setSystemUiVisibility(
+                        View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+                    Diag.i("web", "inline fullscreen mounted (AnantPlay-style)");
+                } catch (Throwable t) {
+                    Diag.w("web", "fullscreen mount: " + t);
+                    fullscreenView = null;
+                    try { cb.onCustomViewHidden(); } catch (Throwable ignored) { }
+                }
+            }
+            @Override public void onHideCustomView() {
+                if (fullscreenView == null) return;
+                try {
+                    ((android.view.ViewGroup) act.getWindow().getDecorView()).removeView(fullscreenView);
+                    act.getWindow().getDecorView().setSystemUiVisibility(0);
+                } catch (Throwable ignored) { }
+                fullscreenView = null;
+                if (fullscreenCb != null) { try { fullscreenCb.onCustomViewHidden(); } catch (Throwable ignored) { } fullscreenCb = null; }
             }
         });
         web.addJavascriptInterface(new JsBridge(), "SniJS");
@@ -497,7 +555,41 @@ public class WebBrowserView extends FrameLayout {
     // ── lifecycle ──────────────────────────────────────────────────────────────
 
     public void onPauseWeb() { try { web.onPause(); } catch (Throwable ignored) { } }
-    public void onResumeWeb() { try { web.onResume(); } catch (Throwable ignored) { } }
+    public void onResumeWeb() { try { web.onResume(); rebuildLinks(); } catch (Throwable ignored) { } }
+
+    /** v3.2.0 — rebuild the quick-links chip row from the CURRENT prefs list
+     *  (so an edit in Settings lands the next time the Web tab is shown). */
+    private void rebuildLinks() {
+        if (linksRow == null) return;
+        linksRow.removeAllViews();
+        List<AppPrefs.Link> links = AppPrefs.webLinks(prefs);
+        if (links.isEmpty()) {
+            TextView hint = new TextView(act);
+            hint.setText("⚡ " + act.getString(R.string.links_hint));
+            hint.setTextColor(0xFF94A3B8);
+            hint.setTextSize(11.5f);
+            hint.setPadding(dp(8), dp(2), dp(8), dp(2));
+            linksRow.addView(hint, new LinearLayout.LayoutParams(-2, -2));
+            return;
+        }
+        for (final AppPrefs.Link l : links) {
+            TextView chip = new TextView(act);
+            chip.setText("⚡ " + l.name);
+            chip.setTextColor(0xFFE2E8F0);
+            chip.setTextSize(12f);
+            chip.setGravity(Gravity.CENTER);
+            chip.setTypeface(Typeface.DEFAULT_BOLD);
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(0xFF101A30);
+            g.setCornerRadius(dp(14));
+            chip.setBackground(g);
+            chip.setPadding(dp(12), dp(6), dp(12), dp(6));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            lp.rightMargin = dp(6);
+            chip.setOnClickListener(v -> load(l.url));
+            linksRow.addView(chip, lp);
+        }
+    }
 
     public void destroy() {
         try {

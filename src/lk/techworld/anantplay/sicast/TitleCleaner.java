@@ -36,6 +36,45 @@ final class TitleCleaner {
         Integer season;        // ≥1 or null
         Integer episode;       // ≥1 or null
         boolean changed;       // true when the cleaner altered the input at all
+        boolean junk;          // v3.2.0 — TRUE when the raw title is a GENERIC PLAYER/SITE label, never a movie name
+    }
+
+    /** v3.2.0 (Smoking Gun #2's raw-JSON banners) — GENERIC PLAYER/SITE JUNK
+     *  TITLES: the streaming page's <title> when it is literally the player's
+     *  own branding ("ArrowTV Player", "VidSrc", "Embed Player", "Watch
+     *  Online", "Index of /", "Loading…"). Feeding these to Cinemeta's
+     *  /api/resolve is what painted "⚠ no Cinemeta match for: ArrowTV Player"
+     *  raw-JSON banners across the field video. A junk title must NEVER be
+     *  resolved blindly — the UI asks the user for the real movie name instead
+     *  (the 1-tap in-player title search). Word-bounded, case-insensitive,
+     *  tolerant of site suffixes ("ArrowTV Player - Watch HD"). */
+    private static final Pattern JUNK_TITLE = Pattern.compile(
+        "^(?:[\\s\\-–—|·:.\\u2026\\u00a0]*(?:arrowtv|vidsrc|vid(?:embed|link|play|src)|dailymotion|youtube|tubi|flixhq|sflix|sflix|supernova|2embed|multiembed|embed(?:s|rise|squid| cloak)?|autoembed|vivanetwork|movidoo|vidora|vid|smashy|spacedec|nations|yoursports|reactionvideo|binge|dramago|dramacool|kissasian|mangafreak|novato|nova|dizilla|swatchseries|episode2|myflixer|fmovies|bflix|hurawatch|bflixhd|movie123|123movies|putlocker|soap2day|fmovies|lookmovie|streamm4u|Streameast|roja|tamilblasters|tamilrockers|sinhala|sub|video|stream|watch|index|player|loading|buffering|untitled|home|search|results|please wait|just a moment|checking your browser|access denied|not found|error)\\b"
+        + "[\\s\\-–—|·:.\\u2026\\u00a0]*(?:player|players|embed(?:ded)?|video|videos|stream|streams|watch(?: online| online free)?|online|hd|4k|free|tv|hub|pro|plus|to|cc|io|me|net|com|app|site|web|page|portal)?" + "[\\s\\-–—|·:.\\u2026\\u00a0]*)+$",
+        Pattern.CASE_INSENSITIVE);
+
+    /** v3.2.0 — the junk-title verdict: true when this raw page title is a
+     *  generic player/site label that must NOT be sent to Cinemeta (the
+     *  in-player title-search dialog opens instead). Pure, lab-proven against
+     *  the exact field strings plus look-alikes ("ArrowTV Player", "VidSrc",
+     *  "Embed Player", "Watch Online", "Index of /", "Loading…", "" — while
+     *  "Binging: The Odyssey" and "The Odyssey 2026" stay NON-junk). */
+    static boolean isJunkTitle(String raw) {
+        if (raw == null) return true;
+        String t = raw.replace('\u00A0', ' ').trim();
+        if (t.isEmpty()) return true;
+        if (t.length() < 3) return true;
+        if (JUNK_TITLE.matcher(t).matches()) return true;
+        // "Index of /" and bare paths: "Index of /movies"
+        if (t.toLowerCase(Locale.ROOT).startsWith("index of")) return true;
+        // a title that is nothing but separators/tokens: strip the noise
+        // vocabulary in place (NEVER call clean() — clean() calls isJunkTitle
+        // back and that recursion overflowed the lab's stack on first run)
+        String stripped = t;
+        for (String n : NOISE) stripped = stripped.replaceAll("(?i)\\b" + Pattern.quote(n) + "\\b", " ");
+        stripped = stripped.replaceAll("[\\[\\](){}<>_]+", " ")
+            .replaceAll("\\s{2,}", " ").trim();
+        return stripped.replaceFirst("^(?:the|a|an)\\s+", "").trim().length() < 2;
     }
 
     /** Site-name-ish tail after a separator: " - OnlyFlix", " | some.site.to", " – Watch". */
@@ -89,6 +128,7 @@ final class TitleCleaner {
         String t = raw.replace('\u00A0', ' ').trim();
         if (t.isEmpty()) return c;
         String original = t;
+        c.junk = isJunkTitle(raw);
 
         // 1. season/episode FIRST (before noise deletion eats the numbers)
         Matcher m = SXEX.matcher(t);

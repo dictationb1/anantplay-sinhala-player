@@ -1,6 +1,6 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.1.2)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.2.0)
 
-> **v3.1.2 අලුත් දේ (Sinhala):**
+> **v3.2.0 අලුත් දේ (Sinhala):**
 >
 > 1. **Player crash එක සම්පූර්ණයෙන් නිවැරදියි.** v3.1.1 දී **Test Player**, **Play Video URL**
 >    සහ **Cast එකෙන් එන සෑම චිත්‍රපටියක්ම** විවෘත වන මොහොතේ **"keeps stopping"**
@@ -22,7 +22,7 @@
 >    cast/crash පේළි පමණක් ගෙන, එම privacy rules අනුව filter කර පෙන්වයි.
 >    දුරකථනයට කිසිවක් ලියන්නේ නැත.
 >
-> **English (v3.1.2):** the `PlayActivity` crash is fixed at the source
+> **English (v3.2.0):** the `PlayActivity` crash is fixed at the source
 > (`setBackgroundColor` instead of `setBackgroundResource(0x…)`), the updater's
 > 38-lines-in-645 ms spin loop is gone (`SCHEDULE_DEBOUNCE_MS = 10_000L` +
 > ≤1 skip line/sec), and Diagnostics now has a **privacy-first built-in Deep
@@ -47,8 +47,8 @@
 
 ## 1 · App එක install කරන්න
 
-`AnantPlay-Sinhala-Player-v3.1.2.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ;
-`versionCode 30102`). v3.1.0 / v3.1.1 එකෙන් **in-place update** වේ — uninstall අවශ්‍ය නැත
+`AnantPlay-Sinhala-Player-v3.2.0.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ;
+`versionCode 30200`). v3.1.0 / v3.1.1 එකෙන් **in-place update** වේ — uninstall අවශ්‍ය නැත
 (එකම permanent signing key).
 "Start receiver" බොත්තම ඔබන්න — ඉහළම දැනුම්දීම් තීරුවේ **"අ — Sinhala Player cast ready"**
 දැනුම්දීම පැමිණේ (එය receiver එක ක්‍රියාත්මක බවට සලකුණයි).
@@ -128,9 +128,9 @@ Settings → Network → **DNS filtering → “Filter DNS only”** හෝ app 
 එකතු කරන්න; නැතහොත් casting අතරතුර AdGuard app එක off කරන්න. In-app **AdGuard help**
 කාඩ්පතේ මෙම පියවර දෙකම ඇත.
 
-## 7 · ප්‍රශ්නයක් තිබෙනවා නම් — Privacy-First Deep Troubleshooter (v3.1.2)
+## 7 · ප්‍රශ්නයක් තිබෙනවා නම් — Privacy-First Deep Troubleshooter (v3.2.0)
 
-### 7.1 · දුරකථනයේදීම — පියවර 6ක Deep Troubleshoot (v3.1.2)
+### 7.1 · දුරකථනයේදීම — පියවර 6ක Deep Troubleshoot (v3.2.0)
 
 App එකේ **Diagnostics** tab එකට ගිහින් **🩺 Run Deep Troubleshoot** ඔබන්න. එය
 **සත්‍ය active පරීක්ෂණ** පියවර 6ක් ධාවනය කරයි (log කියවීමක් පමණක් නොවේ):
@@ -154,7 +154,7 @@ IPv6 එකක්, Wi-Fi SSID එකක්, token එකක් හෝ storage pa
 එකක් තිබේ නම් එහි **EXCEPTION line එක + මුල් app frames** ඉහළින්ම පෙනේ
 (පැරණි `Handler.dispatchMessage` අන්තිම පේළිය නොවේ).
 
-### 7.2 · PC එකෙන් — ADB capture scripts (v3.1.2)
+### 7.2 · PC එකෙන් — ADB capture scripts (v3.2.0)
 
 දුරකථනය USB debug එකෙන් සම්බන්ධ කර, repo එකේ `scripts/` ඇතුළින්:
 
@@ -179,8 +179,8 @@ Script එක logcat එකෙන් **`lk.techworld.anantplay.sicast`** (අප
 
 - App එකේ **Diagnostics · Crash log** කොටස බලන්න — සෑම event එකක්ම වාර්තා වී තිබේ;
   **📋 Copy diagnostics log** බොත්තමෙන් copy කරගෙන bug වාර්තාවකට එකතු කරන්න.
-- **Test Player / Play Video URL** ඔබද්දී crash වුවහොත්: v3.1.2 එකට update කරන්න
-  (මෙය v3.1.2 දී නිවැරදි කළ ප්‍රධානම දෝෂයයි). තවමත් වැටේ නම්
+- **Test Player / Play Video URL** ඔබද්දී crash වුවහොත්: v3.2.0 එකට update කරන්න
+  (මෙය v3.2.0 දී නිවැරදි කළ ප්‍රධානම දෝෂයයි). තවමත් වැටේ නම්
   **🩺 Run Deep Troubleshoot** → **📋 Copy Full Troubleshoot Report** → එය bug වාර්තාවට එකතු කරන්න.
 - Cast list එකේ "සිංහල Player" නොපෙනේ නම්: Wi-Fi ONද? → app එක විවෘත කර Self-test ධාවනය
   කරන්න → තවමත් ❌ නම් AnantPlay හි cast sheet එකේ **Re-scan** ඔබන්න.
@@ -202,7 +202,7 @@ Script එක logcat එකෙන් **`lk.techworld.anantplay.sicast`** (අප
 
 ---
 
-## 9 · Obtainium + GitHub Releases — සදාකාලික in-place යාවත්කාලීන (v3.1.2 / v3.x)
+## 9 · Obtainium + GitHub Releases — සදාකාලික in-place යාවත්කාලීන (v3.2.0 / v3.x)
 
 ### පියවර 1 — ස්ථිර signing key එක හදන්න (එක් වරක් පමණි!)
 
@@ -226,12 +226,12 @@ Actions → New repository secret** — `github-secrets.txt` එකේ අගය
 
 - **ස්වයංක්‍රීය (merge-to-release, v3.x):** `main` එකට merge වන සෑම Pull Request එකක්ම
   `release-apk.yml` එකෙන් release එකක් බවට පත් වේ — `build.sh` එකෙන් version එක කියවා
-  (උදා: `3.1.2`), එම `v3.1.2` tag එක තිබේ නම් skip කරයි (duplicate release නැත),
+  (උදා: `3.2.0`), එම `v3.2.0` tag එක තිබේ නම් skip කරයි (duplicate release නැත),
   නැත්නම් Lab 100% PASS → sign → `apksigner` verify → `SHA256SUMS.txt` සමඟ Release
   එකක් සාදයි.
-- **Tag එකකින්:** `git tag v3.1.2 && git push origin v3.1.2` (එම pipeline එකමයි).
+- **Tag එකකින්:** `git tag v3.2.0 && git push origin v3.2.0` (එම pipeline එකමයි).
 - **අතින් 1-click:** GitHub → Actions → **Release APK** → Run workflow → version එක
-  ලියන්න (උදා: `3.1.2`).
+  ලියන්න (උදා: `3.2.0`).
 
 ### පියවර 4 — Obtainium එකට දමන්න (දුරකථනයේ, 3 tap!)
 

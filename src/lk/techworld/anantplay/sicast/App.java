@@ -83,6 +83,7 @@ public class App extends Application {
         // Troubleshooter CRASH timeline entry, privacy-scrubbed top-first)
             try {
                 String report = CrashLog.format(System.currentTimeMillis(), AppInfo.VERSION_NAME,
+                    AppInfo.VERSION_CODE,
                     "sdk " + android.os.Build.VERSION.SDK_INT,
                     t.getName(), e);
                 CrashLog.writeAtomically(getFilesDir(), report);
@@ -123,6 +124,17 @@ public class App extends Application {
 
         // v3.1.2 — the Troubleshooter timeline starts here: process start + arming
         Troubleshooter.record("APP", "process up v" + AppInfo.VERSION_NAME + " (sdk " + android.os.Build.VERSION.SDK_INT + ")");
+        // v3.2.0 — THE STALE-CRASH SWEEP (Smoking Gun #3): last_crash.txt still
+        // carried v3.1.1's ALREADY-FIXED #0x88000000 crash on the field phone,
+        // so v3.1.2's "Auto-Detected Issues" kept lying ("❌ a crash was
+        // captured"). Every report is now stamped versionCode; a report from
+        // an OLDER build is deleted HERE — before the Troubleshooter, the
+        // Diagnostics tab or the report builder ever reads it.
+        try {
+            CrashLog.clearStaleFor(getFilesDir(), AppInfo.VERSION_CODE, System.currentTimeMillis());
+        } catch (Throwable t) {
+            Diag.w("app", "stale crash sweep: " + t);
+        }
         // The receiver arms itself from process start (boot, tile, launcher, or cast
         // retry) — foreground service rules differ per entry point, so this is best
         // effort with the main activity as the reliable path. (Single-process app:
@@ -138,6 +150,15 @@ public class App extends Application {
         // debounce, fires the MOMENT the app opens) + the standing 4 h periodic
         // schedule, plus the storage sweep: no leftover .apk from a previous
         // update run ever survives an app start.
+        // v3.2.0 — THE ZERO-RATE-LIMIT + ZERO-LOOP UPDATER ARMING:
+        //   · the check itself resolves via github.com/releases/latest's 302
+        //     (web CDN — ZERO api.github.com quota burn on the happy path);
+        //   · lastCheck is persisted BEFORE the network attempt, and a FAILED
+        //     check arms a 15-minute backoff, so the 250 ms re-fire storm the
+        //     field log captured (200+ calls in 148 s, GitHub 403 lockout) is
+        //     structurally impossible;
+        //   · the periodic schedule is armed HERE ONLY — never from inside the
+        //     job (the v3.1.x in-job re-arm was the re-fire loop itself).
         try {
             SelfUpdater.sweepUpdates(this);
             SelfUpdater.checkOnLaunch(this);

@@ -46,6 +46,9 @@ javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes \
   src/lk/techworld/anantplay/sicast/DohResolver.java \
   src/lk/techworld/anantplay/sicast/UpdateChecker.java \
   src/lk/techworld/anantplay/sicast/SelfUpdateCore.java \
+  src/lk/techworld/anantplay/sicast/SubLangDetect.java \
+  src/lk/techworld/anantplay/sicast/FreeSubTranslator.java \
+  src/lk/techworld/anantplay/sicast/FeatureProbe.java \
   src/lk/techworld/anantplay/sicast/AppInfo.java \
   lab/ReceiverLab.java
 

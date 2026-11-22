@@ -319,19 +319,19 @@ public final class Troubleshooter {
         sb.append("## Status Summary\n");
         sb.append("- receiver: ").append(f.receiverUp ? "up (port " + f.receiverPort + ")" : "down").append('\n');
         sb.append("- cast pillars: NSD ").append(f.nsdAnnounced ? "announced" : "pending")
-          .append(" · mDNS responder ").append(f.mdnsResponderUp ? "up" : "down")
-          .append(" · DLNA ").append(f.dlnaUp ? "up" : "down").append('\n');
+            .append(" · mDNS responder ").append(f.mdnsResponderUp ? "up" : "down")
+            .append(" · DLNA ").append(f.dlnaUp ? "up" : "down").append('\n');
         sb.append("- worker: ").append(f.workerConfigured
             ? (f.workerHealthy ? "healthy" : "unreachable") : "not configured");
         if (!f.workerVersion.isEmpty()) sb.append(" (v").append(f.workerVersion).append(", storage ").append(f.workerStorage).append(')');
         sb.append('\n');
         sb.append("- player: ").append(f.playerState)
-          .append(f.playerError.isEmpty() ? "" : " — " + f.playerError).append('\n');
+            .append(f.playerError.isEmpty() ? "" : " — " + f.playerError).append('\n');
         sb.append("- subtitles: ").append(f.subsState)
-          .append(f.subsDetail.isEmpty() ? "" : " — " + f.subsDetail).append('\n');
+            .append(f.subsDetail.isEmpty() ? "" : " — " + f.subsDetail).append('\n');
         sb.append("- updater: ").append(f.updaterRan ? f.updaterResult : "not run this session").append('\n');
         sb.append("- permissions: notif=").append(f.notifGranted ? "on" : "off")
-          .append(" · overlay=").append(f.overlayGranted ? "on" : "off").append('\n');
+            .append(" · overlay=").append(f.overlayGranted ? "on" : "off").append('\n');
         sb.append('\n');
 
         // 2. auto-detected issues
@@ -365,6 +365,33 @@ public final class Troubleshooter {
             for (int i = from; i < arr.length; i++) if (!arr[i].isEmpty()) sb.append(arr[i]).append('\n');
         } else {
             for (String l : lines) sb.append(l).append('\n');
+        }
+        return PrivacyScrubber.scrub(sb.toString());
+    }
+
+    // ── v3.2.0 — the 10-POINT FULL-FEATURE PROBE REPORT (Phase 4) ─────────────
+
+    /**
+     * THE full-feature troubleshoot section: the 10-point matrix's outcomes
+     * (PASS ✓ and FAIL ✗ BOTH — the user demanded every result visible) as the
+     * "## Full-Feature Self-Test (10 points)" report section. Every outcome
+     * line is privacy-scrubbed (booleans + latencies + HTTP codes + app state
+     * names only). This section is appended by MainActivity's report builder
+     * after a probe run — the same 1-tap Copy/Share payload. */
+    public static String probeSection(java.util.List<FeatureProbe.Outcome> outcomes) {
+        StringBuilder sb = new StringBuilder(1024);
+        sb.append("## Full-Feature Self-Test (10 points)\n");
+        if (outcomes == null || outcomes.isEmpty()) {
+            sb.append("(not run yet — tap 🩺 Run Full App Troubleshoot)\n");
+        } else {
+            int pass = 0;
+            for (FeatureProbe.Outcome o : outcomes) {
+                sb.append(String.format(java.util.Locale.US, "%s %d. %s — %d ms — %s\n",
+                    o.pass ? "✓" : "✗", o.id, o.name, o.ms, o.detail == null ? "" : o.detail));
+                if (o.pass) pass++;
+            }
+            sb.append(String.format(java.util.Locale.US, "verdict: %d/10 PASS%s\n",
+                pass, pass == outcomes.size() ? " — ALL FEATURES HEALTHY" : ""));
         }
         return PrivacyScrubber.scrub(sb.toString());
     }

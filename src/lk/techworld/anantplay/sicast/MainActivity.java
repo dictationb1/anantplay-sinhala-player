@@ -77,11 +77,15 @@ public class MainActivity extends Activity {
     private ThemeEngine.Palette P;
 
     // ── tabs ───────────────────────────────────────────────────────────────────
-    private static final int TAB_HOME = 0, TAB_WEB = 1, TAB_SETTINGS = 2, TAB_DIAG = 3;
+    /** v3.2.0 — FIVE clean bottom tabs: 🏠 Home · 🌐 Web · 🎨 Customize · 🩺
+     *  Troubleshoot · (ℹ️ About inside Settings). The old Diagnostics tab
+     *  became the DEDICATED Troubleshoot hub (Smoking Gun #5); its settings
+     *  sub-pages merged into Customize. The Web tab is hideable (Appearance). */
+    private static final int TAB_HOME = 0, TAB_WEB = 1, TAB_SETTINGS = 2, TAB_DIAG = 3, TAB_TROUBLE = 4;
     private FrameLayout pages;
     private final List<TextView> tabIcons = new ArrayList<>();
     private final List<TextView> tabLabels = new ArrayList<>();
-    private View homePage, settingsPage, diagPage, webPage;
+    private View homePage, settingsPage, diagPage, webPage, troublePage;
     private LinearLayout bottomBar;
     /** v3.1.0 — the settings drill-down overlay (one sub-page at a time). */
     private View subPage;
@@ -101,6 +105,9 @@ public class MainActivity extends Activity {
     private volatile String workerVersionCache = "", workerStorageCache = "";
     private volatile boolean updaterRanFlag = false;
     private volatile String updaterResultCache = "not run this session";
+    /** v3.2.0 — the 10-point full-feature probe's live outcome list + the
+     *  Troubleshoot tab's result card (Smoking Gun #5). */
+    private volatile java.util.List<FeatureProbe.Outcome> probeOutcomes;
 
     // the web tab (created lazily — the first switch to it builds it)
     private WebBrowserView browser;
@@ -127,7 +134,7 @@ public class MainActivity extends Activity {
             try { requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7); } catch (Throwable ignored) { }
         }
         if (getIntent().getBooleanExtra("needMedia", false)) requestMediaPermission();
-        if (getIntent().getBooleanExtra("runTest", false)) { selectTab(TAB_DIAG); runSelfTest(); }
+        if (getIntent().getBooleanExtra("runTest", false)) { selectTab(TAB_TROUBLE); runFullTroubleshoot(); }
         // the live update banner: SelfUpdater's UI listener drives it (silent +
         // throttled since v3.1.0 — the banner is the ONLY visible update noise)
         SelfUpdater.setUiListener(new SelfUpdater.UiListener() {
@@ -144,7 +151,8 @@ public class MainActivity extends Activity {
     }
 
     /** Resolve the ThemeEngine palette for the current prefs (+ wallpaper seed
-     *  when dynamic color is on AND Android 12+) and paint the window. */
+     *  when dynamic color is on AND Android 12+) and paint the window.
+     *  v3.2.0 — the custom hex accent rides the same palette call. */
     private void applyTheme() {
         String mode = AppPrefs.themeMode(prefs);
         if (AppPrefs.THEME_SYSTEM.equals(mode)) {
@@ -161,7 +169,7 @@ public class MainActivity extends Activity {
                 Diag.w("theme", "dynamic color unavailable: " + t);
             }
         }
-        P = ThemeEngine.palette(mode, dynamicSeed, AppPrefs.accent(prefs));
+        P = ThemeEngine.palette(mode, dynamicSeed, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs));
     }
 
     /** The bilingual helper honoring the UI Language mode (Bilingual / si / en). */
@@ -233,18 +241,18 @@ public class MainActivity extends Activity {
         bottomBar = new LinearLayout(this);
         bottomBar.setOrientation(LinearLayout.HORIZONTAL);
         bottomBar.setBackgroundColor(P.card2);
-        // v3.1.0 — Custom Home/Tab Visibility: users who only cast get a clean
-        // 3-tab app (the WebView tab is toggled in Appearance settings).
+        // v3.2.0 — the 5-tab Mornye/Apple bar: the pill-indicator styling comes
+        // from the card radius token; the Web tab is still toggleable.
         boolean web = AppPrefs.showWebTab(prefs);
         String[][] tabs = web ? new String[][]{
             {"🏠", t("මුල", "Home")},
-            {"🌐", t("බ්‍රව්සර්", "WebView")},
-            {"⚙️", t("සැකසුම්", "Settings")},
-            {"🩺", t("දෝෂ නිර්ණය", "Diagnostics")},
+            {"🌐", t("බ්‍රව්සර්", "Web")},
+            {"🎨", t("අභිරුචි", "Customize")},
+            {"🩺", t("දෝෂ නිර්ණය", "Troubleshoot")},
         } : new String[][]{
             {"🏠", t("මුල", "Home")},
-            {"⚙️", t("සැකසුම්", "Settings")},
-            {"🩺", t("දෝෂ නිර්ණය", "Diagnostics")},
+            {"🎨", t("අභිරුචි", "Customize")},
+            {"🩺", t("දෝෂ නිර්ණය", "Troubleshoot")},
         };
         int[] tabIds = tabIdsInOrder();
         tabIcons.clear();
@@ -273,10 +281,10 @@ public class MainActivity extends Activity {
 
         homePage = buildHomeTab();
         settingsPage = buildSettingsTab();
-        diagPage = buildDiagTab();
+        troublePage = buildTroubleTab();
         pages.addView(homePage, new FrameLayout.LayoutParams(-1, -1));
         pages.addView(settingsPage, new FrameLayout.LayoutParams(-1, -1));
-        pages.addView(diagPage, new FrameLayout.LayoutParams(-1, -1));
+        pages.addView(troublePage, new FrameLayout.LayoutParams(-1, -1));
 
         // Android 16 edge-to-edge (targetSdk 35+ enforces it): pad the content
         // by the REAL insets — status bar above, gesture bar below, never a
@@ -297,15 +305,15 @@ public class MainActivity extends Activity {
 
     private int[] tabIdsInOrder() {
         return AppPrefs.showWebTab(prefs)
-            ? new int[]{TAB_HOME, TAB_WEB, TAB_SETTINGS, TAB_DIAG}
-            : new int[]{TAB_HOME, TAB_SETTINGS, TAB_DIAG};
+            ? new int[]{TAB_HOME, TAB_WEB, TAB_SETTINGS, TAB_TROUBLE}
+            : new int[]{TAB_HOME, TAB_SETTINGS, TAB_TROUBLE};
     }
 
     private void selectTab(int idx) {
         currentTab = idx;
         homePage.setVisibility(idx == TAB_HOME ? View.VISIBLE : View.GONE);
         settingsPage.setVisibility(idx == TAB_SETTINGS ? View.VISIBLE : View.GONE);
-        diagPage.setVisibility(idx == TAB_DIAG ? View.VISIBLE : View.GONE);
+        troublePage.setVisibility(idx == TAB_TROUBLE ? View.VISIBLE : View.GONE);
         if (idx == TAB_WEB && browser == null) {
             browser = new WebBrowserView(this);
             webPage = browser;
@@ -319,7 +327,7 @@ public class MainActivity extends Activity {
             tabLabels.get(i).setTextColor(on ? P.accentDim : P.desc);
             tabIcons.get(i).setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT, Typeface.NORMAL);
         }
-        if (idx == TAB_DIAG) refresh();
+        if (idx == TAB_TROUBLE) refresh();
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -662,14 +670,19 @@ public class MainActivity extends Activity {
             v -> openAppearance()));
         list.addView(categoryRow("💬", 0xFF8B5CF6,
             t("උපසිරැසි සහ විලුම් චිත්‍රාගාරය", "Subtitles & Style Studio"),
-            t("සජීවී preview සමඟ අකුරු ප්‍රමාණය · වර්ණ · පසුබිම · ස්ථානය",
-              "Font size · color · background · position, with a live preview"),
+            t("සජීවී preview · අකුරු · වර්ණ · එන්ජිමේ ප්‍රමුඛතාව · පරිවර්තනය",
+              "Live preview · font · color · engine priority · translate"),
             v -> openSubtitleStudio()));
         list.addView(categoryRow("🎬", 0xFF3B82F6,
-            t("ධාවනය", "Playback"),
-            t("Seek පියවර · gestures · Auto-PiP · resume · HUD",
-              "Seek step · gestures · Auto-PiP · resume · HUD"),
+            t("ධාවනය සහ gestures", "Playback & Gestures"),
+            t("වේගය · aspect · seek පියවර · PiP · resume · HUD",
+              "Speed · aspect · seek step · PiP · resume · HUD"),
             v -> openPlayback()));
+        list.addView(categoryRow("🌐", 0xFF38BDF8,
+            t("Web Player සහ Custom Links", "Web Player & Custom Links"),
+            t("අඩවි URL add/edit/reorder · UA · Ad blocker · auto-open",
+              "Site URLs add/edit/reorder · UA · Ad blocker · auto-open"),
+            v -> openWebPlayer()));
         list.addView(categoryRow("📡", 0xFF10B981,
             t("Cast සහ ජාලය", "Cast & Network"),
             t("නම · DLNA · mDNS · Worker URL · DoH", "Name · DLNA · mDNS · Worker URL · DoH"),
@@ -849,7 +862,52 @@ public class MainActivity extends Activity {
             }
             c2.addView(dots, widen());
             c2.addView(caption(ThemeEngine.ACCENT_NAMES[AppPrefs.accent(prefs)]));
+            // v3.2.0 — the CUSTOM #RRGGBB accent: one row, type a hex, it wins
+            // over both the preset dots and Dynamic Color (the explicit user
+            // choice, Mornye's own precedence).
+            final TextView hexRow = settingRow(c2, t("රිසි #RRGGBB වර්ණය", "Custom #RRGGBB accent"),
+                AppPrefs.accentHex(prefs).isEmpty() ? t("නැත (preset එක භාවිතා වේ)", "none (preset in use)")
+                    : "#" + AppPrefs.accentHex(prefs));
+            hexRow.setTextColor(AppPrefs.accentHex(prefs).isEmpty() ? P.desc : P.accent);
+            hexRow.setOnClickListener(v -> {
+                LinearLayout box = column();
+                box.setPadding(dp(6), dp(4), dp(6), 0);
+                final EditText in = new EditText(this);
+                in.setHint("#14b8a6");
+                in.setText(AppPrefs.accentHex(prefs).isEmpty() ? "" : "#" + AppPrefs.accentHex(prefs));
+                in.setTextSize(13f);
+                in.setTextColor(P.text);
+                box.addView(in, widen());
+                new android.app.AlertDialog.Builder(this)
+                    .setTitle(t("රිසි වර්ණය · Custom accent", "Custom accent"))
+                    .setView(box)
+                    .setPositiveButton("✓", (d, w) -> {
+                        String norm = AppPrefs.normalizeAccentHex(in.getText().toString());
+                        prefs.edit().putString(AppPrefs.K_ACCENT_HEX, norm).apply();
+                        if (!norm.isEmpty() && AppPrefs.dynamicColor(prefs)) {
+                            prefs.edit().putBoolean(AppPrefs.K_DYNAMIC_COLOR, false).apply();   // explicit > wallpaper
+                        }
+                        themeChanged();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            });
             content.addView(c2, widen());
+
+            // v3.2.0 — CARD CORNER RADIUS (sharp | rounded | Apple pill — the
+            // Mornye app_tokens.dart radius family as ONE user-facing shape).
+            LinearLayout c2b = card(P.card);
+            final TextView rad = settingRow(c2b, t("Card කොන් රේඛාව", "Card corner radius"), radiusLabel());
+            rad.setOnClickListener(v -> {
+                String cur = AppPrefs.normalizeCardRadius(prefs.getString(AppPrefs.K_CARD_RADIUS, AppPrefs.RADIUS_ROUNDED));
+                String next = AppPrefs.RADIUS_SHARP.equals(cur) ? AppPrefs.RADIUS_ROUNDED
+                    : (AppPrefs.RADIUS_ROUNDED.equals(cur) ? AppPrefs.RADIUS_PILL : AppPrefs.RADIUS_SHARP);
+                prefs.edit().putString(AppPrefs.K_CARD_RADIUS, next).apply();
+                rad.setText(radiusLabel());
+                themeChanged();
+            });
+            c2b.addView(caption(t("Sharp 6dp · Rounded 16dp · Apple Pill 24dp — Mornye tokens", "Sharp 6dp · Rounded 16dp · Apple Pill 24dp — Mornye tokens")));
+            content.addView(c2b, widen());
 
             // UI language mode
             LinearLayout c3 = card(P.card);
@@ -867,14 +925,24 @@ public class MainActivity extends Activity {
                     .setNegativeButton(android.R.string.cancel, null)
                     .show();
             });
-            // layout density
-            final TextView density = settingRow(c3, t("පිරිසැලසුම ඝනත්වය", "Layout density"),
-                AppPrefs.compact(prefs) ? t("සංයුක්ත", "Compact") : t("පහසු", "Comfortable"));
+            // layout density (v3.2.0: spacious | comfortable | compact)
+            final TextView density = settingRow(c3, t("පිරිසැලසුම ඝනත්වය", "Layout density"), densityLabel());
             density.setOnClickListener(v -> {
-                boolean compact = !AppPrefs.compact(prefs);
-                prefs.edit().putString(AppPrefs.K_DENSITY, compact ? AppPrefs.DENSITY_COMPACT : AppPrefs.DENSITY_COMFORTABLE).apply();
-                density.setText(compact ? t("සංයුක්ත", "Compact") : t("පහසු", "Comfortable"));
-                toast(t("නව cards වලට බලපායි", "applies to the cards"));
+                String cur = AppPrefs.normalizeDensity(prefs.getString(AppPrefs.K_DENSITY, AppPrefs.DENSITY_COMFORTABLE));
+                String next = AppPrefs.DENSITY_SPACIOUS.equals(cur) ? AppPrefs.DENSITY_COMFORTABLE
+                    : (AppPrefs.DENSITY_COMFORTABLE.equals(cur) ? AppPrefs.DENSITY_COMPACT : AppPrefs.DENSITY_SPACIOUS);
+                prefs.edit().putString(AppPrefs.K_DENSITY, next).apply();
+                density.setText(densityLabel());
+                themeChanged();
+            });
+            // quick-actions visibility (v3.2.0)
+            final TextView qa = settingRow(c3, t("ඉක්මන් ක්‍රියා බොත්තම්", "Quick action buttons"),
+                AppPrefs.showQuickActions(prefs) ? t("පෙන්වයි", "shown") : t("සැඟවියි", "hidden"));
+            qa.setTextColor(AppPrefs.showQuickActions(prefs) ? P.ok : P.desc);
+            qa.setOnClickListener(v -> {
+                boolean on = !AppPrefs.showQuickActions(prefs);
+                prefs.edit().putBoolean(AppPrefs.K_SHOW_QUICK_ACTIONS, on).apply();
+                themeChanged();
             });
             // WebView tab visibility
             final TextView web = settingRow(c3, t("WebView tab", "WebView tab"),
@@ -906,6 +974,22 @@ public class MainActivity extends Activity {
             case AppPrefs.UI_EN: return "English Only";
             default: return t("ද්විභාෂික", "Bilingual");
         }
+    }
+
+    /** v3.2.0 — the density label (3 modes). */
+    private String densityLabel() {
+        String d = AppPrefs.normalizeDensity(prefs.getString(AppPrefs.K_DENSITY, AppPrefs.DENSITY_COMFORTABLE));
+        if (AppPrefs.DENSITY_SPACIOUS.equals(d)) return t("විශාල · Spacious", "Spacious");
+        if (AppPrefs.DENSITY_COMPACT.equals(d)) return t("සංයුක්ත · Compact", "Compact");
+        return t("පහසු · Comfortable", "Comfortable");
+    }
+
+    /** v3.2.0 — the card-radius label. */
+    private String radiusLabel() {
+        String r = AppPrefs.normalizeCardRadius(prefs.getString(AppPrefs.K_CARD_RADIUS, AppPrefs.RADIUS_ROUNDED));
+        if (AppPrefs.RADIUS_SHARP.equals(r)) return t("Sharp (6dp)", "Sharp (6dp)");
+        if (AppPrefs.RADIUS_PILL.equals(r)) return t("Apple Pill (24dp)", "Apple Pill (24dp)");
+        return t("Rounded (16dp)", "Rounded (16dp)");
     }
 
     private static int indexOfVal(String[] vals, String v) {
@@ -948,11 +1032,23 @@ public class MainActivity extends Activity {
             final Runnable restyle = () -> {
                 preview.setTextSize(AppPrefs.fontSp(prefs));
                 preview.setTextColor(ThemeEngine.SUB_COLORS[AppPrefs.subColor(prefs)]);
-                preview.setTypeface(Typeface.DEFAULT,
-                    AppPrefs.subBold(prefs) ? Typeface.BOLD : Typeface.NORMAL);
-                if (AppPrefs.BG_OUTLINE.equals(AppPrefs.subBg(prefs))) {
+                // v3.2.0 — the studio preview uses the FAMILY too (noto/system/
+                // serif) and the line spacing (1.0–1.5), exactly what the player
+                // renders; Typeface.create() merges family + bold the ONE way.
+                Typeface family = AppPrefs.FONT_NOTO.equals(AppPrefs.fontFamily(prefs)) ? previewSiFont()
+                    : (AppPrefs.FONT_SERIF.equals(AppPrefs.fontFamily(prefs)) ? Typeface.SERIF : Typeface.DEFAULT);
+                preview.setTypeface(Typeface.create(family, AppPrefs.subBold(prefs) ? Typeface.BOLD : Typeface.NORMAL));
+                preview.setLineSpacing(dp(1), AppPrefs.subLineSpacing(prefs) / 100f);
+                String bg = AppPrefs.subBg(prefs);
+                if (AppPrefs.BG_OUTLINE.equals(bg)) {
                     preview.setBackgroundColor(0);
                     preview.setShadowLayer(dp(4), 0, 0, 0xFF000000);
+                } else if (AppPrefs.BG_BOX.equals(bg)) {
+                    preview.setBackgroundColor(ThemeEngine.pillColor(Math.max(90, AppPrefs.subBgOpacity(prefs))));
+                    preview.setShadowLayer(dp(2), 0, 0, 0x99000000);
+                } else if (AppPrefs.BG_SHADOW.equals(bg)) {
+                    preview.setBackgroundColor(0);
+                    preview.setShadowLayer(dp(6), 0, 0, 0xCC000000);
                 } else {
                     preview.setBackgroundColor(ThemeEngine.pillColor(AppPrefs.subBgOpacity(prefs)));
                     preview.setShadowLayer(dp(2), 0, 0, 0x99000000);
@@ -997,14 +1093,32 @@ public class MainActivity extends Activity {
             final TextView polishBtn = toggleRow(c1, "✨ Cinema Polish", AppPrefs.K_CINEMA_POLISH, true);
             content.addView(c1, widen());
 
-            // font size slider
+            // font size slider (v3.2.0: 14–40 sp)
             LinearLayout c2 = card(P.card);
-            c2.addView(sliderRow(t("අකුරේ ප්‍රමාණය · Font size", "Font size"), 14, 36,
+            c2.addView(sliderRow(t("අකුරේ ප්‍රමාණය · Font size", "Font size"), 14, 40,
                 AppPrefs.fontSp(prefs), " sp", v -> {
                     prefs.edit().putInt(AppPrefs.K_FONT_SP, v).apply();
                     restyle.run();
                 }));
-            // text color dots
+            // v3.2.0 — font family (Noto Sans Sinhala | System Sans | Serif)
+            final TextView famBtn = settingRow(c2, t("අකුරු පවුල · Font family", "Font family"),
+                AppPrefs.FONT_NOTO.equals(AppPrefs.fontFamily(prefs)) ? "Noto Sans Sinhala"
+                    : (AppPrefs.FONT_SERIF.equals(AppPrefs.fontFamily(prefs)) ? t("Serif · සෙරිෆ්", "Serif")
+                        : t("System Sans · පද්ධති", "System Sans")));
+            famBtn.setOnClickListener(v -> {
+                String cur = AppPrefs.fontFamily(prefs);
+                String next = AppPrefs.FONT_NOTO.equals(cur) ? AppPrefs.FONT_SYSTEM
+                    : (AppPrefs.FONT_SYSTEM.equals(cur) ? AppPrefs.FONT_SERIF : AppPrefs.FONT_NOTO);
+                prefs.edit().putString(AppPrefs.K_FONT_FAMILY, next).apply();
+                reopenStudio();
+            });
+            // v3.2.0 — line spacing 1.0–1.5 (Sinhala conjunct breathing room)
+            c2.addView(sliderRow(t("පේළි පරතරය · Line spacing", "Line spacing") + " (1.0–1.5)",
+                100, 150, AppPrefs.subLineSpacing(prefs), "%", v -> {
+                    prefs.edit().putInt(AppPrefs.K_SUB_LINE_SPACING, v).apply();
+                    restyle.run();
+                }));
+            // text color dots (v3.2.0: 6 presets)
             c2.addView(settingLabel(t("පෙළ වර්ණය · Text color", "Text color")));
             LinearLayout colors = new LinearLayout(this);
             colors.setOrientation(LinearLayout.HORIZONTAL);
@@ -1032,34 +1146,94 @@ public class MainActivity extends Activity {
             }
             c2.addView(colors, widen());
             c2.addView(caption(ThemeEngine.SUB_COLOR_NAMES[AppPrefs.subColor(prefs)]));
-            // background style
-            final TextView bgBtn = settingRow(c2, t("පසුබිම් රටාව", "Background style"),
-                AppPrefs.BG_OUTLINE.equals(AppPrefs.subBg(prefs))
-                    ? t("Crisp black edge/outline පමණයි", "Crisp black edge/outline only")
-                    : t("අර්ධ පාරදෘශ්‍ය pill", "Translucent pill"));
+            // background style (v3.2.0: pill | outline | full box | shadow-only)
+            final TextView bgBtn = settingRow(c2, t("පසුබිම් රටාව", "Background style"), bgStyleLabel());
             bgBtn.setOnClickListener(v -> {
-                boolean pill = AppPrefs.BG_OUTLINE.equals(AppPrefs.subBg(prefs));
-                prefs.edit().putString(AppPrefs.K_SUB_BG, pill ? AppPrefs.BG_PILL : AppPrefs.BG_OUTLINE).apply();
+                String cur = AppPrefs.subBg(prefs);
+                String next = AppPrefs.BG_PILL.equals(cur) ? AppPrefs.BG_OUTLINE
+                    : (AppPrefs.BG_OUTLINE.equals(cur) ? AppPrefs.BG_BOX
+                        : (AppPrefs.BG_BOX.equals(cur) ? AppPrefs.BG_SHADOW : AppPrefs.BG_PILL));
+                prefs.edit().putString(AppPrefs.K_SUB_BG, next).apply();
                 reopenStudio();
             });
             if (AppPrefs.BG_PILL.equals(AppPrefs.subBg(prefs))) {
-                c2.addView(sliderRow(t("Pill පාරදෘශ්‍යතාව · Pill opacity", "Pill opacity") + " (0–90%)",
-                    0, 90, AppPrefs.subBgOpacity(prefs), "%", v -> {
+                c2.addView(sliderRow(t("Pill පාරදෘශ්‍යතාව · Pill opacity", "Pill opacity") + " (0–95%)",
+                    0, 95, AppPrefs.subBgOpacity(prefs), "%", v -> {
                         prefs.edit().putInt(AppPrefs.K_SUB_BG_OPACITY, v).apply();
                         restyle.run();
                     }));
             }
-            final TextView boldBtn = toggleRow(c2, t("තද අකුරු · Bold text", "Bold text"), AppPrefs.K_SUB_BOLD, true,
-                restyle);
-            c2.addView(boldBtn);
-            c2.addView(sliderRow(t("පහළ ස්ථානය · Bottom position", "Bottom position") + " (4–28%)",
-                4, 28, AppPrefs.subBottomPct(prefs), "%", v -> {
+            if (AppPrefs.BG_BOX.equals(AppPrefs.subBg(prefs))) {
+                c2.addView(sliderRow(t("Box පාරදෘශ්‍යතාව · Box opacity", "Box opacity") + " (0–95%)",
+                    0, 95, AppPrefs.subBgOpacity(prefs), "%", v -> {
+                        prefs.edit().putInt(AppPrefs.K_SUB_BG_OPACITY, v).apply();
+                        restyle.run();
+                    }));
+            }
+            toggleRow(c2, t("තද අකුරු · Bold text (කුඩාකුරු පවුල රඳවා ගන්නී)", "Bold text (keeps the Sinhala family)"),
+                AppPrefs.K_SUB_BOLD, true, restyle);
+            c2.addView(sliderRow(t("පහළ ස්ථානය · Bottom position", "Bottom position") + " (2–35%)",
+                2, 35, AppPrefs.subBottomPct(prefs), "%", v -> {
                     prefs.edit().putInt(AppPrefs.K_SUB_BOTTOM_PCT, v).apply();
                     restyle.run();
                 }));
             content.addView(c2, widen());
+
+            // ── v3.2.0 — THE SUBTITLE ENGINE LAYER (the zero-quota studio) ──
+            LinearLayout c3 = card(P.card);
+            final TextView engBtn = settingRow(c3, t("උපසිරැසි එන්ජිමේ ප්‍රමුඛතාව", "Subtitle engine priority"),
+                engineLabel());
+            engBtn.setOnClickListener(v -> {
+                String cur = AppPrefs.subEngine(prefs);
+                String next = AppPrefs.ENGINE_HUMAN_PA_FREE.equals(cur) ? AppPrefs.ENGINE_HUMAN_FREE
+                    : (AppPrefs.ENGINE_HUMAN_FREE.equals(cur) ? AppPrefs.ENGINE_FREE
+                        : (AppPrefs.ENGINE_FREE.equals(cur) ? AppPrefs.ENGINE_WORKER : AppPrefs.ENGINE_HUMAN_PA_FREE));
+                prefs.edit().putString(AppPrefs.K_SUB_ENGINE, next).apply();
+                engBtn.setText(engineLabel());
+                toast(engineLabel());
+            });
+            c3.addView(caption(t("ලේයර්: 1) human Sinhala .srt/.zip  2) Worker keyless PA  3) නොමිලේ keyless පරිවර්තකය — කෝටා කවර වුණත් උපසිරැසි මැරෙන්නේ නැත.",
+                "Layers: 1) human Sinhala .srt/.zip  2) Worker keyless PA  3) free keyless on-device translator — subtitles never die of quota.")));
+            toggleRow(c3, t("සිංහල නොවන track ස්වයංක්‍රීයව පරිවර්තනය", "Auto-translate non-Sinhala tracks"),
+                AppPrefs.K_AUTO_TRANSLATE_NON_SI, true, null);
+            toggleRow(c3, t(".zip ස්වයංක්‍රීයව extract + attach", "Auto-extract .zip subtitles"),
+                AppPrefs.K_AUTO_ZIP, true, null);
+            toggleRow(c3, t("🆓 නොමිලේ keyless පරිවර්තකය (Layer 3)", "Free keyless translator (Layer 3)"),
+                AppPrefs.K_FREE_TRANSLATOR, true, null);
+            content.addView(c3, widen());
         });
     }
+
+    /** The engine priority label (the 4 orders). */
+    private String engineLabel() {
+        String e = AppPrefs.subEngine(prefs);
+        if (AppPrefs.ENGINE_HUMAN_FREE.equals(e)) return t("human → නොමිලේ පරිවර්තකය", "human → free translator");
+        if (AppPrefs.ENGINE_FREE.equals(e)) return t("නොමිලේ පරිවර්තකය පමණයි", "free translator only");
+        if (AppPrefs.ENGINE_WORKER.equals(e)) return t("Worker පමණයි (AI providers)", "Worker only (AI providers)");
+        return t("human → Worker PA → නොමිලේ (පෙරනිමි)", "human → Worker PA → free (default)");
+    }
+
+    /** The background-style label (4 styles). */
+    private String bgStyleLabel() {
+        String b = AppPrefs.subBg(prefs);
+        if (AppPrefs.BG_OUTLINE.equals(b)) return t("Crisp black edge/outline", "Crisp black edge/outline");
+        if (AppPrefs.BG_BOX.equals(b)) return t("සම්පූර්ණ box", "Full box");
+        if (AppPrefs.BG_SHADOW.equals(b)) return t("සෙවුම් පමණයි", "Drop shadow only");
+        return t("අර්ධ පාරදෘශ්‍ය pill", "Translucent pill");
+    }
+
+    /** The bundled Sinhala font for the studio preview (loaded once per activity). */
+    private Typeface previewSiFont() {
+        if (siFontPreview == null) {
+            try {
+                siFontPreview = Typeface.createFromAsset(getAssets(), "fonts/NotoSansSinhala-Regular.ttf");
+            } catch (Throwable t) {
+                siFontPreview = Typeface.DEFAULT;
+            }
+        }
+        return siFontPreview;
+    }
+    private Typeface siFontPreview;
 
     /** Re-open the studio (a dot/bg change repaints its own checkmarks). */
     private void reopenStudio() { openSubtitleStudio(); }
@@ -1070,10 +1244,32 @@ public class MainActivity extends Activity {
             : "spoken".equals(o) ? t("කතා වහර · Spoken", "Spoken") : t("උගත් වහර · Formal", "Formal");
     }
 
-    // ── 🎬 Playback ─────────────────────────────────────────────────────────────
+    // ── 🎬 Playback & Gestures (v3.2.0: speed · aspect · double-tap) ────────────
 
     private void openPlayback() {
-        openSub("🎬 " + t("ධාවනය", "Playback"), content -> {
+        openSub("🎬 " + t("ධාවනය සහ gestures", "Playback & Gestures"), content -> {
+            LinearLayout c0 = card(P.card);
+            // v3.2.0 — DEFAULT PLAYBACK SPEED (0.5x–2.0x): a slider (per-mille),
+            // applied by PlayActivity at every open.
+            c0.addView(sliderRow(t("පෙරනිමි ධාවන වේගය · Default speed", "Default speed") + " (0.5x–2.0x)",
+                50, 200, AppPrefs.playSpeedPm(prefs), "%", v -> {
+                    prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, v).apply();
+                }));
+            c0.addView(caption(String.format(java.util.Locale.US, "%.2fx — %s",
+                AppPrefs.playSpeedPm(prefs) / 100f,
+                t("සෑම වීඩියෝවක්ම මෙයින් ඇරඹේ", "every video opens at this speed"))));
+            // v3.2.0 — DEFAULT ASPECT MODE (fit | fill | zoom)
+            final TextView asp = settingRow(c0, t("පෙරනිමි රූප පරිමාණය · Default aspect", "Default aspect"),
+                AppPrefs.aspectMode(prefs));
+            asp.setOnClickListener(v -> {
+                String cur = AppPrefs.aspectMode(prefs);
+                String next = AppPrefs.ASPECT_FIT.equals(cur) ? AppPrefs.ASPECT_FILL
+                    : (AppPrefs.ASPECT_FILL.equals(cur) ? AppPrefs.ASPECT_ZOOM : AppPrefs.ASPECT_FIT);
+                prefs.edit().putString(AppPrefs.K_ASPECT_MODE, next).apply();
+                asp.setText(next);
+            });
+            content.addView(c0, widen());
+
             LinearLayout c1 = card(P.card);
             final TextView seek = settingRow(c1, t("Seek පියවර", "Seek step"),
                 (AppPrefs.seekStepMs(prefs) / 1000) + " s");
@@ -1091,6 +1287,7 @@ public class MainActivity extends Activity {
             });
             toggleRow(c1, t("Swipe gestures (දීප්තිය · ශබ්දය)", "Swipe gestures (brightness · volume)"),
                 AppPrefs.K_GESTURES, true);
+            toggleRow(c1, t("ද්විත්ව-තට්ටු seek", "Double-tap side seek"), AppPrefs.K_DOUBLE_TAP_SEEK, true);
             toggleRow(c1, "Auto-PiP", AppPrefs.K_AUTO_PIP, true);
             toggleRow(c1, t("තිරය අවදියෙන් තබාගන්න", "Keep screen on"), AppPrefs.K_KEEP_SCREEN_ON, true);
             toggleRow(c1, t("අවසාන ස්ථානයෙන් ඉබේම", "Auto-resume last position"), AppPrefs.K_AUTO_RESUME, true);
@@ -1100,8 +1297,8 @@ public class MainActivity extends Activity {
             final TextView hud = settingRow(c2, t("පාලක සැඟවීමේ ප්‍රමාදය", "Auto-hide controls delay"),
                 (AppPrefs.hudHideMs(prefs) / 1000) + " s");
             hud.setOnClickListener(v -> {
-                final long[] vals = {2000, 4000, 6000};
-                String[] labels = {"2 s", "4 s", "6 s"};
+                final long[] vals = {2000, 4000, 6000, 8000};
+                String[] labels = {"2 s", "4 s", "6 s", "8 s"};
                 new android.app.AlertDialog.Builder(this)
                     .setTitle(t("පාලක සැඟවීමේ ප්‍රමාදය", "Auto-hide controls delay"))
                     .setItems(labels, (d, which) -> {
@@ -1127,6 +1324,159 @@ public class MainActivity extends Activity {
             });
             content.addView(c2, widen());
         });
+    }
+
+    // ── 🌐 Web Player & Custom Links (v3.2.0 — the Mornye drill-down pattern) ───
+
+    /**
+     * v3.2.0 — THE CUSTOM LINKS MANAGER: users can Add / Edit / Rename /
+     * Reorder / Delete their streaming-site quick-launch URLs (the "so users
+     * can update/replace links anytime without needing an app update"
+     * contract), plus the WebView policy toggles (Desktop UA, Ad/Popup
+     * Blocker, Auto-Sniff & Auto-Open). Pure preferences — WebBrowserView
+     * reads the same list on every build, so a link edit is live on the next
+     * Web tab open, zero app update needed. */
+    private void openWebPlayer() {
+        openSub("🌐 " + t("Web Player සහ Custom Links", "Web Player & Custom Links"), content -> {
+            content.addView(caption(t("ඔබේම අඩවි ලැයිස්තුව — අලුත් link එකක් හදාගන්න, නම් කරන්න, අනුපිළැවෙන්න, මකන්න — app යාවත්කාලීනයක් අවශ්‍ය නැත.",
+                "Your own site list — add, rename, reorder or delete streaming links any time; no app update ever needed.")));
+
+            // ── the links list (live CRUD) ──
+            final LinearLayout linkCard = card(P.card);
+            content.addView(linkCard, widen());
+            paintLinks(linkCard);
+
+            // ── the add row ──
+            LinearLayout addCard = card(P.card);
+            final EditText nameIn = new EditText(this);
+            nameIn.setHint(t("අඩවියේ නම (උදා: Baiscope)", "Site name (e.g. Baiscope)"));
+            nameIn.setTextSize(13f);
+            nameIn.setTextColor(P.text);
+            nameIn.setHintTextColor(P.desc);
+            addCard.addView(nameIn, widen());
+            final EditText urlIn = new EditText(this);
+            urlIn.setHint("https://…");
+            urlIn.setTextSize(13f);
+            urlIn.setTextColor(P.text);
+            urlIn.setHintTextColor(P.desc);
+            addCard.addView(urlIn, widen());
+            Button add = btnPrimary("➕ " + t("link එක එකතු කරන්න", "Add the link"));
+            add.setOnClickListener(v -> {
+                String nm = nameIn.getText().toString().trim();
+                String ul = urlIn.getText().toString().trim();
+                if (nm.isEmpty() || ul.length() < 8) { toast(t("නමයි URL යයි දෙකම අවශ්‍යයි", "both a name and a URL are needed")); return; }
+                if (!(ul.startsWith("https://") || ul.startsWith("http://"))) { toast(t("http(s) URL පමණයි", "http(s) URLs only")); return; }
+                List<AppPrefs.Link> links = new ArrayList<>(AppPrefs.webLinks(prefs));
+                for (AppPrefs.Link l : links) if (l.url.equals(ul)) { toast(t("URL එක දැනටමත් තියෙනවා", "already in the list")); return; }
+                if (links.size() >= 8) { toast(t("link 8ක් පමණයි (පිළිවෙලින්)", "at most 8 links (in order)")); return; }
+                links.add(new AppPrefs.Link(nm, ul));
+                prefs.edit().putString(AppPrefs.K_WEB_LINKS, AppPrefs.serializeLinks(links)).apply();
+                nameIn.setText(""); urlIn.setText("");
+                paintLinks(linkCard);
+                toast("➕ " + nm);
+            });
+            addCard.addView(add, widen());
+            content.addView(addCard, widen());
+
+            // ── the WebView policy toggles ──
+            LinearLayout c2 = card(P.card);
+            toggleRow(c2, t("🖥 Desktop User-Agent", "Desktop User-Agent"),
+                AppPrefs.K_WEB_DESKTOP_UA, false, null);
+            toggleRow(c2, t("🚫 Ad/Popup Blocker", "Ad/Popup Blocker"),
+                AppPrefs.K_AD_BLOCK, true, null);
+            toggleRow(c2, t("⚡ Auto-Sniff & Auto-Open Cinema Player", "Auto-Sniff & Auto-Open Cinema Player"),
+                AppPrefs.K_AUTO_OPEN_SNIFFED, false, null);
+            content.addView(c2, widen());
+        });
+    }
+
+    /** Paint the links list card (rename/reorder/delete per link, 1 tap each). */
+    private void paintLinks(final LinearLayout linkCard) {
+        linkCard.removeAllViews();
+        final List<AppPrefs.Link> links = AppPrefs.webLinks(prefs);
+        if (links.isEmpty()) {
+            linkCard.addView(caption(t("තව link නැත — පහළින් එකක් එකතු කරන්න. Web ටැබ් එකේ ⚡ launcher එක මෙයින් පිරේ.",
+                "No links yet — add one below. The Web tab's ⚡ quick launcher fills from here.")));
+            return;
+        }
+        for (int i = 0; i < links.size(); i++) {
+            final int idx = i;
+            final AppPrefs.Link l = links.get(i);
+            LinearLayout r = row();
+            r.setGravity(Gravity.CENTER_VERTICAL);
+            r.setPadding(0, dp(6), 0, dp(6));
+            TextView nm = new TextView(this);
+            nm.setText("• " + l.name);
+            nm.setTextColor(P.text);
+            nm.setTextSize(13f);
+            r.addView(nm, new LinearLayout.LayoutParams(0, -2, 1f));
+            TextView ul = new TextView(this);
+            ul.setText(StreamSniffer.hostOf(l.url));
+            ul.setTextColor(P.desc);
+            ul.setTextSize(11f);
+            r.addView(ul, new LinearLayout.LayoutParams(-2, -2));
+            Button up = smallBtn("↑");
+            LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(dp(26), dp(30));
+            ulp.leftMargin = dp(4);
+            up.setLayoutParams(ulp);
+            up.setOnClickListener(v -> {
+                if (idx == 0) return;
+                java.util.Collections.swap(links, idx, idx - 1);
+                prefs.edit().putString(AppPrefs.K_WEB_LINKS, AppPrefs.serializeLinks(links)).apply();
+                paintLinks(linkCard);
+            });
+            r.addView(up, ulp);
+            Button dn = smallBtn("↓");
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(26), dp(30));
+            dn.setLayoutParams(dlp);
+            dn.setOnClickListener(v -> {
+                if (idx >= links.size() - 1) return;
+                java.util.Collections.swap(links, idx, idx + 1);
+                prefs.edit().putString(AppPrefs.K_WEB_LINKS, AppPrefs.serializeLinks(links)).apply();
+                paintLinks(linkCard);
+            });
+            r.addView(dn, dlp);
+            Button del = smallBtn("🗑");
+            LinearLayout.LayoutParams delp = new LinearLayout.LayoutParams(dp(30), dp(30));
+            delp.leftMargin = dp(4);
+            del.setLayoutParams(delp);
+            del.setOnClickListener(v -> {
+                links.remove(idx);
+                prefs.edit().putString(AppPrefs.K_WEB_LINKS, AppPrefs.serializeLinks(links)).apply();
+                paintLinks(linkCard);
+                toast("🗑 " + l.name);
+            });
+            r.addView(del, delp);
+            // 1-tap rename
+            nm.setOnClickListener(v -> {
+                LinearLayout box = column();
+                box.setPadding(dp(6), dp(4), dp(6), 0);
+                final EditText in = new EditText(this);
+                in.setText(l.name);
+                in.setTextSize(13f);
+                in.setTextColor(P.text);
+                box.addView(in, widen());
+                new android.app.AlertDialog.Builder(this)
+                    .setTitle(t("නම වෙනස් කරන්න · rename", "Rename the link"))
+                    .setView(box)
+                    .setPositiveButton("✓", (d, w) -> {
+                        String nn = in.getText().toString().trim();
+                        if (nn.isEmpty()) return;
+                        List<AppPrefs.Link> cur = new ArrayList<>(AppPrefs.webLinks(prefs));
+                        if (idx < cur.size()) cur.set(idx, new AppPrefs.Link(nn, l.url));
+                        prefs.edit().putString(AppPrefs.K_WEB_LINKS, AppPrefs.serializeLinks(cur)).apply();
+                        paintLinks(linkCard);
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            });
+            // 1-tap open
+            r.setOnClickListener(v -> {
+                selectTab(TAB_WEB);
+                if (browser != null) browser.load(l.url);
+            });
+            linkCard.addView(r, widen());
+        }
     }
 
     // ── 📡 Cast & Network ──────────────────────────────────────────────────────
@@ -1474,30 +1824,48 @@ public class MainActivity extends Activity {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // TAB 4 — DIAGNOSTICS (health cards · LAST CRASH · self-test · log)
+    // TAB — 🩺 TROUBLESHOOT (v3.2.0: the DEDICATED 1-tap full-feature hub)
+    // The v3.1.2 Diagnostics tab, upgraded per Smoking Gun #5:
+    //   · ONE master hero button runs the 10-POINT FULL-FEATURE self-test
+    //     (FeatureProbe.runAll — every app feature, PASS ✓ / FAIL ✗ + latency +
+    //     root cause, live as each probe lands);
+    //   · 📋 Copy Full Troubleshoot Report / 📤 Share Report carry the probe
+    //     section (Troubleshooter.probeSection) — 100% Privacy-Safe;
+    //   · the health summary, the top-first Last-Crash card and the Diag log
+    //     viewer stay (they were right already).
     // ═══════════════════════════════════════════════════════════════════════════
 
-    private View buildDiagTab() {
+    /** The live probe result card (rebuilt by each onProbeDone). */
+    private LinearLayout probeCard;
+
+    private View buildTroubleTab() {
         ScrollView scroll = new ScrollView(this);
         scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
         LinearLayout root = column();
         scroll.addView(root, new ViewGroup.LayoutParams(-1, -2));
 
-        // ── v3.1.2 — THE HERO ROW: 1-tap Copy Full Troubleshoot Report + Share ──
-        // (privacy-safe: PrivacyScrubber guards every line, zero phone details)
-        Button hero = btnPrimary("📋 " + t("Copy Full Troubleshoot Report (Privacy-Safe)",
-            "Copy Full Troubleshoot Report (Privacy-Safe)"));
-        hero.setOnClickListener(v -> copyTroubleshootReport());
+        // ── THE MASTER HERO: ONE tap runs EVERYTHING ──
+        Button hero = btnPrimary("🩺 " + t("සම්පූර්ණ ඇප් පරීක්ෂණය ධාවනය කරන්න (සියලු විශේෂාංග)",
+            "Run Full App Troubleshoot (All Features)"));
+        hero.setOnClickListener(v -> runFullTroubleshoot());
         root.addView(hero, widen());
         LinearLayout hero2 = row();
-        Button shareRep = smallBtn("📤 " + t("Share Report", "Share Report"));
+        Button shareRep = smallBtn("📤 " + t("Report බෙදාගන්න", "Share Report"));
         shareRep.setOnClickListener(v -> shareTroubleshootReport());
         hero2.addView(shareRep, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button deep = smallBtn("🩺 " + t("Run Deep Troubleshoot", "Run Deep Troubleshoot"));
-        deep.setOnClickListener(v -> runDeepTroubleshoot());
-        hero2.addView(deep, new LinearLayout.LayoutParams(0, -2, 1f));
+        Button copyRep = smallBtn("📋 " + t("Report copy", "Copy Report"));
+        copyRep.setOnClickListener(v -> copyTroubleshootReport());
+        hero2.addView(copyRep, new LinearLayout.LayoutParams(0, -2, 1f));
         root.addView(hero2, widen());
+        root.addView(caption(t("10-ජංගම ස්වයං-පරීක්ෂණය: receiver · DLNA · mDNS · යාවත්කාලීන · worker · උපසිරැසි · පරිවර්තක · zip · ෆොන්ට් · නිර්ණාමකය — 100% රහස්‍යතා-ආරක්ෂිතයි.",
+            "10-point live self-test: receiver · DLNA · mDNS · updater · worker · subtitles · translator · zip · font · customizer — 100% privacy-safe.")));
 
+        // ── THE LIVE 10-POINT PROBE CARD (one line per feature) ──
+        probeCard = card(P.card);
+        root.addView(probeCard, widen());
+        paintProbeCard();
+
+        // ── the classic health summary (still the at-a-glance state) ──
         root.addView(sectionTitle(t("සෞඛ්‍ය සාරාංශය", "Health summary")));
         LinearLayout health = card(P.card);
         healthLoopback = healthRow(health, t("ලූප්බැක් රිසීවරය (port 8765)", "Loopback receiver (port 8765)"));
@@ -1521,19 +1889,13 @@ public class MainActivity extends Activity {
             paintHealth(healthBridge, bridgeConfigured(), bridgeConfigured() ? t("වින්‍යාස කළා", "configured") : t("worker URL නැත", "worker URL missing"));
         });
 
-        // ── v3.1.0 (Bug 2) — THE LAST CRASH CARD: the CrashLog report ──
-        // v3.1.2 — TOP-FIRST: the exception class + message + the first app
-        // frames lead (the v3.1.1 card showed only the useless bottom
-        // Handler.dispatchMessage tail). Full trace on 1-tap Copy/Share.
+        // ── the Last-Crash card (top-first) ──
         crashCard = card(0xFF1F0A08);
         root.addView(crashCard, widen());
         refreshers.add(() -> paintCrashCard());
 
-        // the 1-tap buttons
+        // ── the 1-tap log buttons ──
         LinearLayout b1 = row();
-        Button run = btnPrimary("🧪 " + t("Run Self-Test", "Run Self-Test"));
-        run.setOnClickListener(v -> runSelfTest());
-        b1.addView(run, new LinearLayout.LayoutParams(0, -2, 1f));
         Button copy = smallBtn("📋 " + t("Copy Log", "Copy Log"));
         copy.setOnClickListener(v -> {
             android.content.ClipboardManager cm = (android.content.ClipboardManager)
@@ -1542,8 +1904,6 @@ public class MainActivity extends Activity {
             toast("📋 " + t("copied ✓ — කොහෙහරි paste කරන්න", "copied ✓ — paste anywhere"));
         });
         b1.addView(copy, new LinearLayout.LayoutParams(0, -2, 1f));
-        root.addView(b1, widen());
-        LinearLayout b2 = row();
         Button share = smallBtn("📤 " + t("Share Log", "Share Log"));
         share.setOnClickListener(v -> {
             Intent i = new Intent(Intent.ACTION_SEND);
@@ -1552,7 +1912,9 @@ public class MainActivity extends Activity {
             i.putExtra(Intent.EXTRA_SUBJECT, "Sinhala Player diagnostics v" + AppInfo.VERSION_NAME);
             try { startActivity(Intent.createChooser(i, t("Log බෙදාගන්න", "Share log"))); } catch (Throwable t) { toast("no share target"); }
         });
-        b2.addView(share, new LinearLayout.LayoutParams(0, -2, 1f));
+        b1.addView(share, new LinearLayout.LayoutParams(0, -2, 1f));
+        root.addView(b1, widen());
+        LinearLayout b2 = row();
         Button clear = smallBtn("🗑 " + t("Clear Log", "Clear Log"));
         clear.setOnClickListener(v -> {
             Diag.reset();
@@ -1561,21 +1923,25 @@ public class MainActivity extends Activity {
             refresh();
         });
         b2.addView(clear, new LinearLayout.LayoutParams(0, -2, 1f));
+        Button stale = smallBtn("🗑 " + t("Crash log හිස් කරන්න", "Clear crash log"));
+        stale.setOnClickListener(v -> {
+            CrashLog.clear(getFilesDir());
+            toast(t("crash log හිස් කළා", "crash log cleared"));
+            refresh();
+        });
+        b2.addView(stale, new LinearLayout.LayoutParams(0, -2, 1f));
         root.addView(b2, widen());
 
         selfTestLine = new TextView(this);
         selfTestLine.setTextColor(P.accentDim);
         selfTestLine.setTextSize(12.5f);
         selfTestLine.setPadding(0, dp(8), 0, dp(4));
-        selfTestLine.setText(t("Self-test: loopback → mDNS (probe + discovery) → DLNA → bridge.",
-            "Self-test: loopback → mDNS (probe + discovery) → DLNA → bridge."));
+        selfTestLine.setText(t("10-ජංගම පරීක්ෂණය ඉහත hero බොත්තමෙන් — ප්‍රතිඵල මෙහි පෙනේ.",
+            "The 10-point test runs from the hero button above — results land here."));
         root.addView(selfTestLine, widen());
 
-        // v3.1.2 — the log viewer OVERLAP FIX: the v3.1.1 fixed-height (420dp)
-        // TextView with an internal ScrollingMovementMethod rendered overlapping
-        // lines on the field phone. A real ScrollView wrapping a wrap-content
-        // monospace TextView cannot overlap by construction, and the card no
-        // longer reserves a giant fixed block.
+        // v3.1.2 — the log viewer OVERLAP FIX: a real ScrollView wrapping a
+        // wrap-content monospace TextView cannot overlap by construction.
         LinearLayout logCard = card(P.card2);
         ScrollView logScroll = new ScrollView(this);
         logScroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
@@ -1586,8 +1952,6 @@ public class MainActivity extends Activity {
         logView.setTextIsSelectable(true);
         logScroll.addView(logView, new ViewGroup.LayoutParams(-1, -2));
         logCard.addView(logScroll, new LinearLayout.LayoutParams(-1, -2));
-        // bounded height, but the CONTENT flows inside its own scroller —
-        // zero overlap, zero giant empty block (the v3.1.2 fix)
         LinearLayout.LayoutParams logLp = new LinearLayout.LayoutParams(-1, dp(360));
         logLp.topMargin = dp(6);
         root.addView(logCard, logLp);
@@ -1595,6 +1959,118 @@ public class MainActivity extends Activity {
         root.addView(caption(t("Log: සෑම event එකම — secrets redacted. Copy = සම්පූර්ණ ring එක.",
             "Log: every event, secrets redacted. Copy = the whole ring.")));
         return scroll;
+    }
+
+    /** The probe result card: one row per FeatureProbe outcome (✓/✗ + ms + detail). */
+    private void paintProbeCard() {
+        if (probeCard == null) return;
+        probeCard.removeAllViews();
+        java.util.List<FeatureProbe.Outcome> outcomes = probeOutcomes;
+        if (outcomes == null || outcomes.isEmpty()) {
+            TextView idle = new TextView(this);
+            idle.setText(t("තව පරීක්ෂණයක් ධාවනය වී නැත — ඉහත hero බොත්තම ඔබන්න.",
+                "No full-feature run yet — tap the hero button above."));
+            idle.setTextColor(P.desc);
+            idle.setTextSize(12f);
+            probeCard.addView(idle, widen());
+            return;
+        }
+        int pass = 0;
+        for (FeatureProbe.Outcome o : outcomes) {
+            if (o.pass) pass++;
+            LinearLayout line = row();
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            line.setPadding(0, dp(4), 0, dp(4));
+            TextView mark = new TextView(this);
+            mark.setText(o.pass ? "✓" : "✗");
+            mark.setTextColor(o.pass ? P.ok : P.err);
+            mark.setTextSize(14f);
+            mark.setTypeface(Typeface.DEFAULT_BOLD);
+            line.addView(mark, new LinearLayout.LayoutParams(dp(24), -2));
+            TextView name = new TextView(this);
+            name.setText(o.id + ". " + o.name);
+            name.setTextColor(P.text);
+            name.setTextSize(12.5f);
+            line.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+            TextView ms = new TextView(this);
+            ms.setText(o.ms + " ms");
+            ms.setTextColor(P.desc);
+            ms.setTextSize(11f);
+            line.addView(ms, new LinearLayout.LayoutParams(-2, -2));
+            probeCard.addView(line, widen(0, 0));
+            TextView detail = new TextView(this);
+            detail.setText("    " + (o.detail == null ? "" : o.detail));
+            detail.setTextColor(P.desc);
+            detail.setTextSize(11f);
+            probeCard.addView(detail, widen(0, 0));
+        }
+        TextView verdict = new TextView(this);
+        verdict.setText(t("තීරණය: " + pass + "/10 PASS" + (pass == outcomes.size() ? " — සියලු විශේෂාංග සෞඛ්‍යසම්පූර්ණයි" : ""),
+            "Verdict: " + pass + "/10 PASS" + (pass == outcomes.size() ? " — ALL FEATURES HEALTHY" : "")));
+        verdict.setTextColor(pass == outcomes.size() ? P.ok : P.warn);
+        verdict.setTextSize(12.5f);
+        verdict.setTypeface(Typeface.DEFAULT_BOLD);
+        verdict.setPadding(0, dp(6), 0, 0);
+        probeCard.addView(verdict, widen());
+    }
+
+    /**
+     * v3.2.0 — THE ONE-TAP FULL-FEATURE TROUBLESHOOT (Smoking Gun #5):
+     * FeatureProbe.runAll on a background thread, every probe start/done lands
+     * live in the probe card, every outcome is recorded in the Troubleshooter
+     * timeline (privacy-scrubbed) and the final report carries the whole
+     * section. One guard: never two runs at once. */
+    private final java.util.concurrent.atomic.AtomicBoolean probeRunning =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    private void runFullTroubleshoot() {
+        if (!probeRunning.compareAndSet(false, true)) {
+            toast(t("පරීක්ෂණය දැනටමත් ක්‍රියාත්මකයි", "a troubleshoot run is already active"));
+            return;
+        }
+        probeOutcomes = new ArrayList<>();
+        selfTestLine.setText(t("සම්පූර්ණ පරීක්ෂණය ධාවනය වෙමින්… · running all 10 feature probes…",
+            "running all 10 feature probes…"));
+        Diag.i("trouble", "full-feature troubleshoot start (10 probes)");
+        new Thread(() -> {
+            try {
+                MdnsResponder rsp = ReceiverService.liveResponder();
+                java.util.List<FeatureProbe.Outcome> outcomes = FeatureProbe.runAll(
+                    ReceiverService.port(),
+                    AppPrefs.workerUrl(prefs),
+                    getFilesDir(),
+                    rsp != null && rsp.isRunning(),
+                    new FeatureProbe.Listener() {
+                        @Override public void onProbeStart(int id, String name) {
+                            main.post(() -> selfTestLine.setText("… " + id + "/10 " + name));
+                        }
+                        @Override public void onProbeDone(FeatureProbe.Outcome o) {
+                            Troubleshooter.record("APP", "probe " + o.id + " " + o.name
+                                + " → " + (o.pass ? "PASS" : "FAIL") + " (" + o.ms + " ms)");
+                            java.util.List<FeatureProbe.Outcome> list = probeOutcomes;
+                            if (list != null) {
+                                list.add(o);
+                                main.post(MainActivity.this::paintProbeCard);
+                            }
+                        }
+                    });
+                probeOutcomes = outcomes;
+                int pass = 0;
+                for (FeatureProbe.Outcome o : outcomes) if (o.pass) pass++;
+                final boolean all = pass == outcomes.size();
+                final int passCount = pass;
+                Diag.i("trouble", "full-feature troubleshoot: " + pass + "/10 PASS");
+                main.post(() -> {
+                    selfTestLine.setText((all ? "🩺 ✓ " : "🩺 ✗ ") + passCount + "/10 "
+                        + t("විශේෂාංග PASS — report එක copy කරන්න", "features PASS — copy the report"));
+                    selfTestLine.setTextColor(all ? P.ok : P.warn);
+                    paintProbeCard();
+                    refresh();
+                });
+            } finally {
+                probeRunning.set(false);
+            }
+        }, "si-probe").start();
     }
 
     // ── v3.1.2 — the 1-tap privacy-safe troubleshoot report ────────────────────
@@ -1635,10 +2111,13 @@ public class MainActivity extends Activity {
         return f;
     }
 
-    /** The complete 1-tap report (Status Summary + Issues + Crash + Timeline). */
+    /** The complete 1-tap report (Status Summary + Issues + Probes + Crash + Timeline). */
     private String troubleshootReport() {
         Troubleshooter.Facts f = collectFacts();
-        return Troubleshooter.buildReport(f, Diag.dump(), CrashLog.read(getFilesDir()));
+        // v3.2.0 — the 10-point probe section rides IN the same payload (the
+        // run's results are permanent until the next run).
+        return Troubleshooter.buildReport(f, Diag.dump(), CrashLog.read(getFilesDir()))
+            + "\n" + Troubleshooter.probeSection(probeOutcomes);
     }
 
     private void copyTroubleshootReport() {
@@ -1752,274 +2231,9 @@ public class MainActivity extends Activity {
     // v3.1.2 — THE DEEP TROUBLESHOOT (6 real active stages, privacy-safe)
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /** v2.3.1 — the re-entry guard: one Self-test at a time. */
-    private final java.util.concurrent.atomic.AtomicBoolean selfTestRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
-    /** v3.1.2 — the deep troubleshoot's own guard. */
-    private final java.util.concurrent.atomic.AtomicBoolean deepRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
 
-    /**
-     * 🩺 Run Deep Troubleshoot — the real 6-stage ACTIVE self-test:
-     *   1. Loopback HTTP against our own receiver (/info on port 8765);
-     *   2. DLNA E2E loopback (SSDP responder up + desc.xml fetch);
-     *   3. mDNS wire (the responder's kernel-loopback probe);
-     *   4. Worker /health (version + storage + providers, cached for the report);
-     *   5. Worker live subtitle-resolve dry-run (/api/resolve for a known title
-     *      — proves the full cast→subs path without starting playback);
-     *   6. Player readiness (our ExoPlayer surface state).
-     * Every stage lands in the Troubleshooter timeline (privacy-scrubbed) and the
-     * verdict shows in selfTestLine. The structured report is ONE tap away.
-     */
-    private void runDeepTroubleshoot() {
-        if (!deepRunning.compareAndSet(false, true)) {
-            toast(t("Deep troubleshoot දැනටමත් ක්‍රියාත්මකයි", "Deep troubleshoot already running"));
-            return;
-        }
-        selfTestLine.setText(t("ගැඹුරු පරීක්ෂණය ක්‍රියාත්මකයි… · deep troubleshoot running…", "deep troubleshoot running…"));
-        Diag.i("deepdiag", "start (6 stages)");
-        final StringBuilder report = new StringBuilder();
-        final boolean[] pass = {true};
-        new Thread(() -> {
-            try {
-                // 1. loopback receiver
-                int port = ReceiverService.port();
-                if (port < 0) { pass[0] = false; report.append("receiver down. "); Troubleshooter.record("CAST", "stage1 loopback: receiver down"); }
-                else {
-                    try {
-                        HttpURLConnection c = (HttpURLConnection) new URL("http://127.0.0.1:" + port + "/info").openConnection();
-                        c.setConnectTimeout(1500); c.setReadTimeout(1500);
-                        String body = new String(readAll(c.getInputStream()), StandardCharsets.UTF_8);
-                        c.disconnect();
-                        boolean ok = body.contains("\"ok\":true");
-                        if (!ok) { pass[0] = false; report.append("loopback BAD, "); } else report.append("loopback ✓, ");
-                        Troubleshooter.record("CAST", "stage1 loopback /info: " + (ok ? "ok" : "BAD"));
-                    } catch (Exception e) {
-                        pass[0] = false; report.append("loopback failed, ");
-                        Troubleshooter.record("CAST", "stage1 loopback: " + e);
-                    }
-                }
-                // 2. DLNA E2E loopback
-                DlnaRenderer d = ReceiverService.liveDlnaRenderer();
-                boolean dlnaUp = d != null && d.isRunning();
-                if (dlnaUp && port > 0) {
-                    try {
-                        HttpURLConnection c = (HttpURLConnection) new URL("http://127.0.0.1:" + port + "/dlna/desc.xml").openConnection();
-                        c.setConnectTimeout(1500); c.setReadTimeout(1500);
-                        int code = c.getResponseCode();
-                        String body = code == 200 ? new String(readAll(c.getInputStream()), StandardCharsets.UTF_8) : "";
-                        c.disconnect();
-                        boolean ok = code == 200 && body.contains("MediaRenderer");
-                        report.append(ok ? "DLNA E2E ✓ (" + d.searchesSeen() + " searches), " : "DLNA desc ✗, ");
-                        if (!ok) pass[0] = false;
-                        Troubleshooter.record("CAST", "stage2 DLNA E2E loopback desc.xml: HTTP " + code + (ok ? " ok" : " BAD"));
-                    } catch (Exception e) {
-                        report.append("DLNA desc unreachable, ");
-                        Troubleshooter.record("CAST", "stage2 DLNA E2E: " + e);
-                    }
-                } else if (!AppPrefs.dlnaEnabled(prefs)) {
-                    report.append("DLNA off (Settings), ");
-                    Troubleshooter.record("CAST", "stage2 DLNA: disabled in Settings");
-                } else {
-                    report.append("DLNA down, ");
-                    Troubleshooter.record("CAST", "stage2 DLNA: responder down");
-                }
-                // 3. mDNS wire (kernel loopback probe against our own responder)
-                MdnsResponder rsp = ReceiverService.liveResponder();
-                boolean wireOk = false;
-                if (rsp != null && rsp.isRunning()) {
-                    MdnsResponder.ProbeResult pr = MdnsResponder.probeLocal(rsp, 2500);
-                    wireOk = pr.answered;
-                    report.append(wireOk ? "mDNS wire ✓, " : "mDNS wire ✗, ");
-                    Troubleshooter.record("CAST", "stage3 mDNS wire probe: " + (wireOk ? "answered" : "no answer (responder up)"));
-                } else {
-                    report.append("mDNS responder down, ");
-                    Troubleshooter.record("CAST", "stage3 mDNS: responder down" + (AppPrefs.mdnsEnabled(prefs) ? "" : " (disabled in Settings)"));
-                }
-                if (!wireOk && !dlnaUp) pass[0] = false;
-                // 4. Worker /health (cache the facts for the report)
-                String base = AppPrefs.workerUrl(prefs);
-                try {
-                    HttpURLConnection c = (HttpURLConnection) new URL(base + "/health").openConnection();
-                    c.setConnectTimeout(2500); c.setReadTimeout(2500);
-                    int code = c.getResponseCode();
-                    String body = code == 200 ? new String(readAll(c.getInputStream()), StandardCharsets.UTF_8) : "";
-                    c.disconnect();
-                    workerHealthyCache = code == 200;
-                    Map<String, Object> h = code == 200 ? Cue.statusOf(body) : null;
-                    workerVersionCache = h == null ? "" : String.valueOf(h.get("version"));
-                    workerStorageCache = h == null ? "" : String.valueOf(h.get("storage"));
-                    report.append(code == 200 ? "worker " + workerVersionCache + " (" + workerStorageCache + ") ✓" : "worker HTTP " + code + ", ");
-                    if (code != 200) pass[0] = false;
-                    if ("cache+memory".equals(workerStorageCache)) report.append("[⚠ KV unbound], ");
-                    Troubleshooter.record("SUBS", "stage4 worker /health: HTTP " + code
-                        + " · v" + workerVersionCache + " · storage " + workerStorageCache
-                        + (h != null && Boolean.TRUE.equals(h.get("ok")) ? " · ok" : ""));
-                } catch (Exception e) {
-                    workerHealthyCache = false;
-                    report.append("worker unreachable, ");
-                    Troubleshooter.record("SUBS", "stage4 worker /health: " + e);
-                }
-                // 5. the live subtitle-resolve dry-run (no playback started)
-                try {
-                    BridgeApi api = new BridgeApi(base);
-                    Map<String, Object> r = api.resolve("The Odyssey", false, 0, 0);
-                    boolean ok = r != null && String.valueOf(r.get("imdb")).startsWith("tt");
-                    report.append(ok ? "subs-resolve ✓, " : "subs-resolve ✗, ");
-                    if (!ok) pass[0] = false;
-                    Troubleshooter.record("SUBS", "stage5 live resolve dry-run: " + (ok ? "matched tt-id" : "no match"));
-                } catch (Exception e) {
-                    report.append("subs-resolve failed, ");
-                    Troubleshooter.record("SUBS", "stage5 live resolve dry-run: " + e);
-                }
-                // 6. player readiness
-                PlayActivity p = PlayActivity.current();
-                boolean playerOk = p == null ? true : !"error".equals(p.playerStateForDiag());
-                report.append(p == null ? "player idle ✓" : "player " + p.playerStateForDiag() + (playerOk ? " ✓" : " ✗"));
-                if (!playerOk) pass[0] = false;
-                Troubleshooter.record("PLAYER", "stage6 player readiness: " + (p == null ? "idle (no cast open)" : p.playerStateForDiag()));
-                boolean verdict = pass[0];
-                Diag.i("deepdiag", (verdict ? "PASS" : "FAIL") + " — " + report);
-                final boolean pv = verdict;
-                main.post(() -> {
-                    selfTestLine.setText((pv ? "🩺 ✓ " : "🩺 ✗ ") + report);
-                    selfTestLine.setTextColor(pv ? P.ok : P.err);
-                    refresh();
-                });
-            } finally {
-                deepRunning.set(false);
-            }
-        }, "si-deepdiag").start();
-    }
 
-    private void runSelfTest() {
-        if (!selfTestRunning.compareAndSet(false, true)) {
-            toast(t("Self-test දැනටමත් ක්‍රියාත්මකයි", "Self-test already running"));
-            return;
-        }
-        selfTestLine.setText(t("ක්‍රියාත්මකයි…", "running…"));
-        Diag.i("selftest", "start");
-        final StringBuilder report = new StringBuilder();
-        final boolean[] pass = {true};
 
-        new Thread(() -> {
-            try {
-                // 1. loopback HTTP against our own receiver (the /play path AnantPlay uses)
-                int port = ReceiverService.port();
-                if (port < 0) { pass[0] = false; report.append("receiver not running. "); }
-                else {
-                    try {
-                        HttpURLConnection c = (HttpURLConnection) new URL("http://127.0.0.1:" + port + "/info").openConnection();
-                        c.setConnectTimeout(1500);
-                        c.setReadTimeout(1500);
-                        String body = new String(readAll(c.getInputStream()), StandardCharsets.UTF_8);
-                        c.disconnect();
-                        boolean ok = body.contains("\"ok\":true") && body.contains("Sinhala");
-                        report.append(ok ? "loopback ok, " : "loopback BAD, ");
-                        if (!ok) pass[0] = false;
-                        Diag.i("selftest", "loopback: " + body);
-                    } catch (Exception e) {
-                        pass[0] = false;
-                        report.append("loopback failed (").append(e.getMessage()).append("), ");
-                        Diag.w("selftest", "loopback: " + e);
-                    }
-                }
-
-                // 2. mDNS — the honest layers (L1 daemon · L2 responder · L3 NSD)
-                boolean daemonOk = NsdAnnouncer.probeDaemon(MainActivity.this, 2500);
-                Diag.i("selftest", "mdns daemon probe (mdnsd unicast): " + daemonOk);
-
-                MdnsResponder responder = ReceiverService.liveResponder();
-                boolean tempResponder = false;
-                if (responder == null || !responder.isRunning()) {
-                    try {
-                        java.net.InetAddress ip = NsdAnnouncer.wifiLanIp();
-                        if (ip == null) ip = java.net.InetAddress.getByName("127.0.0.1");
-                        int rport = ReceiverService.port();
-                        responder = new MdnsResponder(NsdAnnouncer.TYPE, NsdAnnouncer.OLD_TYPE,
-                            NsdAnnouncer.RESPONDER_NAME, rport > 0 ? rport : ReceiverServer.PREFERRED_PORT, ip);
-                        if (responder.start()) tempResponder = true;
-                        else responder = null;
-                    } catch (Throwable t) {
-                        Diag.w("selftest", "temp responder: " + t);
-                        responder = null;
-                    }
-                }
-                MdnsResponder.ProbeResult wire = MdnsResponder.probeLocal(responder, 2500);
-                boolean wireOk = wire.answered;
-                Diag.i("selftest", "mdns wire probe (own responder, kernel loopback): answered=" + wire.answered
-                    + " responder=" + wire.responderUp + " sent=" + wire.packetsSent + " recv=" + wire.packetsReceived
-                    + (wire.detail.isEmpty() ? "" : " — " + wire.detail));
-                if (tempResponder && responder != null) { try { responder.stop(); } catch (Throwable ignored) { } }
-
-                boolean legacy = NsdAnnouncerTest.discoverSelf(MainActivity.this, 2000);
-                Diag.i("selftest", "mdns legacy discovery: " + legacy);
-
-                boolean mDnsOk = daemonOk || wireOk || legacy;
-                NsdAnnouncerTest.result = mDnsOk;
-                boolean regOk = ReceiverService.isUp() && ReceiverService.isAnnounced();
-                if (mDnsOk) {
-                    report.append("mDNS ok [")
-                        .append(daemonOk ? "L1 daemon ✓" : "L1 daemon ✗").append(" · ")
-                        .append(wireOk ? "L2 responder ✓" : "L2 responder ✗").append(" · ")
-                        .append(legacy ? "L3 NSD ✓" : "L3 NSD ✗")
-                        .append(regOk ? "" : " ⚠ daemon-announce pending").append("], ");
-                } else {
-                    pass[0] = false;
-                    report.append("mDNS FAILED (no-answer), ");
-                    if (!NsdAnnouncer.onWifiLikeNetwork(MainActivity.this)) {
-                        report.append("[Wi-Fi ක්‍රියාත්මක නැත — Wi-Fi on කර නැවත උත්සාහ කරන්න · Turn Wi-Fi on and retry] ");
-                    } else if (NsdAnnouncer.vpnActive(MainActivity.this)) {
-                        report.append("[VPN (AdGuard app?) multicast බ්ලොක් කරයි · A VPN (the AdGuard app?) is blocking multicast] ");
-                    } else {
-                        report.append("[mdnsd පිළිතුරු නැත — DLNA path එකත් පරීක්ෂා කරන්න · the daemon did not answer — check the DLNA path below too] ");
-                    }
-                }
-
-                // 3. the DLNA pillar: the SSDP responder must be up on 1900
-                DlnaRenderer dlna = ReceiverService.liveDlnaRenderer();
-                boolean dlnaUp = dlna != null && dlna.isRunning();
-                Diag.i("selftest", "dlna renderer (SSDP 1900): " + (dlnaUp ? "up (searches " + dlna.searchesSeen() + ")" : "down/disabled"));
-                if (dlnaUp) {
-                    report.append("DLNA ok [SSDP up · searches ").append(dlna.searchesSeen()).append("], ");
-                } else if (!AppPrefs.dlnaEnabled(prefs)) {
-                    report.append("DLNA off [disabled in Settings], ");
-                } else {
-                    report.append("DLNA down [SSDP 1900 bind failed — mDNS paths remain], ");
-                }
-                boolean castOk = mDnsOk || dlnaUp;
-
-                // 4. the Cloudflare bridge
-                try {
-                    HttpURLConnection c = (HttpURLConnection) new URL(
-                        AppPrefs.workerUrl(prefs) + "/health").openConnection();
-                    c.setConnectTimeout(2500);
-                    c.setReadTimeout(2500);
-                    int code = c.getResponseCode();
-                    String body = code == 200 ? new String(readAll(c.getInputStream()), StandardCharsets.UTF_8) : "";
-                    c.disconnect();
-                    report.append("bridge ").append(code == 200 ? "ok" : "HTTP " + code).append(".");
-                    Diag.i("selftest", "bridge: " + code + " " + BridgeApi.brief(body, 200));
-                    if (body.contains("cache+memory")) {
-                        report.append(" [⚠ Worker KV නැත — bind SUBS_KV · the worker has NO KV bound; bind SUBS_KV]");
-                    }
-                } catch (Exception e) {
-                    report.append("bridge unreachable (").append(e.getMessage()).append(").");
-                    Diag.w("selftest", "bridge: " + e);
-                }
-
-                // the verdict: loopback + (mDNS or DLNA) + bridge all count
-                boolean verdict = pass[0] && castOk;
-                Diag.i("selftest", (verdict ? "PASS" : "FAIL") + " — " + report);
-                final boolean p = verdict;
-                main.post(() -> {
-                    selfTestLine.setText((p ? "✓ " : "✗ ") + report);
-                    selfTestLine.setTextColor(p ? P.ok : P.err);
-                    refresh();
-                });
-            } finally {
-                selfTestRunning.set(false);
-            }
-        }, "si-selftest").start();
-    }
 
     private static byte[] readAll(InputStream in) throws Exception {
         java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();

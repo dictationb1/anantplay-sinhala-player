@@ -25,4 +25,6 @@
     <string name="tab_web">WebView</string>
     <string name="tab_settings">Settings</string>
     <string name="tab_diag">Diagnostics</string>
+    <!-- v3.2.0: the Web Player &amp; Custom Links launcher hint -->
+    <string name="links_hint">Customize → Web Player &amp; Custom Links වලින් අඩවි links එකතු කරන්න · add your site links from Settings</string>
 </resources>

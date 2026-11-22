@@ -12,20 +12,25 @@ package lk.techworld.anantplay.sicast;
  *   · MODE: System · Dark (Mornye Slate) · AMOLED Pure Black (#000000) · Light;
  *   · DYNAMIC COLOR (Material You, Android 12+): the wallpaper's
  *     system_accent1 seed replaces the preset accent (surfaces stay per-mode);
- *   · 6 CURATED ACCENT PRESETS (Mornye Violet, Ocean Blue, Emerald Green,
- *     Sunset Coral, Warm Amber, Rose Pink) shown as selectable color dots;
+ *   · v3.2.0 — 8 CURATED ACCENT PRESETS (Mornye Violet, Ocean Blue, Emerald
+ *     Green, Sunset Coral, Warm Amber, Rose Pink, Sky Cyan, Slate Teal) shown
+ *     as selectable color dots + a CUSTOM #RRGGBB hex accent (AppPrefs.
+ *     normalizeAccentHex validates; the custom wins when non-empty);
  *   · a derived accentDim (accent ⇢ background blend) for chips/borders so a
- *     single accent seeds a coherent, Material-3-Expressive-feeling surface.
+ *     single accent seeds a coherent, Material-3-Expressive-feeling surface;
+ *   · v3.2.0 — the CARD CORNER RADIUS token (Mornye app_tokens.dart's
+ *     radiusCard/radiusSheet translated: sharp 6dp | rounded 16dp |
+ *     apple-pill 24dp) + 6 subtitle text colors.
  *
  * PURE MATH: every value is a deterministic function of (mode, dynamicSeed,
- * accentIdx) — the lab proves the palettes byte-for-byte, the AMOLED blackness,
- * and that dynamic color never repaints the surfaces. */
+ * accentIdx, customHex) — the lab proves the palettes byte-for-byte, the AMOLED
+ * blackness, and that dynamic color never repaints the surfaces. */
 
 public final class ThemeEngine {
 
     private ThemeEngine() { }
 
-    /** The 6 curated accents (Mornye's named-accent pattern as color dots). */
+    /** The 8 curated accents (Mornye's named-accent pattern as color dots). */
     public static final int[] ACCENTS = {
         0xFF8B5CF6,   // 0 Mornye Violet
         0xFF3B82F6,   // 1 Ocean Blue
@@ -33,9 +38,12 @@ public final class ThemeEngine {
         0xFFFB7185,   // 3 Sunset Coral
         0xFFF59E0B,   // 4 Warm Amber
         0xFFEC4899,   // 5 Rose Pink
+        0xFF38BDF8,   // 6 Sky Cyan (v3.2.0)
+        0xFF14B8A6,   // 7 Slate Teal (v3.2.0)
     };
     public static final String[] ACCENT_NAMES = {
         "Mornye Violet", "Ocean Blue", "Emerald Green", "Sunset Coral", "Warm Amber", "Rose Pink",
+        "Sky Cyan", "Slate Teal",
     };
 
     /** One resolved theme — every color the app's UI needs. */
@@ -47,9 +55,11 @@ public final class ThemeEngine {
         public final int title, text, desc;
         public final int accent, accentDim, accentSoft;
         public final int ok, warn, err;
+        public final int radiusCard, radiusSheet, radiusChip;   // v3.2.0 (dp)
 
         Palette(String mode, int bg, int card, int card2, int chip, int title, int text, int desc,
-                int accent, int accentDim, int accentSoft, int ok, int warn, int err) {
+                int accent, int accentDim, int accentSoft, int ok, int warn, int err,
+                int radiusCard, int radiusSheet, int radiusChip) {
             this.mode = mode;
             this.amoled = AppPrefs.THEME_AMOLED.equals(mode);
             this.light = AppPrefs.THEME_LIGHT.equals(mode);
@@ -57,6 +67,7 @@ public final class ThemeEngine {
             this.title = title; this.text = text; this.desc = desc;
             this.accent = accent; this.accentDim = accentDim; this.accentSoft = accentSoft;
             this.ok = ok; this.warn = warn; this.err = err;
+            this.radiusCard = radiusCard; this.radiusSheet = radiusSheet; this.radiusChip = radiusChip;
         }
     }
 
@@ -68,18 +79,35 @@ public final class ThemeEngine {
     }
 
     /**
+     * v3.2.0 — the card-corner radius token (Mornye app_tokens.dart's
+     * radiusBadge/Thumb/Cover/Control/Card/Sheet 6/8/12/16/20/28 family,
+     * compressed to our three user-facing shapes).
+     */
+    public static int[] radii(String cardRadiusPref) {
+        String v = AppPrefs.normalizeCardRadius(cardRadiusPref);
+        if (AppPrefs.RADIUS_SHARP.equals(v)) return new int[]{6, 10, 4};      // sharp: badge/card/chip
+        if (AppPrefs.RADIUS_PILL.equals(v)) return new int[]{24, 28, 16};     // the Apple pill
+        return new int[]{16, 22, 10};                                          // rounded (default)
+    }
+
+    /**
      * THE palette decision.
      *
      * @param mode        dark|amoled|light (system already resolved by the caller)
      * @param dynamicSeed the wallpaper accent seed (ARGB) when dynamic color is
      *                    on AND supported; any value <= 0 falls back to the preset
      * @param accentIdx   the chosen preset index (clamped by AppPrefs)
+     * @param customHex   v3.2.0 — the validated custom accent hex ("" = preset);
+     *                    APP that AFTER dynamic color: a user's explicit custom
+     *                    choice outranks the wallpaper seed (Mornye's own order).
      */
-    public static Palette palette(String mode, int dynamicSeed, int accentIdx) {
+    public static Palette palette(String mode, int dynamicSeed, int accentIdx, String customHex) {
         int preset = ACCENTS[AppPrefs.normalizeAccent(accentIdx)];
+        int custom = AppPrefs.accentHexColor(AppPrefs.normalizeAccentHex(customHex));
         // ARGB ints are NEGATIVE when the alpha byte is 0xFF — the seed is "on"
         // whenever it is a real color (nonzero), not when it is positive.
         int accent = dynamicSeed != 0 ? (dynamicSeed | 0xFF000000) : preset;
+        if (custom != 0) accent = custom;                        // the explicit user choice wins
         int accentDim, accentSoft, bg, card, card2, chip, title, text, desc;
         String m = AppPrefs.normalizeThemeMode(mode);
         if (AppPrefs.THEME_LIGHT.equals(m)) {
@@ -102,7 +130,14 @@ public final class ThemeEngine {
         }
         int ok = 0xFF22C55E, warn = 0xFFF59E0B, err = 0xFFEF4444;
         if (AppPrefs.THEME_LIGHT.equals(m)) { ok = 0xFF15803D; warn = 0xFFB45309; err = 0xFFB91C1C; }
-        return new Palette(m, bg, card, card2, chip, title, text, desc, accent, accentDim, accentSoft, ok, warn, err);
+        int[] r = radii(null);   // the radius choice lives on prefs; the caller paints it
+        return new Palette(m, bg, card, card2, chip, title, text, desc, accent, accentDim, accentSoft, ok, warn, err,
+            r[0], r[1], r[2]);
+    }
+
+    /** The v3.1-compatible two-arg shape (kept for the lab's existing proofs). */
+    public static Palette palette(String mode, int dynamicSeed, int accentIdx) {
+        return palette(mode, dynamicSeed, accentIdx, "");
     }
 
     /** Linear ARGB blend: mix(color, into, mixAmount) — mixAmount 0 = color, 1 = into. */
@@ -114,20 +149,23 @@ public final class ThemeEngine {
         return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 
-    /** The four subtitle text colors of the Styling Studio (pure). */
+    /** The six subtitle text colors of the Styling Studio (v3.2.0: 4→6 presets). */
     public static final int[] SUB_COLORS = {
         0xFFFFFFFF,   // Pure White
         0xFFFFE899,   // Warm Yellow
-    0xFF9BE8FF,   // Soft Cyan
+        0xFF9BE8FF,   // Soft Cyan
         0xFFA7F3C5,   // Mint Green
+        0xFFF9A8D4,   // Soft Pink (v3.2.0)
+        0xFFFDE68A,   // Subtle Gold (v3.2.0)
     };
     public static final String[] SUB_COLOR_NAMES = {
         "Pure White · සුදු", "Warm Yellow · කහ", "Soft Cyan · නිල්", "Mint Green · කොළ",
+        "Soft Pink · රෝස", "Subtle Gold · රන්",
     };
 
-    /** The translucency color of the subtitle pill (alpha = opacity 0..90%). */
+    /** The translucency color of the subtitle pill (alpha = opacity 0..95%). */
     public static int pillColor(int opacityPct) {
-        int a = Math.max(0, Math.min(90, opacityPct)) * 255 / 100;
+        int a = Math.max(0, Math.min(95, opacityPct)) * 255 / 100;
         return (a << 24) | 0x000000;                            // pure black pill
     }
 }

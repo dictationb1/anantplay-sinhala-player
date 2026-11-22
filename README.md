@@ -1,6 +1,6 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v3.1.2
+# AnantPlay Sinhala Player (SI Cast Receiver) v3.2.0
 
-> **v3.1.2 — PLAYACTIVITY CRASH FIX · SELF-UPDATER SPIN-LOOP FIX ·
+> **v3.2.0 — PLAYACTIVITY CRASH FIX · SELF-UPDATER SPIN-LOOP FIX ·
 > PRIVACY-FIRST DEEP TROUBLESHOOTER · 481/481 CI LAB + BYTECODE VERIFIER.**
 > Built on the 2026-11-22 real-device log: the player died on every launch with
 > `Resources$NotFoundException: Resource ID #0x88000000` —
@@ -145,7 +145,7 @@ turn the build red.
 
 CI (`.github/workflows/build-apk.yml`) runs that lab, then builds, signs and `apksigner verify`s
 the APK on JDK 17 + **Android SDK 36 (`platforms;android-36`) + build-tools 35.0.1** with **zero Gradle**, and uploads
-`AnantPlay-Sinhala-Player-v3.1.2.apk` as a downloadable artifact.
+`AnantPlay-Sinhala-Player-v3.2.0.apk` as a downloadable artifact.
 
 > **build-tools 35.0.1 is mandatory, not cosmetic.** `d8` 8.2 (build-tools 34.0.0) crashes on the
 > media3 1.11.1 / guava 33.3.1 jars — *"Cannot invoke String.length() because `<parameter1>` is
@@ -188,21 +188,21 @@ src/.../sicast/
   CastPolicy.java            cast-arrival policy (schemes, /do whitelist, seek clamp) — pure Java
   StreamHint.java            Media3 mime defaulting for extensionless HLS/DASH — pure Java
   BridgeApi/Cue/MiniJson/SrtLoader/SubtitleStore   the proven v1 engines (pure Java)
-lab/ReceiverLab.java         the 481-check gating lab (protocol + security + i18n + v3.1.2 field-bug regressions)
+lab/ReceiverLab.java         the 481-check gating lab (protocol + security + i18n + v3.2.0 field-bug regressions)
 lab/verify_refs.py           the bytecode reference verifier (every .class ref resolves)
 lab/BridgeLab.java           live worker E2E (best effort)
 PrivacyScrubber.java         the zero-PII scrubber (IP / MAC / EUI-64 / model / token / path)
 docs/CAST-VERIFICATION.md    every AnantPlay file:line this is built on
 THIRD_PARTY.md               licenses of every bundled jar + the Sinhala font
-SETUP-SI.md                  the Sinhala + English setup checklist (v3.1.2)
+SETUP-SI.md                  the Sinhala + English setup checklist (v3.2.0)
 scripts/troubleshoot-adb.*   PC ADB capture helpers (sh + PowerShell 5.1), privacy-safe
 ```
 
-## What's new in v3.1.2 (PlayActivity crash fix · SelfUpdater spin-loop fix · privacy-first Deep Troubleshooter)
+## What's new in v3.2.0 (PlayActivity crash fix · SelfUpdater spin-loop fix · privacy-first Deep Troubleshooter)
 
-> **v3.1.2 is a crash + reliability + privacy release.** Download:
-> `AnantPlay-Sinhala-Player-v3.1.2.apk` — `versionCode 30102`,
-> `versionName 3.1.2`, `targetSdk 36`, release-signed with the same permanent
+> **v3.2.0 is a crash + reliability + privacy release.** Download:
+> `AnantPlay-Sinhala-Player-v3.2.0.apk` — `versionCode 30200`,
+> `versionName 3.2.0`, `targetSdk 36`, release-signed with the same permanent
 > keystore as v3.1.0/v3.1.1 → your phone updates **in place**, no uninstall.
 
 Built on the 2026-11-22 Xiaomi Android 16 field log, every defect root-caused
@@ -247,7 +247,7 @@ with file:line proof and covered by new regression checks in
   to this app's cast/crash lines and pipe them through the same scrub rules —
   nothing is written to the phone.
 - **The 481-check CI lab + bytecode verifier.** `lab/ReceiverLab.java` grows to
-  **481 checks** (54 new v3.1.2 suites: crash, privacy, troubleshooter,
+  **481 checks** (54 new v3.2.0 suites: crash, privacy, troubleshooter,
   updater spin-loop, launch contracts). `lab/verify_refs.py` parses every
   compiled `.class` constant pool and proves every referenced type resolves to
   a lab class, the JDK or `android.*` — a missing Media3/R class cannot ship.

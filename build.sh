@@ -54,9 +54,9 @@ done
 [ -n "$JAR" ] || JAR="$SDK/platforms/android-34/android.jar"
 TARGET_SDK=36
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-3.1.2}
-VERSION_CODE=${VERSION_CODE:-30102}
-PREV_VERSION_CODE=${PREV_VERSION_CODE:-30101}   # v3.1.1 — the last released build
+VERSION_NAME=${VERSION_NAME:-3.2.0}
+VERSION_CODE=${VERSION_CODE:-30200}
+PREV_VERSION_CODE=${PREV_VERSION_CODE:-30102}   # v3.1.2 — the last released build
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }

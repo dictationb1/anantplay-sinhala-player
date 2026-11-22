@@ -22,46 +22,52 @@ import java.io.OutputStream;
 
 /* v3.0.0 — THE SEAMLESS APP-OPEN AUTO-UPDATER (zero external dependencies).
  *
- * THE HONEST ANDROID 16 SECURITY MODEL (non-root, unchanged from v2.4.0):
+ * v3.2.0 — THE ZERO-RATE-LIMIT + ZERO-SPIN-LOOP UPDATER (Smoking Gun #1, the
+ * 200-calls-in-148-s field log). THREE structural changes, all lab-proven:
+ *
+ *   1. THE RESOLVER NEVER TOUCHES api.github.com on the happy path —
+ *      SelfUpdateCore.fetchReleaseAny() fires github.com/releases/latest's
+ *      observable 302 (web CDN, NO quota) first, docs/latest.json on
+ *      raw.githubusercontent.com second, and the rate-limited REST API ONLY as
+ *      the last resort. The "60/ hr lockout → null release → re-check"
+ *      death spiral is dead at the source.
+ *
+ *   2. THE 15-MINUTE FAILURE BACKOFF — a failed/offline check persists
+ *      `lastFailedCheck` and EVERY automatic re-check inside 15 minutes is a
+ *      hard no-op (manual checks bypass). Even if JobScheduler re-delivers a
+ *      job storm, the network sees ONE attempt per 15 minutes, never 200 per
+ *      2.5 minutes. `lastCheck` is persisted BEFORE the network call (not only
+ *      on success): the "attempt happened" fact survives crashes and
+ *      overlapping entry points.
+ *
+ *   3. THE RE-ARM LOOP BREAKER — CheckJob.onStartJob NEVER re-arms the
+ *      periodic schedule from inside itself (v3.1.x did: a rescheduled
+ *      past-due periodic job re-fired immediately → fail → reschedule →
+ *      re-fire, the ~250 ms cadence the field log captured). The periodic
+ *      job's re-arm happens ONLY in App.onCreate; the job itself finishes
+ *      cleanly and re-arms nothing.
+ *
+ * THE HONEST ANDROID 16 SECURITY MODEL (non-root, unchanged):
  *   Silent zero-tap APK installation is BLOCKED by the OS — PackageInstaller
- *   always shows the 1-tap system "Update" confirmation. That is by design and
- *   no app can (or should) bypass it. Everything UP TO that single tap is fully
- *   automatic, mirroring official AnantPlay's own update flow:
- *
- *     1. CHECK — automatically the MOMENT the app opens (a short 60-second
- *        debounce so quick re-opens never spam GitHub) and every 4 HOURS via a
- *        persisted JobScheduler job (BIND_JOB_SERVICE + RECEIVE_BOOT_COMPLETED:
- *        the schedule survives reboots). NOT hidden behind a manual button.
- *     2. DOWNLOAD — starts BY ITSELF when a newer release exists and
- *        Auto-Update is ON (the default): a live visible in-app progress bar
- *        (MainActivity's Home banner) AND a notification with the percentage
- *        ("අලුත් සංස්කරණය vX.Y.Z ඩවුන්ලෝඩ් වෙමින්… 64%").
- *     3. VERIFY — https-only URL, a hard 30 MB size cap (checked before AND
- *        during the stream), and a STRICT SHA-256 match against the release's
- *        SHA256SUMS.txt line (SelfUpdateCore.pickShaLine — the exact parser of
- *        the CI's `sha256sum` output). A tampered/corrupt APK is REFUSED and
- *        its file deleted.
- *     4. INSTALL — canRequestPackageInstalls() is checked first: without the
- *        "Install unknown apps" grant the user gets a 1-tap dialog straight to
- *        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES. With it, the verified file
- *        is streamed into a PackageInstaller.Session committed with an EXPLICIT
- *        MUTABLE PendingIntent (Android 14–16 compliant: explicit component,
- *        FLAG_MUTABLE so the system can fill in the status extras). When the
- *        confirm intent cannot be launched from the background, it is re-posted
- *        as a high-priority BAL-safe notification instead (tap → the same
- *        1-tap system dialog).
- *     5. CLEANUP — the temporary .apk under cacheDir/updates/ is deleted the
- *        MOMENT it has been written into the session (handoff complete), and
- *        any leftovers are swept on EVERY app startup — storage stays clean.
- *
- * Obtainium compatibility is unchanged: same permanent signing key, so both
- * paths install over each other in place forever. */
+ *   always shows the 1-tap system "Update" confirmation. Everything up TO that
+ *   single tap is automatic:
+ *     CHECK (app-open + 4 h persisted job) → DOWNLOAD (silent, throttled,
+ *     live progress) → VERIFY (https-only, 30 MB cap, strict SHA-256 vs
+ *     SHA256SUMS.txt — a tampered APK is refused and deleted) → INSTALL (the
+ *     OS's 1-tap prompt, BAL-safe notification fallback) → CLEANUP (the temp
+ *     .apk is deleted the moment the session takes it over; the startup sweep
+ *     removes anything older). Obtainium compatibility is unchanged. */
 public final class SelfUpdater {
 
-    static final String REPO = "dictationb1/anantplay-sinhala-player";
-    static final String API_LATEST = "https://api.github.com/repos/" + REPO + "/releases/latest";
+    static final String REPO = SelfUpdateCore.REPO;
+    /** v3.2.0 — the REST endpoint is now TIER 3 (last resort only). */
+    static final String API_LATEST = SelfUpdateCore.restLatestUrl();
     /** v3.0.0 — the app-open debounce: a check runs at most once per 60 s. */
     static final long MIN_CHECK_INTERVAL_MS = 60 * 1000L;
+    /** v3.2.0 — THE FAILURE BACKOFF: after a failed/offline check, automatic
+     *  re-checks are locked out for 15 minutes (the anti-hammer contract).
+     *  A manual "Check now" always bypasses it — the user asked. */
+    static final long FAILURE_BACKOFF_MS = 15 * 60 * 1000L;
     /** v3.0.0 — the standing periodic check: every 4 hours (was 6 h). */
     static final long PERIODIC_MS = 4 * 60 * 60 * 1000L;
     static final int JOB_ID = 20400;
@@ -85,10 +91,9 @@ public final class SelfUpdater {
     private static final java.util.concurrent.atomic.AtomicBoolean inFlight =
         new java.util.concurrent.atomic.AtomicBoolean(false);
     /** v3.1.0 (Bug 5) — the progress THROTTLE: ≤ 1 notify() per second, deduped
-     *  per percent (UpdateNotify, lab-proven). v3.0.0 notified on every 64 KB
-     *  chunk on an IMPORTANCE_HIGH channel — the spam that lagged the phone. */
+     *  per percent (UpdateNotify, lab-proven). */
     private static final UpdateNotify throttle = new UpdateNotify();
-    /** v3.1.2 — the single-flight skip log's own rate limit (1/s, see checkAndMaybeInstall). */
+    /** v3.1.2 — the single-flight skip log's own rate limit (1/s). */
     private static volatile long lastSkipLogAt;
 
     private SelfUpdater() { }
@@ -114,8 +119,8 @@ public final class SelfUpdater {
     }
 
     /** v3.1.0 — 1-tap notification actions: install-now (a manual re-drive) and
-     *  skip-this-version (records the choice, cancels the banners, never alerts
-     *  for that version again until a NEWER release appears). */
+     * skip-this-version (records the choice, cancels the banners, never alerts
+     * for that version again until a NEWER release appears). */
     public static final class UpdateActionReceiver extends android.content.BroadcastReceiver {
         @Override public void onReceive(Context c, Intent i) {
             try {
@@ -156,8 +161,7 @@ public final class SelfUpdater {
     }
 
     /** v3.0.0 — delete EVERY leftover .apk in cacheDir/updates (App.onCreate +
-     *  after every session handoff): storage space is always 100% cleared. The
-     *  primitive (SelfUpdateCore.deleteAll) is lab-proven. */
+     *  after every session handoff): storage space is always 100% cleared. */
     static long sweepUpdates(Context c) {
         long freed;
         try {
@@ -172,30 +176,39 @@ public final class SelfUpdater {
 
     // ── the checks ────────────────────────────────────────────────────────────
 
-    /** v3.1.2 — THE SPIN-LOOP KILLER (the 38-lines-in-645 ms field log):
-     *  v3.1.1's only guard was the persisted 60 s "lastCheck" debounce inside
-     *  checkOnLaunch, but schedule() itself was callable from every entry point
-     *  (app start, the install-now action, the settings toggle) with latency 0 —
-     *  every call REPLACES the pending JobInfo, and each replacement makes
-     *  JobScheduler re-deliver CheckJob.onStartJob while a previous run is still
-     *  in flight → "single-flight: another update run is active — skipping"
-     *  logged over and over (38+ Diag lines in 645 ms on the field phone).
-     *  THE FIX, two layers, both in-process and instant:
-     *    1. schedule() debounces: an immediate (delayMs==0) re-schedule within
-     *       SCHEDULE_DEBOUNCE_MS is a NO-OP — one job is handed to JobScheduler
-     *       once per process burst, never 38;
-     *    2. checkAndMaybeInstall's skip log is rate-limited: even if a caller
-     *       somehow still re-fires, the Diag ring sees at most ONE line per
-     *       second instead of a spam storm (Diag stays readable, zero lag). */
+    /** v3.1.2 — the in-process zero-delay schedule debounce (kept: still useful
+     *  against a caller storm from the UI layer). */
     static final long SCHEDULE_DEBOUNCE_MS = 10 * 1000L;
     private static volatile long lastScheduleAt;
 
+    /**
+     * v3.2.0 — THE BACKOFF GATE (delegates to the pure SelfUpdateCore
+     * contract — the lab proves every branch + the exact field storm):
+     *   · the 60 s app-open debounce (lastCheck — persisted BEFORE the
+     *     network attempt, so it holds even when the attempt crashed);
+     *   · the 15-minute FAILURE backoff (lastFailedCheck);
+     *   · the 4-hour periodic cadence is JobScheduler's own — but a periodic
+     *     callback rides through the same gate.
+     * `manual=true` (the user pressed Check now) bypasses everything.
+     */
+    static boolean checkAllowed(long nowMs, long lastCheck, long lastFailedCheck, boolean manual) {
+        return SelfUpdateCore.checkAllowed(nowMs, lastCheck, lastFailedCheck, manual);
+    }
+
     /** Called from App.onCreate: fire the background check at most once per
-     *  60 s (the app-open debounce). Non-blocking, never throws. */
+     *  60 s (the app-open debounce) AND never inside the 15-minute failure
+     *  backoff. `lastCheck` is written BEFORE the job is handed over — the
+     *  "an attempt is running" fact survives a crash mid-check (the v3.1.x
+     *  bug: it was persisted only after a SUCCESSFUL schedule, so a failed
+     *  round kept the gate open forever). Non-blocking, never throws. */
     public static void checkOnLaunch(final Context c) {
         try {
-            long last = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE).getLong("lastCheck", 0);
-            if (System.currentTimeMillis() - last < MIN_CHECK_INTERVAL_MS) return;
+            android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+            long now = System.currentTimeMillis();
+            long last = sp.getLong("lastCheck", 0);
+            long lastFail = sp.getLong("lastFailedCheck", 0);
+            if (!checkAllowed(now, last, lastFail, false)) return;
+            sp.edit().putLong("lastCheck", now).apply();       // PERSISTED BEFORE the network call
             schedule(c, 0L);
         } catch (Throwable t) {
             Diag.w("selfupd", "launch check: " + t);
@@ -203,8 +216,7 @@ public final class SelfUpdater {
     }
 
     /** One-shot ASAP job (network permitting).
-     *  v3.1.2: the in-process debounce makes an immediate re-schedule a NO-OP —
-     *  JobScheduler is handed the job ONCE per burst (see SCHEDULE_DEBOUNCE_MS). */
+     *  v3.1.2: the in-process debounce makes an immediate re-schedule a NO-OP. */
     public static void schedule(Context c, long delayMs) {
         try {
             // the spin-loop breaker: a zero-delay re-schedule inside the debounce
@@ -223,14 +235,16 @@ public final class SelfUpdater {
                 .setMinimumLatency(delayMs)
                 .setOverrideDeadline(delayMs + 30 * 60 * 1000L);
             js.schedule(b.build());
-            c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE).edit()
-                .putLong("lastCheck", System.currentTimeMillis()).apply();
         } catch (Throwable t) {
             Diag.w("selfupd", "schedule: " + t);
         }
     }
 
-    /** The standing 4-hour periodic schedule (persisted across reboots). */
+    /** The standing 4-hour periodic schedule (persisted across reboots).
+     *  v3.2.0 — re-armed ONLY from App.onCreate. NEVER from inside
+     *  CheckJob.onStartJob: rescheduling a past-due periodic job from inside
+     *  its own run made JobScheduler re-deliver it IMMEDIATELY (fail →
+     *  reschedule → re-fire at the ~250 ms cadence of the field log). */
     public static void schedulePeriodic(Context c) {
         try {
             JobScheduler js = c.getSystemService(JobScheduler.class);
@@ -254,20 +268,20 @@ public final class SelfUpdater {
     }
 
     /**
-     * One update attempt. v3.1.0 (Bug 5) hardening on top of v3.0.0:
-     *   · SINGLE-FLIGHT — a concurrent launch-check + periodic job is a no-op;
-     *   · SKIP-VERSION — a user-skipped release never alerts again (until newer);
-     *   · 24 h PER-VERSION ALERT COOLDOWN — the 4 h cycle cannot re-alert the
-     *     same release within a day (the "අප්ඩේට් කරන්න…" spam); manual checks
-     *     deliberately bypass it;
-     *   · THROTTLED progress — UpdateNotify decides which chunk callbacks may
-     *     post the (silent, only-alert-once) banner: ≤ 1 per second.
+     * One update attempt. v3.2.0 changes:
+     *   · THE RESOLVER — SelfUpdateCore.fetchReleaseAny() (tier 1 web redirect
+     *     → tier 2 raw.json → tier 3 REST last resort): ZERO api.github.com
+     *     calls on the happy path, so the 60/hr lockout can never again feed
+     *     the "no release info" loop;
+     *   · THE BACKOFF — a null/offline result persists `lastFailedCheck` NOW,
+     *     so every automatic re-check inside 15 minutes is a no-op even if
+     *     something re-delivers a job (manual checks bypass);
+     *   · single-flight + skip-version + 24 h per-version alert cooldown +
+     *     throttled progress (all inherited from v3.1.0/v3.1.2, lab-proven).
      * Returns a human-readable result (also logged). */
     public static String checkAndMaybeInstall(final Context c, final boolean manualCheck) {
         if (!inFlight.compareAndSet(false, true)) {
-            // v3.1.2 — the rate-limited skip (the 38x field spam): at most ONE
-            // skip line per second ever reaches the Diag ring, whatever the
-            // caller storm looks like.
+            // v3.1.2 — the rate-limited skip: at most ONE skip line per second.
             long now = System.currentTimeMillis();
             long last = lastSkipLogAt;
             if (last == 0 || now - last >= 1000L) {
@@ -276,16 +290,37 @@ public final class SelfUpdater {
             }
             return "in-flight";
         }
+        // v3.2.0 — the automatic backoff gate, enforced INSIDE the run too:
+        // a re-delivered job that slipped past schedule() still dies here.
+        android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+        if (!manualCheck) {
+            long now = System.currentTimeMillis();
+            if (!checkAllowed(now, sp.getLong("lastCheck", 0), sp.getLong("lastFailedCheck", 0), false)) {
+                inFlight.set(false);
+                return "backoff";
+            }
+            sp.edit().putLong("lastCheck", now).apply();       // persisted BEFORE the network call
+        }
         try {
-            SelfUpdateCore.Release rel = SelfUpdateCore.fetchRelease(API_LATEST);
-            if (rel == null) { Troubleshooter.record("UPDATER", "check: no release info (offline?)"); return "no release"; }
+            SelfUpdateCore.Release rel = SelfUpdateCore.fetchReleaseAny();
+            if (rel == null) {
+                // v3.2.0 — the failure is PERSISTED: 15 minutes of guaranteed
+                // network silence follow, whatever re-delivers a job (the exact
+                // anti-250-ms-loop contract, lab-proven).
+                sp.edit().putLong("lastFailedCheck", System.currentTimeMillis()).apply();
+                Diag.w("selfupd", "check failed on every tier (web-redirect/raw-json/rest) — 15-min backoff engaged");
+                Troubleshooter.record("UPDATER", "check: no release info (all 3 tiers failed) — 15-min backoff engaged");
+                return "no release";
+            }
+            Diag.i("selfupd", "release resolved via tier: " + rel.tier + " → v" + rel.version);
+            Troubleshooter.record("UPDATER", "release v" + rel.version + " resolved via " + rel.tier
+                + " (api.github.com " + (SelfUpdateCore.TIER_REST_API.equals(rel.tier) ? "tier-3 last resort" : "NOT touched") + ")");
             if (!UpdateChecker.isNewer(rel.version, AppInfo.VERSION_NAME)) {
                 Diag.i("selfupd", "up to date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
                 Troubleshooter.record("UPDATER", "check: up-to-date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
                 return "up-to-date";
             }
             // v3.1.0 — the skip choice: never alert about a skipped version again
-            android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
             String skippedVersion = sp.getString("skippedVersion", null);
             if (UpdateNotify.stillSkipped(skippedVersion, rel.version)) {
                 Diag.i("selfupd", "v" + rel.version + " skipped by the user — staying quiet");
@@ -333,9 +368,6 @@ public final class SelfUpdater {
             final File apk = new File(updatesDir(c), SelfUpdateCore.apkFileName(rel.apkUrl));
             App.notifyUpdateProgress(c, rel.version, 0);
             SelfUpdateCore.downloadToFile(rel.apkUrl, apk, (bytes, total, percent) -> {
-                // v3.1.0 — the SystemUI flood breaker: UpdateNotify allows at most
-                // ONE notify per second (deduped per percent); the chunk callback
-                // itself stays as cheap as a couple of long compares.
                 if (throttle.onProgress(percent)) {
                     App.notifyUpdateProgress(c, rel.version, percent);
                 }
@@ -360,7 +392,6 @@ public final class SelfUpdater {
                 Diag.w("selfupd", "canRequestPackageInstalls=false — posting the 1-tap permission prompt");
                 notifyInstallPermission(c, rel.version);
                 fire("ස්ථාපන අවසරය අවශ්‍යයි — දැනුම්දීම ඔබන්න · install permission needed — tap the notification");
-                // the file stays until the next sweep; the user can grant + re-check
                 return "needs-install-permission";
             }
 
@@ -372,8 +403,13 @@ public final class SelfUpdater {
             fire("v" + rel.version + " සූදානම් — 1-tap ස්ථාපනය · ready to install (1 tap)");
             return "installing " + rel.version;
         } catch (Throwable t) {
+            // v3.2.0 — a thrown failure arms the SAME 15-minute backoff
+            try {
+                sp.edit().putLong("lastFailedCheck", System.currentTimeMillis()).apply();
+            } catch (Throwable ignored) { }
             Diag.w("selfupd", "check: " + t);
-            fire("යාවත්කාලීන පරීක්ෂාව අසාර්ථක — පසුව නැවත · update check failed — will retry");
+            fire("යාවත්කාලීන පරීක්ෂාව අසාර්ථක — මිනිත්තුවකින් නැවත · update check failed — retrying within 15 min");
+            Troubleshooter.record("UPDATER", "check threw: " + t.getClass().getSimpleName() + " — 15-min backoff engaged");
             return "offline";
         } finally {
             inFlight.set(false);
@@ -401,9 +437,6 @@ public final class SelfUpdater {
                 out.flush();
                 session.fsync(out);
             }
-            // EXPLICIT intent (component named) + FLAG_MUTABLE: the Android 12+
-            // PendingIntent contract, and the only mutable shape PackageInstaller
-            // accepts for its status broadcast.
             Intent ok = new Intent(c, InstallResultReceiver.class);
             PendingIntent piOk = PendingIntent.getBroadcast(c, sid, ok,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
@@ -431,7 +464,6 @@ public final class SelfUpdater {
                             c.startActivity(confirm);   // the 1-tap "Update" dialog
                             Diag.i("selfupd", "user-action prompt shown");
                         } catch (Throwable bal) {
-                            // Android 14+ BAL refusal → the SAME dialog, one tap away
                             Diag.w("selfupd", "BAL refused the prompt (" + bal + ") — posting the tap-to-install notification");
                             postConfirmNotification(c, confirm);
                         }
@@ -449,8 +481,7 @@ public final class SelfUpdater {
         }
     }
 
-    /** The BAL-safe fallback: the confirm intent as a quiet tap-to-install note
-     *  (v3.1.0: silent channel + onlyAlertOnce, like every update banner). */
+    /** The BAL-safe fallback: the confirm intent as a quiet tap-to-install note. */
     static void postConfirmNotification(Context c, Intent confirm) {
         try {
             PendingIntent open = PendingIntent.getActivity(c, 20405, confirm,
@@ -494,16 +525,17 @@ public final class SelfUpdater {
         }
     }
 
-    /** The JobScheduler entry: check + (when needed) download/verify/install. */
+    /** The JobScheduler entry: check + (when needed) download/verify/install.
+     *  v3.2.0 — NO schedulePeriodic() HERE: the periodic re-arm lives in
+     *  App.onCreate ONLY (the in-job re-arm was the reschedule→re-fire loop). */
     public static final class CheckJob extends JobService {
         @Override public boolean onStartJob(final JobParameters params) {
             new Thread(() -> {
                 try { checkAndMaybeInstall(getApplicationContext()); } catch (Throwable ignored) { }
                 jobFinished(params, false);
-                schedulePeriodic(getApplicationContext());   // keep the 4 h schedule alive
             }, "si-selfupd").start();
             return true;
         }
-        @Override public boolean onStopJob(JobParameters params) { return true; }   // retry later
+        @Override public boolean onStopJob(JobParameters params) { return false; }   // the 4 h job re-fires by itself
     }
 }
