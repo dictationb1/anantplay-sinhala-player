@@ -1,5 +1,10 @@
 name: Build Sinhala Player APK
 
+# v3.1.1 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
+# this keeps the runner clock interpretable (the same commit → the same SHA-256).
+env:
+  TZ: UTC
+
 on:
   push:
     branches: ['**']

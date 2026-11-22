@@ -98,7 +98,13 @@ echo "── d8 → dex (app classes + the media3/guava jars, multidex)"
 ls build/classes*.dex >/dev/null 2>&1 || die "d8 produced no dex"
 
 echo "── package"
-( cd build && zip -q app.apk classes*.dex )
+# v3.1.1 — REPRODUCIBLE ZIP ENTRY TIMESTAMPS. `zip` stores each entry's mtime
+# (build wall-clock), so two runs of the SAME commit produced two different
+# APK SHA-256s. Every entry is pinned to a fixed epoch and TZ=UTC, so the same
+# signed bytes always hash the same — a release can be re-verified forever.
+TZ=UTC; export TZ
+touch -t 198001010000 build/*.dex 2>/dev/null || true
+( cd build && TZ=UTC zip -q -X app.apk classes*.dex )
 
 echo "── zipalign"
 "$BT/zipalign" -f 4 build/app.apk build/aligned.apk
