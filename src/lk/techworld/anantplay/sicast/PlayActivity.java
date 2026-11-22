@@ -215,6 +215,10 @@ public class PlayActivity extends Activity {
         buildUi();
         startPlayback();
         startTicker();
+        // v3.0.0 — the never-silent launch pill: the user sees the subtitle
+        // pipeline is ALIVE from the very first frame, before any network
+        // round-trip completes ("✨ … ලබාගනිමින්…" → "✓ සූදානම්" once cues land).
+        if (!testMode) setState("fetching", "✨ සිංහල උපසිරැසි ලබාගනිමින්… · fetching Sinhala subtitles…");
         main.postDelayed(() -> { expectTakeover = false; armAutoPip(); }, 3000);   // PiP only after the hand-over
         if (testMode || prefs.getBoolean("autoFetch", true)) fetchSinhala();
         Diag.i("player", "open: " + title + " · " + url);
@@ -231,9 +235,37 @@ public class PlayActivity extends Activity {
             applyTestCues();
             return;
         }
-        if (url != null) {   // manual play from MainActivity (a pasted link / a test)
+        if (url != null) {   // manual play from MainActivity / the WebView sniffer
             title = title == null ? url : title;
+            headersJson = i.getStringExtra("headers");   // v3.0.0: the sniffer's Referer/Cookie/UA
             return;
+        }
+        // v3.0.0 — share ANY video link straight into the Sinhala player:
+        //   ACTION_VIEW (a http(s) URL opened with "සිංහල Player" from any
+        //   browser's link sheet) and ACTION_SEND text/plain (AnantPlay's own
+        //   Share ⋮ → "Copy link" or any app's share sheet). Both land here with
+        //   automatic subtitles — zero Cast, zero WebView needed.
+        String action = i.getAction();
+        if (Intent.ACTION_VIEW.equals(action) && i.getData() != null) {
+            String u = String.valueOf(i.getData());
+            if (u.startsWith("http://") || u.startsWith("https://")) {
+                url = u;
+                title = u;
+                Diag.i("player", "ACTION_VIEW play: " + u);
+                return;
+            }
+        }
+        if (Intent.ACTION_SEND.equals(action)) {
+            CharSequence cs = i.getCharSequenceExtra(Intent.EXTRA_TEXT);
+            String found = cs == null ? null : firstUrlIn(cs.toString());
+            if (found != null) {
+                url = found;
+                CharSequence subj = i.getCharSequenceExtra(Intent.EXTRA_SUBJECT);
+                title = subj != null && subj.toString().trim().length() >= 2
+                    ? subj.toString().trim() : url;
+                Diag.i("player", "ACTION_SEND play: " + url);
+                return;
+            }
         }
         String json = i.getStringExtra("castJson");   // the real /play payload
         if (json != null) {
@@ -279,6 +311,16 @@ public class PlayActivity extends Activity {
         String newCast = i.getStringExtra("castJson");
         String newUrl = i.getStringExtra("url");
         boolean newTest = i.getBooleanExtra("test", false);
+        // v3.0.0: a re-shared link (ACTION_VIEW data / ACTION_SEND text) counts too
+        String action = i.getAction();
+        if (newCast == null && newUrl == null && !newTest) {
+            if (Intent.ACTION_VIEW.equals(action) && i.getData() != null
+                && String.valueOf(i.getData()).startsWith("http")) newUrl = String.valueOf(i.getData());
+            else if (Intent.ACTION_SEND.equals(action) && i.getStringExtra(Intent.EXTRA_TEXT) != null) {
+                String u = firstUrlIn(String.valueOf(i.getCharSequenceExtra(Intent.EXTRA_TEXT)));
+                if (u != null) newUrl = u;
+            }
+        }
         if (newCast == null && newUrl == null && !newTest) return;   // takeover / re-delivery
         String oldCast = getIntent().getStringExtra("castJson");
         setIntent(i);
@@ -686,7 +728,8 @@ public class PlayActivity extends Activity {
         cues = loaded;
         boolean hasEn = false;
         for (Cue c : loaded) if (c.en != null && !c.en.isEmpty()) { hasEn = true; break; }
-        setState("ready", loaded.size() + " cues · " + how + (hasEn ? "" : " · human Sinhala"));
+        setState("ready", "සිංහල උපසිරැසි සූදානම් · " + loaded.size() + " cues · " + how
+            + (hasEn ? "" : " · human Sinhala"));
         Diag.i("subs", "applied " + loaded.size() + " cues (" + how + ")");
     }
 
@@ -1565,6 +1608,25 @@ public class PlayActivity extends Activity {
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    /** v3.0.0 — the first http(s) URL inside a shared text blob (ACTION_SEND),
+     *  or null. Whitespace-delimited; a trailing ')' or '"' is trimmed. */
+    static String firstUrlIn(String text) {
+        if (text == null) return null;
+        int at = -1;
+        for (String scheme : new String[]{"http://", "https://"}) {
+            int p = text.indexOf(scheme);
+            if (p >= 0 && (at < 0 || p < at)) at = p;
+        }
+        if (at < 0) return null;
+        int end = at;
+        while (end < text.length() && !Character.isWhitespace(text.charAt(end))) end++;
+        String u = text.substring(at, end);
+        while (u.endsWith(")") || u.endsWith("\"") || u.endsWith("'") || u.endsWith(",")) {
+            u = u.substring(0, u.length() - 1);
+        }
+        return u;
     }
 
     // ── the local .srt/.zip picker (SAF — our OWN activity, zero accessibility) ──

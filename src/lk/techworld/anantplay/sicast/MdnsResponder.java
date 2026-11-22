@@ -3,95 +3,122 @@ package lk.techworld.anantplay.sicast;
 import java.io.ByteArrayOutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.MulticastSocket;
 import java.net.NetworkInterface;
 import java.net.SocketAddress;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Set;
 
-/* v2.3.0 — THE PURE-JAVA mDNS RESPONDER (RFC 6762), the zero-router fix.
+/* v3.0.0 — THE PURE-JAVA mDNS RESPONDER (RFC 6762), the Android-16 cast fix.
  *
- * WHY THIS EXISTS (the field failure, Xiaomi HyperOS + old router, 2026-11-22):
- *   The v2.2.0 Self-test sent a QU PTR question to 224.0.0.251:5353 from a PLAIN
- *   ephemeral DatagramSocket (NsdAnnouncer.java:257) and waited for a unicast
- *   reply. On a network where the old router does not reflect multicast back to
- *   the sender (multicast snooping without an IGMP querier, or AP isolation), the
- *   question never reached ANY responder — not even the phone's own mdnsd, which
- *   HOLDS our NsdManager registration — so nothing answered: "mDNS FAILED
- *   (no-answer)". The test probed the wrong path: real AnantPlay discovery is
- *   NsdManager binder IPC into the same mdnsd (daemon cache, no router involved).
+ * THE 2026-11-22 15:15 REAL-DEVICE LOG (Xiaomi Android 16, sdk 36) — what v2.4.0
+ * got wrong, now proven against the real AOSP android16-release sources
+ * (platform/packages/modules/Connectivity @ 627eb3c6, service-t/…/mdns/):
  *
- * WHAT THIS CLASS DOES — two jobs, both pure Java (the lab drives them on a bare
- * JVM with multicast loopback, no Android, no router):
+ *  FACT A — AnantPlay's discovery (NsdManager → MdnsMultinetworkSocketClient)
+ *  sent its browse questions with the QU bit set, and our responder replied
+ *  UNICAST-ONLY to 192.168.1.39:5353 (40+ "answered a unicast(QU) query" lines).
+ *  A unicast packet to the phone's OWN address takes the kernel's `local` route,
+ *  whose egress device is `lo` — while the system's per-network mDNS socket is
+ *  created with SO_BINDTODEVICE(wlan0) (MdnsInterfaceSocket.java:74-80: "Bind
+ *  socket to the interface for receiving from that interface only"). A packet
+ *  that arrives via `lo` can NEVER be received by the wlan0-bound system socket
+ *  (and SO_REUSEADDR unicast delivery is one-winner anyway). Every unicast
+ *  reply was invisible to the exact client that asked. FIXED: replies are now
+ *  ALWAYS sent MULTICAST to 224.0.0.251:5353 AND ff02::fb:5353 — multicast
+ *  fan-out delivers a copy to EVERY socket joined to the group on that
+ *  interface, ours, the system's and any other app's, with no one-winner
+ *  selection at all. The QU unicast reply is ALSO sent (courtesy for real
+ *  legacy queriers on other devices) but never relied on.
  *
- *   JOB 1 — THE RESPONDER: a MulticastSocket bound to UDP 5353 with
- *     SO_REUSEADDR (setReuseAddress(true) — legal for a non-root app on Android
- *     14–16; system mdnsd binds with reuse too, and multiple 5353 listeners
- *     coexist; EADDRINUSE or a bind failure is caught and DEGRADES GRACEFULLY:
- *     NsdManager registration stays the announcement, only the extra responder
- *     is skipped). It joins 224.0.0.251 on the active interface, holds the
- *     caller's MulticastLock, and answers:
- *       · PTR?  _anantplay._tcp.local  → PTR <name>.local + SRV + TXT + A/additional
- *       · PTR?  _fmhyplay._tcp.local   → the same records under the legacy type
- *       · SRV/ANY? <instance>.local    → our SRV + TXT + A
- *     with a UNICAST reply to the querier's own address:port when the QU bit is
- *     set (RFC 6762 §5.4), else to the group. Unicast replies traverse routers
- *     that only filter multicast — and between two of OUR sockets on the same
- *     phone they never leave the kernel.
+ *  FACT B — the two "answered a multicast query" replies (5.245/5.246) were
+ *  lost too, because the responder NEVER pinned its multicast egress: the
+ *  kernel answers a multicast send on the DEFAULT multicast interface of the
+ *  process, and the kernel's multicast LOOPBACK (the delivery to other local
+ *  sockets) happens on that same EGRESS interface. On this Xiaomi the default
+ *  egress was not the joined wlan0, so the system socket (joined on wlan0)
+ *  never saw the looped copy. Proof by contrast: the self-test's probeLocal —
+ *  which DOES call setNetworkInterface — worked in the same log ("answered=true
+ *  sent=1 recv=1"). FIXED: the responder pins setNetworkInterface(joinedIface),
+ *  exactly like AOSP's MdnsInterfaceSocket does (MdnsInterfaceSocket.java:70-72).
  *
- *   JOB 2 — THE ROUTER-FREE SELF-PROBE: probeLocal() joins the group on its own
- *     MulticastSocket and asks the question. The kernel's multicast loopback
- *     (IP_MULTICAST_LOOP, ON by default; we ALSO call setLoopbackMode(false) —
- *     in Java's inverted semantics FALSE means loopback ENABLED, the exact call
- *     the audit asked for) delivers the question to our responder socket on the
- *     SAME interface, 100% inside the phone's Linux kernel. The responder's
- *     unicast reply comes back to the probe socket. NO ROUTER REFLECTION NEEDED.
- *     This is the honest layer-1 proof: "our service answers on the wire".
+ *  FACT C — TTL: Java's default multicast TTL is 1; RFC 6762 §11 mandates 255
+ *  and AOSP itself sends 255 (MdnsInterfaceSocket.java:70-71). AOSP does not
+ *  check the TTL on receive, but mDNS-snooping switches may. FIXED:
+ *  setTimeToLive(255).
  *
- *   The response builder (responsePacket) is deliberately deterministic — the lab
- *   proves the exact bytes (header flags 0x8400 authoritative-answer, our PTR/
- *   SRV/TXT/A records, correct name compression via the shared name-writer) so a
- *   phone capture can be diffed against the lab's bytes. */
+ *  FACT D — the two fe80::…%wlan0 queries wanted an IPv6 answer; the v2.4.0
+ *  response carried only an A record. AOSP's MdnsResponse.isComplete()
+ *  (MdnsResponse.java:336-340) accepts SRV + TXT + (A OR AAAA), so an AAAA with
+ *  the interface's IPv6 makes the v6 leg complete as well. FIXED: an AAAA
+ *  record for the SRV target whenever the interface has an IPv6 address.
+ *
+ * Kept from v2.4.0 (proven correct in the field):
+ *   · the instance name differs from the NsdManager registration name, and
+ *     ANY (§8.1 probe) questions are NEVER answered — the daemon's
+ *     MdnsAdvertiser owns its name unchallenged (the v2.3.x sabotage fix);
+ *   · SRV target = <hostName>.local with the A/AAAA owner on the SAME name, so
+ *     AOSP's decoder Loop 3 (MdnsResponseDecoder findResponseWithHostName)
+ *     attaches the address and isComplete() becomes true;
+ *   · cache-flush 0x8001 on unique records (RFC 6762 §10.2), plain IN on the
+ *     shared PTR;
+ *   · SO_REUSEADDR sharing of 5353 with the platform's own sockets, with
+ *     graceful degradation when the bind is refused.
+ *
+ * Pure java.net only — the verification lab drives this exact code on a bare
+ * JVM and proves the wire bytes byte-for-byte. */
 public final class MdnsResponder {
 
-    public static final String MDNS_GROUP = "224.0.0.251";
+    public static final String MDNS_GROUP = "224.0.0.251";      // mDNS IPv4 group
+    public static final String MDNS_GROUP_V6 = "ff02::fb";      // mDNS IPv6 group
     public static final int MDNS_PORT = 5353;
+    /** RFC 6762 §11 — multicast DNS packets are sent with IP TTL / hop limit 255. */
+    public static final int MDNS_TTL = 255;
 
     private final String serviceType;     // "_anantplay._tcp"
     private final String legacyType;      // "_fmhyplay._tcp" (or "" to disable)
-    private final String instanceName;    // e.g. "AnantPlay Sinhala Player" (v2.4.0: DIFFERENT from the NsdManager name!)
+    private final String instanceName;    // e.g. "AnantPlay Sinhala Player" (≠ the NsdManager name!)
     private final int port;               // the receiver's TCP port
-    private final InetAddress host;       // the interface address to advertise
-    /** v2.4.0 — the SRV target host (<hostName>.local.). RFC 6763 §4.3 requires a
-     *  proper host name, and Android's MdnsResponseDecoder (Loop 3,
-     *  MdnsResponseDecoder.java:248-255) attaches an A record to a service ONLY
-     *  when the A owner name equals the SRV target. v2.3.x put the bare instance
-     *  name as SRV target and the full service name as A owner — the two never
-     *  matched, the address never attached, isComplete() stayed false and official
-     *  AnantPlay ignored every answer (the 2026-11-22 13:16 Android 16 log). */
-    private final String hostName;        // e.g. "Sinhala-Player-a1b2"
+    private final InetAddress host;       // the interface IPv4 to advertise (may be loopback in the lab)
+    private final InetAddress host6;      // the interface IPv6 for the AAAA record (null = none)
+    /** The SRV target host (<hostName>.local.) — RFC 6763 §4.3; the A/AAAA owner
+     *  name MUST equal it or AOSP's decoder never attaches the address. */
+    private final String hostName;
 
     private MulticastSocket socket;
     private Thread worker;
     private volatile boolean running;
-    private volatile boolean portShared;  // true when 5353 bound OK alongside mdnsd
+    private volatile boolean portShared;  // true when 5353 bound OK alongside the platform sockets
     private volatile long answered, queriesSeen;
+    /** v3.0.0 — reply destination counters (the self-test shows them; a healthy
+     *  reply is "m4/m6/uc" where m4=IPv4-group sends, m6=IPv6-group sends). */
+    private volatile long sentM4, sentM6, sentUnicast;
 
     public MdnsResponder(String serviceType, String legacyType, String instanceName,
                          int port, InetAddress host) {
+        this(serviceType, legacyType, instanceName, port, host, null);
+    }
+
+    /** v3.0.0 — with an IPv6 address for the AAAA record (null = A-only). */
+    public MdnsResponder(String serviceType, String legacyType, String instanceName,
+                         int port, InetAddress host, InetAddress host6) {
         this.serviceType = serviceType;
         this.legacyType = legacyType == null ? "" : legacyType;
         this.instanceName = instanceName;
         this.port = port;
         this.host = host;
+        this.host6 = host6 instanceof Inet6Address ? host6 : null;
         this.hostName = makeHostName();
     }
 
-    /** v2.4.0 — a stable, unique, DNS-label-safe host name derived from the
-     *  advertised IP (deterministic: same IP → same host name, so the lab proves
-     *  the exact bytes). ASCII-only, ≤ 63 bytes, no dots — a legal single label. */
+    /** A stable, unique, DNS-label-safe host name derived from the advertised
+     *  IP (deterministic: same IP → same host name, so the lab proves the exact
+     *  bytes). ASCII-only, ≤ 63 bytes, no dots — a legal single label. */
     private String makeHostName() {
         String ip = host == null ? "0.0.0.0" : host.getHostAddress();
         int h = Math.abs(ip.hashCode());
@@ -102,21 +129,22 @@ public final class MdnsResponder {
     public String hostLabel() { return hostName; }
 
     public boolean isRunning() { return running; }
-    /** True when we actually share UDP 5353 (false = mdnsd refused / EADDRINUSE — degraded). */
+    /** True when we actually share UDP 5353 (false = bind refused — degraded). */
     public boolean isPortShared() { return portShared; }
     public long answeredCount() { return answered; }
     public long queriesSeen() { return queriesSeen; }
-    /** The service types this responder answers for (probe validation). */
     public String serviceType() { return serviceType; }
     public String legacyType() { return legacyType; }
+    public long sentMulticast4() { return sentM4; }
+    public long sentMulticast6() { return sentM6; }
+    public long sentUnicastCount() { return sentUnicast; }
 
-    /** Bind + join + serve. Returns false when 5353 could not be shared (caller
-     *  keeps the NsdManager path; only the extra responder is missing). */
+    /** Bind + pin + join + serve. Returns false when 5353 could not be shared. */
     public synchronized boolean start() {
         if (running) return true;
         try {
             socket = new MulticastSocket(null);
-            socket.setReuseAddress(true);          // coexist with mdnsd's 5353
+            socket.setReuseAddress(true);          // coexist with the platform's 5353 sockets
             socket.bind(new InetSocketAddress(MDNS_PORT));
             portShared = true;
         } catch (Throwable t) {
@@ -129,17 +157,43 @@ public final class MdnsResponder {
             return false;
         }
         try {
-            InetAddress group = InetAddress.getByName(MDNS_GROUP);
+            // THE v3.0.0 FIXES (FACT B + C): TTL 255 (RFC 6762 §11) and the
+            // multicast egress PINNED to the joined interface — the exact two
+            // settings AOSP's own MdnsInterfaceSocket applies
+            // (MdnsInterfaceSocket.java:70-72). Without the pin, the kernel
+            // loops multicast back only on the DEFAULT egress interface, which
+            // on the 2026-11-22 Xiaomi was NOT the joined wlan0 — the system's
+            // discovery socket never saw a single reply.
+            socket.setTimeToLive(MDNS_TTL);
+            InetAddress group4 = InetAddress.getByName(MDNS_GROUP);
             NetworkInterface onIface = ifaceOf(host);
-            if (onIface != null) socket.joinGroup(new InetSocketAddress(group, 0), onIface);
-            else socket.joinGroup(group);          // fallback: the deprecated default join
+            if (onIface != null) {
+                socket.joinGroup(new InetSocketAddress(group4, 0), onIface);
+                // v3.0.0: join the IPv6 group too (only when the iface has v6) so
+                // ff02::fb queries from v6-capable clients reach us at all.
+                InetAddress group6 = InetAddress.getByName(MDNS_GROUP_V6);
+                try {
+                    socket.joinGroup(new InetSocketAddress(group6, 0), onIface);
+                    joinedV6 = true;
+                } catch (Throwable t) {
+                    Diag.w("mdnsrsp", "no IPv6 mDNS group on " + onIface.getName() + " (" + t + ")");
+                }
+                // PIN THE EGRESS — this one line is the difference between the
+                // v2.4.0 silent failure and a reply the system socket receives.
+                try { socket.setNetworkInterface(onIface); } catch (Throwable t) {
+                    Diag.w("mdnsrsp", "setNetworkInterface failed (" + t + ") — relying on the default route");
+                }
+            } else {
+                socket.joinGroup(group4);          // lab fallback: the default join
+            }
             joinedIface = onIface;
             running = true;
             worker = new Thread(this::serve, "si-mdns-rsp");
             worker.setDaemon(true);
             worker.start();
             Diag.i("mdnsrsp", "responder up on 5353 for " + serviceType + " (instance \"" + instanceName + "\" :" + port
-                + (onIface != null ? ", iface " + onIface.getName() : "") + ")");
+                + (onIface != null ? ", iface " + onIface.getName() : "")
+                + ", ttl " + MDNS_TTL + ", v6 " + (host6 != null ? host6.getHostAddress() : "off") + ")");
             return true;
         } catch (Throwable t) {
             Diag.w("mdnsrsp", "joinGroup failed: " + t);
@@ -150,12 +204,11 @@ public final class MdnsResponder {
 
     /** The interface the advertised address belongs to — but only when that
      *  interface actually carries multicast (a loopback iface on some kernels
-     *  accepts joinGroup then blackholes every packet, which is exactly the
-     *  silent failure this whole feature exists to avoid). Falls back to the
+     *  accepts joinGroup then blackholes every packet). Falls back to the
      *  first up, non-loopback, multicast-capable interface. */
     private static NetworkInterface ifaceOf(InetAddress host) {
         try {
-            if (host != null) {
+            if (host != null && !host.isLoopbackAddress()) {
                 NetworkInterface n = NetworkInterface.getByInetAddress(host);
                 if (n != null && !n.isLoopback() && n.supportsMulticast() && n.isUp()) return n;
             }
@@ -166,8 +219,9 @@ public final class MdnsResponder {
         return null;
     }
 
-    /** The interface we joined (for leaveGroup symmetry; null when the default join was used). */
+    /** The interfaces we joined (for leaveGroup symmetry). */
     private NetworkInterface joinedIface;
+    private boolean joinedV6;
 
     public synchronized void stop() {
         running = false;
@@ -177,22 +231,42 @@ public final class MdnsResponder {
                 InetAddress group = InetAddress.getByName(MDNS_GROUP);
                 if (joinedIface != null) socket.leaveGroup(new InetSocketAddress(group, 0), joinedIface);
                 else socket.leaveGroup(group);
+                if (joinedV6 && joinedIface != null) {
+                    socket.leaveGroup(new InetSocketAddress(InetAddress.getByName(MDNS_GROUP_V6), 0), joinedIface);
+                }
             } catch (Throwable ignored) { }
             try { socket.close(); } catch (Throwable ignored) { }
             socket = null;
         }
         joinedIface = null;
-        Diag.i("mdnsrsp", "responder down (answered " + answered + " queries)");
+        joinedV6 = false;
+        Diag.i("mdnsrsp", "responder down (answered " + answered + " queries, m4=" + sentM4
+            + " m6=" + sentM6 + " uc=" + sentUnicast + ")");
     }
 
-    /** v2.3.1 — log aggregation state: the field log showed 16 identical
-     *  "answered a unicast(QU) query" lines inside 0.4 s (the spinning v2.3.0
-     *  probes re-sent at full speed because their mojibake match never
-     *  succeeded). Even with the probes fixed, a busy network can carry many
-     *  queries per second — the diagnostics ring must never be flooded. */
+    /** One Diag line per source per second at most; repeats collapse into
+     *  "… (×N in 1 s)". Called on the serve thread only. */
     private String lastLogSource = "";
     private int suppressedSinceLog;
     private long lastLogAt;
+
+    private void logAnswer(String source, boolean qu) {
+        long now = System.currentTimeMillis();
+        if (source.equals(lastLogSource) && now - lastLogAt < 1000) {
+            suppressedSinceLog++;
+            return;
+        }
+        StringBuilder line = new StringBuilder("answered ").append(qu ? "QU" : "multicast")
+            .append(" query from ").append(source).append(" — reply → 224.0.0.251 + ff02::fb");
+        if (qu) line.append(" + unicast");
+        if (suppressedSinceLog > 0) {
+            line.append(" … (×").append(suppressedSinceLog).append(" in 1 s)");
+            suppressedSinceLog = 0;
+        }
+        Diag.i("mdnsrsp", line.toString());
+        lastLogSource = source;
+        lastLogAt = now;
+    }
 
     private void serve() {
         byte[] buf = new byte[9000];
@@ -205,10 +279,7 @@ public final class MdnsResponder {
                 queriesSeen++;
                 byte[] out = answerIfForUs(in);
                 if (out != null && out.length > 0) {
-                    SocketAddress to = hasQuBit(in)
-                        ? new InetSocketAddress(p.getAddress(), p.getPort())   // unicast back (RFC 6762 §5.4)
-                        : new InetSocketAddress(InetAddress.getByName(MDNS_GROUP), MDNS_PORT);
-                    socket.send(new DatagramPacket(out, out.length, to));
+                    sendReply(socket, out, p.getAddress(), p.getPort(), hasQuBit(in));
                     answered++;
                     logAnswer(p.getAddress().getHostAddress() + ":" + p.getPort(), hasQuBit(in));
                 }
@@ -218,30 +289,50 @@ public final class MdnsResponder {
         }
     }
 
-    /** One Diag line per source per second at most; repeats collapse into
-     *  "… (×N in 1 s)". Called on the serve thread only. */
-    private void logAnswer(String source, boolean qu) {
-        long now = System.currentTimeMillis();
-        if (source.equals(lastLogSource) && now - lastLogAt < 1000) {
-            suppressedSinceLog++;
-            return;
+    /** THE v3.0.0 REPLY POLICY (FACT A + B): the answer is ALWAYS multicast to
+     *  BOTH groups (kernel fan-out → every joined socket on the interface gets
+     *  a copy — the platform's per-network socket included), and ADDITIONALLY
+     *  unicast to the querier when it asked with the QU bit. A failure to send
+     *  on one family never blocks the other. */
+    void sendReply(MulticastSocket sock, byte[] out, InetAddress from, int fromPort, boolean qu) {
+        // 1. IPv4 group — multicast fan-out, the delivery the system mDNS
+        //    stack (and every other app) actually receives.
+        try {
+            sock.send(new DatagramPacket(out, out.length,
+                new InetSocketAddress(ip(MDNS_GROUP), MDNS_PORT)));
+            sentM4++;
+        } catch (Throwable t) {
+            Diag.w("mdnsrsp", "mcast v4 send: " + t);
         }
-        StringBuilder line = new StringBuilder("answered a ").append(qu ? "unicast(QU)" : "multicast")
-            .append(" query from ").append(source);
-        if (suppressedSinceLog > 0) {
-            line.append(" … (×").append(suppressedSinceLog).append(" in 1 s)");
-            suppressedSinceLog = 0;
+        // 2. IPv6 group — same fan-out on the v6 leg (fe80:: queriers).
+        try {
+            sock.send(new DatagramPacket(out, out.length,
+                new InetSocketAddress(ip(MDNS_GROUP_V6), MDNS_PORT)));
+            sentM6++;
+        } catch (Throwable t) {
+            // v4-only iface or an AF_INET socket: normal on some builds, not an error
+            Diag.w("mdnsrsp", "mcast v6 send skipped: " + t);
         }
-        Diag.i("mdnsrsp", line.toString());
-        lastLogSource = source;
-        lastLogAt = now;
+        // 3. The QU courtesy unicast (legacy queriers off-device). NEVER the
+        //    only delivery — see FACT A: on-device unicast to :5353 travels the
+        //    kernel `local` route (lo) and a SO_BINDTODEVICE(wlan0) system
+        //    socket cannot receive it at all.
+        if (qu) {
+            try {
+                sock.send(new DatagramPacket(out, out.length, new InetSocketAddress(from, fromPort)));
+                sentUnicast++;
+            } catch (Throwable t) {
+                Diag.w("mdnsrsp", "unicast send: " + t);
+            }
+        }
     }
 
-    // ── the query parser (enough RFC-6762/1035 to know a question is ours) ─────
+    private static InetAddress ip(String s) {
+        try { return InetAddress.getByName(s); } catch (Throwable t) { return null; }
+    }
 
-    /** True when the packet is a QUERY (not a response) whose QUESTION section
-     *  carries the QU top bit in a QCLASS field (RFC 6762 §5.4: "unicast the
-     *  reply"). We scan every question's QCLASS byte-pair for the top bit. */
+    /** True when the packet is a QUERY whose QUESTION section carries the QU top
+     *  bit in a QCLASS field (RFC 6762 §5.4). We scan every question's QCLASS. */
     static boolean hasQuBit(byte[] q) {
         if (q == null || q.length < 12) return false;
         if ((q[2] & 0x80) != 0) return false;               // a response, not a query
@@ -261,31 +352,24 @@ public final class MdnsResponder {
 
     /** The answer payload when this query asks about our service (else null).
      *
-     *  v2.4.0 — THE SABOTAGE FIX (the 2026-11-22 13:16 Android 16 log, "announced":
-     *  false for 35 s): v2.3.x also answered QTYPE=255 (ANY) questions on
-     *  <instance>.<type>.local — but that is EXACTLY the shape of an RFC 6762 §8.1
-     *  PROBE (MdnsProber.java:78-95 builds MdnsAnyRecord questions; the proposed
-     *  records ride in AUTHORITY). Our answers carrying a same-named SRV record
-     *  always counted as CONFLICT in MdnsRecordRepository.getConflictingServices
-     *  (MdnsRecordRepository.java:1196, 1263-1290 — IDENTICAL needs equal rdata;
-     *  ours differs), so Android 14–16's MdnsAdvertiser renamed the NsdManager
-     *  registration over and over and NEVER fired onServiceRegistered. Now:
-     *   · ANY questions are NEVER answered (correct: a probe is not a query);
-     *   · the responder's instance name differs from the NsdManager name, so even
-     *     a future bug in the filter cannot collide with the daemon's probes.
-     *  Matches: PTR on <type>.local (browse); SRV/TXT on <instance>.<type>.local;
-     *  A/AAAA on <hostName>.local (the SRV target — RFC 6763 §4.3, so a resolver's
-     *  address follow-up is answered too). */
+     *  Kept from v2.4.0 — the anti-sabotage rules:
+     *   · ANY questions are NEVER answered (an RFC 6762 §8.1 probe is not a query;
+     *     answering it registers as a CONFLICT in MdnsRecordRepository and
+     *     re-probes the daemon's advertiser forever);
+     *   · the responder's instance name differs from the NsdManager name.
+     *  v3.0.0 — the query may carry BOTH service types (or either); every
+     *  MATCHED type gets its PTR in the answer and its SRV/TXT pair in the
+     *  additional section, so a dual-type querier completes in one round trip. */
     byte[] answerIfForUs(byte[] q) {
         try {
             if (q == null || q.length < 12) return null;
             if ((q[2] & 0x80) != 0) return null;              // a response, not a query
             int qd = ((q[4] & 0xFF) << 8) | (q[5] & 0xFF);
-            // the QU bit occupies the top bit of QDCOUNT — mask it off for the count
             qd = qd & 0x7FFF;
             if (qd == 0 || qd > 4) return null;               // 0 = probe packet, >4 = junk
             int pos = 12;
-            boolean ours = false;
+            boolean anant = false, fmhy = false;
+            boolean srvAsked = false, a4Asked = false, a6Asked = false;
             for (int i = 0; i < qd && pos < q.length; i++) {
                 int[] nameEnd = new int[1];
                 String[] name = readName(q, pos, nameEnd);
@@ -296,23 +380,29 @@ public final class MdnsResponder {
                 if (name == null) continue;
                 String full = joinName(name);
                 String lower = full.toLowerCase(Locale.ROOT);
-                if (qtype == 255) continue;                   // §8.1 probe / ANY: NEVER answer (v2.4.0)
+                if (qtype == 255) continue;                   // §8.1 probe / ANY: NEVER answer
+                String want1 = (serviceType + ".local").toLowerCase(Locale.ROOT);
+                String want2 = legacyType.isEmpty() ? "" : (legacyType + ".local").toLowerCase(Locale.ROOT);
                 if (qtype == 12) {                            // PTR: browse for the service type
-                    String want1 = (serviceType + ".local").toLowerCase(Locale.ROOT);
-                    String want2 = legacyType.isEmpty() ? "" : (legacyType + ".local").toLowerCase(Locale.ROOT);
-                    if (lower.equals(want1) || lower.equals(want2)) ours = true;
+                    if (lower.equals(want1)) anant = true;
+                    if (!want2.isEmpty() && lower.equals(want2)) fmhy = true;
                 }
-                if (qtype == 33 || qtype == 16) {              // SRV / TXT on the instance
+                if (qtype == 33 || qtype == 16) {             // SRV / TXT on the instance
                     String inst = (instanceName + "." + serviceType + ".local").toLowerCase(Locale.ROOT);
                     String instLegacy = legacyType.isEmpty() ? "" : (instanceName + "." + legacyType + ".local").toLowerCase(Locale.ROOT);
-                    if (lower.equals(inst) || lower.equals(instLegacy)) ours = true;
+                    if (lower.equals(inst) || lower.equals(instLegacy)) srvAsked = true;
                 }
-                if (qtype == 1 || qtype == 28) {               // A / AAAA on the SRV target host
+                if (qtype == 1 || qtype == 28) {              // A / AAAA on the SRV target host
                     String h = (hostName + ".local").toLowerCase(Locale.ROOT);
-                    if (lower.equals(h)) ours = true;
+                    if (lower.equals(h)) { a4Asked = true; a6Asked = true; }
                 }
             }
-            return ours ? responsePacket(q) : null;
+            boolean ours = anant || fmhy || srvAsked || a4Asked;
+            if (!ours) return null;
+            // A pure A/AAAA follow-up (a resolver resolving the SRV target) is
+            // answered with the host records only — no service records needed.
+            boolean hostOnly = !anant && !fmhy && !srvAsked && (a4Asked || a6Asked);
+            return responsePacket(q, anant, fmhy, hostOnly);
         } catch (Throwable t) {
             return null;
         }
@@ -356,67 +446,85 @@ public final class MdnsResponder {
 
     // ── the response builder (deterministic — the lab proves these exact bytes) ──
 
-    /** The full authoritative answer for OUR service, echoing the query's id:
-     *  answers: PTR instance.service.local ; additional: SRV, TXT, A.
-     *
-     *  v2.4.0 — THE ATTACH FIX: the SRV target is now <hostName>.local (RFC 6763
-     *  §4.3) and the A record's owner name is THE SAME <hostName>.local, so
-     *  Android's MdnsResponseDecoder Loop 3 (findResponseWithHostName matches
-     *  inetRecord.getName() == serviceRecord.getServiceHost(),
-     *  MdnsResponseDecoder.java:248-255) attaches the address, isComplete()
-     *  (MdnsResponse.java:336-341: SRV && TXT && ≥1 inet) becomes true and
-     *  onServiceFound fires (MdnsServiceTypeClient.java:646-651). Cache-flush
-     *  0x8001 on the unique SRV/TXT/A records (RFC 6762 §10.2), plain 0x0001 on
-     *  the shared PTR. */
-    byte[] responsePacket(byte[] query) {
+    /** The full authoritative answer echoing the query's id:
+     *  answers: one PTR per matched service type;
+     *  additional: SRV + TXT per matched type, then A (+ AAAA) on
+     *  <hostName>.local — the SRV target, so AOSP's decoder attaches the
+     *  address and isComplete() fires. Cache-flush 0x8001 on unique records
+     *  (RFC 6762 §10.2), plain 0x0001 on the shared PTR. TTLs: PTR 4500 (the
+     *  DNS-SD browse standard), SRV/TXT/A/AAAA 120 (AOSP's own
+     *  DEFAULT_NAME_RECORDS_TTL_MILLIS, MdnsRecordRepository.java:81). */
+    byte[] responsePacket(byte[] query, boolean anant, boolean fmhy, boolean hostOnly) {
+        Set<String> types = new LinkedHashSet<>();
+        if (anant) types.add(serviceType);
+        if (fmhy) types.add(legacyType);
+        int anCount = hostOnly ? 0 : types.size();
+        int arCount = hostOnly ? (host6 != null ? 2 : 1) : types.size() * 2 + (host6 != null ? 2 : 1);
         int id = query == null || query.length < 2 ? 0 : ((query[0] & 0xFF) << 8) | (query[1] & 0xFF);
-        ByteArrayOutputStream b = new ByteArrayOutputStream(512);
+        ByteArrayOutputStream b = new ByteArrayOutputStream(640);
         b.write(id >> 8); b.write(id & 0xFF);
         b.write(0x84); b.write(0x00);           // flags: AA + response
         b.write(0); b.write(0);                 // QDCOUNT 0 (an answer echoes no questions)
-        b.write(0); b.write(1);                 // ANCOUNT 1
+        b.write((anCount >> 8) & 0xFF); b.write(anCount & 0xFF);
         b.write(0); b.write(0);                 // NSCOUNT 0
-        b.write(0); b.write(3);                 // ARCOUNT 3 (SRV + TXT + A)
-        // ── answer: PTR <instance>.<service>.local (shared record: NO cache-flush) ──
-        writeName(b, instanceName, serviceType, "local");
-        b.write(0); b.write(12);                // TYPE PTR
-        b.write(0); b.write(1);                 // CLASS IN (no cache-flush: shared)
-        writeU32(b, 4500);                      // TTL 4500 s — the standard DNS-SD browse TTL
-        byte[] ptr = ptrRdata();
-        writeU16(b, ptr.length);
-        b.write(ptr, 0, ptr.length);
-        // ── additional 1: SRV on <instance>.<service>.local, target <hostName>.local ──
-        writeName(b, instanceName, serviceType, "local");
-        b.write(0); b.write(33);                // TYPE SRV
-        b.write(0x80); b.write(0x01);           // CLASS IN + cache-flush (unique record)
-        writeU32(b, 120);
-        byte[] srv = srvRdata();
-        writeU16(b, srv.length);
-        b.write(srv, 0, srv.length);
-        // ── additional 2: TXT ──
-        writeName(b, instanceName, serviceType, "local");
-        b.write(0); b.write(16);                // TYPE TXT
-        b.write(0x80); b.write(0x01);           // CLASS IN + cache-flush
-        writeU32(b, 120);
-        byte[] txt = txtRdata();
-        writeU16(b, txt.length);
-        b.write(txt, 0, txt.length);
-        // ── additional 3: A on <hostName>.local — THE SAME NAME AS THE SRV TARGET ──
-        writeName(b, hostName, "local");
-        b.write(0); b.write(1);                 // TYPE A
-        b.write(0x80); b.write(0x01);           // CLASS IN + cache-flush
-        writeU32(b, 120);
-        byte[] a = host == null ? new byte[4] : host.getAddress();
-        if (a == null || a.length != 4) a = new byte[4];
-        writeU16(b, 4);
-        b.write(a, 0, 4);
+        b.write((arCount >> 8) & 0xFF); b.write(arCount & 0xFF);
+        for (String t : types) {
+            // ── answer: PTR <instance>.<type>.local (shared record: NO cache-flush) ──
+            writeName(b, instanceName, t, "local");
+            b.write(0); b.write(12);            // TYPE PTR
+            b.write(0); b.write(1);             // CLASS IN (no cache-flush: shared)
+            writeU32(b, 4500);                  // TTL 4500 s — the standard DNS-SD browse TTL
+            byte[] ptr = ptrRdata(t);
+            writeU16(b, ptr.length);
+            b.write(ptr, 0, ptr.length);
+            // ── additional: SRV on <instance>.<type>.local, target <hostName>.local ──
+            writeName(b, instanceName, t, "local");
+            b.write(0); b.write(33);            // TYPE SRV
+            b.write(0x80); b.write(0x01);       // CLASS IN + cache-flush (unique record)
+            writeU32(b, 120);
+            byte[] srv = srvRdata();
+            writeU16(b, srv.length);
+            b.write(srv, 0, srv.length);
+            // ── additional: TXT ──
+            writeName(b, instanceName, t, "local");
+            b.write(0); b.write(16);            // TYPE TXT
+            b.write(0x80); b.write(0x01);       // CLASS IN + cache-flush
+            writeU32(b, 120);
+            byte[] txt = txtRdata();
+            writeU16(b, txt.length);
+            b.write(txt, 0, txt.length);
+        }
+        if (!hostOnly || host6 != null) {
+            // ── additional: A on <hostName>.local — THE SAME NAME AS THE SRV TARGET ──
+            writeName(b, hostName, "local");
+            b.write(0); b.write(1);             // TYPE A
+            b.write(0x80); b.write(0x01);       // CLASS IN + cache-flush
+            writeU32(b, 120);
+            byte[] a = host == null ? new byte[4] : host.getAddress();
+            if (a == null || a.length != 4) a = new byte[4];
+            writeU16(b, 4);
+            b.write(a, 0, 4);
+        }
+        if (host6 != null) {
+            // ── v3.0.0 additional: AAAA on <hostName>.local (FACT D) — makes the
+            //    response complete for the fe80::/v6 queriers too. ──
+            writeName(b, hostName, "local");
+            b.write(0); b.write(28);            // TYPE AAAA
+            b.write(0x80); b.write(0x01);       // CLASS IN + cache-flush
+            writeU32(b, 120);
+            byte[] a6 = host6.getAddress();
+            writeU16(b, a6.length);
+            b.write(a6, 0, a6.length);
+        }
         return b.toByteArray();
     }
 
-    /** PTR rdata: just the instance name (labels). */
-    private byte[] ptrRdata() {
+    /** PTR rdata: the instance name labels under the given service type. */
+    private byte[] ptrRdata(String type) {
         ByteArrayOutputStream b = new ByteArrayOutputStream(96);
         writeLabels(b, instanceName);
+        writeLabels(b, type);
+        writeLabels(b, "local");
         b.write(0);
         return b.toByteArray();
     }
@@ -433,8 +541,7 @@ public final class MdnsResponder {
         return b.toByteArray();
     }
 
-    /** TXT rdata: "app=sicast" + the display name AnantPlay shows for TVs (the
-     *  `fn` attribute Chromecast uses for the friendly name). */
+    /** TXT rdata: "app=sicast" + the display name AnantPlay shows for TVs. */
     private byte[] txtRdata() {
         ByteArrayOutputStream b = new ByteArrayOutputStream(96);
         for (String s : new String[]{"app=sicast", "fn=" + instanceName}) {
@@ -469,7 +576,7 @@ public final class MdnsResponder {
         b.write((int) (v & 0xFF));
     }
 
-    // ── JOB 2: the router-free self-probe (kernel multicast loopback) ──────────
+    // ── the router-free self-probe (kernel multicast loopback) ──────────────────
 
     /** Result of the local probe. */
     static final class ProbeResult {
@@ -483,8 +590,9 @@ public final class MdnsResponder {
      * The router-free proof: ask _anantplay._tcp.local on the multicast group from a
      * JOINED socket and wait for a reply carrying our instance name. Between our own
      * two sockets this is 100% kernel loopback — the router's multicast behaviour is
-     * irrelevant. The caller supplies the responder (already started) and optionally
-     * re-arms the MulticastLock for the probe duration.
+     * irrelevant. The probe socket PINS ITS EGRESS exactly like the responder now
+     * does (that pin is what made the v2.4.0 probe work while the responder's
+     * unpinned replies were lost — the contrast that revealed FACT B).
      */
     static ProbeResult probeLocal(MdnsResponder responder, long timeoutMs) {
         ProbeResult r = new ProbeResult();
@@ -496,38 +604,22 @@ public final class MdnsResponder {
             s = new MulticastSocket(null);
             s.setReuseAddress(true);
             s.bind(new InetSocketAddress(0));        // any port for the probe side
-            // Java's inverted semantics: setLoopbackMode(false) ENABLES kernel loopback
-            s.setLoopbackMode(false);
-            // interface-explicit join: the ONLY form that reliably loops back to
-            // another socket joined on the same interface (the plain joinGroup()
-            // can pick a non-multicast iface such as lo and silently blackhole).
+            s.setSoTimeout(400);
             iface = responder == null ? null : ifaceOf(responder.host);
             if (iface == null) iface = ifaceOf(null);
             if (iface != null) {
                 s.joinGroup(new InetSocketAddress(group, 0), iface);
-                // v2.3.1: pin the SEND egress to the same interface — without this
-                // the kernel's default multicast route can egress loopback on some
-                // builds (the 127.0.0.1 source in the field log), which works but
-                // makes the probe's own queries loop back and doubles the traffic.
                 try { s.setNetworkInterface(iface); } catch (Throwable ignored) { }
             } else {
                 s.joinGroup(group);
             }
-            s.setSoTimeout(400);
             String type = responder == null ? "_anantplay._tcp" : responder.serviceType;
             String legacy = responder == null ? "_fmhyplay._tcp" : responder.legacyType;
             byte[] q = MdnsWire.queryPacket(type);
-            // v2.3.1 — THE PARADOX FIX: the reply is validated structurally with
-            // MdnsWire.isOurAnswer (QR bit + records + the ASCII service type).
-            // The v2.3.0 check decoded the packet as ISO-8859-1 and searched for
-            // the Sinhala instance name — 15 UTF-8 bytes that turn into Latin-1
-            // mojibake and NEVER match, so every reply that DID arrive was
-            // counted as silence and the loop span at full speed re-sending
-            // (the 4-packet/~207 ms storm in the 2026-11-22 field log).
             long end = System.currentTimeMillis() + Math.max(800, timeoutMs);
             int maxSends = 6;                       // hard cap — a quiet network
             while (System.currentTimeMillis() < end && !r.answered && r.packetsSent < maxSends) {
-                s.send(new DatagramPacket(q, q.length, group, MDNS_PORT));
+                s.send(new DatagramPacket(q, q.length, new InetSocketAddress(group, MDNS_PORT)));
                 r.packetsSent++;
                 byte[] buf = new byte[9000];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);

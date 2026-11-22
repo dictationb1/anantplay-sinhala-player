@@ -51,6 +51,10 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     private final Handler main = new Handler(Looper.getMainLooper());
     private ReceiverServer server;
     private NsdAnnouncer nsd;
+    private DlnaEndpoint dlnaEndpoint;
+    private DlnaRenderer dlnaRenderer;
+    /** The DLNA RenderingControl's tracked volume (AnantPlay's remote ±5 steps it). */
+    private volatile int dlnaVolume = 50;
     private volatile boolean nexusTakeover;   // bring our player over AnantPlay's Remote
 
     public static boolean isUp() { return running != null; }
@@ -59,6 +63,19 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     public static MdnsResponder liveResponder() {
         ReceiverService s = running;
         return s == null || s.nsd == null ? null : s.nsd.responder();
+    }
+    /** v3.0.0 — the live SSDP responder (null when the service or the DLNA renderer is down). */
+    public static DlnaRenderer liveDlnaRenderer() {
+        ReceiverService s = running;
+        return s == null ? null : s.dlnaRenderer;
+    }
+    /** v3.0.0 — TRUE when either cast-discovery pillar is answering on the wire
+     *  (our own mDNS responder OR the DLNA SSDP responder): AnantPlay's Cast chip
+     *  lights up from either, regardless of the NsdManager daemon's state. */
+    public static boolean castDiscoverable() {
+        MdnsResponder r = liveResponder();
+        DlnaRenderer d = liveDlnaRenderer();
+        return (r != null && r.isRunning() && r.isPortShared()) || (d != null && d.isRunning());
     }
     /** v2.4.0 — the REAL NsdManager registration state (onServiceRegistered fired). */
     public static boolean isAnnounced() {
@@ -72,7 +89,8 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         @Override public void run() {
             try {
                 boolean serverOk = server != null && server.isRunning();
-                boolean announceOk = nsd != null && (nsd.isAnnounced() || (nsd.responder() != null && nsd.responder().isRunning()));
+                boolean announceOk = (nsd != null && (nsd.isAnnounced() || (nsd.responder() != null && nsd.responder().isRunning())))
+                    || (dlnaRenderer != null && dlnaRenderer.isRunning());   // v3.0.0: either discovery pillar is enough
                 if (!serverOk || !announceOk) {
                     Diag.w("service", "self-heal: re-arming (server=" + serverOk + " announce=" + announceOk + ")");
                     stopSelf();
@@ -120,11 +138,64 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
             stopSelf();
             return;
         }
+        // v3.0.0 — THE SECOND CAST PILLAR: the UPnP/DLNA MediaRenderer. AnantPlay's
+        // Cast.discover() SSDP-searches for MediaRenderer:1 on every app start and
+        // Re-scan, and Cast.any() counts the result exactly like an mDNS TV — so
+        // the Cast chip works even while NsdManager hangs (the Android 16 field
+        // failure). The endpoint shares the /play /do /status engine; the SSDP
+        // responder answers M-SEARCH on UDP 1900. UUID stays stable per install.
+        dlnaEndpoint = new DlnaEndpoint(new DlnaBridge(), dlnaUuid(), "සිංහල Player",
+            "Android/" + Build.VERSION.RELEASE + " UPnP/1.0 AnantPlaySinhalaPlayer/" + AppInfo.VERSION_NAME);
+        server.setDlna(dlnaEndpoint);
+        dlnaRenderer = new DlnaRenderer(dlnaEndpoint, () -> {
+            java.net.InetAddress ip = NsdAnnouncer.wifiLanIp();
+            return ip == null ? "" : "http://" + ip.getHostAddress() + ":" + server.port() + "/dlna/desc.xml";
+        });
+        dlnaRenderer.start();
         nsd = new NsdAnnouncer(this, server.port());
         nsd.start();
         heal.removeCallbacks(healTask);
         heal.postDelayed(healTask, 15 * 60 * 1000L);
-        Diag.i("service", "up on port " + server.port() + (nsd.isAnnounced() ? " (announced)" : " (announce pending)"));
+        Diag.i("service", "up on port " + server.port() + (nsd.isAnnounced() ? " (announced)" : " (announce pending)")
+            + (dlnaRenderer.isRunning() ? " (dlna up)" : " (dlna degraded)"));
+    }
+
+    /** A stable per-install UUID for the DLNA UDN (generated once, kept forever). */
+    private String dlnaUuid() {
+        android.content.SharedPreferences p = getSharedPreferences("sicast", MODE_PRIVATE);
+        String u = p.getString("dlnaUuid", null);
+        if (u == null || u.isEmpty()) {
+            u = "SIcast-" + Integer.toHexString((int) (System.currentTimeMillis() & 0xFFFFFFFF)).toLowerCase(java.util.Locale.ROOT)
+                + Integer.toHexString(new java.util.Random().nextInt(0xFFFF));
+            p.edit().putString("dlnaUuid", u).apply();
+        }
+        return u;
+    }
+
+    /** v3.0.0 — the DlnaEndpoint bridge: DLNA actions drive the SAME engine the
+     *  AnantPlay mDNS cast uses (/play → PlayActivity, /do, /status snapshot). */
+    private class DlnaBridge implements DlnaEndpoint.Player {
+        @Override public boolean open(String url, String title) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("url", url);
+            if (title != null && !title.isEmpty()) body.put("title", title);
+            String res = onPlay(body, "dlna:" + url);
+            return res != null && res.contains("\"ok\":true");
+        }
+        @Override public String act(String action, long toMs) { return onAction(action, toMs); }
+        @Override public String statusJson() { return status(); }
+        @Override public int getVolume() { return dlnaVolume; }
+        @Override public void setVolume(int v) {
+            dlnaVolume = DlnaEndpoint.clampVolume(v);
+            // bridge to the real media volume as a percentage of STREAM_MUSIC
+            try {
+                AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(dlnaVolume / 100f * max), 0);
+            } catch (Throwable t) {
+                Diag.w("dlna", "volume bridge: " + t);
+            }
+        }
     }
 
     /** Swap the persistent notification's text without re-posting the foreground service. */
@@ -203,6 +274,7 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     public void onDestroy() {
         running = null;
         heal.removeCallbacks(healTask);
+        if (dlnaRenderer != null) { try { dlnaRenderer.stop(); } catch (Throwable ignored) { } dlnaRenderer = null; }
         if (nsd != null) nsd.stop();
         if (server != null) server.stop();
         try { stopForeground(true); } catch (Throwable ignored) { }   // no ghost notification
@@ -327,6 +399,8 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         MdnsResponder rsp = nsd == null ? null : nsd.responder();
         m.put("mdnsResponder", rsp == null ? "down" : rsp.isPortShared() ? "up(5353)" : "degraded(mdnsd-only)");
         m.put("mdnsAnswered", rsp == null ? 0 : rsp.answeredCount());
+        m.put("dlnaRenderer", dlnaRenderer == null ? "down" : dlnaRenderer.isRunning() ? "up(1900)" : "bind-failed");
+        m.put("dlnaSearches", dlnaRenderer == null ? 0 : dlnaRenderer.searchesSeen());
         m.put("fgsType", "connectedDevice");
         m.put("notifPerm", Miui.notifGranted(this));
         m.put("castPolicy", "local-device-only; http/https + permitted file://");

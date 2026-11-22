@@ -78,9 +78,17 @@ public final class ReceiverServer {
     private long startedAt;
     private final AtomicLong served = new AtomicLong();
     private final AtomicLong plays = new AtomicLong();
+    /** v3.0.0 — the DLNA MediaRenderer endpoints (/dlna/*). Null = not mounted
+     *  (the lab's plain cast tests run exactly as before). */
+    private volatile DlnaEndpoint dlna;
     /** At most 12 in-flight requests: AnantPlay sends one at a time; a flood is dropped. */
     private static final int MAX_INFLIGHT = 12;
     private final AtomicInteger inFlight = new AtomicInteger();
+
+    /** v3.0.0 — mount the DLNA MediaRenderer (ReceiverService calls this at arm). */
+    public void setDlna(DlnaEndpoint dlna) { this.dlna = dlna; }
+    /** The mounted DLNA endpoint (null when none) — for /info diagnostics. */
+    public DlnaEndpoint dlna() { return dlna; }
 
     public ReceiverServer(Backend backend) { this(backend, PREFERRED_PORT); }
 
@@ -145,7 +153,9 @@ public final class ReceiverServer {
         }
     }
 
-    /** One request — mirrors Cast.answer() (Cast.java:103-126) line by line. */
+    /** One request — mirrors Cast.answer() (Cast.java:103-126) line by line, plus
+     *  the v3.0.0 /dlna/* MediaRenderer routes (same local-device-only policy:
+     *  AnantPlay's DLNA control always comes from this phone, via its relay). */
     void answer(Socket s) {
         long t0 = System.currentTimeMillis();
         String route = "?", verdict = "ok";
@@ -154,9 +164,14 @@ public final class ReceiverServer {
             InputStream in = sock.getInputStream();
             String[] req = line(in).split(" ");
             int len = 0;
+            String soapAction = null;   // v3.0.0: the DLNA control POSTs carry it
             for (String h; !(h = line(in)).isEmpty(); ) {
                 String hl = h.toLowerCase(Locale.US);
-                if (!hl.startsWith("content-length:")) continue;
+                if (!hl.startsWith("content-length:")) {
+                    // capture the SOAPAction header for /dlna/* (case-insensitive value kept raw)
+                    if (hl.startsWith("soapaction:") && h.length() > 11) soapAction = h.substring(11).trim();
+                    continue;
+                }
                 try {
                     long v = Long.parseLong(hl.substring(15).trim());
                     if (v < 0 || v > MAX_BODY) len = -1;       // mark as too large / invalid
@@ -182,9 +197,30 @@ public final class ReceiverServer {
 
             boolean local = isSelf(sock.getInetAddress());
             String out;
+            String contentType = "application/json";
+            int status = 200;
+            DlnaEndpoint d = dlna;
             if (!local) {
                 verdict = "refused-nonlocal";
                 out = "{\"ok\":false,\"why\":\"local-device-only\"}";
+            } else if (d != null && path.startsWith("/dlna/")) {
+                // v3.0.0 — the DLNA MediaRenderer surface (desc.xml + AVTransport/RC
+                // SOAP). The LOCATION the client used is rebuilt from the socket's
+                // own local address so the control URLs match how it reached us.
+                String baseUrl = "http://" + sock.getLocalAddress().getHostAddress() + ":" + port;
+                DlnaEndpoint.Response r = d.handle(path, req[0], soapAction,
+                    body.length == 0 ? "" : new String(body, StandardCharsets.UTF_8), baseUrl);
+                if (r == null) {
+                    verdict = "dlna-404";
+                    status = 404;
+                    contentType = "text/xml; charset=utf-8";
+                    out = DlnaEndpoint.soapFault("no such DLNA resource: " + path);
+                } else {
+                    verdict = "dlna-" + req[0] + " " + path + " → " + r.code;
+                    status = r.code;
+                    contentType = r.contentType;
+                    out = r.body;
+                }
             } else if (path.equals("/play") && req[0].equals("POST")) {
                 plays.incrementAndGet();
                 Map<String, Object> j = null;
@@ -227,7 +263,7 @@ public final class ReceiverServer {
             served.incrementAndGet();
             OutputStream o = sock.getOutputStream();
             byte[] b = out.getBytes(StandardCharsets.UTF_8);
-            o.write(("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + b.length + "\r\n\r\n")
+            o.write(("HTTP/1.0 " + status + " " + reason(status) + "\r\nContent-Type: " + contentType + "\r\nContent-Length: " + b.length + "\r\n\r\n")
                 .getBytes(StandardCharsets.US_ASCII));
             o.write(b);
             o.flush();
@@ -243,6 +279,20 @@ public final class ReceiverServer {
         for (int c; (c = in.read()) != -1 && c != '\n'; )
             if (c != '\r' && b.size() < 16384) b.write(c);
         return b.toString("UTF-8");
+    }
+
+    /** The reason phrase for the hand-written status line (AnantPlay's parser only
+     *  reads the code; HttpURLConnection.getInputStream() throws on >= 400 — the
+     *  exact behaviour its Dlna.soap() treats as a failed action). */
+    static String reason(int code) {
+        switch (code) {
+            case 200: return "OK";
+            case 400: return "Bad Request";
+            case 404: return "Not Found";
+            case 500: return "Internal Server Error";
+            case 501: return "Not Implemented";
+            default: return "Status";
+        }
     }
 
     static String param(String query, String key) {

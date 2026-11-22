@@ -11,6 +11,7 @@ import android.net.nsd.NsdServiceInfo;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.MulticastSocket;
@@ -90,6 +91,20 @@ public final class NsdAnnouncer {
      *  before starting the responder anyway (registration may be impossible, e.g.
      *  no daemon; the responder is then the only announcer). */
     static final long REGISTRATION_SETTLE_MS = 2500;
+    /** v3.0.0 — the SILENT-HANG WATCHDOG. Proven against the real AOSP android16
+     *  sources (NsdService.java:1049-1059 → MdnsAdvertiser.addOrUpdateService →
+     *  mPendingRegistrations, service-t/…/mdns/MdnsAdvertiser.java:520-531): when
+     *  MdnsSocketProvider never produces a socket for the Wi-Fi network — it bails
+     *  silently when isMdnsCapableInterface() returns false (MdnsSocketProvider.java:
+     *  529-531), and its own comment admits "some Wifi interfaces may not have the
+     *  MULTICAST flag even though they can do mDNS" (561-588) — NEITHER
+     *  onServiceRegistered NOR onRegistrationFailed is EVER called. The daemon has
+     *  no timeout; the 2026-11-22 15:15 log showed exactly this: 0 callbacks in
+     *  340 s. A re-register creates a fresh transactionId and re-drives
+     *  requestSocket(), which is the one workaround an app can apply. */
+    static final long REGISTRATION_RETRY_MS = 12_000;
+    static final int MAX_FAST_RETRIES = 5;          // then a slow 2-min cycle
+    static final long SLOW_RETRY_MS = 120_000;
 
     private final Context ctx;
     private final int port;
@@ -107,6 +122,12 @@ public final class NsdAnnouncer {
      *  so it can never answer the daemon's §8.1 probes for a pending name. */
     private volatile boolean registrationSettled;
     private volatile boolean registrationPending;
+    /** v3.0.0 — TRUE only when a real NsdManager callback fired (success OR
+     *  failure). Drives the silent-hang watchdog: while false after
+     *  REGISTRATION_RETRY_MS, the registration is torn down and re-driven. */
+    private volatile boolean registrationAnswered;
+    private volatile boolean destroyed;
+    private int fastRetries;
     /** v2.3.1 — the churn-fix state: what we last armed on (IP + network key), so
      *  start() can no-op when healthy and onAvailable can ignore repeat events. */
     private java.net.InetAddress lastArmedIp;
@@ -132,7 +153,11 @@ public final class NsdAnnouncer {
     public MdnsResponder responder() { return responder; }
 
     public void start() {
-        if (nsd == null) { Diag.w("nsd", "no NsdManager — cast discovery cannot see us"); return; }
+        if (nsd == null) {
+            registrationAnswered = true;   // no daemon to wait for — never watchdog this
+            Diag.w("nsd", "no NsdManager — cast discovery cannot see us");
+            return;
+        }
         // v2.3.1 — IDEMPOTENT START (the churn fix). v2.3.0's start() ran stop()
         // FIRST on every call, and stop() unregistered the network callback; the
         // immediate re-register fired onAvailable, which posted reArm(500 ms) →
@@ -163,6 +188,7 @@ public final class NsdAnnouncer {
         boolean any = false;
         registrationSettled = false;
         registrationPending = true;
+        registrationAnswered = false;
         for (int i = 0; i < types.length; i++) {
             try {
                 NsdServiceInfo info = new NsdServiceInfo();
@@ -176,7 +202,9 @@ public final class NsdAnnouncer {
                         registered[slot] = true;
                         announced = true;
                         attempt = 0;
+                        fastRetries = 0;                       // the watchdog cycle resets
                         registrationSettled = true;
+                        registrationAnswered = true;           // a real callback fired
                         Diag.i("nsd", "announced " + t + " as \"" + s.getServiceName() + "\" :" + port);
                         maybeStartResponder();
                     }
@@ -184,6 +212,7 @@ public final class NsdAnnouncer {
                         registered[slot] = false;
                         announced = registered[0] || registered[1];
                         registrationSettled = announced;   // one type failing is fine if the other made it
+                        registrationAnswered = true;       // a real callback fired
                         Diag.w("nsd", "announce " + t + " failed, error " + e + " ("
                             + failureText(e) + ") — retrying");
                         if (++attempt < 20) retry.postDelayed(reArm, 2000 + attempt * 1000);
@@ -198,7 +227,7 @@ public final class NsdAnnouncer {
                 Diag.w("nsd", "register " + types[i] + ": " + t);
             }
         }
-        if (!any) registrationSettled = true;   // no registration possible → responder is the announcer
+        if (!any) { registrationSettled = true; registrationAnswered = true; }   // no registration possible → responder is the announcer, no watchdog
         watchNetwork();
         acquireMulticastLock();
         // v2.4.0 — REGISTRATION-FIRST: the responder starts only after the daemon's
@@ -215,8 +244,31 @@ public final class NsdAnnouncer {
                 }
             }
         }, REGISTRATION_SETTLE_MS);
+        // v3.0.0 — THE SILENT-HANG WATCHDOG: if NEITHER registration callback ever
+        // fires (the AOSP no-socket hang, see REGISTRATION_RETRY_MS), tear the
+        // registrations down and re-drive them with a fresh transactionId — the
+        // app-side workaround for MdnsSocketProvider never producing a socket.
+        retry.postDelayed(watchdog, fastRetries < MAX_FAST_RETRIES ? REGISTRATION_RETRY_MS : SLOW_RETRY_MS);
         if (!any) Diag.e("nsd", "no registration possible");
     }
+
+    /** v3.0.0 — the silent-hang watchdog runnable. Re-posts ONLY via the start()
+     *  it triggers (start() always posts a fresh watchdog on the non-healthy path),
+     *  so there is exactly one pending watchdog at any time. After MAX_FAST_RETRIES
+     *  unanswered cycles it slows to SLOW_RETRY_MS — the DLNA renderer and our own
+     *  mDNS responder keep cast alive meanwhile, so the retry is best-effort. */
+    private final Runnable watchdog = new Runnable() {
+        @Override public void run() {
+            if (destroyed || registrationAnswered || announced) return;
+            fastRetries++;
+            Diag.w("nsd", "registration silent (the Android 14–16 MdnsAdvertiser no-callback hang —"
+                + " NsdService.java:1049 → mPendingRegistrations, no timeout)"
+                + " — re-driving with fresh transaction ids (attempt " + fastRetries + ")");
+            // A stop/start cycle on the SAME Wi-Fi: the healthy check is false
+            // because announced==false, so start() rebuilds everything.
+            start();
+        }
+    };
 
     /** v2.4.0 — start the responder once it is SAFE (registration settled). */
     private void maybeStartResponder() {
@@ -234,16 +286,17 @@ public final class NsdAnnouncer {
     }
 
     /** v2.3.0 — start our own RFC-6762 responder on 5353 (SO_REUSEADDR alongside
-     *  mdnsd). Answers PTR/SRV/TXT/A for our service with unicast replies, and —
-     *  equally important — gives the self-test a router-free kernel-loopback path.
-     *  A bind failure (EADDRINUSE on a locked-down build) degrades to
-     *  NsdManager-only announcing: logged, never fatal. */
+     *  the platform's sockets). v3.0.0: also passes the interface's IPv6 for the
+     *  AAAA record, and the responder now pins its multicast egress + TTL 255 +
+     *  always-multicast replies — the three fixes the Android 16 field log proved
+     *  were missing. A bind failure (EADDRINUSE on a locked-down build) degrades
+     *  to NsdManager-only announcing: logged, never fatal. */
     private void startResponder() {
         if (responder != null && responder.isRunning()) return;
         try {
             java.net.InetAddress ip = wifiLanIp();
             if (ip == null) ip = java.net.InetAddress.getByName("127.0.0.1");
-            responder = new MdnsResponder(TYPE, OLD_TYPE, RESPONDER_NAME, port, ip);
+            responder = new MdnsResponder(TYPE, OLD_TYPE, RESPONDER_NAME, port, ip, wifiLanIp6());
             responder.start();
         } catch (Throwable t) {
             Diag.w("mdnsrsp", "start: " + t);
@@ -322,11 +375,14 @@ public final class NsdAnnouncer {
             mcast = null;
         }
         retry.removeCallbacks(reArm);
+        retry.removeCallbacks(watchdog);   // v3.0.0: no duplicate watchdogs on re-arm
     }
 
     /** FINAL teardown (ReceiverService.onDestroy): everything, including the
      *  network callback. */
     public void stop() {
+        destroyed = true;                  // v3.0.0: the watchdog never fires again
+        registrationAnswered = true;
         stopRegistrations();
         if (netWatch != null) {
             try { ctx.getSystemService(ConnectivityManager.class).unregisterNetworkCallback(netWatch); } catch (Throwable ignored) { }
@@ -561,6 +617,25 @@ public final class NsdAnnouncer {
                     if (a instanceof Inet4Address && !a.isLoopbackAddress()) return a;
                 }
             }
+        } catch (Throwable ignored) { }
+        return null;
+    }
+
+    /** v3.0.0 — the SAME interface's IPv6 for the responder's AAAA record
+     *  (prefers the link-local fe80:: the Android 16 log showed AnantPlay
+     *  querying from; null when the interface has no v6). Pure Java, lab-safe. */
+    static InetAddress wifiLanIp6() {
+        try {
+            InetAddress v4 = wifiLanIp();
+            NetworkInterface on = v4 == null ? null : NetworkInterface.getByInetAddress(v4);
+            if (on == null) return null;
+            InetAddress linkLocal = null, global = null;
+            for (InetAddress a : Collections.list(on.getInetAddresses())) {
+                if (!(a instanceof Inet6Address) || a.isLoopbackAddress()) continue;
+                if (a.isLinkLocalAddress() && linkLocal == null) linkLocal = a;
+                if (!a.isLinkLocalAddress() && global == null) global = a;
+            }
+            return linkLocal != null ? linkLocal : global;
         } catch (Throwable ignored) { }
         return null;
     }

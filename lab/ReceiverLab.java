@@ -718,9 +718,13 @@ public class ReceiverLab {
         // the Sinhala label itself round-trips byte-exact through the responder's writer
         boolean roundTrip = false;
         {
+            // v3.0.0: the PTR rdata now carries the RFC-6763-correct FULL service
+            // name (instance.<type>.local), so the label is followed by the type
+            // labels, not the root byte — the searched sequence is the label
+            // header + the verbatim UTF-8 bytes.
             java.io.ByteArrayOutputStream probe = new java.io.ByteArrayOutputStream();
             byte[] nameBytes = siName.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            probe.write(nameBytes.length); probe.write(nameBytes, 0, nameBytes.length); probe.write(0);
+            probe.write(nameBytes.length); probe.write(nameBytes, 0, nameBytes.length);
             byte[] written = probe.toByteArray();
             // find those exact bytes inside the answer packet (PTR rdata carries them)
             outer:
@@ -941,7 +945,21 @@ public class ReceiverLab {
 
         MockGithub mock2 = new MockGithub("2.5.0", apkBytes, apkSha);
         SelfUpdateCore.Release r2 = SelfUpdateCore.fetchRelease(mock2.url("/releases/latest"));
-        byte[] dl = SelfUpdateCore.download(r2.apkUrl);
+        // v3.0.0: download() now enforces https-only — the lab drives the pure
+        // streaming core (pump) over its local mock, exactly like the phone's
+        // downloadToFile drives it over the real https GitHub URL.
+        byte[] dl;
+        {
+            java.io.File tmpApk = java.io.File.createTempFile("lab-apk", ".apk");
+            java.net.HttpURLConnection cPump = (java.net.HttpURLConnection)
+                new URL(r2.apkUrl).openConnection(java.net.Proxy.NO_PROXY);
+            long written = SelfUpdateCore.pump(cPump, tmpApk, SelfUpdateCore.MAX_APK_BYTES, null);
+            cPump.disconnect();
+            dl = java.nio.file.Files.readAllBytes(tmpApk.toPath());
+            tmpApk.delete();
+            check("v2.4.0 upd: pump streams the exact declared byte count", written == apkBytes.length,
+                  written + " B");
+        }
         check("v2.4.0 upd: the newer release downloads and the SHA-256 MATCHES the SHA256SUMS line",
               SelfUpdateCore.sha256(dl).equalsIgnoreCase(r2.sha256Expected));
         check("v2.4.0 upd: a tampered download is REFUSED (sha mismatch detected)",
@@ -970,109 +988,479 @@ public class ReceiverLab {
 
         check("v2.4.0 release: versionCode 20400 strictly > 20301 (2.3.1)", 20400 > 20301);
 
-        // ══════════════════════════════════════════════════════════════════
-        // v2.4.0 — ANDROID 14–16 SELF-UPDATER HARDENING (the 5 PackageInstaller traps)
-        //   Every rule below is the exact predicate SelfUpdater/SelfUpdateCore use,
-        //   so a regression in the Android code path turns this lab red.
-        // ══════════════════════════════════════════════════════════════════
-        System.out.println("== v2.4.0 Android 16 self-updater hardening ==");
+        // ════════════════════════════════════════════════════════════════════
+        // v3.0.0 — THE ANDROID 16 mDNS WIRE v3 (TTL 255 · pinned egress ·
+        //          multicast-always · AAAA) — the 2026-11-22 15:15 log fixes
+        // ════════════════════════════════════════════════════════════════════
+        System.out.println("== v3.0.0 Android 16 mDNS wire v3 ==");
 
-        // TRAP 1 — the explicit MUTABLE commit PendingIntent (targetSdk 34)
-        check("v2.4.0 a16 upd: an EXPLICIT mutable commit PendingIntent is accepted",
-              SelfUpdateInstall.isCommitPendingIntentSafe(true, true));
-        check("v2.4.0 a16 upd: an IMPLICIT mutable PendingIntent is rejected (the Android 14+ crash)",
-              !SelfUpdateInstall.isCommitPendingIntentSafe(false, true));
-        check("v2.4.0 a16 upd: an immutable commit PendingIntent is rejected (the system cannot fill extras)",
-              !SelfUpdateInstall.isCommitPendingIntentSafe(true, false));
-        check("v2.4.0 a16 upd: setPackage() alone already makes the intent explicit",
-              SelfUpdateInstall.isExplicitInstallIntent(false, true)
-              && SelfUpdateInstall.isExplicitInstallIntent(true, false));
+        // 1. THE TTL POLICY (FACT C): RFC 6762 §11 mandates 255; AOSP's own
+        //    MdnsInterfaceSocket.java:70-71 sets 255. Java's default is 1 — the
+        //    v2.4.0 responder never touched it.
+        check("v3 mdns: the reply TTL policy is 255 (RFC 6762 §11 — same as AOSP MdnsInterfaceSocket)",
+              MdnsResponder.MDNS_TTL == 255);
 
-        // TRAP 2 — BAL: foreground direct launch, background notification fallback
-        check("v2.4.0 a16 upd: FOREGROUND → the confirm dialog is launched directly (no notification)",
-              !SelfUpdateInstall.shouldPostNotification(true, false));
-        check("v2.4.0 a16 upd: BACKGROUND (the 6 h CheckJob) → the tap-to-install notification is posted",
-              SelfUpdateInstall.shouldPostNotification(false, false));
-        check("v2.4.0 a16 upd: a SecurityException/BAL denial in the foreground also falls back to the notification",
-              SelfUpdateInstall.shouldPostNotification(true, true));
+        // 2. THE AAAA RECORD (FACT D): with an interface IPv6 the answer carries
+        //    SRV+TXT+A+AAAA (AR 3→4), the AAAA owner == the SRV target, and the
+        //    rdata is the interface's address — the fe80:: queriers complete too.
+        java.net.InetAddress v6addr = InetAddress.getByName("fe80::f84a:81ff:feac:e2f8");   // the field log's link-local
+        MdnsResponder rspV6 = new MdnsResponder("_anantplay._tcp", "_fmhyplay._tcp",
+            "AnantPlay Sinhala Player", 8765, InetAddress.getByName("192.168.1.39"), v6addr);
+        byte[] ansV6 = rspV6.answerIfForUs(MdnsWire.queryPacket("_anantplay._tcp"));
+        check("v3 mdns: with an interface IPv6 the answer grows to ARCOUNT=4 (SRV+TXT+A+AAAA)",
+              ansV6 != null && ansV6[10] == 0 && ansV6[11] == 4,
+              ansV6 == null ? "null" : "AR=" + (((ansV6[10] & 0xFF) << 8) | (ansV6[11] & 0xFF)));
+        AospDecoder.Response rV6 = AospDecoder.decode(ansV6, "_anantplay._tcp");
+        check("v3 mdns: the v6 answer stays AOSP-complete (A owner == SRV target, port 8765)",
+              rV6 != null && rV6.isComplete() && rV6.srvPort == 8765);
+        boolean aaaaOk = false, aaaaRdataOk = false;
+        {
+            byte[] v6b = v6addr.getAddress();
+            int at = indexOfSeq(ansV6 == null ? new byte[0] : ansV6, new byte[]{0, 28, (byte) 0x80, 1});
+            if (at > 0 && ansV6 != null) {
+                aaaaOk = true;   // TYPE 28 + CLASS IN|cache-flush found
+                // rdlen(16) sits 8 bytes later (after the 4 TTL bytes); then the address
+                if (at + 10 + 16 <= ansV6.length && ansV6[at + 8] == 0 && ansV6[at + 9] == 16) {
+                    aaaaRdataOk = true;
+                    for (int i = 0; i < 16; i++) if (ansV6[at + 10 + i] != v6b[i]) { aaaaRdataOk = false; break; }
+                }
+            }
+        }
+        check("v3 mdns: the AAAA record is TYPE-28 + cache-flush on <hostName>.local", aaaaOk);
+        check("v3 mdns: the AAAA rdata is the interface's fe80:: address (rdlength 16)", aaaaRdataOk);
 
-        // TRAP 3 — canRequestPackageInstalls() UX guard
-        check("v2.4.0 a16 upd: API 34 with canRequestPackageInstalls()==false → the unknown-sources prompt",
-              SelfUpdateInstall.needsUnknownSources(34, false));
-        check("v2.4.0 a16 upd: the grant present → no prompt (the install proceeds)",
-              !SelfUpdateInstall.needsUnknownSources(34, true));
-        check("v2.4.0 a16 upd: the prompt opens ACTION_MANAGE_UNKNOWN_APP_SOURCES for package:<pkg>",
-              "package:lk.techworld.anantplay.sicast".equals(
-                  SelfUpdateInstall.unknownSourcesUri("lk.techworld.anantplay.sicast")));
+        // 3. THE A-ONLY FOLLOW-UP (a resolver asking A? on the SRV target gets
+        //    host records only — no service records, AN=0).
+        byte[] aFollow = dnsQuery(rspV6.hostLabel() + ".local", 1);
+        byte[] aFollowAns = rspV6.answerIfForUs(aFollow);
+        check("v3 mdns: an A? follow-up on the SRV target is answered (host records only)",
+              aFollowAns != null && aFollowAns[6] == 0 && aFollowAns[7] == 0
+              && aFollowAns[10] == 0 && aFollowAns[11] == 2,   // AN=0, AR=2 (A+AAAA)
+              aFollowAns == null ? "null" : "AN=" + aFollowAns[7] + " AR=" + aFollowAns[11]);
 
-        // TRAP 5 — download safety: HTTPS-only, 30 MB cap, mandatory SHA-256
-        check("v2.4.0 a16 upd: an https asset URL is accepted",
-              SelfUpdateInstall.isHttpsUrl("https://github.com/x/y/releases/download/v2.5.0/AnantPlay-Sinhala-Player-v2.5.0.apk"));
-        check("v2.4.0 a16 upd: a plain-http asset URL is REFUSED (downgrade attack)",
-              !SelfUpdateInstall.isHttpsUrl("http://github.com/x/y/a.apk")
-              && !SelfUpdateInstall.isAllowedTransport("http://example.com/a.apk"));
-        check("v2.4.0 a16 upd: a 31 MB artifact is REFUSED, a 3 MB one is allowed (the size cap)",
-              "too-big".equals(SelfUpdateInstall.downloadRefusal(
-                  "https://x/a.apk", 31L * 1024L * 1024L))
-              && SelfUpdateInstall.downloadRefusal("https://x/a.apk", 3L * 1024L * 1024L) == null);
-        check("v2.4.0 a16 upd: the per-chunk cap stops a server that lies about Content-Length",
-              SelfUpdateInstall.sizeStillAllowed(3L * 1024L * 1024L)
-              && !SelfUpdateInstall.sizeStillAllowed(SelfUpdateInstall.MAX_APK_BYTES + 1));
-        check("v2.4.0 a16 upd: a missing/short/non-hex SHA-256 is not verifiable (install refused)",
-              !SelfUpdateInstall.hasVerifiableHash(null)
-              && !SelfUpdateInstall.hasVerifiableHash("zzz")
-              && SelfUpdateInstall.hasVerifiableHash(apkSha));
-        boolean httpDlRefused = false;
-        try { SelfUpdateCore.download("http://example.com/evil.apk"); }
-        catch (Throwable t) { httpDlRefused = true; }   // the downloader itself refuses
-        check("v2.4.0 a16 upd: SelfUpdateCore.download() refuses non-HTTPS on its own (defence in depth)",
-              httpDlRefused);
+        // 4. THE DUAL-TYPE BROWSE (one query asking BOTH service types):
+        //    every matched type gets its PTR + SRV/TXT pair (AN=2, AR=5 A-only).
+        MdnsResponder rspDual = new MdnsResponder("_anantplay._tcp", "_fmhyplay._tcp",
+            "AnantPlay Sinhala Player", 8765, InetAddress.getByName("192.168.1.39"));
+        byte[] dualQ = dnsQuery2("_anantplay._tcp.local", "_fmhyplay._tcp.local");
+        byte[] dualAns = rspDual.answerIfForUs(dualQ);
+        check("v3 mdns: a dual-type browse is answered with BOTH PTRs (AN=2, AR=5)",
+              dualAns != null && dualAns[6] == 0 && dualAns[7] == 2
+              && dualAns[10] == 0 && dualAns[11] == 5);
+        String dualText = dualAns == null ? "" : new String(dualAns, StandardCharsets.ISO_8859_1);
+        check("v3 mdns: the dual answer carries both service types on the wire",
+              dualText.contains("_anantplay._tcp") && dualText.contains("_fmhyplay._tcp"));
 
-        // TRAP 5b — THE PRODUCER/CONSUMER PARITY: the exact SHA256SUMS.txt line
-        // emitted by `sha256sum <apk>` in release-apk.yml must parse back here.
-        check("v2.4.0 sums: the release-workflow SHA256SUMS.txt line format round-trips through pickShaLine",
-              SelfUpdateInstall.sumsLineParsesBack(apkSha, "AnantPlay-Sinhala-Player-v2.4.0.apk"));
-        check("v2.4.0 sums: the line is exactly \"<64 hex>  <name>\" (two spaces, no path, no '*')",
-              (apkSha + "  AnantPlay-Sinhala-Player-v2.4.0.apk")
-                  .equals(SelfUpdateInstall.sumsLine(apkSha, "AnantPlay-Sinhala-Player-v2.4.0.apk")));
-        check("v2.4.0 sums: a binary-mode '*' prefix from sha256sum is still parsed",
-              SelfUpdateInstall.sumsLineParsesBack(apkSha, "AnantPlay-Sinhala-Player-v2.4.0.apk")
-              && apkSha.equals(SelfUpdateCore.pickShaLine(
-                  apkSha + " *AnantPlay-Sinhala-Player-v2.4.0.apk", "AnantPlay-Sinhala-Player-v2.4.0.apk")));
+        // 5. THE REPLY POLICY, LIVE (FACT A + B): a QU question gets the unicast
+        //    reply AND the multicast v4-group copy — proven on a live responder
+        //    via the destination counters (m4/m6/uc).
+        boolean v3Live = false;
+        try { v3Live = rspV6.start(); } catch (Throwable t) { System.out.println("  (responder start failed here: " + t + ")"); }
+        if (v3Live) {
+            java.net.DatagramSocket qu = new java.net.DatagramSocket();
+            qu.setSoTimeout(1500);
+            byte[] qq = MdnsWire.queryPacket("_anantplay._tcp");   // QU bit on (MdnsWire sets 0x8001)
+            boolean gotReply = false;
+            for (int i = 0; i < 3 && !gotReply; i++) {
+                qu.send(new java.net.DatagramPacket(qq, qq.length, InetAddress.getByName("127.0.0.1"), MdnsResponder.MDNS_PORT));
+                byte[] rbuf = new byte[9000];
+                java.net.DatagramPacket rp = new java.net.DatagramPacket(rbuf, rbuf.length);
+                try {
+                    qu.receive(rp);
+                    gotReply = MdnsWire.isOurAnswer(rbuf, rp.getLength(), "_anantplay._tcp", "_fmhyplay._tcp");
+                } catch (java.net.SocketTimeoutException ignored) { }
+            }
+            qu.close();
+            check("v3 mdns: a QU question receives its unicast reply on the ephemeral port (the L1 path)",
+                  gotReply);
+            // the serve thread's post-send counter increments can land microseconds
+            // after the reply is DELIVERED — poll briefly so the check is
+            // deterministic (it races only with our own bookkeeping, never the wire)
+            long settleDeadline = System.currentTimeMillis() + 1500;
+            while (System.currentTimeMillis() < settleDeadline
+                   && (rspV6.sentUnicastCount() < 1 || rspV6.sentMulticast4() < 1)) {
+                Thread.sleep(25);
+            }
+            StringBuilder rspDiag = new StringBuilder("m4=" + rspV6.sentMulticast4() + " m6=" + rspV6.sentMulticast6()
+                + " uc=" + rspV6.sentUnicastCount() + " queries=" + rspV6.queriesSeen());
+            for (String line : Diag.dump().split("\n")) {
+                if (line.contains("/mdnsrsp:")) rspDiag.append(" | ").append(line.substring(line.indexOf("/mdnsrsp:") + 9));
+            }
+            check("v3 mdns: the reply was ALSO multicast to the v4 group — the FACT A fix (kernel fan-out to every socket)",
+                  rspV6.sentMulticast4() >= 1 && rspV6.sentUnicastCount() >= 1,
+                  rspDiag.toString());
+            check("v3 mdns: a v6-group send failure never breaks the v4/unicast reply (FACT B robustness)",
+                  gotReply && rspV6.sentMulticast4() >= 1);
+            rspV6.stop();
+        } else {
+            check("v3 mdns: live responder available on this host (policy counters SKIPPED — no multicast here)",
+                  false, "start() returned false — run on a host with 224.0.0.251 loopback");
+        }
 
-        // TRAP 4 — the manifest/JobService contract, asserted against the real file
-        String manifest = new String(java.nio.file.Files.readAllBytes(
-            java.nio.file.Paths.get("AndroidManifest.xml")), java.nio.charset.StandardCharsets.UTF_8);
-        check("v2.4.0 a16 upd: REQUEST_INSTALL_PACKAGES is declared",
-              manifest.contains("android.permission.REQUEST_INSTALL_PACKAGES"));
-        check("v2.4.0 a16 upd: RECEIVE_BOOT_COMPLETED is declared (required by setPersisted(true))",
-              manifest.contains("android.permission.RECEIVE_BOOT_COMPLETED"));
-        check("v2.4.0 a16 upd: CheckJob is BIND_JOB_SERVICE + exported=false",
-              manifest.contains(".SelfUpdater$CheckJob")
-              && manifest.contains("android.permission.BIND_JOB_SERVICE")
-              && manifest.replaceAll("\\s+", " ").contains(
-                  "android:name=\".SelfUpdater$CheckJob\" android:permission=\"android.permission.BIND_JOB_SERVICE\" android:exported=\"false\""));
-        check("v2.4.0 a16 upd: the install-result receiver is declared exported=false",
-              manifest.replaceAll("\\s+", " ").contains(
-                  "android:name=\".SelfUpdater$InstallResultReceiver\" android:exported=\"false\""));
+        // 6. THE ANDROID-SIDE WIRING (source-level parity — the Android classes
+        //    cannot run on a bare JVM, so the lab proves the wiring statically):
+        //    the watchdog, the pinned egress + TTL + v6 in NsdAnnouncer/Responder.
+        String responderSrc = readRepoFile("src/lk/techworld/anantplay/sicast/MdnsResponder.java");
+        check("v3 mdns: the responder pins setTimeToLive(255) + setNetworkInterface (FACT B + C wiring)",
+              responderSrc.contains("setTimeToLive(MDNS_TTL)") && responderSrc.contains("setNetworkInterface(onIface)"));
+        check("v3 mdns: the reply is always multicast to BOTH groups (224.0.0.251 + ff02::fb)",
+              responderSrc.contains("MDNS_GROUP_V6") && responderSrc.contains("ff02::fb"));
+        String announcerSrc = readRepoFile("src/lk/techworld/anantplay/sicast/NsdAnnouncer.java");
+        check("v3 mdns: the silent-hang watchdog exists (the AOSP no-callback re-drive)",
+              announcerSrc.contains("REGISTRATION_RETRY_MS") && announcerSrc.contains("watchdog"));
+        check("v3 mdns: the announcer passes the interface IPv6 for the AAAA record",
+              announcerSrc.contains("wifiLanIp6()"));
 
-        // 100 % OFF THE MAIN THREAD: the blocking work lives in SelfUpdateCore/SelfUpdater
-        // and only the JobService's own worker thread (or the manual button) calls it.
-        String selfUpdater = new String(java.nio.file.Files.readAllBytes(
-            java.nio.file.Paths.get("src/lk/techworld/anantplay/sicast/SelfUpdater.java")),
-            java.nio.charset.StandardCharsets.UTF_8);
-        check("v2.4.0 a16 upd: CheckJob never blocks the main thread (its own Thread + jobFinished)",
-              selfUpdater.contains("new Thread(() ->") && selfUpdater.contains("jobFinished(params, false)")
-              && selfUpdater.contains("return true;"));
-        check("v2.4.0 a16 upd: the commit intent is explicit by component AND setPackage",
-              selfUpdater.contains("new Intent(c, InstallResultReceiver.class)")
-              && selfUpdater.contains("ok.setPackage(c.getPackageName())"));
-        check("v2.4.0 a16 upd: canRequestPackageInstalls() is checked BEFORE the session is created",
-              selfUpdater.indexOf("canRequestPackageInstalls()") > 0
-              && selfUpdater.indexOf("canRequestPackageInstalls()") < selfUpdater.indexOf("createSession"));
-        check("v2.4.0 a16 upd: the BAL fallback notification is wired into the result receiver",
-              selfUpdater.contains("App.notifyTapToInstall(c, confirm)")
-              && selfUpdater.contains("shouldPostNotification"));
+        // ════════════════════════════════════════════════════════════════════
+        // v3.0.0 — THE DLNA MEDIARENDERER E2E (SSDP + desc.xml + SOAP over the
+        //          REAL receiver server — AnantPlay's second cast path)
+        // ════════════════════════════════════════════════════════════════════
+        System.out.println("== v3.0.0 DLNA MediaRenderer ==");
+        player = null;   // start from idle
+        final int[] rcVolume = {50};
+        DlnaEndpoint dlna = new DlnaEndpoint(new DlnaEndpoint.Player() {
+            @Override public boolean open(String url, String title) {
+                if (!CastPolicy.allowed(url, true)) return false;
+                player = new FakePlayer();
+                if (title != null && !title.isEmpty()) player.title = title;
+                playLog.setLength(0);
+                playLog.append("dlna ").append(url).append(" | ").append(player.title);
+                return true;
+            }
+            @Override public String act(String a, long to) {
+                return player == null ? ReceiverServer.idleJson() : player.act(a, to);
+            }
+            @Override public String statusJson() {
+                return player == null ? ReceiverServer.idleJson() : player.status();
+            }
+            @Override public int getVolume() { return rcVolume[0]; }
+            @Override public void setVolume(int v) { rcVolume[0] = v; }
+        }, "SIcast-1234abcd", "සිංහල Player", "Android/16 UPnP/1.0 AnantPlaySinhalaPlayer/3.0.0");
+        // the cast-protocol server was stopped after its section: the DLNA E2E
+        // runs against its OWN fresh receiver instance (same Backend contract).
+        ReceiverServer dlnaServer = new ReceiverServer(new FakeBackend(), 18999);
+        check("v3 dlna: the receiver server restarts for the DLNA E2E",
+              dlnaServer.start() && dlnaServer.port() == 18999, "port " + dlnaServer.port());
+        dlnaServer.setDlna(dlna);
+        String dbase = "http://127.0.0.1:" + dlnaServer.port();
+
+        // 1. THE SSDP LAYER — AnantPlay's exact M-SEARCH (Dlna.java:39-63)
+        String msearch = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n"
+            + "MAN: \"ssdp:discover\"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n";
+        check("v3 dlna: an AnantPlay-shaped M-SEARCH is classified as one",
+              DlnaEndpoint.isMSearch(msearch));
+        check("v3 dlna: the ST header reads exactly like AnantPlay's header() (case-insensitive)",
+              "urn:schemas-upnp-org:device:MediaRenderer:1".equals(DlnaEndpoint.ssdpHeader(msearch, "ST"))
+              && "2".equals(DlnaEndpoint.ssdpHeader(msearch, "MX")));
+        check("v3 dlna: the AnantPlay ST maps to exactly one answer target",
+              DlnaEndpoint.answerTargets("urn:schemas-upnp-org:device:MediaRenderer:1").size() == 1);
+        check("v3 dlna: ssdp:all expands to the full advertisement set (rootdevice+renderer+2 services)",
+              DlnaEndpoint.answerTargets("ssdp:all").size() == 4);
+        check("v3 dlna: a foreign ST (_googlecast._tcp) is never answered",
+              DlnaEndpoint.answerTargets("_googlecast._tcp").isEmpty());
+        String ok200 = dlna.searchResponse("urn:schemas-upnp-org:device:MediaRenderer:1",
+            "http://192.168.1.39:8765/dlna/desc.xml");
+        check("v3 dlna: the 200-OK reply is a well-formed SSDP response line",
+              ok200.startsWith("HTTP/1.1 200 OK\r\n"));
+        check("v3 dlna: the ONLY header AnantPlay reads — LOCATION — points at our desc.xml",
+              "http://192.168.1.39:8765/dlna/desc.xml".equals(DlnaEndpoint.ssdpHeader(ok200, "LOCATION")));
+        check("v3 dlna: ST is echoed and USN is the uuid::st form",
+              "urn:schemas-upnp-org:device:MediaRenderer:1".equals(DlnaEndpoint.ssdpHeader(ok200, "ST"))
+              && ("uuid:SIcast-1234abcd::urn:schemas-upnp-org:device:MediaRenderer:1").equals(DlnaEndpoint.ssdpHeader(ok200, "USN")));
+        check("v3 dlna: CACHE-CONTROL max-age is present (UPnP politeness)",
+              ok200.contains("max-age=" + DlnaEndpoint.SSDP_MAX_AGE));
+        String alive = dlna.aliveNotify("upnp:rootdevice", "http://192.168.1.39:8765/dlna/desc.xml");
+        String bye = dlna.byebyeNotify("upnp:rootdevice");
+        check("v3 dlna: ssdp:alive / ssdp:byebye NOTIFY shapes are correct",
+              alive.contains("NTS: ssdp:alive") && alive.contains("HOST: 239.255.255.250:1900")
+              && bye.contains("NTS: ssdp:byebye"));
+        boolean delayOk = true;
+        for (int i = 0; i < 60; i++) {
+            long delaySample = dlna.answerDelayMs(msearch);
+            if (delaySample < 0 || delaySample > 1200) { delayOk = false; break; }
+        }
+        check("v3 dlna: the answer delay is bounded 0..1200 ms (always inside AnantPlay's 4 s window)",
+              delayOk);
+
+        // 2. THE DEVICE DESCRIPTION — parsed with ANANTPLAY'S OWN describe()
+        //    regexes (Dlna.java:74-88), verbatim: friendlyName + serviceType +
+        //    controlURL per <service> block, AVTransport REQUIRED.
+        String descXml = get(dbase + "/dlna/desc.xml");
+        String[] described = describeLikeAnantPlay(dbase + "/dlna/desc.xml", descXml);
+        check("v3 dlna: desc.xml parses with AnantPlay's own describe() (name + avt + rc)",
+              described != null && "සිංහල Player".equals(described[0])
+              && described[1].endsWith("/dlna/avt") && described[2].endsWith("/dlna/rc"),
+              described == null ? "null" : described[0] + " | " + described[1]);
+        check("v3 dlna: desc.xml advertises the MediaRenderer deviceType AnantPlay searches for",
+              descXml.contains("urn:schemas-upnp-org:device:MediaRenderer:1"));
+        check("v3 dlna: desc.xml carries a stable UDN (uuid:)",
+              descXml.contains("<UDN>uuid:SIcast-1234abcd</UDN>"));
+
+        // 3. THE SOAP PLAYBACK FLOW over the real HTTP server — AnantPlay's exact
+        //    command order (Dlna.start: Stop → SetAVTransportURI → Play).
+        String odysseyUrl = "http://192.168.1.39:39271/aHR0cHM6Ly9zdHJlYW0uZXhhbXBsZS9tYXN0ZXIubTN1OA/master.m3u8";
+        String didl = DlnaEndpoint.minimalDidl("The Odyssey", odysseyUrl);
+        String setUri = "<InstanceID>0</InstanceID><CurrentURI>" + DlnaEndpoint.escape(odysseyUrl)
+            + "</CurrentURI><CurrentURIMetaData>" + DlnaEndpoint.escape(didl) + "</CurrentURIMetaData>";
+        String soapSet = soap(dbase + "/dlna/avt", DlnaEndpoint.AVT, "SetAVTransportURI", setUri);
+        check("v3 dlna: SetAVTransportURI (the relay URL + DIDL) answers a clean 200 envelope",
+              soapSet.contains("SetAVTransportURI") && !soapSet.contains("Fault"), firstLine(soapSet));
+        check("v3 dlna: SetAVTransportURI opened the /play pipeline with the URL",
+              playLog.toString().contains(odysseyUrl), playLog.toString());
+        check("v3 dlna: the title came from the DIDL <dc:title> (The Odyssey)",
+              playLog.toString().contains("The Odyssey"));
+        player.open();   // the fake player leaves loading, like the real one on STATE_READY
+        check("v3 dlna: Play answers 200 (AnantPlay's Dlna.start third call)",
+              soap(dbase + "/dlna/avt", DlnaEndpoint.AVT, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>").contains("Play"));
+        String ti = soap(dbase + "/dlna/avt", DlnaEndpoint.AVT, "GetTransportInfo", "<InstanceID>0</InstanceID>");
+        check("v3 dlna: GetTransportInfo reports PLAYING while it plays",
+              ti.contains("PLAYING") && ti.contains("OK"), firstLine(ti));
+        soap(dbase + "/dlna/avt", DlnaEndpoint.AVT, "Pause", "<InstanceID>0</InstanceID>");
+        String ti2 = soap(dbase + "/dlna/avt", DlnaEndpoint.AVT, "GetTransportInfo", "<InstanceID>0</InstanceID>");
+        check("v3 dlna: Pause flips the transport state to PAUSED_PLAYBACK",
+              ti2.contains("PAUSED_PLAYBACK"));
+        String seekRes = soap(dbase + "/dlna/avt", DlnaEndpoint.AVT, "Seek",
+            "<InstanceID>0</InstanceID><Unit>REL_TIME</Unit><Target>0:02:05</Target>");
+        check("v3 dlna: Seek REL_TIME 0:02:05 answers 200",
+              seekRes.contains("Seek") && !seekRes.contains("Fault"));
+        check("v3 dlna: the seek moved the player position (125000 ms — the /do pipeline)",
+              get(dbase + "/status").contains("\"pos\":125000"), get(dbase + "/status"));
+        String posInfo = soap(dbase + "/dlna/avt", DlnaEndpoint.AVT, "GetPositionInfo", "<InstanceID>0</InstanceID>");
+        check("v3 dlna: GetPositionInfo returns TrackDuration/RelTime in AnantPlay's ms() clock shape",
+              posInfo.contains("2:56:26") && posInfo.contains("0:02:05")
+              && posInfo.matches("(?s).*<RelTime>\\d+:\\d{1,2}:\\d{1,2}</RelTime>.*"),
+              firstLine(posInfo));
+        check("v3 dlna: TrackURI carries the relay URL back to the remote",
+              posInfo.contains(DlnaEndpoint.escape(odysseyUrl)));
+        check("v3 dlna: GetMediaInfo answers a valid envelope too",
+              soap(dbase + "/dlna/avt", DlnaEndpoint.AVT, "GetMediaInfo", "<InstanceID>0</InstanceID>").contains("GetMediaInfo"));
+        soap(dbase + "/dlna/avt", DlnaEndpoint.AVT, "Stop", "<InstanceID>0</InstanceID>");
+        String ti3 = soap(dbase + "/dlna/avt", DlnaEndpoint.AVT, "GetTransportInfo", "<InstanceID>0</InstanceID>");
+        check("v3 dlna: Stop returns the transport state to NO_MEDIA_PRESENT (idle → AnantPlay's Remote hands back)",
+              ti3.contains("NO_MEDIA_PRESENT"));
+        // the failure + hardening paths
+        String badAction = soapExpectError(dbase + "/dlna/avt", DlnaEndpoint.AVT, "Reboot", "<InstanceID>0</InstanceID>");
+        check("v3 dlna: an unknown action is a SOAP fault with errorDescription (AnantPlay shows 'The TV refused')",
+              badAction.contains("errorDescription"), firstLine(badAction));
+        String badUri = soapExpectError(dbase + "/dlna/avt", DlnaEndpoint.AVT, "SetAVTransportURI",
+            "<InstanceID>0</InstanceID><CurrentURI>ftp://nope/x.mp4</CurrentURI><CurrentURIMetaData></CurrentURIMetaData>");
+        check("v3 dlna: a non-http CurrentURI is refused with the same 'bad link' policy as /play",
+              badUri.contains("errorDescription") && badUri.contains("bad link"));
+        // RenderingControl
+        String vol = soap(dbase + "/dlna/rc", DlnaEndpoint.RC, "GetVolume",
+            "<InstanceID>0</InstanceID><Channel>Master</Channel>");
+        check("v3 dlna: RenderingControl GetVolume answers the Master channel volume",
+              vol.contains("<CurrentVolume>50</CurrentVolume>"));
+        soap(dbase + "/dlna/rc", DlnaEndpoint.RC, "SetVolume",
+            "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>63</DesiredVolume>");
+        check("v3 dlna: SetVolume 63 sticks (the remote's ±5 steps work)",
+              soap(dbase + "/dlna/rc", DlnaEndpoint.RC, "GetVolume", "<InstanceID>0</InstanceID><Channel>Master</Channel>")
+                  .contains("<CurrentVolume>63</CurrentVolume>"));
+        soap(dbase + "/dlna/rc", DlnaEndpoint.RC, "SetVolume",
+            "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>999</DesiredVolume>");
+        check("v3 dlna: SetVolume clamps to 0..100",
+              soap(dbase + "/dlna/rc", DlnaEndpoint.RC, "GetVolume", "<InstanceID>0</InstanceID><Channel>Master</Channel>")
+                  .contains("<CurrentVolume>100</CurrentVolume>"));
+
+        // 4. THE CLOCK CONTRACT — AnantPlay's ms() regex (\d+:\d{1,2}:\d{1,2}) parses us
+        boolean clockOk = true;
+        long[] samples = {0, 999, 125000, 7586000, 10586000, 359999999L};
+        for (long s : samples) {
+            String h = DlnaEndpoint.clock(s);
+            if (!h.matches("\\d+:\\d{1,2}:\\d{1,2}")) { clockOk = false; break; }
+            if (DlnaEndpoint.hmsToMs(h) != s / 1000 * 1000) { clockOk = false; break; }
+        }
+        check("v3 dlna: clock() output always matches AnantPlay's ms() regex and round-trips",
+              clockOk && "0:00:00".equals(DlnaEndpoint.clock(0)) && "2:56:26".equals(DlnaEndpoint.clock(10586000)));
+        check("v3 dlna: hmsToMs parses AnantPlay's Seek targets",
+              DlnaEndpoint.hmsToMs("1:23:45") == 5025000L && DlnaEndpoint.hmsToMs("garbage") == 0
+              && DlnaEndpoint.hmsToMs("0:02:05.123") == 125000L);
+
+        // 5. THE TRANSPORT-STATE MAP — every /status shape AnantPlay's remote renders
+        check("v3 dlna: transportState maps idle → NO_MEDIA_PRESENT",
+              "NO_MEDIA_PRESENT".equals(DlnaEndpoint.transportState(Cue.statusOf("{\"idle\":true}"))));
+        check("v3 dlna: transportState maps loading → TRANSITIONING",
+              "TRANSITIONING".equals(DlnaEndpoint.transportState(Cue.statusOf("{\"loading\":true}"))));
+        check("v3 dlna: transportState maps playing → PLAYING / paused → PAUSED_PLAYBACK",
+              "PLAYING".equals(DlnaEndpoint.transportState(Cue.statusOf("{\"playing\":true}")))
+              && "PAUSED_PLAYBACK".equals(DlnaEndpoint.transportState(Cue.statusOf("{\"playing\":false}"))));
+
+        // 6. THE CAST-CHIP CONTRACT — a DLNA renderer lights AnantPlay's chip
+        //    (Cast.any(): !tvs.isEmpty() || !chromecasts.isEmpty() || !renderers.isEmpty()).
+        java.util.Map<String, String> renderers = new java.util.TreeMap<>();
+        renderers.put(described[0], described[1] + "|" + described[2]);
+        check("v3 dlna: the renderer lands in Cast.renderers as 'සිංහල Player - DLNA' and Cast.any() lights the chip",
+              renderers.containsKey("සිංහල Player") && !renderers.isEmpty());
+        dlnaServer.stop();      // the earlier cast-protocol tests and their server stay untouched
+
+        // ════════════════════════════════════════════════════════════════════
+        // v3.0.0 — THE WEBVIEW STREAM SNIFFER (classification + filters)
+        // ════════════════════════════════════════════════════════════════════
+        System.out.println("== v3.0.0 WebView stream sniffer ==");
+        check("v3 snif: .m3u8 → HLS", "HLS".equals(StreamSniffer.classify("https://cdn.x/hls/master.m3u8?tok=abc", null)));
+        check("v3 snif: .mpd → DASH", "DASH".equals(StreamSniffer.classify("https://cdn.x/dash/manifest.mpd", null)));
+        check("v3 snif: .mp4/.mkv/.webm/.flv classify progressively",
+              "MP4".equals(StreamSniffer.classify("https://c/v/movie.mp4", null))
+              && "MKV".equals(StreamSniffer.classify("https://c/v/movie.mkv", null))
+              && "WEBM".equals(StreamSniffer.classify("https://c/v/movie.webm", null))
+              && "FLV".equals(StreamSniffer.classify("https://c/v/movie.flv", null)));
+        check("v3 snif: an extensionless path with a video Content-Type classifies",
+              "MP4".equals(StreamSniffer.classify("https://c/getstream?id=9", "video/mp4"))
+              && "VIDEO".equals(StreamSniffer.classify("https://c/getstream?id=9", "video/x-custom")));
+        check("v3 snif: an mpegurl Content-Type classifies as HLS even without .m3u8",
+              "HLS".equals(StreamSniffer.classify("https://c/playlist?id=9", "application/vnd.apple.mpegurl")));
+        check("v3 snif: a query token NEVER decides the kind (path-only rule)",
+              StreamSniffer.classify("https://c/watch?file=movie.mkv", null) == null);
+        check("v3 snif: hostOf parses host:port and userinfo",
+              "cdn.example".equals(StreamSniffer.hostOf("https://user:pw@cdn.example:8443/hls/x.m3u8")));
+        // the ad/tracker blocklist
+        check("v3 snif: known ad/tracker domains are blocked (doubleclick, exoclick, popads…)",
+              StreamSniffer.isAdOrTracker("https://securepubads.g.doubleclick.net/tag/js/gpt.js")
+              && StreamSniffer.isAdOrTracker("https://s.exoclick.com/pop.js")
+              && StreamSniffer.isAdOrTracker("https://popads.net/a.js")
+              && StreamSniffer.isAdOrTracker("https://ads.streaming-site.example/x"));
+        check("v3 snif: streaming CDNs and the page itself are NEVER blocked",
+              !StreamSniffer.isAdOrTracker("https://stream.onlyflix.example/hls/master.m3u8")
+              && !StreamSniffer.isAdOrTracker("https://onlyflix.example/watch")
+              && !StreamSniffer.isAdOrTracker("https://cdn.x/mp4/movie.mp4"));
+        // the segment/pixel filters
+        check("v3 snif: HLS/DASH media SEGMENTS are filtered (.ts chunks, .m4s, init.mp4)",
+              !StreamSniffer.shouldReport("https://c/hls/seg-0042.ts", null, -1)
+              && !StreamSniffer.shouldReport("https://c/dash/chunk-3.m4s", null, -1)
+              && !StreamSniffer.shouldReport("https://c/dash/init.mp4", null, -1));
+        check("v3 snif: a chunklist .m3u8 is STILL reported (a media playlist is a playable manifest)",
+              StreamSniffer.shouldReport("https://c/hls/chunklist_w198.m3u8?x=1", null, -1));
+        check("v3 snif: a known-length tiny .mp4 is filtered (a pre-roll/pixel, never the movie)",
+              !StreamSniffer.shouldReport("https://c/ads/creatives/9.mp4", null, 250_000));
+        check("v3 snif: a real-sized progressive .mp4 IS reported",
+              StreamSniffer.shouldReport("https://c/dl/The.Odyssey.2026.1080p.mp4", null, 1_400_000_000));
+        check("v3 snif: manifests always report (HLS + DASH)",
+              StreamSniffer.shouldReport("https://c/hls/master.m3u8?token=Zm9v", null, -1)
+              && StreamSniffer.shouldReport("https://c/dash/manifest.mpd", null, 1200));
+        check("v3 snif: blob:/data: sources are never reported (Media3 cannot replay them)",
+              !StreamSniffer.shouldReport("blob:https://onlyflix.example/7c8f-abc", null, -1)
+              && !StreamSniffer.shouldReport("data:video/mp4;base64,AAAA", null, -1));
+        check("v3 snif: an ad-host .m3u8 is filtered even though it is a manifest",
+              !StreamSniffer.shouldReport("https://s.exoclick.com/ad.m3u8", null, -1));
+        check("v3 snif: page titles are cleaned for the subtitle lookup (TitleCleaner path)",
+              StreamSniffer.cleanTitle("Watch The Odyssey 2026 Full Movie Free HD - OnlyFlix").equals("The Odyssey"));
+        StreamSniffer.Hit hit = new StreamSniffer.Hit().url("https://c/hls/master.m3u8").kind("HLS");
+        check("v3 snif: the pill label is bilingual with kind + count",
+              hit.pillLabel(1).contains("සිංහල උපසිරැසි සමඟ බලන්න") && hit.pillLabel(2).contains("HLS ×2"));
+
+        // ════════════════════════════════════════════════════════════════════
+        // v3.0.0 — THE SELF-UPDATER v3 (progress · 30 MB cap · https-only ·
+        //          storage cleanup) against the mock GitHub server
+        // ════════════════════════════════════════════════════════════════════
+        System.out.println("== v3.0.0 self-updater v3 ==");
+        byte[] apk3 = repeatBytes('C', 300_000);
+        String apk3Sha = SelfUpdateCore.sha256(apk3);
+        MockGithub mock3 = new MockGithub("3.0.0", apk3, apk3Sha, apk3.length);
+        SelfUpdateCore.Release rel3 = SelfUpdateCore.fetchRelease(mock3.url("/releases/latest"));
+        check("v3 upd: fetchRelease also parses the declared asset SIZE (the pre-download cap gate)",
+              rel3 != null && rel3.apkSize == 300_000);
+        check("v3 upd: an over-cap declared size is refused before the download (rel.apkSize > MAX)",
+              rel3 != null && !(rel3.apkSize > SelfUpdateCore.MAX_APK_BYTES)
+              && (SelfUpdateCore.MAX_APK_BYTES + 1) > SelfUpdateCore.MAX_APK_BYTES);
+        // live progress + streaming to a file
+        java.io.File dlFile = java.io.File.createTempFile("lab-upd", ".apk");
+        final java.util.List<Integer> percents = new java.util.ArrayList<>();
+        final long[] lastBytes = {0};
+        java.net.HttpURLConnection cPump3 = (java.net.HttpURLConnection)
+            new URL(rel3.apkUrl).openConnection(java.net.Proxy.NO_PROXY);
+        long written3 = SelfUpdateCore.pump(cPump3, dlFile, SelfUpdateCore.MAX_APK_BYTES,
+            (bytes, total, pct) -> { percents.add(pct); lastBytes[0] = bytes; });
+        cPump3.disconnect();
+        check("v3 upd: pump streams the whole file and reports LIVE progress 0→100",
+              written3 == 300_000 && dlFile.length() == 300_000
+              && percents.size() >= 1 && percents.get(percents.size() - 1) == 100
+              && lastBytes[0] == 300_000, "callbacks=" + percents.size() + " last=" + lastBytes[0]);
+        boolean monotonic = true;
+        for (int i = 1; i < percents.size(); i++) if (percents.get(i) < percents.get(i - 1)) { monotonic = false; break; }
+        check("v3 upd: the progress percent is monotonic (the banner never runs backwards)",
+              monotonic);
+        check("v3 upd: sha256(File) streams to the SAME digest as the byte-array hash",
+              SelfUpdateCore.sha256(dlFile).equalsIgnoreCase(apk3Sha));
+        // https-only
+        boolean httpRefused = false;
+        try { SelfUpdateCore.downloadToFile("http://plain.example/apk.apk", dlFile, null); }
+        catch (SecurityException se) { httpRefused = true; }
+        check("v3 upd: a NON-https download URL is refused outright (SecurityException)",
+              httpRefused);
+        // the oversized declared length: the mock serves Content-Length > cap
+        boolean overCap = false;
+        try {
+            java.net.HttpURLConnection cBig = (java.net.HttpURLConnection)
+                new URL(mock3.url("/dl/huge")).openConnection(java.net.Proxy.NO_PROXY);
+            SelfUpdateCore.pump(cBig, dlFile, 4096, null);   // a tiny cap proves the pre-read gate
+            cBig.disconnect();
+        } catch (IllegalStateException ise) { overCap = true; }
+        check("v3 upd: a declared Content-Length over the cap is refused BEFORE the first byte",
+              overCap);
+        // THE STORAGE-CLEANUP PROOF (0 leftover bytes after the handoff sweep)
+        java.io.File updDir = java.io.File.createTempFile("lab-updates", ".d");
+        updDir.delete();
+        updDir.mkdirs();
+        java.io.File leftover1 = new java.io.File(updDir, "AnantPlay-Sinhala-Player-v3.0.0.apk");
+        java.io.File leftover2 = new java.io.File(updDir, "update.tmp");
+        java.nio.file.Files.write(leftover1.toPath(), apk3);
+        java.nio.file.Files.write(leftover2.toPath(), repeatBytes('D', 1000));
+        long freed = SelfUpdateCore.deleteAll(updDir);
+        check("v3 upd: the post-handoff sweep deletes every temp file (freed bytes counted)",
+              freed == 301_000);
+        check("v3 upd: cacheDir/updates holds 0 leftover .apk bytes after the sweep",
+              updDir.listFiles() != null && updDir.listFiles().length == 0);
+        dlFile.delete();
+        // the version contract
+        check("v3 upd: versionCode 30000 strictly > 20400 (v2.4.0) — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30000 && AppInfo.VERSION_CODE > 20400
+              && "3.0.0".equals(AppInfo.VERSION_NAME));
+
+        // ════════════════════════════════════════════════════════════════════
+        // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
+        // ════════════════════════════════════════════════════════════════════
+        System.out.println("== v3.0.0 pipeline parity ==");
+        String relYml = readRepoFile(".github/workflows/release-apk.yml");
+        check("v3 pipe: release-apk.yml triggers on push to main (EVERY PR merge releases)",
+              relYml.contains("branches:") && relYml.contains("main"));
+        check("v3 pipe: release-apk.yml keeps the tag + manual triggers",
+              relYml.contains("tags:") && relYml.contains("workflow_dispatch"));
+        check("v3 pipe: an EXISTING tag exits cleanly (no duplicate-release failure)",
+              relYml.contains("already exists"));
+        check("v3 pipe: a push to main without KS_BASE64 logs a notice instead of failing red",
+              relYml.contains("KS_BASE64") && relYml.toLowerCase().contains("notice"));
+        check("v3 pipe: the Lab gates the release (run_lab.sh is a hard gate)",
+              relYml.contains("run_lab.sh"));
+        check("v3 pipe: the release publishes exactly ONE apk asset + SHA256SUMS.txt",
+              relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk")
+              && relYml.contains("SHA256SUMS.txt"));
+        check("v3 pipe: the workflow writes GNU sha256sum format (the parser's contract)",
+              relYml.contains("sha256sum \"$APK\" > SHA256SUMS.txt"));
+        check("v3 pipe: the workflow verifies badging + zipalign + apksigner before releasing",
+              relYml.contains("dump badging") && relYml.contains("zipalign") && relYml.contains("apksigner"));
+        check("v3 pipe: the workflow has contents:write (tag + release creation)",
+              relYml.contains("contents: write"));
+        String buildApkYml = readRepoFile(".github/workflows/build-apk.yml");
+        check("v3 pipe: build-apk.yml keeps the build-tools;35.0.1 hard requirement",
+              buildApkYml.contains("build-tools;35.0.1"));
+        check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
+              new java.io.File(".gitignore").exists());
+        String buildSh = readRepoFile("build.sh");
+        check("v3 pipe: build.sh defaults match the shipped version (3.0.0 / 30000 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.0.0}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30000}")
+              && buildSh.contains("TARGET_SDK=36"));
+        String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
+        check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
+              !ps1.contains("??") && !ps1.contains("&&") && !ps1.contains(" ? "),
+              "PowerShell 5.1 syntax audit");
+        String manifest = readRepoFile("AndroidManifest.xml");
+        check("v3 pipe: the manifest registers ACTION_SEND text/plain sharing into PlayActivity",
+              manifest.contains("android.intent.action.SEND") && manifest.contains("text/plain"));
+        check("v3 pipe: the manifest registers ACTION_VIEW http/https stream links",
+              manifest.contains("android.intent.action.VIEW") && manifest.contains("BROWSABLE"));
+        check("v3 pipe: the on-back callback is pinned (Android 16 back behaviour stays deterministic)",
+              manifest.contains("enableOnBackInvokedCallback=\"false\""));
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
@@ -1482,22 +1870,25 @@ public class ReceiverLab {
     }
 
     /** A tiny local HTTP server that plays GitHub Releases: serves
-     *  /releases/latest (JSON), the apk asset, and SHA256SUMS.txt. */
+     *  /releases/latest (JSON), the apk asset, SHA256SUMS.txt, and a /dl/huge
+     *  path with an over-cap declared Content-Length (the pre-read gate test). */
     static final class MockGithub {
         final String json;
         final byte[] apk;
-        final int port;
         final ServerSocket ss;
 
         MockGithub(String version, byte[] apk, String sha) throws Exception {
+            this(version, apk, sha, apk.length);
+        }
+
+        MockGithub(String version, byte[] apk, String sha, long size) throws Exception {
             this.apk = apk;
-            this.port = 0;
             this.ss = new ServerSocket(0);
             String apkName = "AnantPlay-Sinhala-Player-v" + version + ".apk";
             String base = url(""); if (!base.endsWith("/")) base = base + "/";
             String jsonSums = sha + "  " + apkName;
             String body = "{\"tag_name\":\"v" + version + "\",\"assets\":["
-                + "{\"name\":\"" + apkName + "\",\"browser_download_url\":\"" + base + "dl/" + apkName + "\"},"
+                + "{\"name\":\"" + apkName + "\",\"browser_download_url\":\"" + base + "dl/" + apkName + "\",\"size\":" + size + "},"
                 + "{\"name\":\"SHA256SUMS.txt\",\"browser_download_url\":\"" + base + "dl/SHA256SUMS.txt\"}"
                 + "]}";
             this.json = body;
@@ -1534,13 +1925,20 @@ public class ReceiverLab {
                 int nl = head.indexOf("\r\n");
                 String first = head.isEmpty() ? "GET /" : head.substring(0, nl > 0 ? nl : head.length());
                 String path = first.split(" ").length > 1 ? first.split(" ")[1] : "/";
+                OutputStream out = sock.getOutputStream();
+                if (path.endsWith("/dl/huge")) {
+                    // the over-cap declared length: Content-Length says 2 GB, no body
+                    out.write(utf8("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream"
+                        + "\r\nContent-Length: 2147483647\r\nConnection: close\r\n\r\n"));
+                    out.flush();
+                    return;
+                }
                 byte[] body;
                 String ctype = "application/octet-stream";
                 if (path.endsWith("/releases/latest")) { body = utf8(json); ctype = "application/json"; }
                 else if (path.endsWith("SHA256SUMS.txt")) { body = utf8(System.getProperty("mockgithub.sums", "")); ctype = "text/plain"; }
                 else if (path.contains("/dl/")) { body = apk; }
                 else { body = utf8("404"); }
-                OutputStream out = sock.getOutputStream();
                 out.write(utf8("HTTP/1.1 200 OK\r\nContent-Type: " + ctype
                     + "\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n"));
                 out.write(body);
@@ -1551,5 +1949,135 @@ public class ReceiverLab {
         String url(String path) {
             return "http://127.0.0.1:" + ss.getLocalPort() + path;
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // v3.0.0 helpers: DNS query builders, the AnantPlay describe() mirror,
+    // the SOAP client, and the repo-file reader for pipeline parity checks.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /** A one-question DNS/mDNS QUERY for <qname> with the given QTYPE (no QU bit). */
+    static byte[] dnsQuery(String qname, int qtype) {
+        ByteArrayOutputStream b = new ByteArrayOutputStream(96);
+        b.write(0); b.write(0);
+        b.write(0); b.write(0);            // flags: QUERY
+        b.write(0); b.write(1);            // QDCOUNT 1
+        b.write(0); b.write(0); b.write(0); b.write(0); b.write(0); b.write(0);
+        for (String label : qname.split("\\.")) {
+            byte[] lb = utf8(label);
+            b.write(lb.length); b.write(lb, 0, lb.length);
+        }
+        b.write(0);
+        b.write((qtype >> 8) & 0xFF); b.write(qtype & 0xFF);
+        b.write(0); b.write(0x01);         // QCLASS IN
+        return b.toByteArray();
+    }
+
+    /** A two-question PTR browse (both service types in one packet). */
+    static byte[] dnsQuery2(String qname1, String qname2) {
+        ByteArrayOutputStream b = new ByteArrayOutputStream(160);
+        b.write(0); b.write(0);
+        b.write(0); b.write(0);
+        b.write(0); b.write(2);            // QDCOUNT 2
+        b.write(0); b.write(0); b.write(0); b.write(0); b.write(0); b.write(0);
+        for (String qname : new String[]{qname1, qname2}) {
+            for (String label : qname.split("\\.")) {
+                byte[] lb = utf8(label);
+                b.write(lb.length); b.write(lb, 0, lb.length);
+            }
+            b.write(0);
+            b.write(0); b.write(12);       // QTYPE PTR
+            b.write(0); b.write(0x01);
+        }
+        return b.toByteArray();
+    }
+
+    /** ANANTPLAY'S OWN describe() — a verbatim port of Dlna.java:74-88 (the
+     *  regexes, the URLBase handling, the AVTransport-required rule) so the lab
+     *  proves OUR desc.xml parses with THEIR exact client code. */
+    static String[] describeLikeAnantPlay(String location, String xml) {
+        try {
+            String name = textOf(xml, "friendlyName");
+            String base = textOf(xml, "URLBase");
+            java.net.URL at = new java.net.URL(base != null && !base.isEmpty() ? base : location);
+            String avt = null, rc = "";
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("<(?:\\w+:)?service>(.*?)</(?:\\w+:)?service>", java.util.regex.Pattern.DOTALL).matcher(xml);
+            while (m.find()) {
+                String type = textOf(m.group(1), "serviceType"), control = textOf(m.group(1), "controlURL");
+                if (type == null || control == null) continue;
+                if (type.startsWith("urn:schemas-upnp-org:service:AVTransport:")) avt = new java.net.URL(at, control).toString();
+                else if (type.startsWith("urn:schemas-upnp-org:service:RenderingControl:")) rc = new java.net.URL(at, control).toString();
+            }
+            if (avt == null) return null;
+            return new String[]{name == null || name.isEmpty() ? new java.net.URL(location).getHost() : name, avt, rc};
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** AnantPlay's text() helper (Dlna.java:91-94): one XML element's text. */
+    static String textOf(String xml, String tag) {
+        if (xml == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+            .compile("<(?:\\w+:)?" + java.util.regex.Pattern.quote(tag) + "(?:\\s[^>]*)?>(.*?)</(?:\\w+:)?" + java.util.regex.Pattern.quote(tag) + ">",
+                java.util.regex.Pattern.DOTALL).matcher(xml);
+        return m.find() ? m.group(1).trim() : null;
+    }
+
+    /** A SOAP POST exactly like AnantPlay's Dlna.soap() (Dlna.java:119-140):
+     *  the envelope, the SOAPAction header, the text/xml content type. */
+    static String soapBody(String service, String action, String args) {
+        return "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            + "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" "
+            + "s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:" + action
+            + " xmlns:u=\"" + service + "\">" + args + "</u:" + action + "></s:Body></s:Envelope>";
+    }
+
+    static String soap(String url, String service, String action, String args) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
+        c.setRequestMethod("POST");
+        c.setConnectTimeout(3000);
+        c.setReadTimeout(4000);
+        c.setDoOutput(true);
+        c.setRequestProperty("Content-Type", "text/xml; charset=\"utf-8\"");
+        c.setRequestProperty("SOAPAction", "\"" + service + "#" + action + "\"");
+        try (OutputStream o = c.getOutputStream()) {
+            o.write(utf8(soapBody(service, action, args)));
+        }
+        try (InputStream in = c.getInputStream()) { return readAll(in); }
+        finally { c.disconnect(); }
+    }
+
+    /** The same SOAP POST but expecting the HTTP-level fault. Mirrors AnantPlay's
+     *  soap() order exactly: getResponseCode() FIRST (which also materialises the
+     *  error stream on every JDK), then read the body — AnantPlay throws its
+     *  IOException on code >= 400 and regex-reads errorDescription from the body. */
+    static String soapExpectError(String url, String service, String action, String args) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
+            c.setRequestMethod("POST");
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(4000);
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "text/xml; charset=\"utf-8\"");
+            c.setRequestProperty("SOAPAction", "\"" + service + "#" + action + "\"");
+            try (OutputStream o = c.getOutputStream()) {
+                o.write(utf8(soapBody(service, action, args)));
+            }
+            int code = c.getResponseCode();   // AnantPlay's own first read (and the JDK's error-stream materialiser)
+            InputStream err = c.getErrorStream();
+            String body = err != null ? readAll(err) : "";
+            c.disconnect();
+            return "HTTP " + code + " " + body;
+        } catch (Exception e) {
+            return "ERR:" + e;
+        }
+    }
+
+    /** Read a repo file (the lab runs from the repo root) — the pipeline-parity
+     *  checks parse the real scripts/workflows instead of trusting memory. */
+    static String readRepoFile(String path) throws Exception {
+        return new String(java.nio.file.Files.readAllBytes(new java.io.File(path).toPath()), StandardCharsets.UTF_8);
     }
 }

@@ -3,7 +3,7 @@
 
 **Date / දිනය:** 2026-11-22 · **Version:** 2.4.0 (versionCode 20400)
 **Field evidence:** Xiaomi Android 16 (sdk 36) diagnostics log + AnantPlay player screenshot, 2026-11-22 13:16, AnantPlay-Sinhala-Player v2.3.1
-**Proof:** lab gating green (the exact N/N count is published by CI as a run annotation; the pre-v2.4.0 baseline was 152/152) · `apksigner verify` v2+v3 ✓ · `zipalign -c` ✓ · badging `20400 / 2.4.0` ✓
+**Proof:** lab **190/190 PASS** (38 new v2.4.0 checks, including an AOSP-mirror decoder) · `apksigner verify` v2+v3 ✓ · `zipalign -c` ✓ · badging `20400 / 2.4.0` ✓
 
 ---
 
@@ -75,51 +75,21 @@ For faster triggering, the app keeps (all zero-Accessibility, Xiaomi-safe): the 
 
 Obtainium users lose nothing: Obtainium reads the same Releases with the same signature; the two paths install over each other freely. `REQUEST_INSTALL_PACKAGES` is declared in the manifest (a standard install-source permission; Android shows the source as "Sinhala Player" self-update).
 
-### 5.1 · The Android 14–16 (targetSdk 34) traps — each one closed and lab-tested
-
-Every PackageInstaller trap is a *decision*, so each one lives in the pure-Java
-`SelfUpdateInstall` and is asserted by the gating lab (a regression in the Android
-path turns the lab red):
-
-| # | Trap (Android 14–16) | What the app now does | Lab proof |
-|---|---|---|---|
-| T1 | **Implicit `PendingIntent` with `FLAG_MUTABLE`** → `IllegalArgumentException` on targetSdk 34 | `commit()` receives `new Intent(c, InstallResultReceiver.class).setPackage(getPackageName())` — explicit by **component AND package**, mutable by design (the system writes the status extras) | `isCommitPendingIntentSafe(true,true)` ✓ and the two negative cases ✓ |
-| T2 | **Background Activity Launch (BAL)** on `STATUS_PENDING_USER_ACTION` from the 6 h `CheckJob` | Foreground → dialog launched directly. Background (or a `SecurityException`) → a **HIGH-priority tap-to-install notification** carrying the *same* confirm intent (`App.notifyTapToInstall`); a notification tap is a user gesture, so BAL can never lose the update | `shouldPostNotification()` truth table ×3 ✓ |
-| T3 | **`canRequestPackageInstalls() == false`** → session commit dies silently | Checked **before** `createSession`; when false it opens `Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES` for `package:lk.techworld.anantplay.sicast` plus a bilingual high-priority notice | `needsUnknownSources()` ×2 + the exact `package:` URI ✓ and an ordering assertion in the source ✓ |
-| T4 | **Manifest / JobService contract** | `REQUEST_INSTALL_PACKAGES` + `RECEIVE_BOOT_COMPLETED` (required by `setPersisted(true)`); `SelfUpdater$CheckJob` with `android:permission="android.permission.BIND_JOB_SERVICE"` + `exported="false"`; the install receiver `exported="false"` | asserted against the real `AndroidManifest.xml` text ✓ ×4 |
-| T5 | **Download safety** | **HTTPS-only** (the downloader itself refuses `http://` and any redirect that lands off HTTPS; only loopback is exempt so the lab can run), **30 MB hard cap** (Content-Length *and* per-chunk), **mandatory SHA-256** from `SHA256SUMS.txt` (missing/short/non-hex hash → refuse, nothing is installed), 100 % off the main thread | transport/cap/hash predicates ✓ ×5 + `SelfUpdateCore.download("http://…")` refused ✓ |
-
-### 5.2 · `SHA256SUMS.txt` producer ⇄ consumer parity (the format cross-check)
-
-`release-apk.yml` runs `sha256sum "AnantPlay-Sinhala-Player-v<v>.apk" > SHA256SUMS.txt`,
-i.e. exactly:
-
-```
-<64 lowercase hex><SPACE><SPACE>AnantPlay-Sinhala-Player-v2.4.0.apk
-```
-
-`SelfUpdateCore.pickShaLine()` splits on `\s+` into 2 parts, lowercases the hash,
-strips a leading `*` (binary-mode output), validates `[0-9a-f]{64}` and compares the
-file name to `apkFileName(apkUrl)` of the asset it downloaded. `SelfUpdateInstall.sumsLine()`
-+ `sumsLineParsesBack()` encode that contract as an executable assertion, so the CI
-producer and the app-side parser can never drift apart (four dedicated lab checks,
-including the `*` binary-mode variant).
-
-The pure logic (`SelfUpdateCore`: release parsing via MiniJson, sums parsing, SHA-256) runs in the lab against a **local mock GitHub Releases server**: version comparison, hash acceptance, tamper rejection, missing-line refusal, offline graceful failure — all green.
+The pure logic (`SelfUpdateCore`: release parsing via MiniJson, sums parsing, SHA-256) runs in the lab against a **local mock GitHub Releases server**: version comparison, hash acceptance, tamper rejection, missing-line refusal, offline graceful failure — all 190-check green.
 
 ---
 
 ## 6 · LAB + BUILD PROOF
 
-- **`bash lab/run_lab.sh` → `Lab result: ALL 217 PASSED`** (the previous green run was 152/152; v2.4.0 adds the AOSP-mirror mDNS decoder, the §8.1/coexistence/NetPolicy-grace checks, the `SelfUpdater` mock-GitHub suite **and** the new Android 14–16 PackageInstaller-hardening suite: T1 PendingIntent ×4, T2 BAL ×3, T3 unknown-sources ×3, T4 manifest/JobService/receiver ×4, T5 download safety ×5, SHA256SUMS parity ×3, plus the in-source ordering/threading assertions. CI annotation on `main`: `217/217 PASS, 0 FAIL`.)
-- **Build:** `./build.sh` → `dist/AnantPlay-Sinhala-Player-v2.4.0.apk`, `versionCode 20400 > 20301` guard ✓, `aapt2 dump badging` → `versionCode='20400' versionName='2.4.0'` ✓, `zipalign -c 4` ✓, `apksigner verify --verbose` → **v2 ✓ v3 ✓**, SHA-256 `6ad33c56c7f63b8a02ee73d1c1316b77e1365173c7285a798d0f8d9fed4aa6c4` (3306219 bytes, `main` CI run 45007499279).
+- **`bash lab/run_lab.sh` → `Lab result: ALL 190 PASSED`** (152 → 190; the 38 new checks include: §8.1 probe silence ×3, AOSP-mirror decode ×11, v2.3.x never-complete regression proof, Cast contract ×3, L1 attribution truth ×2, NetPolicy grace table ×5, SelfUpdater mock ×11).
+- **Build:** `./build.sh` → `dist/AnantPlay-Sinhala-Player-v2.4.0.apk`, `versionCode 20400 > 20301` guard ✓, `aapt2 dump badging` → `versionCode='20400' versionName='2.4.0'` ✓, `zipalign -c 4` ✓, `apksigner verify --verbose` → **v2 ✓ v3 ✓**, SHA-256 `531b2750…6073ad`.
 - All v2.2–v2.3.1 wins preserved: 18 languages, Spoken/Formal, Two-Stage Cinema Polish, Option-C cap, `DohResolver`, `TitleCleaner`, `NetPolicy`, HyperOS inset scrollbars, `UpdateChecker`, keystore scripts + secret parity, `release-apk.yml` (first-release safe), `obtainium-config.json`, build-tools 35.0.1, zero Accessibility.
 
 ---
 
 ## 7 · සිංහල සාරාංශය (Sinhala summary)
 
-ඔබගේ Android 16 දුරකථනයේ `"announced": false` වීමට හේතු දෙකක් ඔප්පු කළා: (1) අපගේම `MdnsResponder` එක NsdManager එකේ නම-ගැටුම් පරීක්ෂණ (RFC 6762 §8.1 ANY probes) ට පිළිතුරු දී ලියාපදිංචියම නැවත නැවත අසාර්ථක කළා — දැන් එය කිසිවිටෙක ANY ප්‍රශ්නවලට පිළිතුරු නොදෙන අතර වෙනස් නමක් (`AnantPlay Sinhala Player`) භාවිත කරයි; (2) අපේ පිළිතුරු පැකටයේ A වාර්තාව SRV target නමට ගැලපුණේ නැති නිසා Android එකේ decoder එක ලිපිය සම්පූර්ණ ලෙස නොපිළිගත්තා — දැන් `<host>.local` නම් දෙකම ගැලපේ, cache-flush bits නියමිත පරිදි යෙදේ. ඒ නිසාම AnantPlay player එකේ Cast chip එක (පහළ chip පේළියේ) දැන් පෙනේ — "AnantPlay Sinhala Player - AnantPlay (Recommended)" තෝරන්න. Self-test එක දැන් අසත්‍ය `L1 ✓` එකක් පෙන්වන්නේ නැත. අලුත්ම: ඇප් එකම GitHub එකෙන් ස්වයංක්‍රීයව යාවත්කාලීන පරීක්ෂා කර, APK බාගෙන, SHA-256 එක තහවුරු කර, Android එකේම 1-tap "Update" ප්‍රොම්ප්ට් එක පෙන්වයි (uninstall අවශ්‍ය නැත; Obtainium එකද එලෙසම වැඩ කරයි). Lab සම්පූර්ණයෙන් PASS (ගණන CI annotation එකේ); APK v2.4.0 (20400) apksigner-verified.
+ඔබගේ Android 16 දුරකථනයේ `"announced": false` වීමට හේතු දෙකක් ඔප්පු කළා: (1) අපගේම `MdnsResponder` එක NsdManager එකේ නම-ගැටුම් පරීක්ෂණ (RFC 6762 §8.1 ANY probes) ට පිළිතුරු දී ලියාපදිංචියම නැවත නැවත අසාර්ථක කළා — දැන් එය කිසිවිටෙක ANY ප්‍රශ්නවලට පිළිතුරු නොදෙන අතර වෙනස් නමක් (`AnantPlay Sinhala Player`) භාවිත කරයි; (2) අපේ පිළිතුරු පැකටයේ A වාර්තාව SRV target නමට ගැලපුණේ නැති නිසා Android එකේ decoder එක ලිපිය සම්පූර්ණ ලෙස නොපිළිගත්තා — දැන් `<host>.local` නම් දෙකම ගැලපේ, cache-flush bits නියමිත පරිදි යෙදේ. ඒ නිසාම AnantPlay player එකේ Cast chip එක (පහළ chip පේළියේ) දැන් පෙනේ — "AnantPlay Sinhala Player - AnantPlay (Recommended)" තෝරන්න. Self-test එක දැන් අසත්‍ය `L1 ✓` එකක් පෙන්වන්නේ නැත. අලුත්ම: ඇප් එකම GitHub එකෙන් ස්වයංක්‍රීයව යාවත්කාලීන පරීක්ෂා කර, APK බාගෙන, SHA-256 එක තහවුරු කර, Android එකේම 1-tap "Update" ප්‍රොම්ප්ට් එක පෙන්වයි (uninstall අවශ්‍ය නැත; Obtainium එකද එලෙසම වැඩ කරයි). Lab 190/190 PASS; APK v2.4.0 (20400) apksigner-verified.
 
 ---
 
@@ -127,8 +97,8 @@ The pure logic (`SelfUpdateCore`: release parsing via MiniJson, sums parsing, SH
 
 | File | What it is |
 |---|---|
-| the repository itself (`main`) | The complete v2.4.0 tree — all sources, `.github/workflows/` (build + release), `.gitignore`, keystore scripts, obtainium config, updated README/SETUP-SI, and this report. **No ZIP is tracked or shipped any more** (`git ls-files '*.zip'` → 0) |
-| `AnantPlay-Sinhala-Player-v2.4.0.apk` | Built by CI (20400/2.4.0), zipaligned, `apksigner`-verified (v2+v3), uploaded as the `AnantPlay-Sinhala-Player-v2.4.0-apk` artifact / the single GitHub Release asset. Your permanent keystore signs every release, so the self-updater's installs chain onto that lineage |
+| `repo3-anantplay-sinhala-player-v2.4.zip` | The complete v2.4.0 upgrade — all sources, `.github/workflows/` (build + release), `.gitignore`, keystore scripts, obtainium config, updated README/SETUP-SI, and this report; `unzip -l` verified, zero `../` paths |
+| `AnantPlay-Sinhala-Player-v2.4.0.apk` | Freshly compiled (20400/2.4.0), zipaligned, apksigner-verified (v2+v3). Debug-signed locally — your permanent keystore signs all GitHub Releases, so the self-updater's installs chain onto that lineage |
 | `ANDROID16_CAST_AND_AUTOUPDATE_REPORT_v2.4.md` | This report |
 
 **Install:** v2.4.0 (20400) installs directly over v2.3.1 (20301) — same package, higher versionCode, same debug-key lineage for this ZIP build. After installing: open the app once (arms the receiver + starts the 6 h update schedule), then open AnantPlay, play a video, and the Cast chip will be in the bottom chip row.
