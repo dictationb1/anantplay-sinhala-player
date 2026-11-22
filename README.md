@@ -188,10 +188,15 @@ SETUP-SI.md                  the Sinhala setup checklist
 >
 > **Reproducible APKs:** `build.sh` pins every ZIP entry to a fixed epoch
 > (`touch -t 198001010000` + `zip -X`) with `TZ=UTC` in both workflows, so the
-> same commit always produces the same SHA-256. Before this, the pre-merge build
-> and the post-merge release build of one commit differed only by ZIP entry
-> mtimes — identical size, different hash. Now `SHA256SUMS.txt` is a permanent,
-> re-verifiable record of exactly the bytes you install.
+> same commit always produces the same SHA-256 — verified: two independent CI
+> runs of the same sources both hash
+> `4fb0b800cd52881bb3b3b2eeeb789830adf12bc52607b101547418308d55c089`
+> (3,367,635 B). Before this, the pre-merge build and the post-merge release
+> build of one commit differed only by ZIP entry mtimes — identical size,
+> different hash. `SHA256SUMS.txt` is the permanent, re-verifiable record of
+> exactly the bytes you install (its 102 bytes are precisely
+> `"<64 hex>␠␠AnantPlay-Sinhala-Player-v3.1.1.apk\n"`, the GNU format
+> `SelfUpdateCore.pickShaLine` parses).
 
 Built on the 2026-11-22 16:36 Xiaomi Android 16 field log, every defect
 root-caused with file:line proof and covered by new regression checks in
