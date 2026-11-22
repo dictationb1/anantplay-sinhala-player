@@ -32,7 +32,7 @@ final class TitleCleaner {
     /** The cleaned lookup result. */
     static final class Clean {
         String title = "";     // the cleaned title for /api/resolve (never null, ≥2 chars unless input was)
-        Integer year;          // 1930–2049 or null
+        Integer year;          // 1930–2029 or null
         Integer season;        // ≥1 or null
         Integer episode;       // ≥1 or null
         boolean changed;       // true when the cleaner altered the input at all

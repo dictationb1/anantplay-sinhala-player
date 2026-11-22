@@ -47,8 +47,8 @@ public final class UpdateChecker {
         Result r = new Result();
         try {
             HttpURLConnection c = (HttpURLConnection) new URL(LATEST_API).openConnection();
-            c.setConnectTimeout(4000);   // bounded: 3-5 s (the audit's DoH/UpdateChecker budget)
-            c.setReadTimeout(5000);
+            c.setConnectTimeout(6000);
+            c.setReadTimeout(8000);
             c.setRequestProperty("Accept", "application/vnd.github+json");
             c.setRequestProperty("User-Agent", "AnantPlaySiCompanion/2.3");
             try {

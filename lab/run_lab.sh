@@ -30,6 +30,8 @@ javac -encoding UTF-8 -nowarn -d lab/out/classes \
   src/lk/techworld/anantplay/sicast/TitleCleaner.java \
   src/lk/techworld/anantplay/sicast/DohResolver.java \
   src/lk/techworld/anantplay/sicast/UpdateChecker.java \
+  src/lk/techworld/anantplay/sicast/SelfUpdateCore.java \
+  src/lk/techworld/anantplay/sicast/SelfUpdateInstall.java \
   src/lk/techworld/anantplay/sicast/AppInfo.java \
   lab/ReceiverLab.java
 

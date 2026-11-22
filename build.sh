@@ -16,7 +16,7 @@
 #   2. a stable debug keystore reused across local builds (~/.android/sicast-debug.keystore)
 #   3. an ephemeral debug key generated for this run — clearly marked as such.
 #
-# v2.3.0 hardening (the release pipeline):
+# v2.4.0 hardening (the release pipeline):
 #   · VERSION_NAME/VERSION_CODE may be overridden by env for release runs, but the
 #     aapt2 badging of the OUTPUT is ALWAYS verified to carry exactly these values
 #     (an accidental stale version can never ship).
@@ -45,9 +45,9 @@ BT=""
 done
 JAR=$SDK/platforms/android-34/android.jar
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-2.3.1}
-VERSION_CODE=${VERSION_CODE:-20301}
-PREV_VERSION_CODE=${PREV_VERSION_CODE:-20300}   # v2.3.0 — the last released build
+VERSION_NAME=${VERSION_NAME:-2.4.0}
+VERSION_CODE=${VERSION_CODE:-20400}
+PREV_VERSION_CODE=${PREV_VERSION_CODE:-20301}   # v2.3.1 — the last released build
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }

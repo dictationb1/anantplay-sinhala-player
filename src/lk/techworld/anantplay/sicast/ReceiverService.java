@@ -60,6 +60,11 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         ReceiverService s = running;
         return s == null || s.nsd == null ? null : s.nsd.responder();
     }
+    /** v2.4.0 — the REAL NsdManager registration state (onServiceRegistered fired). */
+    public static boolean isAnnounced() {
+        ReceiverService s = running;
+        return s != null && s.nsd != null && s.nsd.isAnnounced();
+    }
     /** v2.3.0 — a defensive self-heal: re-check the server + announcement and re-arm
      *  both when a HyperOS powerkeeper pass left them half-dead. Runs every 15 min. */
     private final Handler heal = new Handler(Looper.getMainLooper());

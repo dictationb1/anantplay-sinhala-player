@@ -89,5 +89,124 @@ public class App extends Application {
         } catch (Throwable t) {
             Diag.w("app", "auto-arm: " + t);   // e.g. background FGS restrictions; MainActivity arms it
         }
+
+        // v2.4.0 — the built-in GitHub self-update: launch check (rate-limited
+        // inside) + the standing 6 h periodic schedule.
+        try {
+            SelfUpdater.checkOnLaunch(this);
+            SelfUpdater.schedulePeriodic(this);
+        } catch (Throwable t) {
+            Diag.w("app", "self-update schedule: " + t);
+        }
+    }
+
+    // ── v2.4.0: the self-update notifications (channel: the existing cast channel) ──
+
+    /** The non-intrusive banner while the update downloads. */
+    static void notifyUpdate(Context c, String version) {
+        try {
+            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_CAST)
+                .setSmallIcon(R.drawable.ic_stat_si)
+                .setContentTitle("AnantPlay Sinhala Player " + version)
+                .setContentText("අලුත් යාවත්කාලීනයක් ඇත " + version + " — ඩවුන්ලෝඩ් වෙමින්… · downloading…")
+                .setOngoing(true)
+                .setProgress(0, 0, true)
+                .build();
+            c.getSystemService(NotificationManager.class).notify(20401, n);
+        } catch (Throwable t) {
+            Diag.w("app", "update banner: " + t);
+        }
+    }
+
+    /** Download verified, install prompt coming (the OS's own 1-tap dialog). */
+    static void notifyUpdateReady(Context c, String version) {
+        try {
+            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_CAST)
+                .setSmallIcon(R.drawable.ic_stat_si)
+                .setContentTitle("AnantPlay Sinhala Player " + version)
+                .setContentText("යාවත්කාලීනය සූදානම් — ස්ථාපනය කිරීමට තට්ටු කරන්න · ready to install (1 tap)")
+                .setAutoCancel(true)
+                .build();
+            c.getSystemService(NotificationManager.class).notify(20402, n);
+        } catch (Throwable t) {
+            Diag.w("app", "update ready banner: " + t);
+        }
+    }
+
+    /** The SHA-256 mismatch / failure notice. */
+    static void notifyUpdateFailed(Context c, String version) {
+        try {
+            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_CAST)
+                .setSmallIcon(R.drawable.ic_stat_si)
+                .setContentTitle("AnantPlay Sinhala Player " + version)
+                .setContentText("යාවත්කාලීන බාගැනීම අසාර්ථක විය (SHA-256 නොගැලපේ) — පසුව නැවත උත්සාහ කරනු ලැබේ · download failed verification, will retry later")
+                .setAutoCancel(true)
+                .build();
+            c.getSystemService(NotificationManager.class).notify(20403, n);
+        } catch (Throwable t) {
+            Diag.w("app", "update failed banner: " + t);
+        }
+    }
+
+    /** v2.4.0 TRAP 2 — the BACKGROUND-ACTIVITY-LAUNCH fallback: when the install
+     *  confirm dialog cannot be launched directly (Android 14–16 BAL, or the 6 h
+     *  CheckJob running with no UI), the very same intent becomes the notification's
+     *  tap action. A tap is a user gesture, so the system always honours it. */
+    static void notifyTapToInstall(Context c, android.content.Intent confirm) {
+        try {
+            android.app.PendingIntent tap;
+            try {
+                tap = android.app.PendingIntent.getActivity(c, 20404, confirm,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+            } catch (Throwable t) {
+                // a mutable PendingIntent is the documented fallback on some builds
+                tap = android.app.PendingIntent.getActivity(c, 20404, confirm,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_MUTABLE);
+            }
+            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_CAST)
+                .setSmallIcon(R.drawable.ic_stat_si)
+                .setContentTitle("යාවත්කාලීනය සූදානම් · update ready")
+                .setContentText("ස්ථාපනය කිරීමට තට්ටු කරන්න · tap to install " + AppInfo.VERSION_NAME)
+                .setStyle(new android.app.Notification.BigTextStyle().bigText(
+                    "යාවත්කාලීනය බාගෙන SHA-256 තහවුරු කර ඇත. ස්ථාපනය කිරීමට මෙය තට්ටු කරන්න.\n"
+                    + "Downloaded and SHA-256 verified — tap here to finish the 1-tap install."))
+                .setPriority(android.app.Notification.PRIORITY_HIGH)
+                .setCategory(android.app.Notification.CATEGORY_RECOMMENDATION)
+                .setContentIntent(tap)
+                .setAutoCancel(true)
+                .build();
+            c.getSystemService(NotificationManager.class).notify(20404, n);
+        } catch (Throwable t) {
+            Diag.w("app", "tap-to-install banner: " + t);
+        }
+    }
+
+    /** v2.4.0 TRAP 3 — canRequestPackageInstalls() is false: the update cannot be
+     *  installed until the user flips the one-time "Install unknown apps" toggle. */
+    static void notifyUnknownSourcesNeeded(Context c, String version) {
+        try {
+            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_CAST)
+                .setSmallIcon(R.drawable.ic_stat_si)
+                .setContentTitle("එක් වරක් අවසරයක් අවශ්‍යයි · one-time permission needed")
+                .setContentText("යාවත්කාලීන " + version + " ස්ථාපනයට \"Install unknown apps\" සක්‍රිය කරන්න · enable it to update")
+                .setStyle(new android.app.Notification.BigTextStyle().bigText(
+                    "\"Install unknown apps\" (මෙම යෙදුමට පමණක්) සක්‍රිය කරන්න — එක් වරක් පමණි.\n"
+                    + "Enable \"Install unknown apps\" for AnantPlay Sinhala Player once; the next\n"
+                    + "update then installs with a single tap, with all your data kept."))
+                .setPriority(android.app.Notification.PRIORITY_HIGH)
+                .setCategory(android.app.Notification.CATEGORY_RECOMMENDATION)
+                .setAutoCancel(true)
+                .build();
+            c.getSystemService(NotificationManager.class).notify(20405, n);
+        } catch (Throwable t) {
+            Diag.w("app", "unknown-sources banner: " + t);
+        }
+    }
+
+    static void notifyUpdateDone(Context c) {
+        try {
+            c.getSystemService(NotificationManager.class).cancel(20401);
+            c.getSystemService(NotificationManager.class).cancel(20402);
+        } catch (Throwable ignored) { }
     }
 }

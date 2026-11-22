@@ -1,4 +1,4 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v2.3.1)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v2.4.0)
 
 > **අලුත්ම ක්‍රමය: Accessibility අවසරයක් අවශ්‍ය නැත.** AnantPlay හි **Cast** බොත්තමෙන් චිත්‍රපටිය
 > **මෙම app එකටම** එවනවා — සිංහල උපසිරැසි සහිතව. AnantPlay නිල app එක තවමත් 100% නොවෙනස්ව තිබේ.
@@ -8,7 +8,7 @@
 
 ## 1 · App එක install කරන්න
 
-`AnantPlay-Sinhala-Player-v2.3.1.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
+`AnantPlay-Sinhala-Player-v2.4.0.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
 "Start receiver" බොත්තම ඔබන්න — ඉහළම දැනුම්දීම් තීරුවේ **"අ — Sinhala Player cast ready"**
 දැනුම්දීම පැමිණේ (එය receiver එක ක්‍රියාත්මක බවට සලකුණයි).
 
@@ -39,10 +39,7 @@ App එක ඇතුළලේ **"Display over other apps"** පේළියේ �
 ## 4 · ස්වයං පරීක්ෂණය (දුරකථනයම මතදී)
 
 **🧪 Self-test** බොත්තම ඔබන්න — එය loopback HTTP → same-device mDNS discovery → bridge යන
-සම්පූර්ණ දාමයම ඔබේ දුරකථනයේ පරීක්ෂා කරනවා. ප්‍රතිඵලය ස්ථර අනුව පෙන්වයි —
-උදා: `mDNS ok [L1 daemon ✓ · L2 responder ✓ · L3 NSD ✗]` — එහි L1 = mdnsd daemon (loopback + Wi-Fi),
-L2 = අපේම 5353 responder (kernel loopback), L3 = NsdManager discovery (bonus). සියල්ල ✅ නම්
-**සියල්ල සූදානම්**; L1 හෝ L2 ✅ නම් cast එක ක්‍රියා කරන බව ඔප්පු වේ (L3 ❌ වුවත්).
+සම්පූර්ණ දාමයම ඔබේ දුරකථනයේ පරීක්ෂා කරනවා. තුනම ✅ නම් **සියල්ල සූදානම්**.
 (Wi-Fi ON වී තිබිය යුතුය — same-device cast සඳහා අවශ්‍යයි; internet අවශ්‍ය නැත, router එකක්
 සම්බන්ධ වී සිටීම ප්‍රමාණවත්.)
 
@@ -114,7 +111,7 @@ Settings → Network → **DNS filtering → “Filter DNS only”** හෝ app 
 
 ---
 
-## 9 · Obtainium + GitHub Releases — සදාකාලික in-place යාවත්කාලීන (v2.3.1)
+## 9 · Obtainium + GitHub Releases — සදාකාලික in-place යාවත්කාලීන (v2.4.0)
 
 ### පියවර 1 — ස්ථිර signing key එක හදන්න (එක් වරක් පමණි!)
 
@@ -136,11 +133,11 @@ Actions → New repository secret** — `github-secrets.txt` එකේ අගය
 
 ### පියවර 3 — Release එකක් publish කරන්න
 
-- **ස්වයංක්‍රීය:** `git tag v2.3.1 && git push origin v2.3.1` — `release-apk.yml`
+- **ස්වයංක්‍රීය:** `git tag v2.4.0 && git push origin v2.4.0` — `release-apk.yml`
   එක Lab 100% PASS බව පරීක්ෂා කර, APK එක sign කර `apksigner` එකෙන් verify කර,
   `SHA256SUMS.txt` සමඟ Release එකක් සාදයි.
 - **අතින් 1-click:** GitHub → Actions → **Release APK** → Run workflow → version එක
-  ලියන්න (උදා: `2.3.1`).
+  ලියන්න (උදා: `2.4.0`).
 
 ### පියවර 4 — Obtainium එකට දමන්න (දුරකථනයේ, 3 tap!)
 
@@ -158,3 +155,61 @@ sign වන නිසා Android එක එය "same app" ලෙස හඳුන
 
 ඇප් එක තුළ **"⬆ Check for updates (GitHub)"** බොත්තම — අලුත් release එකක් ඇත්නම්
 Release පිටුව විවෘත වේ (Obtainium එකේදී එය ස්වයංක්‍රීයවම සිදු වේ).
+
+---
+
+## 10 · v2.4.0 අලුත් දේ — Cast chip එක කොහෙද? · Built-in Auto-Updater (සිංහල + English)
+
+### 10.1 · AnantPlay එකේ Cast chip එක — හරියටම කොහෙද
+
+1. AnantPlay (නිල app එක — `me.champdev.weblock`) විවෘත කරන්න.
+2. යම් වීඩියෝවක් play වෙන තිරයේ **පහළ toolbar** එක දෙස බලන්න.
+3. **Cast icon** එක එහි ඇත. එය ඔබන්න.
+4. ලැයිස්තුවේ **`AnantPlay Sinhala Player - AnantPlay (Recommended)`** තෝරන්න.
+5. එය සාර්ථක නම් Sinhala Player app එකේ player එක විවෘත වේ (Sinhala subtitles සමඟ).
+
+> මෙය නොපෙනේ නම්: `SETUP-SI.md` §7 (ප්‍රශ්න) බලන්න — ඉන්පසු අපේ app එකේ
+> **🧪 Self-test** ඔබන්න. එහි `L1 daemon ✓ · L2 responder ✓` පෙනේ නම් discovery හරි.
+
+**English:** In AnantPlay, open any video → the **bottom toolbar** carries the **Cast icon** →
+tap it → choose **`AnantPlay Sinhala Player - AnantPlay (Recommended)`**. The Sinhala
+Player opens with Sinhala subtitles. If the entry is missing, run the in-app
+**Self-test** — `L1 daemon ✓ · L2 responder ✓` proves discovery works.
+
+### 10.2 · Built-in Automatic GitHub Self-Updater (v2.4.0)
+
+AnantPlay Sinhala Player now updates **itself**, with zero Obtainium required:
+
+| පියවර | සිංහල | English |
+|---|---|---|
+| 1 | **එක් වරක් පමණි:** යාවත්කාලීන එකක් පළමු වරට එන විට, `Install unknown apps` → **AnantPlay Sinhala Player** සඳහා toggle එක **ON** කරන්න | **One time only:** on the first update, turn ON *Install unknown apps → AnantPlay Sinhala Player* |
+| 2 | යෙදුම විවෘත කරන සෑම විටකම (විනාඩි 15ක rate limit) සහ පැය 6කට වරක් background එකේ check වේ | It checks on every launch (15-minute rate limit) and every 6 hours in the background |
+| 3 | අලුත් release එකක් ඇත්නම් APK එක **HTTPS** එකෙන් බාගෙන **SHA-256** (`SHA256SUMS.txt`) එකෙන් තහවුරු කරයි — නොගැලපේ නම් **ස්ථාපනය කරන්නේ නැත** | The APK is downloaded over **HTTPS** and **SHA-256-verified** against `SHA256SUMS.txt` — a mismatch is **refused**, never installed |
+| 4 | ඉන්පසු Android එකේම **1-tap "Update"** සංවාදය පමණි — data එකම තබා in-place update වේ | Then only Android's own **1-tap "Update"** dialog — in place, all data kept |
+
+- **Background එකේදී (පැය 6 job):** app එක ඉදිරිපස නැත්නම් Android 16 එකේ
+  *background activity launch* block වේ. ඒ නිසා app එක **high-priority notification** එකක්
+  දර්ශනය කරයි — එය තට්ටු කළ විට **එම** install සංවාදයම විවෘත වේ. යාවත්කාලීනය කිසිදා
+  නැති නොවේ.
+- **`Install unknown apps` toggle එක OFF නම්:** app එක නිහඬව fail නොවී, එම setting පිටුවම
+  (`package:lk.techworld.anantplay.sicast`) විවෘත කරයි + ද්විභාෂා දැනුම්දීමක් පෙන්වයි.
+- **Obtainium තවමත් වැඩ කරයි:** දෙකම එකම GitHub Releases කියවන අතර, එකම ස්ථිර key එකෙන්
+  sign වන නිසා එකිනෙකට උඩින් install වේ (uninstall කිසිදා අවශ්‍ය නැත).
+
+**English:** the updater verifies SHA-256 before installing; when the app is in the
+background (the 6 h job) it posts a **high-priority tap-to-install notification**
+carrying the very same confirm intent, because Android 14–16 blocks background
+activity launches; when *Install unknown apps* is off it opens that exact settings
+page for `package:lk.techworld.anantplay.sicast` and explains it bilingually.
+Obtainium keeps working — same releases, same permanent signing key.
+
+### 10.3 · ස්ථිර keystore + Obtainium — එක් වරක් පමණි (permanent, one time)
+
+1. `sh scripts/create-release-keystore.sh` (හෝ `pwsh -File scripts\create-release-keystore.ps1`)
+   → `release-keystore.jks` + `github-secrets.txt` (ආරක්ෂිතව backup කරගන්න!).
+2. GitHub → Settings → Secrets and variables → Actions → `KS_BASE64`, `KS_PASS`,
+   `KS_KEYPASS`, `KS_ALIAS` (එක් වරක් පමණි).
+3. `git tag v2.4.0 && git push origin v2.4.0` → signed release + `SHA256SUMS.txt`.
+4. Obtainium: **+ Add App** → `https://github.com/dictationb1/anantplay-sinhala-player`.
+
+**Full technical report:** [`ANDROID16_CAST_AND_AUTOUPDATE_REPORT_v2.4.md`](ANDROID16_CAST_AND_AUTOUPDATE_REPORT_v2.4.md)

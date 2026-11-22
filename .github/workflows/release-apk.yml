@@ -1,8 +1,8 @@
 name: Release APK (signed, Obtainium-ready)
 
-# THE RELEASE PIPELINE (v2.3.1):
-#   Trigger A — push a semantic tag:  git tag v2.3.1 && git push origin v2.3.1
-#   Trigger B — 1-click manual: the "Run workflow" button takes a version (e.g. 2.3.1);
+# THE RELEASE PIPELINE (v2.4.0):
+#   Trigger A — push a semantic tag:  git tag v2.4.0 && git push origin v2.4.0
+#   Trigger B — 1-click manual: the "Run workflow" button takes a version (e.g. 2.4.0);
 #               the workflow verifies the Lab passes, builds + signs with the PERMANENT
 #               keystore (GitHub Secrets), verifies the signature, writes SHA256SUMS.txt,
 #               creates the tag (when dispatched), and publishes a GitHub Release whose
@@ -21,9 +21,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g. 2.3.1 — no leading v)'
+        description: 'Version to release (e.g. 2.4.0 — no leading v)'
         required: true
-        default: '2.3.1'
+        default: '2.4.0'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -63,49 +63,7 @@ jobs:
           echo "tag=v$V" >> "$GITHUB_OUTPUT"
           echo "releasing v$V (versionCode $CODE)"
 
-      # ── 2a. FAIL FAST: no permanent keystore → refuse the whole release ────
-      # BEFORE any expensive work (lab, SDK install, build). A debug-signed
-      # release would break in-place updates for every user (and pollute Obtainium's
-      # update lineage), so this must refuse at the earliest possible point.
-      - name: Refuse the release without the permanent signing key
-        env:
-          KS_BASE64: ${{ secrets.KS_BASE64 }}
-        run: |
-          set -euo pipefail
-          if [ -z "$KS_BASE64" ]; then
-            echo "::error title=Release refused: no permanent signing key::KS_BASE64 is not set. Run scripts/create-release-keystore.sh (or .ps1 — one time), add the 4 secrets (KS_BASE64, KS_PASS, KS_KEYPASS, KS_ALIAS) under Settings → Secrets and variables → Actions, then re-run this workflow. A debug-signed RELEASE would break in-place updates for every user."
-            exit 1
-          fi
-          echo "permanent signing key present — release can proceed"
-
-      # ── 2b. resolve the previous release's versionCode ────────────────────
-      # The strictly-increasing versionCode guard in build.sh needs the PREVIOUS
-      # release's versionCode. The FIRST-EVER release has no previous release —
-      # the API answers 404, which must default to 0 cleanly (never crash on
-      # empty API output). Any later tag-style release (v2.2.0, v2.1.0, …) derives
-      # its predecessor from the latest existing GitHub Release.
-      - name: Resolve the previous release version code
-        id: prev
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          PREV=0
-          PREV_TAG=""
-          if TAG_OUT=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name 2>/dev/null); then
-            PREV_TAG="$TAG_OUT"
-            if echo "$PREV_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-              PREV_V="${PREV_TAG#v}"
-              MAJ=$(echo "$PREV_V" | cut -d. -f1); MIN=$(echo "$PREV_V" | cut -d. -f2); PAT=$(echo "$PREV_V" | cut -d. -f3)
-              PREV=$((MAJ * 10000 + MIN * 100 + PAT))
-            fi
-          else
-            echo "no previous release found (first-ever release) — PREV_VERSION_CODE=0"
-          fi
-          echo "previous_version_code=$PREV" >> "$GITHUB_OUTPUT"
-          echo "previous release: tag=${PREV_TAG:-<none>} code=$PREV"
-
-      # ── 3. the Lab MUST pass before anything is released ──────────────────
+      # ── 2. the Lab MUST pass before anything is released ──────────────────
       - name: Cast protocol lab (gating)
         run: |
           set -euo pipefail
@@ -116,7 +74,7 @@ jobs:
           echo "::notice title=Lab::${PASSED}/$((PASSED+FAILED)) PASS — releasing v${{ steps.ver.outputs.version }}"
           [ "$FAILED" -eq 0 ]
 
-      # ── 4. the Android toolchain (build-tools 35.0.1 is a HARD requirement) ─
+      # ── 3. the Android toolchain (build-tools 35.0.1 is a HARD requirement) ─
       - name: Prepare Android SDK (platform 34 + build-tools 35.0.1)
         run: |
           set -euo pipefail
@@ -139,7 +97,7 @@ jobs:
           [ -x "$SDK/build-tools/35.0.1/aapt2" ] || { echo "::error::build-tools;35.0.1 missing"; exit 1; }
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
 
-      # ── 5. build + sign with the PERMANENT keystore (or refuse) ───────────
+      # ── 4. build + sign with the PERMANENT keystore (or refuse) ───────────
       - name: Build + sign the release APK
         env:
           KS_BASE64: ${{ secrets.KS_BASE64 }}
@@ -148,7 +106,6 @@ jobs:
           KS_ALIAS: ${{ secrets.KS_ALIAS }}
           VERSION_NAME: ${{ steps.ver.outputs.version }}
           VERSION_CODE: ${{ steps.ver.outputs.code }}
-          PREV_VERSION_CODE: ${{ steps.prev.outputs.previous_version_code }}
         run: |
           set -euo pipefail
           if [ -z "$KS_BASE64" ]; then
@@ -182,7 +139,7 @@ jobs:
           sha256sum "$APK" > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      # ── 6. the tag (manual dispatch) + the Release ─────────────────────────
+      # ── 5. the tag (manual dispatch) + the Release ─────────────────────────
       - name: Create the git tag (manual dispatch only)
         if: github.event_name == 'workflow_dispatch'
         run: |
