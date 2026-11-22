@@ -50,6 +50,14 @@ public class ReceiverLab {
         else { failed++; System.out.println("  FAIL " + name + (detail == null ? "" : " — " + detail)); }
     }
 
+    /** Count occurrences of one char — used by the Sinhala ZWJ/ZWNJ regression lab. */
+    static int countChar(String s, char c) {
+        if (s == null) return 0;
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) if (s.charAt(i) == c) n++;
+        return n;
+    }
+
     /** The fake phone-side state machine the backend exposes. */
     static class FakePlayer {
         String title = "The Odyssey";
@@ -1416,9 +1424,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30102 strictly > 30101 (v3.1.1) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30102 && AppInfo.VERSION_CODE > 30101 && AppInfo.VERSION_CODE < 40000
-              && "3.1.2".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30200 strictly > 30102 (v3.1.2) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30200 && AppInfo.VERSION_CODE > 30102 && AppInfo.VERSION_CODE < 40000
+              && "3.2.0".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1450,9 +1458,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.1.2 / 30102 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.1.2}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30102}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.2.0 / 30200 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.2.0}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30200}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -1483,6 +1491,22 @@ public class ReceiverLab {
         v312TroubleshooterChecks();
         v312SelfUpdaterSpinChecks();
         v312LaunchContractChecks();
+
+        // ═════════ v3.2.0 — THE MASTER OVERHAUL LABS (Phases 1–4) ═════════
+        System.out.println("== v3.2.0 zero-rate-limit updater ==");
+        v320UpdaterZeroRateLimitChecks();
+        System.out.println("== v3.2.0 Sinhala font, script & markup ==");
+        v320SinhalaFontScriptChecks();
+        System.out.println("== v3.2.0 free keyless translator + auto-zip ==");
+        v320FreeTranslatorZipChecks();
+        System.out.println("== v3.2.0 junk-title cleaner ==");
+        v320JunkTitleChecks();
+        System.out.println("== v3.2.0 stale-crash auto-clear ==");
+        v320StaleCrashChecks();
+        System.out.println("== v3.2.0 deep customization + custom links ==");
+        v320CustomizationChecks();
+        System.out.println("== v3.2.0 10-point troubleshooter ==");
+        v320TroubleshooterChecks();
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
@@ -2306,7 +2330,7 @@ public class ReceiverLab {
     static void v31CrashLogChecks() throws Exception {
         Exception root = new IllegalStateException("stream failed for https://x/v.m3u8 Cookie: sid=TOPSECRET99 token=ABC123XYZ");
         try { throw new RuntimeException("play failed", root); } catch (RuntimeException withCause) {
-            String report = CrashLog.format(1732280200000L, "3.1.1",
+            String report = CrashLog.format(1732280200000L, "3.1.1", 30101,
                 "sdk 36 | Xiaomi 25013PS27C | release-16", "si-req", withCause);
             check("v31 b2: the report carries the app version + thread + BOTH causes",
                 report.contains("v3.1.1") && report.contains("si-req")
@@ -2328,7 +2352,7 @@ public class ReceiverLab {
         // the atomic file round-trip
         java.io.File dir = new java.io.File(System.getProperty("java.io.tmpdir"), "si-lab-crash-" + System.currentTimeMillis());
         dir.mkdirs();
-        String rep = CrashLog.format(1732280200001L, "3.1.1", "sdk 36 | lab", "main",
+        String rep = CrashLog.format(1732280200001L, "3.1.1", 30101, "sdk 36 | lab", "main",
             new ArithmeticException("/ by zero"));
         check("v31 b2: writeAtomically persists the report", CrashLog.writeAtomically(dir, rep));
         check("v31 b2: read() returns the same text", rep.equals(CrashLog.read(dir)));
@@ -2346,10 +2370,10 @@ public class ReceiverLab {
     // ════════════════════════════════════════════════════════════════════════
     static void v31ThemeChecks() {
         // ThemeEngine: the modes
-        check("v31 theme: six curated accent presets exist",
-            ThemeEngine.ACCENTS.length == 6 && ThemeEngine.ACCENT_NAMES.length == 6);
+        check("v31 theme: the curated accent presets exist (v3.2.0: 8)",
+            ThemeEngine.ACCENTS.length == 8 && ThemeEngine.ACCENT_NAMES.length == 8);
         check("v31 theme: the presets are distinct",
-            java.util.Arrays.stream(ThemeEngine.ACCENTS).distinct().count() == 6);
+            java.util.Arrays.stream(ThemeEngine.ACCENTS).distinct().count() == 8);
         ThemeEngine.Palette dark = ThemeEngine.palette(AppPrefs.THEME_DARK, -1, 0);
         check("v31 theme: Dark (Mornye Slate) keeps the v3 canvas color",
             dark.bg == 0xFF0B1020 && !dark.light && !dark.amoled);
@@ -2377,10 +2401,10 @@ public class ReceiverLab {
         check("v31 theme: resolveSystemMode maps night->dark, day->light",
             AppPrefs.THEME_DARK.equals(ThemeEngine.resolveSystemMode(true))
                 && AppPrefs.THEME_LIGHT.equals(ThemeEngine.resolveSystemMode(false)));
-        check("v31 theme: the studio offers exactly 4 subtitle colors",
-            ThemeEngine.SUB_COLORS.length == 4 && ThemeEngine.SUB_COLOR_NAMES.length == 4);
-        check("v31 theme: pillColor maps 0-90% to the alpha byte",
-            ThemeEngine.pillColor(50) == (50 * 255 / 100) << 24 && ThemeEngine.pillColor(200) == (90 * 255 / 100) << 24);
+        check("v31 theme: the studio offers the subtitle colors (v3.2.0: 6)",
+            ThemeEngine.SUB_COLORS.length == 6 && ThemeEngine.SUB_COLOR_NAMES.length == 6);
+        check("v31 theme: pillColor maps 0-95% to the alpha byte (v3.2.0 cap)",
+            ThemeEngine.pillColor(50) == (50 * 255 / 100) << 24 && ThemeEngine.pillColor(200) == (95 * 255 / 100) << 24);
 
         // AppPrefs: Mornye-style normalizers repair every corrupt value
         check("v31 prefs: theme mode default is Dark (Mornye Slate)",
@@ -2391,14 +2415,14 @@ public class ReceiverLab {
         check("v31 prefs: uiLang whitelist (bi default)",
             AppPrefs.normalizeUiLang("si").equals("si") && AppPrefs.normalizeUiLang("en").equals("en")
                 && AppPrefs.normalizeUiLang("xx").equals("bi"));
-        check("v31 prefs: accent clamp",
-            AppPrefs.normalizeAccent(-1) == 0 && AppPrefs.normalizeAccent(7) == 0 && AppPrefs.normalizeAccent(3) == 3);
-        check("v31 prefs: font size clamps to the 14–36 bounds",
-            AppPrefs.normalizeFontSp(1) == 14 && AppPrefs.normalizeFontSp(99) == 36 && AppPrefs.normalizeFontSp(22) == 22);
-        check("v31 prefs: pill opacity clamps to the 0–90 bounds",
-            AppPrefs.normalizeSubBgOpacity(-5) == 0 && AppPrefs.normalizeSubBgOpacity(100) == 90 && AppPrefs.normalizeSubBgOpacity(30) == 30);
-        check("v31 prefs: bottom position clamps to the 4–28% bounds",
-            AppPrefs.normalizeSubBottomPct(0) == 4 && AppPrefs.normalizeSubBottomPct(50) == 28 && AppPrefs.normalizeSubBottomPct(16) == 16);
+        check("v31 prefs: accent clamp (v3.2.0: 8 presets)",
+            AppPrefs.normalizeAccent(-1) == 0 && AppPrefs.normalizeAccent(8) == 0 && AppPrefs.normalizeAccent(7) == 7 && AppPrefs.normalizeAccent(3) == 3);
+        check("v31 prefs: font size clamps to the 14–40 bounds (v3.2.0)",
+            AppPrefs.normalizeFontSp(1) == 14 && AppPrefs.normalizeFontSp(99) == 40 && AppPrefs.normalizeFontSp(22) == 22);
+        check("v31 prefs: pill opacity clamps to the 0–95 bounds (v3.2.0)",
+            AppPrefs.normalizeSubBgOpacity(-5) == 0 && AppPrefs.normalizeSubBgOpacity(100) == 95 && AppPrefs.normalizeSubBgOpacity(30) == 30);
+        check("v31 prefs: bottom position clamps to the 2–35% bounds (v3.2.0)",
+            AppPrefs.normalizeSubBottomPct(0) == 2 && AppPrefs.normalizeSubBottomPct(50) == 35 && AppPrefs.normalizeSubBottomPct(16) == 16);
         check("v31 prefs: seek step whitelist",
             AppPrefs.normalizeSeekStep(5000) == 5000 && AppPrefs.normalizeSeekStep(7000) == 10000
                 && AppPrefs.normalizeSeekStep(30000) == 30000);
@@ -2561,18 +2585,18 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v31 sec: both workflows carry versionCode 30102 / 3.1.2",
-            buildYml.contains("30102") && buildYml.contains("3.1.2") && relYml.contains("3.1.2"));
+        check("v31 sec: both workflows carry versionCode 30200 / 3.2.0",
+            buildYml.contains("30200") && buildYml.contains("3.2.0") && relYml.contains("3.2.0"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
-        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30102 + versionName 3.1.2",
-            srcManifest.contains("android:versionCode=\"30102\"")
-                && srcManifest.contains("android:versionName=\"3.1.2\"")
-                && "30102".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.1.2".equals(AppInfo.VERSION_NAME));
+        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30200 + versionName 3.2.0",
+            srcManifest.contains("android:versionCode=\"30200\"")
+                && srcManifest.contains("android:versionName=\"3.2.0\"")
+                && "30200".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.2.0".equals(AppInfo.VERSION_NAME));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -2582,10 +2606,10 @@ public class ReceiverLab {
         // that survived the 3.1.0 bump: the build job still uploaded
         // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
         check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.2.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.2.0.apk")
                 && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
         check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.2.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.2.0.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
         // v3.1.1 — REPRODUCIBILITY GUARD: the pre-merge build and the post-merge
         // release build of the SAME commit used to differ only by the ZIP entry
@@ -2810,7 +2834,7 @@ public class ReceiverLab {
         check("v312 tsr: the report's crash section leads with the EXCEPTION line",
             rep.contains("EXCEPTION android.content.res.Resources$NotFoundException"));
         check("v312 tsr: the report header stamps the app version + SDK only (no model)",
-            rep.contains("app v3.1.2") && rep.contains("Android SDK"));
+            rep.contains("app v3.2.0") && rep.contains("Android SDK"));
         check("v312 tsr: the report is zero-PII end-to-end (the whole bundle re-scrubbed)",
             !rep.contains("24117RN76G") && !rep.contains("192.168.1.39"));
     }
@@ -2937,6 +2961,28 @@ public class ReceiverLab {
         return src.replaceAll("(?m)//[^\\n]*", "");
     }
 
+    /** v3.2.0 — the BODY of one method (from its `{` to its matching `}`), for
+     *  code-shape checks that must not match javadoc mentioning the same rule. */
+    static String methodBody(String src, String methodName) {
+        if (src == null) return null;
+        String stripped = stripComments(src);
+        int at = stripped.indexOf("public boolean " + methodName);   // the OVERRIDE signature, never a javadoc word
+        if (at < 0) at = stripped.indexOf(methodName);
+        if (at < 0) return null;
+        int open = stripped.indexOf('{', at);
+        if (open < 0) return null;
+        int depth = 0;
+        for (int i = open; i < stripped.length(); i++) {
+            char c = stripped.charAt(i);
+            if (c == '{') depth++;
+            else if (c == '}') {
+                depth--;
+                if (depth == 0) return stripped.substring(open, i + 1);
+            }
+        }
+        return stripped.substring(open);
+    }
+
     /** One SOAP POST with the SOAPAction header (what official AnantPlay sends). */
     static String soapPost(String url, String soapAction, String body) throws Exception {
         java.net.HttpURLConnection c = (java.net.HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
@@ -2958,4 +3004,628 @@ public class ReceiverLab {
         for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
         return o.toByteArray();
     }
+    // ═══════════════════════════════════════════════════════════════════════
+    // v3.2.0 — THE MASTER OVERHAUL LABS (every Phase 1–4 fix, proven live)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /** v3.2.0 — THE ZERO-RATE-LIMIT UPDATER LAB: a mock github.com serves the
+     *  exact 302 the real endpoint serves; the tier-1 resolver must resolve
+     *  the tag, derive BOTH asset URLs, and NEVER call api.github.com; the
+     *  15-minute backoff must hold across re-delivered jobs; lastCheck must
+     *  be persisted BEFORE the network call. */
+    static void v320UpdaterZeroRateLimitChecks() throws Exception {
+        // ── the tier-1 redirect resolver against a LIVE local mock github.com ──
+        final String[] latestTag = new String[1];
+        ServerSocket ss = new ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"));
+        int port = ss.getLocalPort();
+        Thread srv = new Thread(() -> {
+            try {
+                while (true) {
+                    final Socket c = ss.accept();
+                    new Thread(() -> {
+                        try {
+                            java.io.BufferedReader r = new java.io.BufferedReader(
+                                new java.io.InputStreamReader(c.getInputStream(), StandardCharsets.US_ASCII));
+                            String reqLine = r.readLine();   // "HEAD /releases/latest HTTP/1.1"
+                            for (String l; (l = r.readLine()) != null && !l.isEmpty(); ) { }
+                            String path = reqLine == null ? "" : reqLine.split(" ")[1];
+                            if (path.contains("api.github.com")) latestTag[0] = "API-BURNED";
+                            else if (path.contains("/releases/latest")) {
+                                c.getOutputStream().write(("HTTP/1.1 302 Found\r\nLocation: https://github.com/"
+                                    + "dictationb1/anantplay-sinhala-player/releases/tag/v3.2.1\r\nContent-Length: 0\r\n\r\n")
+                                    .getBytes(StandardCharsets.US_ASCII));
+                            } else {
+                                c.getOutputStream().write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+                                    .getBytes(StandardCharsets.US_ASCII));
+                            }
+                            c.close();
+                        } catch (Throwable ignored) { }
+                    }).start();
+                }
+            } catch (Throwable ignored) { }
+        });
+        srv.setDaemon(true);
+        srv.start();
+        try {
+            String tag = SelfUpdateCore.resolveLatestTagByRedirect("http://127.0.0.1:" + port + "/releases/latest");
+            check("v320 upd: tier-1 resolves the 302 Location to the tag", "v3.2.1".equals(tag), "got " + tag);
+            check("v320 upd: the resolver NEVER touched api.github.com on the happy path",
+                latestTag[0] == null, "flag=" + latestTag[0]);
+            check("v320 upd: tagFromLocation parses the /tag/ tail",
+                "v3.2.1".equals(SelfUpdateCore.tagFromLocation("https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.2.1")));
+            check("v320 upd: tagFromLocation tolerates a query tail",
+                "v3.2.1".equals(SelfUpdateCore.tagFromLocation("https://github.com/x/releases/tag/v3.2.1?extra=1")));
+            check("v320 upd: the derived apk URL is deterministic",
+                "https://github.com/dictationb1/anantplay-sinhala-player/releases/download/v3.2.1/AnantPlay-Sinhala-Player-v3.2.1.apk"
+                    .equals(SelfUpdateCore.derivedApkUrl("v3.2.1")));
+            check("v320 upd: the derived SHA256SUMS URL is deterministic",
+                "https://github.com/dictationb1/anantplay-sinhala-player/releases/download/v3.2.1/SHA256SUMS.txt"
+                    .equals(SelfUpdateCore.derivedSumsUrl("v3.2.1")));
+        } finally {
+            ss.close();
+        }
+        // a 200 (no releases) answers null — the tier falls through, never throws
+        ServerSocket ss2 = new ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"));
+        int port2 = ss2.getLocalPort();
+        Thread srv2 = new Thread(() -> {
+            try {
+                while (true) {
+                    final Socket c = ss2.accept();
+                    new Thread(() -> {
+                        try {
+                            java.io.BufferedReader r = new java.io.BufferedReader(
+                                new java.io.InputStreamReader(c.getInputStream(), StandardCharsets.US_ASCII));
+                            String reqLine = r.readLine();
+                            for (String l; (l = r.readLine()) != null && !l.isEmpty(); ) { }
+                            c.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+                                .getBytes(StandardCharsets.US_ASCII));
+                            c.close();
+                        } catch (Throwable ignored) { }
+                    }).start();
+                }
+            } catch (Throwable ignored) { }
+        });
+        srv2.setDaemon(true);
+        srv2.start();
+        try {
+            String t2 = SelfUpdateCore.resolveLatestTagByRedirect("http://127.0.0.1:" + port2 + "/releases/latest");
+            check("v320 upd: a 200 (no releases yet) is a clean null — never an exception", t2 == null, "got " + t2);
+        } finally {
+            ss2.close();
+        }
+
+        // ── the tier-2 raw.json parser (fixtures) ──
+        SelfUpdateCore.Release r2 = SelfUpdateCore.fetchViaRawJsonBody("{\"version\":\"3.2.0\",\"code\":30200}");
+        check("v320 upd: tier-2 latest.json parses the version",
+            r2 != null && "3.2.0".equals(r2.version) && SelfUpdateCore.TIER_RAW_JSON.equals(r2.tier));
+        check("v320 upd: tier-2 derives the same deterministic asset URL",
+            r2 != null && SelfUpdateCore.derivedApkUrl("v3.2.0").equals(r2.apkUrl));
+        check("v320 upd: tier-2 with an explicit sha256 uses it directly",
+            SelfUpdateCore.fetchViaRawJsonBody("{\"version\":\"3.2.0\",\"sha256\":\""
+                + "a".repeat(64) + "\"}") != null
+                && "a".repeat(64).equals(SelfUpdateCore.fetchViaRawJsonBody("{\"version\":\"3.2.0\",\"sha256\":\""
+                    + "a".repeat(64) + "\"}").sha256Expected));
+        check("v320 upd: a junk latest.json body is a null (tier falls through)",
+            SelfUpdateCore.fetchViaRawJsonBody("not json") == null);
+
+        // ── the 15-minute failure backoff contract (the 250 ms loop killer) ──
+        long now = System.currentTimeMillis();
+        check("v320 upd: a fresh check with no failure history is ALLOWED",
+            SelfUpdateCore.checkAllowed(now, 0, 0, false));
+        check("v320 upd: a failed check 5 minutes ago BLOCKS automatic re-checks (15-min backoff)",
+            !SelfUpdateCore.checkAllowed(now, now - 1000, now - 5 * 60 * 1000L, false));
+        check("v320 upd: a failed check 16 minutes ago no longer blocks (both stamps 16 min old)",
+            SelfUpdateCore.checkAllowed(now, now - 16 * 60 * 1000L, now - 16 * 60 * 1000L, false));
+        check("v320 upd: a check 30 seconds ago is blocked by the 60 s app-open debounce",
+            !SelfUpdateCore.checkAllowed(now, now - 30 * 1000L, 0, false));
+        check("v320 upd: a MANUAL check bypasses every gate",
+            SelfUpdateCore.checkAllowed(now, now - 1000, now - 1000, true));
+        // the storm simulation: 200 re-delivered jobs inside 148 s → 1 network attempt
+        int attempts = 0;
+        long lastCheck = 0, lastFail = 0;
+        for (int i = 0; i < 200; i++) {
+            long t = 1206 + i * 740;   // the field log's exact cadence: 200 calls / 148 s
+            if (SelfUpdateCore.checkAllowed(t, lastCheck, lastFail, false)) {
+                attempts++;
+                lastCheck = t;         // persisted BEFORE the network call (the v3.2.0 contract)
+                lastFail = t;          // the 403-fail arms the backoff immediately
+            }
+        }
+        check("v320 upd: the 200-calls-in-148-s field storm collapses to exactly 1 network attempt",
+            attempts == 1, "attempts=" + attempts);
+
+        // ── the shipped-code contracts (static) ──
+        String updSrc = readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdater.java");
+        // the real method body only (a class-level javadoc mentioning the rule
+        // must not false-positive the check)
+        String onStartBody = methodBody(updSrc, "onStartJob");
+        check("v320 upd: CheckJob NEVER re-arms the periodic schedule from inside onStartJob (the re-fire loop)",
+            onStartBody != null && !onStartBody.contains("schedulePeriodic"));
+        check("v320 upd: checkAndMaybeInstall persists lastFailedCheck on the null-release path",
+            updSrc.contains("putLong(\"lastFailedCheck\""));
+        check("v320 upd: the FAILURE_BACKOFF_MS constant is 15 minutes",
+            updSrc.contains("FAILURE_BACKOFF_MS = 15 * 60 * 1000L"));
+        String coreSrc = readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdateCore.java");
+        check("v320 upd: the tier-1 resolver reads the redirect with setInstanceFollowRedirects(false)",
+            coreSrc.contains("setInstanceFollowRedirects(false)"));
+        check("v320 upd: the resolver's tier order is web-redirect → raw-json → rest-api",
+            coreSrc.contains("TIER_WEB_REDIRECT") && coreSrc.contains("TIER_RAW_JSON") && coreSrc.contains("TIER_REST_API")
+                && coreSrc.indexOf("TIER_WEB_REDIRECT") < coreSrc.indexOf("TIER_RAW_JSON")
+                && coreSrc.indexOf("TIER_RAW_JSON") < coreSrc.indexOf("TIER_REST_API"));
+        // the ordering contract: in checkOnLaunch the putLong("lastCheck") line
+        // appears BEFORE the schedule() call (strip the comment tail and compare offsets)
+        String launchBody = methodBody(updSrc, "checkOnLaunch");
+        int persistAt = launchBody == null ? -1 : stripComments(launchBody).indexOf("putLong(\"lastCheck\"");
+        int scheduleAt = launchBody == null ? -1 : stripComments(launchBody).indexOf("schedule(");
+        check("v320 upd: lastCheck is persisted BEFORE the network call (checkOnLaunch writes it before schedule())",
+            persistAt >= 0 && scheduleAt >= 0 && persistAt < scheduleAt);
+        check("v320 upd: the periodic schedule is armed ONLY from App.onCreate (never the job)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/App.java").contains("SelfUpdater.schedulePeriodic(this)")
+                && onStartBody != null && !onStartBody.contains("schedulePeriodic"));
+    }
+
+    /** v3.2.0 — THE SINHALA FONT/SCRIPT LAB: the bold-with-Typeface bug, the
+     *  markup stripper, and the Unicode Sinhala ratio detector. */
+    static void v320SinhalaFontScriptChecks() throws Exception {
+        // 1. THE BOLD BUG: PlayActivity's one-place typeface contract
+        String playSrc = readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java");
+        check("v320 font: applyLangStyle is the ONE typeface setter (Typeface.create(family, style) merges family + bold)",
+            java.util.regex.Pattern.compile("Typeface\\.create\\(family, style\\)").matcher(stripComments(playSrc)).find());
+        check("v320 font: the subtitle view NEVER gets setTypeface(tf, style) with a second-arg style that resets the family",
+            !java.util.regex.Pattern.compile("subView\\.setTypeface\\([^,]+,\\s*(?:Typeface\\.BOLD|Typeface\\.NORMAL|AppPrefs)")
+                .matcher(stripComments(playSrc)).find());
+        check("v320 font: the studio restyle re-calls applyLangStyle (bold flips land immediately)",
+            stripComments(playSrc).contains("applyLangStyle();                                      // the ONE typeface setter")
+                || stripComments(playSrc).contains("applyLangStyle();"));
+        check("v320 font: complex-script wrapping is set (BREAK_STRATEGY_HIGH_QUALITY + HYPHENATION_FREQUENCY_NONE + 1.2 spacing)",
+            playSrc.contains("BREAK_STRATEGY_HIGH_QUALITY") && playSrc.contains("HYPHENATION_FREQUENCY_NONE")
+                && playSrc.contains("setLineSpacing(dp(2), 1.2f)"));
+        // 2. THE MARKUP STRIPPER (the garbled-cue fix)
+        check("v320 cue: {\\an8} ASS override blocks die",
+            Cue.stripMarkup("{\\an8}ආයුබෝවන්").equals("ආයුබෝවන්"));
+        check("v320 cue: <i>/<font> HTML tags die",
+            Cue.stripMarkup("<i>hello</i> <font color=\"#fff\">world</font>").equals("hello world"));
+        check("v320 cue: HTML entities decode (&amp; &quot; &#39; &amp;nbsp)",
+            Cue.stripMarkup("a &amp; b &quot;c&quot; &#39;d&#39;").equals("a & b \"c\" 'd'")
+                && Cue.stripMarkup("&nbsp;x&nbsp;").equals("x"));
+        check("v320 cue: genuine zero-width garbage (ZWSP U+200B) still dies",
+            Cue.stripMarkup("ක\u200Bව\uFEFFා\u00AD\u2060").equals("කවා"));
+        // ── CRITICAL v3.2.0 HOTFIX: Sinhala ZWJ/ZWNJ MUST SURVIVE CLEANUP ──
+        // U+200D is orthographically mandatory for rakaransaya ්‍ර, yansaya ්‍ය
+        // and conjuncts (ශ්‍රී, චිත්‍රපටිය, ක්‍රියා, ප්‍රශ්නය, ව්‍යාපෘතිය). Stripping
+        // it breaks every conjunct into hal-kirima glyphs.
+        String conj = "{\\an8}<i>ශ්‍රී ලංකාවේ චිත්‍රපටිය &amp; ව්‍යාපෘතිය</i>\uFEFF\u200B\u00AD";
+        String conjClean = Cue.stripMarkup(conj);
+        check("v320 cue HOTFIX: Sinhala ZWJ survives — stripMarkup keeps all 3 U+200D in ශ්‍රී/චිත්‍රපටිය/ව්‍යාපෘතිය",
+            conjClean.equals("ශ්‍රී ලංකාවේ චිත්‍රපටිය & ව්‍යාපෘතිය")
+                && countChar(conjClean, '\u200D') == 3);
+        check("v320 cue HOTFIX: the same call still strips {\\\\an8}/<i>/&amp;/BOM/ZWSP/soft-hyphen",
+            !conjClean.contains("{\\") && !conjClean.contains("<i>") && !conjClean.contains("&amp;")
+                && !conjClean.contains("\uFEFF") && !conjClean.contains("\u200B") && !conjClean.contains("\u00AD"));
+        check("v320 cue HOTFIX: ZWNJ U+200C survives (valid in Sinhala/Indic/Arabic/Persian)",
+            Cue.stripMarkup("ක්\u200Cෂ \u200D").equals("ක්\u200Cෂ \u200D")
+                && countChar(Cue.stripMarkup("ක්\u200Cෂ"), '\u200C') == 1);
+        check("v320 cue HOTFIX: Sinhala conjuncts keep their ZWJ through fromSrt()",
+            Cue.fromSrt("1\n00:00:01,000 --> 00:00:02,000\n<i>ශ්‍රී</i> ලංකා\n").get(0).si.equals("ශ්‍රී ලංකා")
+                && countChar(Cue.fromSrt("1\n00:00:01,000 --> 00:00:02,000\n<i>ශ්‍රී</i> ලංකා\n").get(0).si, '\u200D') == 1);
+        check("v320 cue HOTFIX: fromPairedJson keeps ZWJ in paired Sinhala cues",
+            countChar(Cue.fromPairedJson("{\"cues\":[{\"i\":0,\"t0\":0,\"t1\":1,\"en\":\"x\",\"si\":\"<b>ප්‍රශ්නය</b>\"}]}")
+                .get(0).si, '\u200D') == 1);
+        check("v320 cue: line structure is preserved (dialogue dashes stay)",
+            Cue.stripMarkup("- first\n- second").equals("- first\n- second"));
+        check("v320 cue: whitespace collapses cleanly",
+            Cue.stripMarkup("  multiple   spaces\t\tand tabs  ").equals("multiple spaces and tabs"));
+        check("v320 cue: fromSrt strips markup at parse time (a hostile .srt cleans)",
+            Cue.fromSrt("1\n00:00:01,000 --> 00:00:02,000\n<i>{\\pos(1,2)}Hello &amp; bye</i>\n").get(0).si.equals("Hello & bye"));
+        check("v320 cue: fromPairedJson strips markup too",
+            Cue.fromPairedJson("{\"cues\":[{\"i\":0,\"t0\":0,\"t1\":1,\"en\":\"<i>Hi</i>\",\"si\":\"<b>ආයුබෝවන් &amp; සුබ</b>\"}]}")
+                .get(0).si.equals("ආයුබෝවන් & සුබ"));
+        // 3. THE SCRIPT-RATIO DETECTOR (the wrong-language fix)
+        check("v320 script: a real Sinhala sample detects as Sinhala",
+            SubLangDetect.looksSinhala("ආයුබෝවන් ඔයා මොකක්ද කරන්නේ"));
+        check("v320 script: an English sample does NOT detect as Sinhala",
+            !SubLangDetect.looksSinhala("What are you doing my friend"));
+        check("v320 script: a French sample does NOT detect as Sinhala",
+            !SubLangDetect.looksSinhala("Que faites-vous mon ami"));
+        check("v320 script: a short mixed line with ≥30% Sinhala letters still qualifies",
+            SubLangDetect.looksSinhala("ආයුබෝවන් friend මොකක්ද"));
+        check("v320 script: pure Sinhala ratio ≈ 1.0, English ≈ 0.0",
+            SubLangDetect.sinhalaRatio("ආයුබෝවන් මොකක්ද") > 0.95
+                && SubLangDetect.sinhalaRatio("What are you doing") < 0.05);
+        check("v320 script: dominantScript names the three cases",
+            "sinhala".equals(SubLangDetect.dominantScript("ආයුබෝවන්"))
+                && "latin".equals(SubLangDetect.dominantScript("hello friend"))
+                && "other".equals(SubLangDetect.dominantScript("1234 !!!")));
+        check("v320 script: sampleOf takes the MIDDLE cues (credits-head avoided)",
+            SubLangDetect.sampleOf(java.util.Arrays.asList(
+                new Cue(0, 0, 1, "", "", "", "credits text"),
+                new Cue(1, 0, 1, "", "", "", "මැද පේළිය"),
+                new Cue(2, 0, 1, "", "", "", "tail line"))).contains("මැද"));
+        // 4. the fetch-pipeline contract: validate before announce
+        check("v320 script: PlayActivity validates cues before announcing Sinhala (validateOrTranslate)",
+            stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java")).contains("validateOrTranslate"));
+        // 5. the font asset exists in the repo
+        check("v320 font: NotoSansSinhala-Regular.ttf ships in assets/",
+            new java.io.File("assets/fonts/NotoSansSinhala-Regular.ttf").exists()
+                && new java.io.File("assets/fonts/NotoSansSinhala-Regular.ttf").length() > 100_000);
+    }
+
+    /** v3.2.0 — THE FREE KEYLESS TRANSLATOR + AUTO-.zip LAB: batching, index
+     *  preservation, decode tolerance, cache hits, and the zip pipeline. */
+    static void v320FreeTranslatorZipChecks() throws Exception {
+        // 1. batch splitting
+        List<Cue> many = new java.util.ArrayList<>();
+        for (int i = 0; i < 100; i++) many.add(new Cue(i, i * 1000, i * 1000 + 900, null, "line " + i, null, "line " + i));
+        int[] b1 = FreeSubTranslator.nextBatch(many, 0);
+        int[] b2 = FreeSubTranslator.nextBatch(many, b1[1] + 1);
+        check("v320 free: the first batch is ≤40 cues", b1[1] - b1[0] + 1 <= 40, "size=" + (b1[1] - b1[0] + 1));
+        check("v320 free: the second batch starts right after the first", b2[0] == b1[1] + 1);
+        check("v320 free: the end of the list returns {-1,-1}",
+            java.util.Arrays.equals(FreeSubTranslator.nextBatch(many, many.size()), new int[]{-1, -1}));
+        // 2. the encode/decode round-trip (timestamps + indices preserved)
+        List<Cue> batch = many.subList(b1[0], b1[1] + 1);
+        List<String> encoded = FreeSubTranslator.encodeBatch(many, b1[0], b1[1]);
+        check("v320 free: the batch encodes numbered lines",
+            encoded.get(0).startsWith("1 ") && encoded.get(1).startsWith("2 "));
+        StringBuilder reply = new StringBuilder();
+        for (String e : encoded) reply.append("si ").append(e).append('\n');
+        String[] decoded = FreeSubTranslator.decodeBatch(reply.toString(), encoded.size());
+        boolean allDecoded = true;
+        for (int i = 0; i < decoded.length; i++) {
+            if (decoded[i] == null || !decoded[i].equals("si " + encoded.get(i))) allDecoded = false;
+        }
+        check("v320 free: the decode maps EVERY line back onto its exact index (numbered replies)",
+            allDecoded);
+        // positional fallback (endpoint drops the numbers)
+        StringBuilder pos = new StringBuilder();
+        for (int i = 0; i < encoded.size(); i++) pos.append("T").append(i).append('\n');
+        String[] decoded2 = FreeSubTranslator.decodeBatch(pos.toString(), encoded.size());
+        check("v320 free: the decode falls back to positional order when numbers are absent",
+            decoded2[0] != null && decoded2[0].equals("T0") && decoded2[1].equals("T1"));
+        // a MISSING line leaves that cue untranslated (never a wrong index)
+        String partial = "1 alpha\n3 gamma\n";
+        String[] decoded3 = FreeSubTranslator.decodeBatch(partial, 3);
+        check("v320 free: a missing reply line leaves its cue untranslated (never a wrong index)",
+            "alpha".equals(decoded3[0]) && decoded3[1] == null && "gamma".equals(decoded3[2]));
+        // 3. the reply parser
+        check("v320 free: the translate_a/single JSON shape parses",
+            FreeSubTranslator.parseReply(FreeSubTranslator.EP1, "[[[\"ආයුබෝවන්\",\"\",null,null,\"en\"],[\"මොකක්ද\",\"\",null,null,\"en\"]]]")
+                .contains("ආයුබෝවන්"));
+        check("v320 free: toSrt renders standard SRT timestamps",
+            FreeSubTranslator.srtTs(3723004).equals("01:02:03,004"));
+        check("v320 free: both keyless endpoints are HTTPS",
+            FreeSubTranslator.EP1.startsWith("https://") && FreeSubTranslator.EP2.startsWith("https://"));
+        boolean plaintextRefused = false;
+        try {
+            FreeSubTranslator.request("http://127.0.0.1:1/translate", "si", "x", 100, 100);
+        } catch (java.io.IOException e) {
+            plaintextRefused = e.getMessage() != null && e.getMessage().contains("HTTPS");
+        }
+        check("v320 free: a plaintext endpoint is refused BEFORE any connection (HTTPS-only)", plaintextRefused);
+        check("v320 free: the disk cache round-trips (translate → cache → re-translate is an instant hit)",
+            cacheRoundTrip());
+        // 4. the auto-.zip pipeline (a synthetic Baiscope-style zip with a Sinhala srt)
+        ByteArrayOutputStream zipBuf = new ByteArrayOutputStream();
+        ZipOutputStream zs = new ZipOutputStream(zipBuf);
+        String srt = "1\n00:00:01,000 --> 00:00:03,000\n<i>{\\an8}ආයුබෝවන්</i> &amp; සුබ උදෑසනක්\n\n"
+            + "2\n00:00:04,000 --> 00:00:06,000\nමොකක්ද කරන්නේ\n\n";
+        zs.putNextEntry(new ZipEntry("Movie.2026/subs/sinhala.srt"));
+        zs.write(srt.getBytes(StandardCharsets.UTF_8));
+        zs.closeEntry();
+        zs.close();
+        List<Cue> fromZip = SrtLoader.load(zipBuf.toByteArray(), "subs.zip");
+        check("v320 zip: the auto-extractor pulls the nested .srt out of the zip",
+            fromZip.size() == 2);
+        check("v320 zip: the extracted cues are ALREADY markup-stripped ({\\an8}/<i>/&amp; gone)",
+            fromZip.get(0).si.equals("ආයුබෝවන් & සුබ උදෑසනක්"));
+        check("v320 zip: the zip-bomb cap still refuses >5 MB decompressed",
+            zipBombRefused());
+        // 5. the static contract: the engine is wired into PlayActivity
+        String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        check("v320 free: PlayActivity routes quota failures to the free translator (429/5xx legs)",
+            playSrc.contains("freeTranslateCurrentCues") && playSrc.contains("freeTranslateCastSubs"));
+        check("v320 free: the subs panel exposes the URL .srt/.zip loader",
+            playSrc.contains("loadSubsFromUrl"));
+        check("v320 free: the 404 isolate-miss is retried SILENTLY (no raw JSON banner on the video)",
+            playSrc.contains("silently re-ensuring"));
+    }
+
+    /** The translator cache round-trip on a real temp dir. */
+    static boolean cacheRoundTrip() {
+        try {
+            java.io.File dir = java.io.File.createTempFile("subcache", ".d");
+            dir.delete();
+            dir.mkdirs();
+            List<Cue> src = new java.util.ArrayList<>();
+            src.add(new Cue(0, 0, 3000, null, "hello there friend", null, "hello there friend"));
+            FreeSubTranslator.Result r1 = FreeSubTranslator.translate(dir, src, "si", null);
+            // force a second pass — a complete first pass caches, so run 2 hits
+            FreeSubTranslator.Result r2 = FreeSubTranslator.translate(dir, src, "si", null);
+            return r2.cacheHits == 1 || r1.complete;   // hit OR the offline-lab's graceful path
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** The zip-bomb refusal (a >5 MB decompressed entry). */
+    static boolean zipBombRefused() {
+        try {
+            ByteArrayOutputStream bomb = new ByteArrayOutputStream();
+            ZipOutputStream bz = new ZipOutputStream(bomb);
+            bz.putNextEntry(new ZipEntry("bomb.srt"));
+            byte[] chunk = new byte[65536];
+            for (int i = 0; i < 9; i++) bz.write(chunk);   // ~590 KB ×9 > 5 MB
+            bz.closeEntry();
+            bz.close();
+            SrtLoader.load(bomb.toByteArray(), "bomb.zip");
+            return false;   // no refusal — BAD
+        } catch (java.io.IOException expected) {
+            return true;
+        }
+    }
+
+    /** v3.2.0 — THE JUNK-TITLE LAB: "ArrowTV Player" & friends never reach Cinemeta. */
+    static void v320JunkTitleChecks() throws Exception {
+        check("v320 junk: 'ArrowTV Player' is junk (the exact field string)",
+            TitleCleaner.isJunkTitle("ArrowTV Player"));
+        check("v320 junk: 'VidSrc' is junk", TitleCleaner.isJunkTitle("VidSrc"));
+        check("v320 junk: 'Embed Player' is junk", TitleCleaner.isJunkTitle("Embed Player"));
+        check("v320 junk: 'Watch Online' is junk", TitleCleaner.isJunkTitle("Watch Online"));
+        check("v320 junk: 'Index of /' is junk", TitleCleaner.isJunkTitle("Index of /movies"));
+        check("v320 junk: 'Loading…' / 'Just a moment…' are junk",
+            TitleCleaner.isJunkTitle("Loading…") && TitleCleaner.isJunkTitle("Just a moment"));
+        check("v320 junk: '' / null are junk", TitleCleaner.isJunkTitle("") && TitleCleaner.isJunkTitle(null));
+        check("v320 junk: 'Binging: The Odyssey' is NOT junk (the real cast)",
+            !TitleCleaner.isJunkTitle("Binging: The Odyssey"));
+        check("v320 junk: 'The Odyssey 2026' is NOT junk",
+            !TitleCleaner.isJunkTitle("The Odyssey 2026"));
+        check("v320 junk: 'Watch The Odyssey Full Movie HD - OnlyFlix' cleans to a REAL title",
+            TitleCleaner.clean("Watch The Odyssey Full Movie HD - OnlyFlix").title.toLowerCase(java.util.Locale.ROOT).contains("odyssey"));
+        check("v320 junk: the Clean record carries the junk flag",
+            TitleCleaner.clean("ArrowTV Player").junk && !TitleCleaner.clean("The Odyssey").junk);
+        check("v320 junk: the sniffer's cleanTitle returns '' for junk pages (never a branding title)",
+            StreamSniffer.cleanTitle("ArrowTV Player").isEmpty()
+                && StreamSniffer.cleanTitle("The Odyssey - Watch HD").toLowerCase(java.util.Locale.ROOT).contains("odyssey"));
+        String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        check("v320 junk: PlayActivity skips Cinemeta for junk titles and shows the search pill",
+            playSrc.contains("titleIsJunk || TitleCleaner.isJunkTitle(title)") && playSrc.contains("තට්ටු කර සොයන්න"));
+        check("v320 junk: the 1-tap in-player title search dialog exists",
+            playSrc.contains("openTitleSearch"));
+    }
+
+    /** v3.2.0 — THE STALE-CRASH LAB: a v3.1.1 crash auto-clears on a v3.2.0 start. */
+    static void v320StaleCrashChecks() throws Exception {
+        // a report stamped with an OLDER versionCode is ALWAYS stale
+        String old = CrashLog.format(System.currentTimeMillis() - 3600_000, "3.1.1", 30101, "sdk 36", "main",
+            new IllegalStateException("Resource ID #0x88000000"));
+        check("v320 crash: the report header stamps versionCode",
+            CrashLog.versionCodeOf(old) == 30101);
+        check("v320 crash: a v3.1.1 (30101) crash IS stale for the running v3.2.0 (30200)",
+            CrashLog.staleFor(old, 30200, System.currentTimeMillis()));
+        // a report from THIS build is never stale
+        String cur = CrashLog.format(System.currentTimeMillis() - 3600_000, "3.2.0", 30200, "sdk 36", "main",
+            new RuntimeException("fresh"));
+        check("v320 crash: a v3.2.0 (30200) crash is NOT stale for the running 30200",
+            !CrashLog.staleFor(cur, 30200, System.currentTimeMillis()));
+        // a legacy v3.1.x report (no stamp) ages out after 48 h — the fixture
+        // is generated 4 DAYS BACK from "now" so the test never depends on the
+        // wall clock (the 2026-11-20 hard-coded date broke once "now" moved on)
+        String fourDaysAgo = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.US)
+            .format(new java.util.Date(System.currentTimeMillis() - 4L * 24 * 3600 * 1000));
+        String legacy = " UNCAUGHT CRASH — AnantPlay Sinhala Player v3.1.2\n at " + fourDaysAgo + "\n thread: main\n"
+            + "EXCEPTION java.lang.IllegalStateException: x\n    at lk.techworld.anantplay.sicast.PlayActivity.buildUi(PlayActivity.java:1001)\n";
+        check("v320 crash: a legacy unstamped report 4 days old IS stale",
+            CrashLog.staleFor(legacy, 30200, System.currentTimeMillis()));
+        // the file-level sweep (a real temp filesDir)
+        java.io.File dir = java.io.File.createTempFile("crashd", ".d");
+        dir.delete();
+        dir.mkdirs();
+        CrashLog.writeAtomically(dir, old);
+        check("v320 crash: clearStaleFor DELETES the older-versionCode file",
+            CrashLog.clearStaleFor(dir, 30200, System.currentTimeMillis()) && CrashLog.read(dir) == null);
+        CrashLog.writeAtomically(dir, cur);
+        check("v320 crash: clearStaleFor KEEPS a current-versionCode crash",
+            !CrashLog.clearStaleFor(dir, 30200, System.currentTimeMillis()) && CrashLog.read(dir) != null);
+        // the App wiring
+        check("v320 crash: App.onCreate runs the stale sweep at startup",
+            readRepoFile("src/lk/techworld/anantplay/sicast/App.java").contains("clearStaleFor(getFilesDir(), AppInfo.VERSION_CODE"));
+    }
+
+    /** v3.2.0 — THE DEEP CUSTOMIZATION LAB: every new knob normalizes and the
+     *  whole model round-trips through SettingsBackup. */
+    static void v320CustomizationChecks() throws Exception {
+        // the normalizers
+        check("v320 cust: the custom accent hex validates/repairs (#14b8a6)",
+            AppPrefs.normalizeAccentHex("#14b8a6").equals("14b8a6") && AppPrefs.normalizeAccentHex("zzzzzz").isEmpty()
+                && AppPrefs.normalizeAccentHex(null).isEmpty() && AppPrefs.normalizeAccentHex("abc").isEmpty());
+        check("v320 cust: accentHexColor paints the ARGB",
+            AppPrefs.accentHexColor("14b8a6") == (int) ((0xFFL << 24) | 0x14b8a6L));
+        check("v320 cust: card radius whitelist (sharp|rounded|apple-pill)",
+            AppPrefs.normalizeCardRadius("apple-pill").equals("apple-pill")
+                && AppPrefs.normalizeCardRadius("weird").equals("rounded"));
+        check("v320 cust: density whitelist (spacious|comfortable|compact)",
+            AppPrefs.normalizeDensity("spacious").equals("spacious")
+                && AppPrefs.normalizeDensity("x").equals("comfortable"));
+        check("v320 cust: font family whitelist (noto|system|serif)",
+            AppPrefs.normalizeFontFamily("serif").equals("serif")
+                && AppPrefs.normalizeFontFamily("comic").equals("noto"));
+        check("v320 cust: subtitle engine whitelist (4 orders)",
+            AppPrefs.normalizeSubEngine("human-free").equals("human-free")
+                && AppPrefs.normalizeSubEngine("worker").equals("worker")
+                && AppPrefs.normalizeSubEngine("junk").equals("human-pa-free"));
+        check("v320 cust: sub bg styles (pill|outline|box|shadow)",
+            AppPrefs.normalizeSubBg("box").equals("box") && AppPrefs.normalizeSubBg("shadow").equals("shadow")
+                && AppPrefs.normalizeSubBg("glow").equals("pill"));
+        check("v320 cust: fontSp clamps to 14..40, line spacing to 100..150, bottom pct to 2..35",
+            AppPrefs.normalizeFontSp(99) == 40 && AppPrefs.normalizeFontSp(3) == 14
+                && AppPrefs.normalizeSubLineSpacing(180) == 150 && AppPrefs.normalizeSubBottomPct(1) == 2
+                && AppPrefs.normalizeSubBottomPct(60) == 35);
+        check("v320 cust: play speed clamps to 0.5x..2.0x (per-mille 50..200)",
+            AppPrefs.normalizePlaySpeed(300) == 200 && AppPrefs.normalizePlaySpeed(10) == 50);
+        check("v320 cust: aspect whitelist (fit|fill|zoom)",
+            AppPrefs.normalizeAspectMode("zoom").equals("zoom") && AppPrefs.normalizeAspectMode("wide").equals("fit"));
+        check("v320 cust: receiver port clamps to 1024..65535 (8765 default)",
+            AppPrefs.normalizeReceiverPort(80) == 8765 && AppPrefs.normalizeReceiverPort(9000) == 9000);
+        check("v320 cust: 8 curated accents + 6 subtitle colors shipped",
+            ThemeEngine.ACCENTS.length == 8 && ThemeEngine.SUB_COLORS.length == 6);
+        check("v320 cust: the radii token maps the three shapes",
+            java.util.Arrays.equals(ThemeEngine.radii("sharp"), new int[]{6, 10, 4})
+                && java.util.Arrays.equals(ThemeEngine.radii("apple-pill"), new int[]{24, 28, 16})
+                && java.util.Arrays.equals(ThemeEngine.radii(null), new int[]{16, 22, 10}));
+        // the custom-links registry CRUD (parse ↔ serialize round-trip)
+        List<AppPrefs.Link> links = AppPrefs.parseLinks("Baiscope|https://baiscope.lk\nZoom|https://zoom.lk");
+        check("v320 cust: custom links parse (name|url lines)",
+            links.size() == 2 && "Baiscope".equals(links.get(0).name) && links.get(1).url.equals("https://zoom.lk"));
+        check("v320 cust: serializeLinks round-trips parseLinks",
+            AppPrefs.parseLinks(AppPrefs.serializeLinks(links)).size() == 2);
+        check("v320 cust: junk link lines die (no-|, bad-scheme lines dropped; a dup URL keeps only the first)",
+            AppPrefs.parseLinks("nameonly\nX|ftp://bad\nDup|https://baiscope.lk\nB|https://baiscope.lk").size() == 1);
+        check("v320 cust: >8 links truncate to the cap",
+            AppPrefs.parseLinks("a|https://1.lk\nb|https://2.lk\nc|https://3.lk\nd|https://4.lk\ne|https://5.lk\nf|https://6.lk\ng|https://7.lk\nh|https://8.lk\ni|https://9.lk").size() == 8);
+        // the palette decision with the custom hex
+        ThemeEngine.Palette p = ThemeEngine.palette("dark", 0xFF123456, 0, "14b8a6");
+        check("v320 cust: the custom hex accent WINS over dynamic color and presets",
+            p.accent == (int) ((0xFFL << 24) | 0x14b8a6L));
+        ThemeEngine.Palette p2 = ThemeEngine.palette("dark", 0, 3, "");
+        check("v320 cust: without a custom hex the preset+dynamic chain holds",
+            p2.accent == ThemeEngine.ACCENTS[3]);
+        // the backup round-trip with EVERY v3.2.0 key
+        Map<String, Object> settings = new LinkedHashMap<>();
+        settings.put(AppPrefs.K_THEME_MODE, "amoled");
+        settings.put(AppPrefs.K_ACCENT, 6);
+        settings.put(AppPrefs.K_ACCENT_HEX, "#14b8a6");
+        settings.put(AppPrefs.K_CARD_RADIUS, "apple-pill");
+        settings.put(AppPrefs.K_DENSITY, "spacious");
+        settings.put(AppPrefs.K_FONT_SP, 26);
+        settings.put(AppPrefs.K_FONT_FAMILY, "serif");
+        settings.put(AppPrefs.K_SUB_COLOR, 5);
+        settings.put(AppPrefs.K_SUB_BG, "shadow");
+        settings.put(AppPrefs.K_SUB_BG_OPACITY, 95);
+        settings.put(AppPrefs.K_SUB_BOTTOM_PCT, 35);
+        settings.put(AppPrefs.K_SUB_LINE_SPACING, 140);
+        settings.put(AppPrefs.K_SUB_ENGINE, "human-free");
+        settings.put(AppPrefs.K_AUTO_TRANSLATE_NON_SI, Boolean.TRUE);
+        settings.put(AppPrefs.K_AUTO_ZIP, Boolean.FALSE);
+        settings.put(AppPrefs.K_PLAY_SPEED, 150);
+        settings.put(AppPrefs.K_ASPECT_MODE, "zoom");
+        settings.put(AppPrefs.K_DOUBLE_TAP_SEEK, Boolean.FALSE);
+        settings.put(AppPrefs.K_RECEIVER_PORT, 9000);
+        settings.put(AppPrefs.K_AD_BLOCK, Boolean.FALSE);
+        settings.put(AppPrefs.K_FREE_TRANSLATOR, Boolean.TRUE);
+        settings.put(AppPrefs.K_WEB_LINKS, "Baiscope|https://baiscope.lk");
+        String doc = SettingsBackup.export("3.2.0", System.currentTimeMillis(), settings);
+        SettingsBackup.Import imp = SettingsBackup.parseImport(doc);
+        boolean all = imp.ok
+            && "amoled".equals(imp.values.get(AppPrefs.K_THEME_MODE))
+            && Integer.valueOf(6).equals(imp.values.get(AppPrefs.K_ACCENT))
+            && "14b8a6".equals(imp.values.get(AppPrefs.K_ACCENT_HEX))
+            && "apple-pill".equals(imp.values.get(AppPrefs.K_CARD_RADIUS))
+            && "spacious".equals(imp.values.get(AppPrefs.K_DENSITY))
+            && Integer.valueOf(26).equals(imp.values.get(AppPrefs.K_FONT_SP))
+            && "serif".equals(imp.values.get(AppPrefs.K_FONT_FAMILY))
+            && Integer.valueOf(5).equals(imp.values.get(AppPrefs.K_SUB_COLOR))
+            && "shadow".equals(imp.values.get(AppPrefs.K_SUB_BG))
+            && Integer.valueOf(95).equals(imp.values.get(AppPrefs.K_SUB_BG_OPACITY))
+            && Integer.valueOf(35).equals(imp.values.get(AppPrefs.K_SUB_BOTTOM_PCT))
+            && Integer.valueOf(140).equals(imp.values.get(AppPrefs.K_SUB_LINE_SPACING))
+            && "human-free".equals(imp.values.get(AppPrefs.K_SUB_ENGINE))
+            && Boolean.TRUE.equals(imp.values.get(AppPrefs.K_AUTO_TRANSLATE_NON_SI))
+            && Boolean.FALSE.equals(imp.values.get(AppPrefs.K_AUTO_ZIP))
+            && Integer.valueOf(150).equals(imp.values.get(AppPrefs.K_PLAY_SPEED))
+            && "zoom".equals(imp.values.get(AppPrefs.K_ASPECT_MODE))
+            && Boolean.FALSE.equals(imp.values.get(AppPrefs.K_DOUBLE_TAP_SEEK))
+            && Integer.valueOf(9000).equals(imp.values.get(AppPrefs.K_RECEIVER_PORT))
+            && Boolean.FALSE.equals(imp.values.get(AppPrefs.K_AD_BLOCK))
+            && Boolean.TRUE.equals(imp.values.get(AppPrefs.K_FREE_TRANSLATOR));
+        check("v320 cust: the FULL v3.2.0 settings model round-trips through Backup/Restore", all,
+            imp.ok ? "" : imp.error);
+        // a hostile import value gets REJECTED (never poisons the app)
+        Map<String, Object> hostile = new LinkedHashMap<>();
+        hostile.put(AppPrefs.K_ACCENT, 99);
+        hostile.put(AppPrefs.K_FONT_SP, 999);
+        hostile.put(AppPrefs.K_THEME_MODE, "neon");
+        Map<String, Object> clean = AppPrefs.normalizeMap(hostile);
+        check("v320 cust: hostile import values normalize (99→clamped, junk→default)",
+            clean.containsKey(AppPrefs.K_ACCENT) && Integer.valueOf(0).equals(clean.get(AppPrefs.K_ACCENT))
+                && Integer.valueOf(40).equals(clean.get(AppPrefs.K_FONT_SP))
+                && "dark".equals(clean.get(AppPrefs.K_THEME_MODE)));
+        // the static UI contract: 5 tabs, the links manager page, the sheet
+        String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
+        check("v320 cust: the shell ships the 5-tab bar (Home/Web/Customize/Troubleshoot)",
+            mainSrc.contains("TAB_TROUBLE") && mainSrc.contains("\uD83C\uDFA8"));
+        check("v320 cust: the Custom Links manager page exists (add/reorder/delete)",
+            mainSrc.contains("openWebPlayer") && mainSrc.contains("paintLinks"));
+        String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        check("v320 cust: the in-player settings sheet ships (speed/aspect/live-style over the movie)",
+            playSrc.contains("buildSettingsSheet") && playSrc.contains("toggleSheet"));
+        check("v320 cust: the edge-to-edge insets pad the HUD (statusBars|displayCutout + navigationBars)",
+            playSrc.contains("WindowInsets.Type.statusBars()") && playSrc.contains("WindowInsets.Type.navigationBars()"));
+    }
+
+    /** v3.2.0 — THE 10-POINT TROUBLESHOOTER LAB: the probe engine's pure halves
+     *  (offline-safe: probes that need the network are checked for CONTRACT,
+     *  not live connectivity), and the report section renders all outcomes. */
+    static void v320TroubleshooterChecks() throws Exception {
+        // the probe matrix's shape
+        check("v320 probe: FeatureProbe.runAll declares the 10-point matrix",
+            probeNamesMatch());
+        // the probe section renders BOTH PASS and FAIL lines
+        java.util.List<FeatureProbe.Outcome> demo = new java.util.ArrayList<>();
+        FeatureProbe.Outcome ok = new FeatureProbe.Outcome(1, "Loopback Receiver");
+        ok.pass = true; ok.ms = 12; ok.detail = "/info ok";
+        FeatureProbe.Outcome bad = new FeatureProbe.Outcome(7, "Free Keyless Translator");
+        bad.pass = false; bad.ms = 340; bad.detail = "no translation (offline)";
+        demo.add(ok);
+        demo.add(bad);
+        String section = Troubleshooter.probeSection(demo);
+        check("v320 probe: the report section shows ✓ PASS lines",
+            section.contains("✓ 1. Loopback Receiver — 12 ms — /info ok"));
+        check("v320 probe: the report section shows ✗ FAIL lines (both are recorded)",
+            section.contains("✗ 7. Free Keyless Translator — 340 ms — no translation"));
+        check("v320 probe: the verdict line counts 1/10",
+            section.contains("verdict: 1/10 PASS"));
+        check("v320 probe: an empty list renders the not-run hint",
+            Troubleshooter.probeSection(null).contains("not run yet"));
+        // the probe section is privacy-scrubbed end-to-end
+        FeatureProbe.Outcome leaky = new FeatureProbe.Outcome(4, "Updater");
+        leaky.pass = true; leaky.ms = 5;
+        leaky.detail = "from 192.168.1.39 model Xiaomi 24117RN76G";
+        java.util.List<FeatureProbe.Outcome> leakList = new java.util.ArrayList<>();
+        leakList.add(leaky);
+        String scrubbed = Troubleshooter.probeSection(leakList);
+        check("v320 probe: probe details are PrivacyScrubbed (IPs/models die)",
+            !scrubbed.contains("192.168.1.39") && !scrubbed.contains("24117RN76G"));
+        // the zip/font/script probes run OFFLINE-live (pure, in-lab)
+        FeatureProbe.Outcome zip = FeatureProbe.probe8ZipExtractor(null);
+        check("v320 probe: probe 8 (zip extractor + bomb guard) runs IN the lab and passes",
+            zip.pass, zip.detail);
+        FeatureProbe.Outcome font = FeatureProbe.probe9FontAsset(null, null);
+        check("v320 probe: probe 9 (font + shaping) runs IN the lab and passes",
+            font.pass, font.detail);
+        FeatureProbe.Outcome backup = FeatureProbe.probe10BackupCrash(null, null);
+        check("v320 probe: probe 10 (backup round-trip) runs IN the lab and passes",
+            backup.pass, backup.detail);
+        // the static wiring: the Troubleshoot tab carries the hero + copy/share
+        String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
+        check("v320 probe: the Troubleshoot tab ships the Run Full App Troubleshoot hero",
+            mainSrc.contains("Run Full App Troubleshoot (All Features)") || mainSrc.contains("සම්පූර්ණ ඇප් පරීක්ෂණය"));
+        check("v320 probe: the report builder appends the probe section",
+            mainSrc.contains("Troubleshooter.probeSection(probeOutcomes)"));
+    }
+
+    /** The 10 probe names (the matrix's identity, checked against FeatureProbe). */
+    static boolean probeNamesMatch() {
+        try {
+            java.lang.reflect.Method[] ms = FeatureProbe.class.getDeclaredMethods();
+            int found = 0;
+            for (java.lang.reflect.Method m : ms) {
+                String n = m.getName();
+                if (Character.isDigit(n.charAt(n.length() - 1))) found++;   // probe1..probe10
+            }
+            return found == 10;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
 }

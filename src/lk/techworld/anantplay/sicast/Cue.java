@@ -58,6 +58,72 @@ public final class Cue {
         return sb.toString();
     }
 
+    // ── v3.2.0: the raw-markup stripper (Smoking Gun #2: garbled cues) ────────
+
+    /** ASS override blocks: {\an8}, {\pos(...)}, {\fad(...)}, {\...} — all die. */
+    private static final java.util.regex.Pattern ASS_BLOCK =
+        java.util.regex.Pattern.compile("\\{\\\\[^}]*\\}");
+
+    /** HTML-ish tags WebVTT/HTML-embedded tracks carry: <i>, </b>, <font …>, <1>. */
+    private static final java.util.regex.Pattern HTML_TAG =
+        java.util.regex.Pattern.compile("<[^>]{1,80}>");
+
+    /** HTML entities (the parser tolerates a missing trailing ';' — sites emit both). */
+    private static final String[][] ENTITIES = {
+        {"&amp;", "&"}, {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&#39;", "'"},
+        {"&apos;", "'"}, {"&nbsp;", " "},
+    };
+
+    /**
+     * v3.2.0 — ONE cleanup entry point for EVERY cue text before it is stored or
+     * rendered: strips ASS override blocks ({\an8}, {\pos(…)}…), HTML-ish tags
+     * (<i>, <font color=…>, <1>), decodes HTML entities, removes genuine
+     * invisible garbage (BOM U+FEFF, ZWSP U+200B, soft-hyphen U+00AD,
+     * word-joiner U+2060) and control chars, and collapses whitespace. Never
+     * throws, never returns null, and PRESERVES line structure ('-' dialogue
+     * markers stay).
+     *
+     * v3.2.0 hotfix — ZWJ (U+200D) and ZWNJ (U+200C) are PRESERVED. They are
+     * NOT garbage: in Sinhala U+200D is mandatory for the rakaransaya (‍ර),
+     * yansaya (‍ය) and conjuncts such as ශ්‍රී, චිත්‍රපටිය, ක්‍රියා, ප්‍රශ්නය,
+     * ව්‍යාපෘතිය; U+200C is equally load-bearing in Sinhala, other Indic
+     * scripts, Arabic and Persian. Stripping them turns every conjunct into
+     * broken hal-kirima glyphs (ශ්‍රී → ශ්රී), so they MUST survive cleanup.
+     * The same stripper runs on worker-fetched, local .srt/.zip AND embedded
+     * stream-CC text — the exact garble the field screenshot showed ("⚠ …" pills
+     * of raw protocol text on the video). */
+    public static String stripMarkup(String text) {
+        if (text == null || text.isEmpty()) return "";
+        String out = text;
+        out = ASS_BLOCK.matcher(out).replaceAll("");
+        out = HTML_TAG.matcher(out).replaceAll("");
+        for (String[] e : ENTITIES) out = out.replace(e[0], e[1]);
+        // HTML entity leftovers: "&#8230;" numeric forms (common in scraped subs)
+        out = out.replaceAll("&#\\d{2,5};", " ");
+        StringBuilder sb = new StringBuilder(out.length());
+        boolean pendingSpace = false;
+        for (int i = 0; i < out.length(); i++) {
+            char c = out.charAt(i);
+            // U+200D (ZWJ) and U+200C (ZWNJ) are deliberately NOT listed here:
+            // they are orthographically required in Sinhala (rakaransaya/yansaya
+            // conjuncts) and valid in Indic/Arabic/Persian text. Removing them
+            // is the exact bug that garbled every Sinhala conjunct.
+            if (c == '\u200B' || c == '\uFEFF'                     // ZWSP, BOM
+                || c == '\u00AD' || c == '\u2060') continue;       // soft hyphen, word joiner
+            if (c == '\n') {                                          // line structure preserved
+                if (!pendingSpace && sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') sb.append('\n');
+                pendingSpace = false;
+                continue;
+            }
+            if (c == ' ' || c == '\t') { pendingSpace = true; continue; }
+            if (c < 0x20) continue;                                   // stray control chars
+            if (pendingSpace && sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') sb.append(' ');
+            pendingSpace = false;
+            sb.append(c);
+        }
+        return sb.toString().replaceAll("\n{3,}", "\n\n").trim();
+    }
+
     /** Parse "00:00:01,000 --> 00:00:03,500" (also '.' fractions, 1-3 digits — the same
      * shapes AnantPlay's SubSync.java:26-48 accepts). Returns [t0, t1] or null. */
     public static long[] parseTs(String line) {
@@ -92,14 +158,18 @@ public final class Cue {
             out.add(new Cue(
                 (int) MiniJson.lng(o, "i", out.size()),
                 t0, t1, null,
-                MiniJson.str(o, "en"),
-                MiniJson.str(o, "enf"),
-                MiniJson.str(o, "si")));
+                stripMarkup(MiniJson.str(o, "en")),
+                stripMarkup(MiniJson.str(o, "enf")),
+                stripMarkup(MiniJson.str(o, "si"))));
         }
         return out;
     }
 
-    /** Parse an .srt body (BOM tolerant, CRLF tolerant) into cues; si = the text. */
+    /** Parse an .srt body (BOM tolerant, CRLF tolerant) into cues; si = the text.
+     *  v3.2.0: every cue text passes stripMarkup (ASS {\an8} blocks, <i> tags,
+     *  HTML entities, zero-width garbage) BEFORE storage — the same clean text
+     *  the renderer paints, whether the file came from the worker, a Baiscope
+     *  .zip or the user's own .srt. */
     public static List<Cue> fromSrt(String text) {
         if (text == null) return Collections.emptyList();
         if (!text.isEmpty() && text.charAt(0) == '\uFEFF') text = text.substring(1);
@@ -120,7 +190,7 @@ public final class Cue {
                 if (sb.length() > 0) sb.append('\n');
                 sb.append(body.get(i));
             }
-            String txt = sb.toString();
+            String txt = stripMarkup(sb.toString());
             out.add(new Cue(out.size(), t[0], t[1], body.get(first), txt, null, txt));
         }
         return out;

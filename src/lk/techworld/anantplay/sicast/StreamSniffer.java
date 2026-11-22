@@ -149,11 +149,16 @@ public final class StreamSniffer {
     }
 
     /** The cleaned page title for the subtitle lookup (TitleCleaner strips the
-     *  "Watch X Full Movie Free HD - OnlyFlix" noise sites add). */
+     *  "Watch X Full Movie Free HD - OnlyFlix" noise sites add).
+     *  v3.2.0 — a JUNK page title ("ArrowTV Player", "VidSrc", "Embed
+     *  Player"…) returns "" so the player's junk-title path (the 1-tap
+     *  movie-title search pill) takes over instead of a blind Cinemeta call
+     *  that flashes raw JSON over the video. */
     public static String cleanTitle(String rawPageTitle) {
         if (rawPageTitle == null) return "";
         String t = rawPageTitle.trim();
         if (t.isEmpty()) return "";
+        if (TitleCleaner.isJunkTitle(t)) return "";   // never a player-branding "title"
         TitleCleaner.Clean c = TitleCleaner.clean(t);
         return c.changed ? c.title : t;
     }

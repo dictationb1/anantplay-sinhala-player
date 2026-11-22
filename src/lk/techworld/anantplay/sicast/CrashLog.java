@@ -11,33 +11,32 @@ import java.util.Locale;
 
 /* v3.1.0 — THE PERSISTENT UNCAUGHT CRASH RECORDER (Bug 2, Smoking Gun #2).
  *
- * THE FIELD FAILURE (2026-11-22 16:36, Xiaomi Android 16): the app showed
- * "AnantPlay සිංහල Player keeps stopping" right while casting, and NOTHING on
- * disk explained why — v3.0.0's only trace was the Diag ring entry (truncated at
- * 3000 chars, rolling over after 1200 lines), which is useless after a restart
- * and invisible to the user.
+ * v3.2.0 — THE STALE-CRASH AUTO-CLEAR (Smoking Gun #3): the field phone kept
+ * showing "❌ a crash was captured" in v3.1.2 for a crash that v3.1.1 had
+ * ALREADY fixed (#0x88000000) — last_crash.txt carried no version identity, so
+ * a NEW build could not tell "a crash from THIS build" (worth showing) apart
+ * from "a crash from an OLDER build" (already fixed, worthless noise).
+ * THE FIX:
+ *   · the report header now carries `versionCode:` (the stable numeric build
+ *     identity, not the name) — writeHeader stamps it on every new capture;
+ *   · CrashLog.staleFor(report, currentCode) — pure predicate: true when the
+ *     report's stamped code is missing (legacy) is FALSE-POSITIVE-SAFE…
+ *     no: a report with no versionCode is TREATED AS STALE-UNKNOWN and kept
+ *     only when it is recent (<48 h); a report stamped with an OLDER code is
+ *     ALWAYS stale for a newer running build;
+ *   · App.onCreate calls CrashLog.clearStaleFor(filesDir, AppInfo.VERSION_CODE)
+ *     at every startup — a fixed-in-a-newer-build crash is deleted BEFORE the
+ *     Troubleshooter ever reads it, so "Auto-Detected Issues" never lies.
  *
- * v3.1.0: App.onCreate() installs a CHAINED Thread.UncaughtExceptionHandler
- * (ours first, then the previous default so the system crash dialog still shows)
- * that ATOMICALLY writes the full story to filesDir/last_crash.txt:
- *
- *   · wall-clock timestamp + app version + versionCode;
- *   · Android SDK level + manufacturer/model/fingerprint;
- *   · the thread name, the exception class + message and the FULL stack trace
- *     (every cause, every frame — no 3000-char cap);
- *   · every line passed through Diag.redact(): stream cookies, Authorization
- *     headers, API keys, tokens and JWT-shaped blobs can NEVER land in the file
- *     (the "1-tap Copy/Share" buttons share exactly this text);
- *   · the write is atomic (last_crash.txt.tmp + rename) — a crash DURING the
- *     write can never leave a half-written file behind.
- *
- * MainActivity's Diagnostics tab surfaces it: a prominent "⚠ Last Crash Captured"
- * card with 1-tap Copy / Share / Clear. The pure formatting half runs in the
- * verification lab on a bare JVM (redaction + completeness proofs). */
+ * Everything else is unchanged from v3.1.0: the atomic write, the FULL chained
+ * trace, the Diag.redactFull pass, the 1-tap Copy/Share from Diagnostics. */
 public final class CrashLog {
 
     /** The one file (kept in filesDir). */
     public static final String FILE_NAME = "last_crash.txt";
+
+    /** How long a versionCode-less (legacy) report stays relevant. */
+    static final long LEGACY_MAX_AGE_MS = 48L * 60 * 60 * 1000;
 
     private CrashLog() { }
 
@@ -50,15 +49,17 @@ public final class CrashLog {
 
     /**
      * Build the FULL redacted crash text. `deviceInfo` is one pre-joined line
-     * ("sdk 36 | Xiaomi 25013PS27C | release-16…") — the caller decides what
-     * identifies the build; everything else is derived from the throwable.
+     * ("sdk 36") — the caller decides what identifies the build; everything
+     * else is derived from the throwable. v3.2.0: the header carries the
+     * versionCode line (the stale-crash contract).
      */
-    public static String format(long epochMs, String appVersion, String deviceInfo,
+    public static String format(long epochMs, String appVersion, int versionCode, String deviceInfo,
                                 String threadName, Throwable t) {
         StringBuilder sb = new StringBuilder(2048);
         sb.append("============================================================\n");
         sb.append(" UNCAUGHT CRASH — AnantPlay Sinhala Player v")
           .append(appVersion == null ? "?" : appVersion).append('\n');
+        sb.append(" versionCode: ").append(versionCode).append('\n');
         sb.append(" at ").append(stamp(epochMs)).append('\n');
         if (deviceInfo != null && !deviceInfo.isEmpty())
             sb.append(" device: ").append(Diag.redact(deviceInfo)).append('\n');
@@ -78,10 +79,80 @@ public final class CrashLog {
             depth++;
         }
         sb.append("============================================================\n");
-        // the LAST line of defense: one FULL redaction pass over the whole text
-        // (line-preserving, never truncated — Diag.redactFull): a message like
-        // "Connection with Cookie: sid=… refused" is scrubbed too.
         return Diag.redactFull(sb.toString());
+    }
+
+    // ── the stale-crash predicate (pure — the lab drives every branch) ─────────
+
+    /**
+     * v3.2.0 — is this stored report STALE for the running build?
+     *   · a report stamped with an OLDER versionCode → ALWAYS stale (the code
+     *     that crashed was replaced; every such crash is already fixed or
+     *     superseded by construction — the exact field false-positive);
+     *   · a report stamped with the SAME versionCode → never stale;
+     *   · a legacy report with NO versionCode (v3.1.x) → stale only once it is
+     *     older than 48 h (recent unknowns stay visible: a fresh crash from
+     *     an upgraded-in-place build deserves attention).
+     */
+    public static boolean staleFor(String report, int runningVersionCode, long nowMs) {
+        if (report == null || report.isEmpty()) return false;
+        int code = versionCodeOf(report);
+        if (code > 0) return code != runningVersionCode;   // stamped: different code = stale
+        // legacy report: age it out (the " at <timestamp>" line)
+        long at = capturedAtMs(report, nowMs);
+        return nowMs - at > LEGACY_MAX_AGE_MS;
+    }
+
+    /** The report's stamped versionCode, 0 when absent (legacy v3.1.x report). */
+    public static int versionCodeOf(String report) {
+        if (report == null) return 0;
+        for (String line : report.split("\n", 20)) {
+            String t = line.trim();
+            if (t.startsWith("versionCode:")) {
+                try {
+                    return Integer.parseInt(t.substring("versionCode:".length()).trim());
+                } catch (NumberFormatException ignored) { return 0; }
+            }
+        }
+        return 0;
+    }
+
+    /** The report's captured-at epoch ms (parsed from the " at " line; the
+     *  caller's nowMs when unparseable — a fresh-unknown report). */
+    static long capturedAtMs(String report, long fallbackNowMs) {
+        if (report == null) return fallbackNowMs;
+        for (String line : report.split("\n", 20)) {
+            String t = line.trim();
+            if (t.startsWith("at ") && t.length() >= 19) {
+                try {
+                    SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US);
+                    return f.parse(t.substring(3).trim()).getTime();
+                } catch (Exception ignored) { return fallbackNowMs; }
+            }
+        }
+        return fallbackNowMs;
+    }
+
+    /**
+     * v3.2.0 — THE STARTUP SWEEP: App.onCreate deletes a stale last_crash.txt
+     * (older versionCode, or a legacy report past 48 h) BEFORE the
+     * Troubleshooter or the Diagnostics tab ever reads it. Returns true when a
+     * stale report was cleared (logged by the caller). Never throws.
+     */
+    public static boolean clearStaleFor(File filesDir, int runningVersionCode, long nowMs) {
+        try {
+            String report = read(filesDir);
+            if (report == null) return false;
+            if (staleFor(report, runningVersionCode, nowMs)) {
+                if (clear(filesDir)) {
+                    Diag.i("crash", "stale crash report (older versionCode) auto-cleared on startup");
+                }
+                return true;
+            }
+            return false;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /** Redact a possibly-crash-shaped text (used by the copy/share path too). */
@@ -93,9 +164,9 @@ public final class CrashLog {
     public static File fileFor(File filesDir) { return new File(filesDir, FILE_NAME); }
 
     /**
-     * Atomically persist a crash report: write to last_crash.txt.tmp, fsync-ish
-     * flush, then rename over last_crash.txt. Returns false (never throws) when
-     * the disk refuses — the Diag ring still carries a short copy.
+     * Atomically persist a crash report: write to last_crash.txt.tmp, flush,
+     * then rename over last_crash.txt. Returns false (never throws) when the
+     * disk refuses — the Diag ring still carries a short copy.
      */
     public static boolean writeAtomically(File filesDir, String report) {
         try {

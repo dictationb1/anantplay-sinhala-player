@@ -1,6 +1,6 @@
 name: Release APK (signed, Obtainium-ready)
 
-# v3.1.2 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
+# v3.2.0 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
 # this keeps the runner clock interpretable (the same commit → the same SHA-256).
 env:
   TZ: UTC
@@ -38,7 +38,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.0.1 — no leading v)'
         required: true
-        default: '3.1.2'
+        default: '3.2.0'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -199,6 +199,69 @@ jobs:
           APK="AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
           sha256sum "$APK" > SHA256SUMS.txt
           cat SHA256SUMS.txt
+
+      # ── 6b. v3.2.0 — docs/latest.json: the updater's TIER-2 resolver source ──
+      # The in-app updater reads https://raw.githubusercontent.com/<repo>/main/
+      # docs/latest.json BEFORE ever touching api.github.com (the zero-rate-limit
+      # contract). This step writes it back to main after every release, so the
+      # tier-2 endpoint always serves the CURRENT version + sha256.
+      - name: Publish docs/latest.json (the updater's tier-2 endpoint)
+        if: env.SKIP != 'true' && github.ref_type != 'tag' && github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          CODE="${{ steps.ver.outputs.code }}"
+          SHA=$(cut -d' ' -f1 dist/SHA256SUMS.txt)
+          mkdir -p docs
+          # EXACT tier-2 contract parsed by SelfUpdateCore.fetchViaRawJsonBody():
+          # version / code / sha256 / apkUrl (sha256 must be 64 lowercase hex).
+          # The trailing backslash is REQUIRED — without it the argument line
+          # becomes a separate command (the v3.2.0 archive shipped it broken).
+          printf '{"version":"%s","code":%s,"sha256":"%s","apkUrl":"https://github.com/dictationb1/anantplay-sinhala-player/releases/download/v%s/AnantPlay-Sinhala-Player-v%s.apk"}\n' \
+            "$V" "$CODE" "$SHA" "$V" "$V" > docs/latest.json
+          python3 - "$V" "$CODE" <<'PY'
+          import json, sys
+          v, code = sys.argv[1], int(sys.argv[2])
+          d = json.load(open("docs/latest.json", encoding="utf-8"))
+          assert d["version"] == v, d
+          assert d["code"] == code, d
+          assert len(d["sha256"]) == 64 and d["sha256"].lower() == d["sha256"], d
+          assert d["apkUrl"].endswith("/AnantPlay-Sinhala-Player-v%s.apk" % v), d
+          PY
+          cat docs/latest.json
+          git config user.name "release-bot"
+          git config user.email "actions@github.com"
+          git add docs/latest.json
+          # No-empty-commit guard: nothing staged AND nothing on disk → skip.
+          if git diff --quiet -- docs/latest.json && git diff --cached --quiet -- docs/latest.json; then
+            echo "::notice::docs/latest.json already current — no commit needed"
+          else
+            # [skip ci] is belt-and-braces: a GITHUB_TOKEN push cannot start a
+            # new run, and this marker guarantees no recursive workflow loop even
+            # if the token is ever swapped for a PAT.
+            git commit -m "chore(release): docs/latest.json v$V (updater tier-2 endpoint) [skip ci]"
+            PUSHED=0
+            for attempt in 1 2 3; do
+              if git push origin HEAD:main; then PUSHED=1; break; fi
+              echo "::warning title=docs/latest.json::push attempt $attempt rejected — rebasing onto origin/main and retrying"
+              git fetch --quiet origin main || true
+              if git rebase --quiet origin/main; then
+                # The identical change may already have landed on main: after the
+                # rebase our commit is dropped and HEAD == origin/main → done.
+                if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then PUSHED=1; break; fi
+                if git diff --quiet -- docs/latest.json && git diff --cached --quiet -- docs/latest.json; then PUSHED=1; break; fi
+              else
+                git rebase --abort || true
+                break
+              fi
+            done
+            if [ "$PUSHED" -ne 1 ]; then
+              # A rejected automated push (branch protection / a rare race) must
+              # NEVER turn a successful Release red: warn, and the next release
+              # refreshes the tier-2 endpoint.
+              echo "::warning title=docs/latest.json::automatic push was rejected (branch protection?) — the Release itself is unaffected; tier-2 will refresh on the next release"
+            fi
+          fi
 
       # ── 7. the tag (created for merge-to-release + manual dispatch) ────────
       - name: Create + push the git tag

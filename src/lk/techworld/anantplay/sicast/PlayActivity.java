@@ -66,12 +66,37 @@ import java.util.Map;
  *
  *   · Sinhala subtitles render from the worker's cue list against the player's OWN
  *     position — frame-exact by construction, zero clock drift, zero cue matching;
- *     ±0.25 s / ±1 s nudges are a pure display offset;
  *   · the Sinhala font (NotoSansSinhala), size, mask and position are ours to style;
  *   · AnantPlay's Remote (and its own player) keep working: /status, /do and the
  *     resume-on-stop loop are driven from the SAME timeline;
  *   · no AccessibilityService, no overlay permission for the video itself, and while
- *     a movie plays WE are the foreground app — the one state HyperOS never kills. */
+ *     a movie plays WE are the foreground app — the one state HyperOS never kills.
+ *
+ * v3.2.0 — THE FLAWLESS SINHALA SUBTITLE + HUD OVERHAUL (the field screenshot's
+ * five visible defects, all fixed at the source):
+ *
+ *   1. EDGE-TO-EDGE INSETS (the "ArrowTV Player" title sat UNDER the 20:52 status
+ *      bar clock): the root now has a real OnApplyWindowInsetsListener — the HUD's
+ *      top bar pads by statusBars()|displayCutout() and the bottom control bar by
+ *      navigationBars(), so system chrome and our controls can never overlap.
+ *   2. ONE-PLACE TYPEFACE (the garbled-bold bug): applyLangStyle() is now the ONLY
+ *      place that touches subView's typeface, and it applies BOLD the Android-correct
+ *      way — Typeface.create(sinhalaFamily, bold?BOLD:NORMAL) — never the
+ *      setTypeface(tf, style) second-arg form that silently dropped the studio bold
+ *      on every language change / cue render.
+ *   3. SCRIPT-RATIO VALIDATION (wrong language shown as "සිංහල"): a fetched cue
+ *      list is validated by SubLangDetect.looksSinhala before it is ever announced
+ *      as Sinhala; a non-Sinhala list is routed to FreeSubTranslator (the on-device
+ *      keyless engine) instead of mislabeled.
+ *   4. THE STATUS PILL IS A SEARCH BUTTON (raw JSON banners): junk titles
+ *      ("ArrowTV Player"…) never reach Cinemeta — ONE subtle pill opens the 1-tap
+ *      movie-title search dialog (type a name + optional S/E → /api/resolve →
+ *      instant Sinhala subs).
+ *   5. URL-PASTED .srt/.zip SUBS + the free translator everywhere: the subs panel
+ *      accepts a pasted subtitle URL (auto-downloads, unzips, detects language,
+ *      translates when not Sinhala) — plus "Free translate now" for whatever is
+ *      showing. Worker 404 "job not on this isolate" is retried silently, never
+ *      painted across the video. */
 @UnstableApi   // ExoPlayer's API surface (like AnantPlay's own PlayerActivity)
 public class PlayActivity extends Activity {
 
@@ -149,13 +174,16 @@ public class PlayActivity extends Activity {
     private SeekBar seek;
     private View playPause;
     private View spinner;
-    private LinearLayout hud, panel;
+    private LinearLayout hud, panel, sheet;
+    private LinearLayout hudTopBar, hudBottomBar;
     private TextView errorBox;
     /** v2.2: the language chip row + register/Option-C row (shown with the pill). */
     private LinearLayout langChips;
     private LinearLayout extraActions;
 
-    /** v2.1: the never-silent subtitle status pill + its 1-tap action row. */
+    /** v2.1: the never-silent subtitle status pill + its 1-tap action row.
+     *  v3.2.0: the pill is also the JUNK-TITLE search entry (tapping it on a
+     *  junk-title state opens the movie-title search dialog). */
     private TextView statusPill;
     private LinearLayout subActions;
     private Typeface siFont;
@@ -186,6 +214,8 @@ public class PlayActivity extends Activity {
     private boolean hudVisible = true;
     private boolean finished;
     private volatile boolean expectTakeover = true;   // cleared ~3 s after open: PiP waits for the hand-over
+    /** v3.2.0 — the junk-title verdict for THIS playback (cached at parse). */
+    private boolean titleIsJunk;
 
     // ───────────────────────────────────────────────────────────────────────────
     // lifecycle
@@ -221,9 +251,17 @@ public class PlayActivity extends Activity {
         // v3.0.0 — the never-silent launch pill: the user sees the subtitle
         // pipeline is ALIVE from the very first frame, before any network
         // round-trip completes ("✨ … ලබාගනිමින්…" → "✓ සූදානම්" once cues land).
-        if (!testMode) setState("fetching", "✨ සිංහල උපසිරැසි ලබාගනිමින්… · fetching Sinhala subtitles…");
+        // v3.2.0 — a JUNK title (the "ArrowTV Player" field case) never goes to
+        // Cinemeta: the pill immediately becomes the 1-tap title-search entry.
+        if (!testMode) {
+            if (titleIsJunk) {
+                setState("not-found", "🔍 චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name");
+            } else {
+                setState("fetching", "✨ සිංහල උපසිරැසි ලබාගනිමින්… · fetching Sinhala subtitles…");
+            }
+        }
         main.postDelayed(() -> { expectTakeover = false; armAutoPip(); }, 3000);   // PiP only after the hand-over
-        if (testMode || prefs.getBoolean("autoFetch", true)) fetchSinhala();
+        if (!titleIsJunk && (testMode || prefs.getBoolean("autoFetch", true))) fetchSinhala();
         Diag.i("player", "open: " + title + " · " + url);
     }
 
@@ -255,6 +293,7 @@ public class PlayActivity extends Activity {
         if (url != null) {   // manual play from MainActivity / the WebView sniffer
             title = title == null ? url : title;
             headersJson = i.getStringExtra("headers");   // v3.0.0: the sniffer's Referer/Cookie/UA
+            titleIsJunk = TitleCleaner.isJunkTitle(title);
             return;
         }
         // v3.0.0 — share ANY video link straight into the Sinhala player:
@@ -269,6 +308,7 @@ public class PlayActivity extends Activity {
                 url = u;
                 title = u;
                 Diag.i("player", "ACTION_VIEW play: " + u);
+                titleIsJunk = TitleCleaner.isJunkTitle(title);
                 return;
             }
         }
@@ -281,6 +321,7 @@ public class PlayActivity extends Activity {
                 title = subj != null && subj.toString().trim().length() >= 2
                     ? subj.toString().trim() : url;
                 Diag.i("player", "ACTION_SEND play: " + url);
+                titleIsJunk = TitleCleaner.isJunkTitle(title);
                 return;
             }
         }
@@ -311,6 +352,7 @@ public class PlayActivity extends Activity {
                     castSubs = new java.util.ArrayList<>();
                     for (Object so : (List<?>) subsObj) if (so != null) castSubs.add(String.valueOf(so));
                 }
+                titleIsJunk = TitleCleaner.isJunkTitle(title);
             }
         }
         if (url == null) {   // nothing playable arrived
@@ -355,7 +397,7 @@ public class PlayActivity extends Activity {
             parseIntent();
             if (url != null) {
                 startPlayback();
-                fetchSinhala();
+                if (!titleIsJunk) fetchSinhala();
             } else {
                 Diag.w("player", "re-cast had no playable url — resuming the previous stream");
                 url = prevUrl;
@@ -397,6 +439,7 @@ public class PlayActivity extends Activity {
         super.onPictureInPictureModeChanged(inPip, c);
         if (hud != null) hud.setVisibility(inPip || !hudVisible ? View.GONE : View.VISIBLE);
         if (panel != null) panel.setVisibility(View.GONE);      // never a floating subs panel
+        if (sheet != null) sheet.setVisibility(View.GONE);    // v3.2.0: never a floating settings sheet
     }
 
     /** Android 12+: let the system enter PiP itself (no onUserLeaveHint race).
@@ -562,8 +605,7 @@ public class PlayActivity extends Activity {
         return "state-" + s;
     }
 
-    // ── v3.1.2 — the privacy-safe diagnostic accessors (booleans + counters only,
-    // never URLs/titles; the Troubleshooter Facts and the Deep Troubleshoot read these) ──
+    // ── v3.1.2 — the privacy-safe diagnostic accessors (booleans + counters only) ──
 
     /** The last Media3 error-code name, "" while none (v3.1.2 diag accessor backing). */
     private volatile String lastErrorName = "";
@@ -599,17 +641,25 @@ public class PlayActivity extends Activity {
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // Sinhala subtitles — the worker pipeline (bg thread) + the native renderer
+    // Sinhala subtitles — the v3.2.0 three-layer zero-quota pipeline
     // ───────────────────────────────────────────────────────────────────────────
 
-    /** The subtitle pipeline v2.1 — the full chain, never silent:
+    /**
+     * The subtitle pipeline v3.2.0 — the full chain, never silent, never
+     * mislabeled, never quota-dead:
      *   0. local cache (instant, offline)
-     *   1. CAST-SUPPLIED SUBS (v2.1): AnantPlay's own `subs` URLs — the English
-     *      .srt the phone player already had is handed to the worker's
-     *      /api/subs-direct for instant translation (no IMDb needed, cached forever)
-     *   2. the worker's /subtitles job: human Sinhala first, else multi-provider AI
-     *      translation (azure → google_v3 → gemini → workers_ai), polled on the
-     *      deterministic token URL (200 .srt | 202 progress | 404 → re-ensure).
+     *   1. CAST-SUPPLIED SUBS: AnantPlay's own `subs` URLs — the English .srt the
+     *      phone player already had, translated by the worker's /api/subs-direct
+     *      (no IMDb needed) OR by FreeSubTranslator when the worker quota refuses;
+     *   2. the worker's /subtitles job: human Sinhala first, else multi-provider
+     *      AI translation (azure → google_v3 → gemini → workers_ai), polled on the
+     *      deterministic token URL (200 .srt | 202 progress | 404 → re-ensure);
+     *   3. v3.2.0 VALIDATION + FREE FALLBACK: every cue list destined for the
+     *      Sinhala slot is SCRIPT-CHECKED (SubLangDetect.looksSinhala over the
+     *      middle-cue sample); a list that is NOT Sinhala is routed to
+     *      FreeSubTranslator (on-device, keyless, cached) instead of being
+     *      displayed as "සිංහල උපසිරැසි සූදානම්" — the exact wrong-language
+     *      field failure, fixed at the source.
      * Every state change lands in the status pill; every failure names its cause. */
     private void fetchSinhala() {
         if (fetching || testMode) return;
@@ -634,22 +684,32 @@ public class PlayActivity extends Activity {
                         try {
                             setState("fetching", "cast subtitle ලබාගනිමින්… · fetching the cast's own subtitle…", myGen);
                             byte[] raw = httpGet(subUrl, null);
-                            String text = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
                             List<Cue> enCues = SrtLoader.load(raw, "cast.srt");
                             if (enCues.size() < 8) continue;   // not a real track
+                            // v3.2.0 — the script check FIRST: the cast's sub may
+                            // already BE Sinhala (a Baiscope link!) — then it just shows.
+                            if ("si".equals(activeLang) && SubLangDetect.looksSinhala(SubLangDetect.sampleOf(enCues))) {
+                                applyCues(enCues, "cast-subs (human Sinhala ✓)");
+                                store.save(key, enCues);
+                                return;
+                            }
                             setState("fetching", "cast subtitle පරිවර්තනය වෙමින්… · translating the cast's subtitle…", myGen);
-                            Map<String, Object> job = api.subsDirect(text, title, activeLang, registerOverride);
+                            Map<String, Object> job = api.subsDirect(CueText.of(enCues), title, activeLang, registerOverride);
                             String token = tokenOf(job);
                             if (pollToDone(token, myGen)) {
                                 List<Cue> got = SrtLoader.load(api.srt(token).getBytes(java.nio.charset.StandardCharsets.UTF_8), "si.srt");
                                 if (myGen != fetchGen) return;
-                                applyCues(got, "cast-subs → " + String.valueOf(job.get("provider")));
-                                store.save(key, got);
-                                return;
+                                // v3.2.0 — validate before announcing Sinhala
+                                if (validateOrTranslate(got, key, myGen, "cast-subs → " + String.valueOf(job.get("provider")))) return;
                             }
                         } catch (BridgeApi.HttpException he) {
                             Diag.w("subs", "cast subs leg: HTTP " + he.status);
-                            if (he.status == 429 || he.status >= 500) continue;  // try the next leg
+                            if (he.status == 429 || he.status >= 500) {
+                                // v3.2.0 — the WORKER quota leg is dead → the FREE
+                                // keyless on-device translator takes the SAME cues.
+                                if (freeTranslateCastSubs(key, myGen)) return;
+                                continue;  // try the next leg
+                            }
                         } catch (Exception e) {
                             Diag.w("subs", "cast subs leg: " + e);
                         }
@@ -659,11 +719,12 @@ public class PlayActivity extends Activity {
                 String id = imdb;
                 if (id == null || id.isEmpty()) {
                     // v2.3.0: NOISY-TITLE CLEANING before Cinemeta (Phase 2, Killer #2).
-                    // Arbitrary sites send page titles like "Watch The Odyssey 2026 Full
-                    // Movie Free HD - OnlyFlix" — the raw string makes /api/resolve fail
-                    // or mismatch. The cleaned form feeds resolve + the cache key; the
-                    // HUD keeps showing the original. Season/episode extracted here fix
-                    // series lookups where the cast payload had none.
+                    // v3.2.0: JUNK TITLES NEVER REACH CINEMETA (the raw-JSON banner
+                    // fix): "ArrowTV Player" and friends open the title-search pill.
+                    if (titleIsJunk || TitleCleaner.isJunkTitle(title)) {
+                        setState("not-found", "🔍 චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name", myGen);
+                        return;   // NEVER "no Cinemeta match for: ArrowTV Player"
+                    }
                     TitleCleaner.Clean cleaned = TitleCleaner.clean(title);
                     String lookupTitle = cleaned.title;
                     if (cleaned.season != null && season == 0) season = cleaned.season;
@@ -682,7 +743,7 @@ public class PlayActivity extends Activity {
                         + (cleaned.year != null ? " (" + cleaned.year + ")" : "")
                         + " · /api/resolve " + (r == null ? "no-match" : "ok imdb=" + String.valueOf(r.get("imdb"))));
                     if (r == null) {
-                        setState("not-found", "Cinemeta couldn't match \"" + title + "\" — try the title override", myGen);
+                        setState("not-found", "Cinemeta couldn't match \"" + lookupTitle + "\" — the title search helps · නම සොයන්න", myGen);
                         fallbackEnglishTrack();
                         return;
                     }
@@ -692,6 +753,9 @@ public class PlayActivity extends Activity {
                     Map<String, Object> job = api.subtitles(type, id, season, episode, title, activeLang, registerOverride);
                     String status = String.valueOf(job.get("status"));
                     if ("needs-key".equals(status)) {
+                        // v3.2.0 — no provider keys on the worker AND nothing cached:
+                        // the free keyless translator is the honest fallback…
+                        if (freeTranslateCurrentCues(key, myGen, "free-fallback (no worker keys)")) return;
                         setState("needs-key", "සිංහල උපසිරැසි නැහැ — Worker එකේ provider key එකක් set කරන්න "
                             + "(AZURE_TRANSLATOR_KEY / GOOGLE_V3_KEY / GEMINI_API_KEY) · no translation provider configured on the worker", myGen);
                         fallbackEnglishTrack();
@@ -721,17 +785,15 @@ public class PlayActivity extends Activity {
                         } else if ("cinema-polished".equals(quality)) {
                             polishHotSwapped = true;       // already upgraded
                         }
-                        applyCues(got, source + ("cinema-polished".equals(quality) ? " · ✨ cinema" : ""));
-                        store.save(key, got);            // save THIS list, not the shared field
-                        return;
+                        if (validateOrTranslate(got, key, myGen, source + ("cinema-polished".equals(quality) ? " · ✨ cinema" : ""))) return;
+                        continue;   // validation sent it to the free translator and that failed → next round
                     }
                     if ("translating".equals(status) && token != null && !token.isEmpty()) {
                         if (pollToDone(token, myGen)) {
                             List<Cue> got = SrtLoader.load(api.srt(token).getBytes(java.nio.charset.StandardCharsets.UTF_8), "si.srt");
                             if (myGen != fetchGen) return;
-                            applyCues(got, String.valueOf(job.get("provider")));
-                            store.save(key, got);
-                            return;
+                            if (validateOrTranslate(got, key, myGen, String.valueOf(job.get("provider")))) return;
+                            continue;
                         }
                         continue;   // token went cold — re-ensure the job on a warm isolate
                     }
@@ -742,8 +804,10 @@ public class PlayActivity extends Activity {
                 setState("error", "subtitles did not become ready — try Refetch", myGen);
                 fallbackEnglishTrack();
             } catch (BridgeApi.HttpException he) {
-                // 429 (quota) / 5xx / 401 — said out loud in the status bar, logged
+                // 429 (quota) / 5xx / 401 — v3.2.0: the FREE keyless translator is
+                // tried BEFORE the English fallback paints the screen
                 Diag.e("subs", "worker HTTP " + he.status + ": " + BridgeApi.brief(he.body, 300));
+                if ((he.status == 429 || he.status >= 500) && freeTranslateCurrentCues(null, myGen, "free-fallback (worker " + he.status + ")")) return;
                 setState("error", BridgeApi.explain(he.status) + " · " + BridgeApi.brief(he.body, 90), myGen);
                 fallbackEnglishTrack();
             } catch (java.io.IOException io) {
@@ -760,6 +824,92 @@ public class PlayActivity extends Activity {
         }, "si-subs").start();
     }
 
+    /**
+     * v3.2.0 — THE SCRIPT VALIDATION + FREE-TRANSLATOR BRIDGE. A cue list
+     * fetched for the Sinhala slot must actually BE Sinhala (SubLangDetect over
+     * the middle-cue sample). When it is: normal apply+cache. When it is NOT
+     * (the mislabeled "English CC" / SubDL track of the field report): the list
+     * goes to FreeSubTranslator.translate (on-device, keyless, disk-cached) and
+     * the RESULT is what shows — never a false "සිංහල උපසිරැසි සූදානම්".
+     * Returns true when something was applied (the caller stops). */
+    private boolean validateOrTranslate(List<Cue> got, String key, int myGen, String how) {
+        if (got == null || got.isEmpty()) return false;
+        if (!"si".equals(activeLang) || SubLangDetect.looksSinhala(SubLangDetect.sampleOf(got))) {
+            applyCues(got, how);
+            if (key != null) store.save(key, got);
+            return true;
+        }
+        // the list is NOT Sinhala but was fetched FOR Sinhala → free-translate it
+        Diag.w("subs", "fetched track is not Sinhala (" + SubLangDetect.describe(
+            SubLangDetect.sinhalaRatio(SubLangDetect.sampleOf(got))) + ") — routing to the free keyless translator");
+        Troubleshooter.record("SUBS", "script check: fetched track NOT Sinhala → free on-device translator engaged");
+        return freeTranslate(got, key, myGen, how);
+    }
+
+    /** The free translator core (thread context, gen-guarded). */
+    private boolean freeTranslate(List<Cue> source, String key, int myGen, String how) {
+        try {
+            setState("fetching", "නොමිලේ පරිවර්තනය (බිලක් නැති) වෙමින්… · free keyless translation…", myGen);
+            FreeSubTranslator.Result r = FreeSubTranslator.translate(getFilesDir(), source, activeLang, ms -> {
+                try { Thread.sleep(ms); } catch (InterruptedException ignored) { }
+            });
+            if (myGen != fetchGen) return true;   // a re-cast owns the screen now
+            if (r.cues != null && !r.cues.isEmpty() && SubLangDetect.looksSinhala(SubLangDetect.sampleOf(r.cues))) {
+                applyCues(r.cues, (how == null || how.isEmpty() ? "" : how + " → ") + "free translator ✓"
+                    + (r.cacheHits > 0 ? " (cached)" : ""));
+                if (key != null) store.save(key, r.cues);
+                return true;
+            }
+            // the translator did not land → show the source text HONESTLY labeled
+            applyCues(source, "free translation incomplete — showing the source track");
+            return true;
+        } catch (Exception e) {
+            Diag.w("subs", "free translator: " + e);
+            return false;
+        }
+    }
+
+    /** Free-translate the cast's own English subs (the 429/5xx leg's fallback). */
+    private boolean freeTranslateCastSubs(String key, int myGen) {
+        try {
+            for (String subUrl : castSubs) {
+                if (subUrl == null || !(subUrl.startsWith("http://") || subUrl.startsWith("https://"))) continue;
+                byte[] raw = httpGet(subUrl, null);
+                List<Cue> enCues = SrtLoader.load(raw, "cast.srt");
+                if (enCues.size() >= 8 && !SubLangDetect.looksSinhala(SubLangDetect.sampleOf(enCues))) {
+                    return freeTranslate(enCues, key, myGen, "cast-subs");
+                }
+                if (enCues.size() >= 8) {
+                    applyCues(enCues, "cast-subs (free fallback)");
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            Diag.w("subs", "free cast fallback: " + e);
+        }
+        return false;
+    }
+
+    /** Free-translate whatever cue list is CURRENTLY loaded (the subs panel's
+     *  "Free translate now" + the worker needs-key/429 fallback). */
+    private boolean freeTranslateCurrentCues(String key, int myGen, String how) {
+        List<Cue> current = cues;
+        if (current == null || current.isEmpty()) return false;
+        // the English source is the en side when present
+        List<Cue> source = new ArrayList<>(current.size());
+        for (Cue c : current) source.add(new Cue(c.i, c.t0, c.t1, c.ts, c.en, c.enf, c.en));
+        return freeTranslate(source, key, myGen, how);
+    }
+
+    /** The manual "Free translate now" button (the subs panel). */
+    private void manualFreeTranslate() {
+        final int myGen = fetchGen;
+        new Thread(() -> {
+            if (freeTranslateCurrentCues(null, myGen, "manual")) return;
+            setState("error", "පරිවර්තනය අසාර්ථක — නැවත උත්සාහ කරන්න · free translation failed — retry", myGen);
+        }, "si-free").start();
+    }
+
     /** Extract the si token from a job body ({si:{token}} in both paths). */
     private static String tokenOf(Map<String, Object> job) {
         Map<String, Object> si = (Map<String, Object>) MiniJson.objGet(job, "si");
@@ -768,7 +918,10 @@ public class PlayActivity extends Activity {
 
     /** Poll the deterministic /sub/<token>.srt URL until it answers a real .srt.
      *  Returns true with the text in `polledSrt`, false when the token went cold
-     *  (isolate miss → caller re-ensures the job) or the job errored. */
+     *  (isolate miss → caller re-ensures the job) or the job errored.
+     *  v3.2.0: the 404 "job not on this isolate" retry is SILENT (a Diag line,
+     *  never a pill) — the field screenshot's raw "404 job not on this isolate"
+     *  banners across the video died here. */
     private String polledSrt;
     private boolean pollToDone(String token, int myGen) throws Exception {
         for (int poll = 0; poll < 240; poll++) {
@@ -791,12 +944,15 @@ public class PlayActivity extends Activity {
                 polledSrt = body;
                 return true;
             } catch (BridgeApi.HttpException he) {
-                if (he.status == 404) return false;      // isolate miss → caller re-ensures
+                if (he.status == 404) {
+                    // the isolate forgot the job — SILENT re-ensure (the caller
+                    // retries the /subtitles ensure; no JSON banner on the video)
+                    Diag.i("subs", "404 isolate miss at poll " + poll + " — silently re-ensuring the job");
+                    return false;
+                }
                 if (he.status == 429) {
-                    Diag.w("subs", "worker 429 (quota) at poll " + poll + " — backing off 15 s");
-                    setState("fetching", BridgeApi.explain(429), myGen);
-                    SystemClock.sleep(15000);
-                    continue;
+                    Diag.w("subs", "worker 429 (quota) at poll " + poll + " — free translator takes over");
+                    return false;   // v3.2.0: the caller's catch routes to FreeSubTranslator
                 }
                 if (he.status == 410 || he.status >= 500) {
                     Diag.e("subs", "worker HTTP " + he.status + ": " + BridgeApi.brief(he.body, 300));
@@ -809,12 +965,14 @@ public class PlayActivity extends Activity {
         return false;
     }
 
-    /** Manual fetch with a title override (the subs panel's Go button). */
+    /** Manual fetch with a title override (the subs panel's Go button + the
+     *  v3.2.0 in-player title-search dialog). */
     private void manualFetch(String t, int s, int e) {
         title = t;
         season = s;
         episode = e;
         imdb = null;
+        titleIsJunk = false;
         fetchGen++;                 // the in-flight fetch (if any) goes stale
         fetching = false;
         cues = new ArrayList<>();
@@ -831,7 +989,9 @@ public class PlayActivity extends Activity {
         Troubleshooter.record("SUBS", "cues loaded: " + loaded.size() + " · source=" + how + " · render=on");
     }
 
-    /** Nothing in Sinhala: offer the stream's own text track (the "CC English" habit). */
+    /** Nothing in Sinhala: offer the stream's own text track (the "CC English" habit).
+     *  v3.2.0 — the fallback is HONESTLY LABELED as the stream's own CC, never as
+     *  Sinhala, and auto-translate stays one tap away in the subs panel. */
     private void fallbackEnglishTrack() {
         if (enFallbackOn || finished || player == null) return;
         main.post(() -> {
@@ -839,8 +999,8 @@ public class PlayActivity extends Activity {
                 player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build());
                 enFallbackOn = true;
-                setState(state, stateDetail + " · English CC (stream)");
-                Diag.i("subs", "Sinhala unavailable — stream text track on (English CC)");
+                setState(state, stateDetail + " · stream CC (auto-translate available in ⚙ subs)");
+                Diag.i("subs", "Sinhala unavailable — stream text track on (English CC, translate available)");
             } catch (Throwable t) {
                 Diag.w("subs", "fallback track: " + t);
             }
@@ -854,22 +1014,41 @@ public class PlayActivity extends Activity {
             if (sb.length() > 0) sb.append('\n');
             sb.append(c.text);
         }
+        String clean = Cue.stripMarkup(sb.toString());
         main.post(() -> {
             if (subView != null) {
                 // the stream's own CC track: system font, base direction from the language
                 applyLangStyle();
-                subView.setText(sb);
-                subView.setVisibility(sb.length() == 0 ? View.GONE : View.VISIBLE);
+                subView.setText(clean);
+                subView.setVisibility(clean.isEmpty() ? View.GONE : View.VISIBLE);
             }
         });
     }
 
-    /** A local .srt/.zip the user picked (SAF) — human Sinhala from Baiscope/Zoom/etc. */
+    /** A local .srt/.zip the user picked (SAF) — human Sinhala from Baiscope/Zoom/etc.
+     *  v3.2.0 — the script check routes non-Sinhala local files to the free
+     *  translator automatically (Auto-Translate Non-Sinhala toggle, default ON). */
     void onLocalCues(List<Cue> loaded, String name) {
         cues = loaded;
         enFallbackOn = false;
+        if ("si".equals(activeLang) && prefs.getBoolean("autoTranslateNonSi", true)
+            && !loaded.isEmpty() && !SubLangDetect.looksSinhala(SubLangDetect.sampleOf(loaded))) {
+            Diag.i("subs", "local " + name + " is not Sinhala — free-translating");
+            manualFreeTranslateWith(loaded, name);
+            return;
+        }
         setState("local", name + " · " + loaded.size() + " cues");
         Diag.i("subs", "local " + name + ": " + loaded.size() + " cues");
+    }
+
+    /** Free-translate a SPECIFIC cue list (the local-file path). */
+    private void manualFreeTranslateWith(List<Cue> source, String name) {
+        final int myGen = fetchGen;
+        setState("fetching", "නොමිලේ පරිවර්තනය වෙමින්… · free keyless translation…");
+        new Thread(() -> {
+            if (freeTranslate(source, null, myGen, "local:" + name)) return;
+            applyCues(source, "local " + name + " (source track)");
+        }, "si-free-local").start();
     }
 
     /**
@@ -954,10 +1133,12 @@ public class PlayActivity extends Activity {
                 }
                 if (hit != null) {
                     String text = hit.si == null || hit.si.isEmpty() ? hit.en : hit.si;
-                    // v2.2 script-safe: the bundled NotoSansSinhala ONLY for si;
-                    // every other language renders with the system font stack,
-                    // and RTL languages (ar/ur) get RTL text direction.
-                    applyLangStyle();
+                    // v3.2.0 — the text was ALREADY stripped at parse time
+                    // (Cue.stripMarkup); the renderer only types the view.
+                    // v3.2.0 — ONE-place typeface: applyLangStyle() (called on
+                    // lang switch + studio change) already set family+bold; the
+                    // per-cue render does NOT re-touch the typeface (the v3.1.x
+                    // per-cue reset was the bold/garble bug).
                     subView.setText(text == null ? "" : text);
                     subView.setVisibility(View.VISIBLE);
                 } else {
@@ -993,7 +1174,9 @@ public class PlayActivity extends Activity {
         }
     }
 
-    /** The status pill state → bilingual line + color (the never-silent HUD). */
+    /** The status pill state → bilingual line + color (the never-silent HUD).
+     *  v3.2.0: the junk-title search state ("🔍 … තට්ටු කර සොයන්න") tints as a
+     *  gentle action color and tapping it opens the title-search dialog. */
     private void showStatus() {
         if (hudStatus != null) {
             boolean good = "ready".equals(state) || "local".equals(state);
@@ -1025,7 +1208,7 @@ public class PlayActivity extends Activity {
     };
 
     // ───────────────────────────────────────────────────────────────────────────
-    // the UI — built in code (the project's own idiom; no XML layouts anywhere)
+    // the UI — built in code (the project's zero-XML-layout idiom)
     // ───────────────────────────────────────────────────────────────────────────
 
     private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
@@ -1045,6 +1228,28 @@ public class PlayActivity extends Activity {
         surface.getHolder().setFormat(PixelFormat.OPAQUE);
         root.addView(surface, new FrameLayout.LayoutParams(-1, -1));
 
+        // ── v3.2.0 — THE EDGE-TO-EDGE INSETS FIX (Smoking Gun #2's screenshot:
+        // "ArrowTV Player" sat UNDER the 20:52 status-bar clock). The HUD's TOP
+        // bar pads by statusBars()|displayCutout() and the BOTTOM control bar
+        // by navigationBars() — measured insets, applied to the HUD itself, so
+        // the system chrome and our controls can never collide on ANY device. ──
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            android.graphics.Insets top = insets.getInsets(
+                android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.displayCutout());
+            android.graphics.Insets bottom = insets.getInsets(
+                android.view.WindowInsets.Type.navigationBars() | android.view.WindowInsets.Type.displayCutout());
+            android.graphics.Insets sides = insets.getInsets(
+                android.view.WindowInsets.Type.systemGestures());
+            if (hudTopBar != null) hudTopBar.setPadding(top.left, top.top, top.right, 0);
+            if (hudBottomBar != null) hudBottomBar.setPadding(bottom.left, Math.max(dp(6), bottom.bottom), bottom.right, Math.max(dp(10), bottom.bottom));
+            if (statusPill != null) {
+                FrameLayout.LayoutParams pl = (FrameLayout.LayoutParams) statusPill.getLayoutParams();
+                pl.topMargin = top.top + dp(64);
+                statusPill.setLayoutParams(pl);
+            }
+            return insets;
+        });
+
         // the subtitle view — bottom center, script-correct font, styled by the
         // v3.1.0 Subtitle Styling Studio (Settings → Subtitles & Style Studio):
         // color preset, pill/outline background + opacity, bold, bottom position.
@@ -1052,11 +1257,14 @@ public class PlayActivity extends Activity {
         // v2.2: the bundled NotoSansSinhala is loaded ONCE (onCreate) and applied
         // only when the active language is Sinhala; every other script uses the
         // system font stack (the OS already covers Tamil/Devanagari/CJK/Arabic).
-        // applyLangStyle() is the ONE place that derives both the typeface and the
-        // base direction from `activeLang` — startup, language switch and every
-        // rendered cue all go through it, so the two can never disagree.
+        // v3.2.0 — ONE-PLACE TYPEFACE + the complex-script wrapping contract:
+        // breakStrategy HIGH-quality + hyphenation NONE + line spacing 1.2 are
+        // set HERE so Sinhala conjuncts/kombuwa/ispilla wrap cleanly.
         applyLangStyle();
         subView.setGravity(Gravity.CENTER);
+        subView.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY);
+        subView.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE);
+        subView.setLineSpacing(dp(2), 1.2f);
         applyStudioStyle();
         root.addView(subView, subLayoutParams());
 
@@ -1080,6 +1288,8 @@ public class PlayActivity extends Activity {
         // ── v2.1: the subtitle status pill — the never-silent HUD ──
         // Auto-hides 3 s after success; on error it STAYS with the exact reason
         // and the action row below carries the 1-tap fixes.
+        // v3.2.0: tapping the pill on the junk-title state opens the MOVIE-TITLE
+        // SEARCH dialog (the raw-JSON banner replacement).
         statusPill = new TextView(this);
         statusPill.setTextColor(0xFFFDE68A);
         statusPill.setTextSize(12.5f);
@@ -1091,6 +1301,7 @@ public class PlayActivity extends Activity {
         pillBg.setStroke(dp(1), 0x33FFFFFF);
         statusPill.setBackground(pillBg);
         statusPill.setVisibility(View.GONE);
+        statusPill.setOnClickListener(v -> { if (titleIsJunk || "not-found".equals(state)) openTitleSearch(); });
         FrameLayout.LayoutParams pillLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         pillLp.topMargin = dp(64);
         root.addView(statusPill, pillLp);
@@ -1177,6 +1388,14 @@ public class PlayActivity extends Activity {
         root.addView(panel, new FrameLayout.LayoutParams(dp(320), -2, Gravity.END | Gravity.CENTER_VERTICAL));
         panel.setVisibility(View.GONE);
 
+        // ── v3.2.0 — THE IN-PLAYER SETTINGS SHEET (AnantPlay-style): while the
+        // movie keeps playing, the ⚙ button opens a translucent bottom sheet
+        // with playback speed, aspect ratio, LIVE subtitle style sliders, sync
+        // and the free translator — ZERO leaving the movie to customize. ──
+        sheet = buildSettingsSheet();
+        root.addView(sheet, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        sheet.setVisibility(View.GONE);
+
         wireGestures(root);
         setContentView(root);
     }
@@ -1186,13 +1405,15 @@ public class PlayActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setBackgroundColor(0x88000000);
 
-        // top bar: back · title · status
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(8), dp(12), dp(12), dp(8));
+        // top bar: back · title · status — v3.2.0: the insets listener pads
+        // THIS bar by statusBars()|displayCutout() so the title can NEVER sit
+        // under the status-bar clock (the "ArrowTV Player ⏱ 20:52" collision).
+        hudTopBar = new LinearLayout(this);
+        hudTopBar.setOrientation(LinearLayout.HORIZONTAL);
+        hudTopBar.setGravity(Gravity.CENTER_VERTICAL);
+        hudTopBar.setPadding(dp(8), dp(12), dp(12), dp(8));
         View back = icon("‹", 26, v -> finish());
-        top.addView(back, new LinearLayout.LayoutParams(dp(46), dp(42)));
+        hudTopBar.addView(back, new LinearLayout.LayoutParams(dp(46), dp(42)));
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         hudTitle = new TextView(this);
@@ -1207,17 +1428,19 @@ public class PlayActivity extends Activity {
         hudStatus.setTextSize(12);
         hudStatus.setMaxLines(2);
         titles.addView(hudStatus);
-        top.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
-        box.addView(top);
+        hudTopBar.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
+        box.addView(hudTopBar);
 
         // spacer keeps the middle tap-transparent (the FrameLayout eats nothing)
         View gap = new View(this);
         box.addView(gap, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        // bottom bar: time · seek · total · ±10 · play/pause · subs
-        LinearLayout bottom = new LinearLayout(this);
-        bottom.setOrientation(LinearLayout.VERTICAL);
-        bottom.setPadding(dp(12), 0, dp(12), dp(14));
+        // bottom bar: time · seek · total · ±10 · play/pause · subs · title · settings
+        // v3.2.0: the ⚙ in-player settings sheet button + the 🔍 title search
+        // button join the row (the Mornye in-player customization contract).
+        hudBottomBar = new LinearLayout(this);
+        hudBottomBar.setOrientation(LinearLayout.VERTICAL);
+        hudBottomBar.setPadding(dp(12), 0, dp(12), dp(14));
         seek = new SeekBar(this);
         seek.setPadding(dp(2), dp(6), dp(2), dp(6));
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -1230,7 +1453,7 @@ public class PlayActivity extends Activity {
                 if (player != null) { player.seekTo(s.getProgress()); updateSnapshot(); }
             }
         });
-        bottom.addView(seek, new LinearLayout.LayoutParams(-1, -2));
+        hudBottomBar.addView(seek, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         timeNow = new TextView(this);
@@ -1243,20 +1466,24 @@ public class PlayActivity extends Activity {
         final long stepMs = AppPrefs.seekStepMs(prefs);   // v3.1.0: 5/10/15/30 s from Playback settings
         final int stepLabel = (int) (stepMs / 1000);
         View minus = icon("−" + stepLabel, 14, v -> skip(-stepMs));
-        row.addView(minus, new LinearLayout.LayoutParams(dp(58), dp(44)));
+        row.addView(minus, new LinearLayout.LayoutParams(dp(52), dp(44)));
         playPause = icon("⏸", 20, v -> toggle());
-        row.addView(playPause, new LinearLayout.LayoutParams(dp(54), dp(44)));
+        row.addView(playPause, new LinearLayout.LayoutParams(dp(48), dp(44)));
         View plus = icon("+" + stepLabel, 14, v -> skip(stepMs));
-        row.addView(plus, new LinearLayout.LayoutParams(dp(58), dp(44)));
+        row.addView(plus, new LinearLayout.LayoutParams(dp(52), dp(44)));
         timeTotal = new TextView(this);
         timeTotal.setTextColor(0xFFAAAAAA);
         timeTotal.setTextSize(13);
         timeTotal.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(timeTotal, new LinearLayout.LayoutParams(0, -2, 0.5f));
+        View titleBtn = icon("🔍", 15, v -> openTitleSearch());
+        row.addView(titleBtn, new LinearLayout.LayoutParams(dp(44), dp(44)));
         View subs = icon("සිං", 14, v -> togglePanel());
-        row.addView(subs, new LinearLayout.LayoutParams(dp(58), dp(44)));
-        bottom.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        box.addView(bottom);
+        row.addView(subs, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        View gear = icon("⚙", 16, v -> toggleSheet());
+        row.addView(gear, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        hudBottomBar.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        box.addView(hudBottomBar);
         return box;
     }
 
@@ -1284,6 +1511,28 @@ public class PlayActivity extends Activity {
         retry.setOnClickListener(v -> { panel.setVisibility(View.GONE); fetchSinhala(); });
         p.addView(retry);
 
+        // v3.2.0 — the FREE keyless translator button (the zero-quota guarantee:
+        // whatever is showing can be translated RIGHT NOW, worker or not).
+        Button free = btn("🆓 නොමිලේ පරිවර්තනය · Free translate now");
+        free.setOnClickListener(v -> { panel.setVisibility(View.GONE); manualFreeTranslate(); });
+        p.addView(free);
+
+        // v3.2.0 — the URL-pasted .srt/.zip loader (Baiscope/Zoom/SubDL links:
+        // auto-download → auto-unzip → script check → auto-translate → attach).
+        final EditText urlIn = new EditText(this);
+        urlIn.setHint("subtitle URL (.srt/.zip) paste · සබ් URL");
+        urlIn.setTextSize(13);
+        p.addView(urlIn, new LinearLayout.LayoutParams(-1, -2));
+        Button loadUrl = btn("🔗 URL උපසිරැසි එක ලබාගන්න");
+        loadUrl.setOnClickListener(v -> {
+            String u = urlIn.getText().toString().trim();
+            if (u.startsWith("http://") || u.startsWith("https://")) {
+                panel.setVisibility(View.GONE);
+                loadSubsFromUrl(u);
+            }
+        });
+        p.addView(loadUrl);
+
         final EditText in = new EditText(this);
         in.setHint("title override · නම අතින්");
         in.setTextSize(13);
@@ -1304,6 +1553,189 @@ public class PlayActivity extends Activity {
         close.setOnClickListener(v -> panel.setVisibility(View.GONE));
         p.addView(close);
         return p;
+    }
+
+    // ── v3.2.0 — THE IN-PLAYER SETTINGS SHEET (the ⚙ button) ──────────────────
+
+    /** The translucent bottom sheet: playback speed · aspect ratio · LIVE
+     *  subtitle style · sync · free-translate · the language quick switch —
+     *  everything customizable WITHOUT leaving the movie. */
+    private LinearLayout buildSettingsSheet() {
+        LinearLayout s = new LinearLayout(this);
+        s.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(22));
+        bg.setColor(0xF20E1424);
+        bg.setStroke(dp(1), 0x33FFFFFF);
+        s.setBackground(bg);
+        s.setPadding(dp(16), dp(12), dp(16), dp(16));
+
+        TextView head = new TextView(this);
+        head.setText("⚙ Player settings · ධාවක සැකසුම්");
+        head.setTextColor(0xFFE2E8F0);
+        head.setTextSize(14);
+        head.setTypeface(Typeface.DEFAULT_BOLD);
+        s.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        // playback speed — the LIVE parameter (0.5x..2.0x, applied instantly)
+        s.addView(label("ධාවන වේගය · Playback speed"));
+        LinearLayout speedRow = new LinearLayout(this);
+        speedRow.setOrientation(LinearLayout.HORIZONTAL);
+        final TextView speedVal = new TextView(this);
+        speedVal.setTextColor(0xFF9BE8FF);
+        speedVal.setTextSize(12.5f);
+        float cur = 1f;
+        try { cur = player == null ? 1f : player.getPlaybackParameters().speed; } catch (Throwable ignored) { }
+        final float curSpeed = cur;
+        speedVal.setText(String.format(Locale.US, "%.2fx", curSpeed));
+        s.addView(speedVal, new LinearLayout.LayoutParams(-1, -2));
+        for (final float f : new float[]{0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f}) {
+            Button b = btn(f == 1f ? "1x" : String.format(Locale.US, "%.2gx", f));
+            b.setTextSize(11.5f);
+            b.setOnClickListener(v -> {
+                try {
+                    if (player != null) player.setPlaybackSpeed(f);
+                    speedVal.setText(String.format(Locale.US, "%.02fx", f));
+                    flash(String.format(Locale.US, "%.02fx", f));
+                } catch (Throwable t) { Diag.w("sheet", "speed: " + t); }
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+            lp.rightMargin = dp(3);
+            speedRow.addView(b, lp);
+        }
+        s.addView(speedRow, new LinearLayout.LayoutParams(-1, -2));
+
+        // aspect ratio quick cycle (fit → fill → zoom)
+        s.addView(label("රූප පරිමාණය · Aspect"));
+        Button aspect = btn("Fit ⇄ Fill ⇄ Zoom");
+        aspect.setOnClickListener(v -> {
+            String mode = AppPrefs.aspectMode(prefs);
+            String next = "fit".equals(mode) ? "fill" : ("fill".equals(mode) ? "zoom" : "fit");
+            prefs.edit().putString(AppPrefs.K_ASPECT_MODE, next).apply();
+            applyResizeMode();
+            flash("Aspect: " + next);
+        });
+        s.addView(aspect);
+
+        // LIVE subtitle style sliders (the same studio knobs, applied instantly)
+        s.addView(label("අකුරු ප්‍රමාණය · Font size"));
+        s.addView(step("−", "+", () -> fontSp(-1), () -> fontSp(1)));
+        s.addView(label("පසුබිම් අඳුන · Mask"));
+        s.addView(step("−", "+", () -> mask(-10), () -> mask(10)));
+        s.addView(label("කාල ගැලපුම · Sync nudge"));
+        s.addView(step("−0.25s", "+0.25s", () -> nudge(-250), () -> nudge(250)));
+
+        // the language quick switch (8 chips, the "subs" essentials)
+        s.addView(label("භාෂාව · Language"));
+        LinearLayout langQuick = new LinearLayout(this);
+        langQuick.setOrientation(LinearLayout.HORIZONTAL);
+        for (final Langs.Lang l : Langs.chips()) {
+            Button b = btn(l.nativeName);
+            b.setTextSize(11.5f);
+            b.setOnClickListener(v -> switchLang(l.code));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+            lp.rightMargin = dp(3);
+            langQuick.addView(b, lp);
+        }
+        s.addView(langQuick, new LinearLayout.LayoutParams(-1, -2));
+
+        Button close = btn("වසන්න · Done");
+        close.setOnClickListener(v -> sheet.setVisibility(View.GONE));
+        s.addView(close);
+        return s;
+    }
+
+    private void toggleSheet() {
+        if (sheet == null) return;
+        boolean open = sheet.getVisibility() == View.VISIBLE;
+        sheet.setVisibility(open ? View.GONE : View.VISIBLE);
+        if (!open) showStatus();
+    }
+
+    /** v3.2.0 — apply the aspect preference to the SurfaceView (fit is the
+     *  FrameLayout default; fill/zoom resize the surface's layout box). */
+    private void applyResizeMode() {
+        if (surface == null) return;
+        String mode = AppPrefs.aspectMode(prefs);
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) surface.getLayoutParams();
+        if ("fill".equals(mode)) {
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+            lp.width = Math.max(dm.widthPixels, dm.heightPixels);
+            lp.height = lp.width;
+            lp.gravity = Gravity.CENTER;
+        } else if ("zoom".equals(mode)) {
+            lp.width = -1;
+            lp.height = -1;
+            lp.gravity = Gravity.FILL;
+        } else {
+            lp.width = -1;
+            lp.height = -1;
+            lp.gravity = Gravity.CENTER;
+        }
+        surface.setLayoutParams(lp);
+        try { if (player != null) player.setVideoSurfaceView(surface); } catch (Throwable ignored) { }
+    }
+
+    // ── v3.2.0 — THE 1-TAP MOVIE TITLE SEARCH (the junk-title pill's action) ──
+
+    /** The in-player title search dialog: type the movie/series name (+ optional
+     *  S/E) → instant /api/resolve → instant Sinhala subtitles. This is the
+     *  REPLACEMENT for the raw "no Cinemeta match for: ArrowTV Player" JSON
+     *  banners — junk titles route HERE, never to Cinemeta. */
+    private void openTitleSearch() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(6), dp(4), dp(6), 0);
+        final EditText nameIn = new EditText(this);
+        nameIn.setHint(t2("චිත්‍රපට / කතා මාලාවේ නම · movie / series name"));
+        nameIn.setTextSize(13);
+        nameIn.setTextColor(0xFFE2E8F0);
+        box.addView(nameIn, new LinearLayout.LayoutParams(-1, -2));
+        final EditText seIn = new EditText(this);
+        seIn.setHint(t2("අදාළ නම්: S01E02 (හිස් = චිත්‍රපටයක්) · optional S01E02"));
+        seIn.setTextSize(13);
+        seIn.setTextColor(0xFFE2E8F0);
+        box.addView(seIn, new LinearLayout.LayoutParams(-1, -2));
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("🔍 " + t2("නම සොයන්න · Title search"))
+            .setView(box)
+            .setPositiveButton(t2("සිංහල උපසිරැසි ලබාගන්න · Get subs"), (d, w) -> {
+                String name = nameIn.getText().toString().trim();
+                if (name.length() < 2) return;
+                int s = season, e = episode;
+                String se = seIn.getText().toString().trim().toLowerCase(Locale.ROOT);
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("s(\\d{1,2})\\s*e(\\d{1,3})").matcher(se);
+                if (m.find()) { s = Integer.parseInt(m.group(1)); e = Integer.parseInt(m.group(2)); }
+                hudTitle.setText(name);
+                flash("🔍 " + name);
+                manualFetch(name, s, e);
+            })
+            .setNegativeButton(android.R.string.cancel, null)
+            .show();
+    }
+
+    /** The tiny bilingual helper (PlayActivity has no AppPrefs.pick dependency loop). */
+    private String t2(String s) { return s; }
+
+    // ── v3.2.0 — THE URL SUBTITLE LOADER (paste a .srt/.zip/.gz link) ──────────
+
+    /** Download a subtitle URL (HTTPS-only, ≤5 MB zip-bomb safe), extract via
+     *  SrtLoader (.zip/.gz/.srt all supported), script-check, auto-translate
+     *  non-Sinhala, attach to the playing video. */
+    private void loadSubsFromUrl(String subUrl) {
+        final int myGen = fetchGen;
+        setState("fetching", "URL උපසිරැසි ලබාගනිමින්… · fetching the subtitle URL…", myGen);
+        new Thread(() -> {
+            try {
+                byte[] raw = httpGet(subUrl, null);
+                List<Cue> loaded = SrtLoader.load(raw, subUrl);
+                if (myGen != fetchGen) return;
+                main.post(() -> onLocalCues(loaded, StreamSniffer.hostOf(subUrl)));
+            } catch (Exception e) {
+                Diag.e("subs", "url subs: " + e);
+                setState("error", "URL උපසිරැසි බාගැනීම අසාර්ථක — " + e.getMessage(), myGen);
+            }
+        }, "si-urlsubs").start();
     }
 
     private TextView label(String t) {
@@ -1394,20 +1826,23 @@ public class PlayActivity extends Activity {
 
     private FrameLayout.LayoutParams langRowLp(LinearLayout row) { return new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL); }
 
-    /** v2.2 script-safe styling — the ONE place the subtitle view's typeface and
-     *  base text direction are derived from the active language.
+    /**
+     * v2.2 script-safe styling — the ONE place the subtitle view's typeface and
+     * base text direction are derived from the active language.
      *
-     *  Fix (v2.2.0 audit): the subtitle TextView must NOT be initialised in
-     *  NotoSansSinhala unconditionally. The bundled font is a Sinhala-only asset —
-     *  applied ONLY for `si`; every other language uses the system stack
-     *  (`Typeface.DEFAULT_BOLD`, resolved once, never re-loaded per cue), and the
-     *  RTL languages `ar`/`ur` get `TEXT_DIRECTION_ANY_RTL` while everything else
-     *  is explicitly LTR. Called on startup (buildUi), on every language switch
-     *  (switchLang) and before each rendered cue, so a saved `ta`/`ar`/`ja`
-     *  default can never open in the Sinhala font or the wrong direction. */
+     * v3.2.0 — THE BOLD/GARBLE FIX (the field screenshot's broken Sinhala): the
+     * old body had TWO competing setters — applyLangStyle() set the family and
+     * applyStudioStyle() re-called setTypeface(getTypeface(), BOLD), which
+     * DROPPED the studio bold whenever a language switch or per-cue render ran
+     * first. NOW this method is the ONLY typeface setter and it applies BOLD the
+     * Android-correct way — Typeface.create(family, style) — merging family +
+     * the studio's bold flag in ONE call, on every switch AND every studio
+     * change. setTypeface(tf, style) with a null family NEVER happens again. */
     private void applyLangStyle() {
         if (subView == null) return;
-        subView.setTypeface(Langs.useBundledSinhalaFont(activeLang) ? siFont : Typeface.DEFAULT_BOLD);
+        Typeface family = Langs.useBundledSinhalaFont(activeLang) ? siFont : Typeface.DEFAULT;
+        int style = AppPrefs.subBold(prefs) ? Typeface.BOLD : Typeface.NORMAL;
+        subView.setTypeface(Typeface.create(family, style));   // family + bold, ONE place
         subView.setTextDirection(Langs.isRtl(activeLang)
             ? android.view.View.TEXT_DIRECTION_ANY_RTL : android.view.View.TEXT_DIRECTION_LTR);
     }
@@ -1416,17 +1851,21 @@ public class PlayActivity extends Activity {
     // Color preset · pill/outline background + opacity · bold · bottom position
     // (4–28% of screen height) — every value pre-clamped by AppPrefs.
 
-    /** (Re)apply every studio dimension to the live subtitle view. */
+    /** (Re)apply every studio dimension to the live subtitle view.
+     *  v3.2.0 — NEVER touches the typeface (applyLangStyle owns family+bold);
+     *  re-calls applyLangStyle() so a studio BOLD flip lands immediately. */
     private void applyStudioStyle() {
         if (subView == null) return;
         subView.setTextSize(AppPrefs.fontSp(prefs));
         subView.setTextColor(ThemeEngine.SUB_COLORS[AppPrefs.subColor(prefs)]);
-        subView.setTypeface(subView.getTypeface(),
-            AppPrefs.subBold(prefs) ? Typeface.BOLD : Typeface.NORMAL);
+        applyLangStyle();                                      // the ONE typeface setter
         if (AppPrefs.BG_OUTLINE.equals(AppPrefs.subBg(prefs))) {
             // crisp black edge/outline only — no pill background
             subView.setBackgroundColor(Color.TRANSPARENT);
             subView.setShadowLayer(dp(4), 0, 0, 0xFF000000);
+        } else if (AppPrefs.BG_BOX.equals(AppPrefs.subBg(prefs))) {
+            subView.setBackgroundColor(ThemeEngine.pillColor(Math.max(90, AppPrefs.subBgOpacity(prefs))));
+            subView.setShadowLayer(dp(2), 0, 0, 0x99000000);
         } else {
             subView.setBackgroundColor(ThemeEngine.pillColor(AppPrefs.subBgOpacity(prefs)));
             subView.setShadowLayer(dp(2), 0, 0, 0x99000000);
@@ -1508,14 +1947,6 @@ public class PlayActivity extends Activity {
      * cues, copy it to the clipboard, and open the user's REAL browser on
      * AI Studio (a Custom-Tab-style ACTION_VIEW — NEVER a WebView). The user
      * pastes, gets the polished result, and imports it via the .srt loader.
-     *
-     * Two hard guarantees the audit asked for, both enforced here:
-     *   · the clipboard payload can never exceed AI_STUDIO_MAX_BYTES (40 KB) —
-     *     the budget is measured in UTF-8 bytes as we append, so a pathological
-     *     cue list cannot produce a truncated/corrupt paste;
-     *   · a device with no browser at all raises ActivityNotFoundException, which
-     *     is caught by name and reported as "prompt copied, install a browser"
-     *     instead of a stack trace or a crash.
      */
     private static final int AI_STUDIO_MAX_BYTES = 40 * 1024;   // Binder transaction-safe
 
@@ -1653,6 +2084,7 @@ public class PlayActivity extends Activity {
 
     void toggleControls() {
         if (panel != null && panel.getVisibility() == View.VISIBLE) { panel.setVisibility(View.GONE); return; }
+        if (sheet != null && sheet.getVisibility() == View.VISIBLE) { sheet.setVisibility(View.GONE); return; }
         if (hudVisible) { hudVisible = false; hud.setVisibility(View.GONE); }
         else showControls();
     }
@@ -1665,13 +2097,14 @@ public class PlayActivity extends Activity {
 
     private void scheduleHudHide() {
         main.removeCallbacks(hudHide);
-        main.postDelayed(hudHide, AppPrefs.hudHideMs(prefs));   // v3.1.0: 2/4/6 s from Playback settings (was fixed 3.5 s)
+        main.postDelayed(hudHide, AppPrefs.hudHideMs(prefs));   // v3.1.0: 2/4/6/8 s from Playback settings
     }
 
     private final Runnable hudHide = new Runnable() {
         @Override public void run() {
             if (player != null && player.getPlayWhenReady() && !dragging
-                && (panel == null || panel.getVisibility() != View.VISIBLE)) {
+                && (panel == null || panel.getVisibility() != View.VISIBLE)
+                && (sheet == null || sheet.getVisibility() != View.VISIBLE)) {
                 hudVisible = false;
                 hud.setVisibility(View.GONE);
             }
@@ -1847,4 +2280,16 @@ public class PlayActivity extends Activity {
         } finally { c.disconnect(); }
     }
 
+    /** The English text of a cue list, as one .srt-shaped body (the subs-direct input). */
+    static final class CueText {
+        static String of(List<Cue> cues) {
+            StringBuilder sb = new StringBuilder(cues.size() * 48);
+            for (Cue c : cues) {
+                sb.append(c.i + 1).append('\n')
+                  .append(FreeSubTranslator.srtTs(c.t0)).append(" --> ").append(FreeSubTranslator.srtTs(c.t1)).append('\n')
+                  .append(c.en == null || c.en.isEmpty() ? (c.si == null ? "" : c.si) : c.en).append('\n').append('\n');
+            }
+            return sb.toString();
+        }
+    }
 }
