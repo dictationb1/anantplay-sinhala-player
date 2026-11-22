@@ -70,7 +70,11 @@ public final class AppPrefs {
     public static final String K_AUTO_RESUME = "autoResume";         // bool
     public static final String K_HUD_HIDE_MS = "hudHideMs";          // 2000|4000|6000|8000
     public static final String K_PLAY_SPEED = "playSpeed";           // v3.2.0: per-mille (50..200 → 0.5x..2.0x)
-    public static final String K_ASPECT_MODE = "aspectMode";         // v3.2.0: fit|fill|zoom
+    public static final String K_ASPECT_MODE = "aspectMode";         // v3.3.0: fit|fill|16:9|stretch
+    public static final String K_SWIPE_BRIGHTNESS = "swipeBrightness";  // v3.3.0: bool (left-half vertical swipe)
+    public static final String K_SWIPE_VOLUME = "swipeVolume";          // v3.3.0: bool (right-half vertical swipe)
+    public static final String K_SWIPE_SEEK = "swipeSeek";              // v3.3.0: bool (horizontal swipe seek)
+    public static final String K_LOCK_ON_START = "lockOnStart";         // v3.3.0: bool (start with the HUD locked)
     public static final String K_DOH_DIAG = "dohDiag";               // bool
     public static final String K_RECEIVER_NAME = "receiverName";     // free text (trimmed, ≤64)
     public static final String K_RECEIVER_PORT = "receiverPort";      // v3.2.0: 1024..65535 (8765 default)
@@ -93,6 +97,7 @@ public final class AppPrefs {
         K_SUB_ENGINE, K_AUTO_TRANSLATE_NON_SI, K_AUTO_ZIP,
         K_SYNC_STEP_MS, K_SEEK_STEP_MS, K_GESTURES, K_DOUBLE_TAP_SEEK, K_AUTO_PIP, K_KEEP_SCREEN_ON,
         K_AUTO_RESUME, K_HUD_HIDE_MS, K_PLAY_SPEED, K_ASPECT_MODE,
+        K_SWIPE_BRIGHTNESS, K_SWIPE_VOLUME, K_SWIPE_SEEK, K_LOCK_ON_START,
         K_DOH_DIAG, K_RECEIVER_NAME, K_RECEIVER_PORT, K_DLNASTART, K_MDNS,
         K_WORKER_URL, K_AUTO_UPDATE, K_AUTO_OPEN_SNIFFED, K_WEB_DESKTOP_UA,
         K_AD_BLOCK, K_WEB_LINKS, K_FREE_TRANSLATOR);
@@ -108,7 +113,8 @@ public final class AppPrefs {
     public static final String FONT_NOTO = "noto", FONT_SYSTEM = "system", FONT_SERIF = "serif";
     public static final String ENGINE_HUMAN_PA_FREE = "human-pa-free", ENGINE_HUMAN_FREE = "human-free",
         ENGINE_FREE = "free", ENGINE_WORKER = "worker";
-    public static final String ASPECT_FIT = "fit", ASPECT_FILL = "fill", ASPECT_ZOOM = "zoom";
+    public static final String ASPECT_FIT = "fit", ASPECT_FILL = "fill", ASPECT_ZOOM = "zoom",
+        ASPECT_169 = "16:9", ASPECT_STRETCH = "stretch";
 
     public static String normalizeThemeMode(String v) {
         return THEME_DARK.equals(v) || THEME_AMOLED.equals(v) || THEME_LIGHT.equals(v)
@@ -151,7 +157,9 @@ public final class AppPrefs {
         return FONT_SYSTEM.equals(v) || FONT_SERIF.equals(v) ? v : FONT_NOTO;
     }
 
-    public static int normalizeFontSp(int v) { return clampTo(v, 14, 40); }
+    /** v3.3.0 — the subtitle size range the Cinema Player promises: 12..36 sp
+     *  (was 14..40; the 22 sp default is what made v3.2.0's subtitles "oversized"). */
+    public static int normalizeFontSp(int v) { return clampTo(v, 12, 36); }
 
     public static int normalizeSubColor(int v) { return clampTo(v, 0, ThemeEngine.SUB_COLORS.length - 1); }
 
@@ -186,8 +194,12 @@ public final class AppPrefs {
     /** v3.2.0 — default playback speed stored as per-mille (50..200). */
     public static int normalizePlaySpeed(int v) { return clampTo(v, 50, 200); }
 
+    /** v3.3.0 — fit | fill | 16:9 | stretch. "zoom" (v3.2.0's fill alias) stays valid so an
+     *  old backup restores into the new model; anything unknown is the safe FIT. */
     public static String normalizeAspectMode(String v) {
-        return ASPECT_FILL.equals(v) || ASPECT_ZOOM.equals(v) ? v : ASPECT_FIT;
+        if (ASPECT_FILL.equals(v) || ASPECT_ZOOM.equals(v)) return ASPECT_FILL;
+        if (ASPECT_169.equals(v) || ASPECT_STRETCH.equals(v)) return v;
+        return ASPECT_FIT;
     }
 
     /** v3.2.0 — the receiver port override (1024..65535, 8765 default). */
@@ -343,7 +355,15 @@ public final class AppPrefs {
     public static boolean compact(SharedPreferences p) { return DENSITY_COMPACT.equals(normalizeDensity(p.getString(K_DENSITY, DENSITY_COMFORTABLE))); }
     public static boolean showWebTab(SharedPreferences p) { return p.getBoolean(K_SHOW_WEB_TAB, true); }
     public static boolean showQuickActions(SharedPreferences p) { return p.getBoolean(K_SHOW_QUICK_ACTIONS, true); }
-    public static int fontSp(SharedPreferences p) { return normalizeFontSp(p.getInt(K_FONT_SP, 22)); }
+    /** v3.3.0 — the cinema default: 18 sp portrait (was 22) / 20 sp landscape. */
+    public static int fontSp(SharedPreferences p) { return normalizeFontSp(p.getInt(K_FONT_SP, 18)); }
+
+    /** The size actually rendered: +2 sp in landscape (cinema default 18 → 20), still
+     *  clamped to the 12..36 range so a user's 36 never overflows. */
+    public static int fontSpFor(SharedPreferences p, boolean landscape) {
+        int base = fontSp(p);
+        return normalizeFontSp(landscape ? base + 2 : base);
+    }
     public static String fontFamily(SharedPreferences p) { return normalizeFontFamily(p.getString(K_FONT_FAMILY, FONT_NOTO)); }
     public static int subColor(SharedPreferences p) { return normalizeSubColor(p.getInt(K_SUB_COLOR, 0)); }
     public static String subBg(SharedPreferences p) { return normalizeSubBg(p.getString(K_SUB_BG, BG_PILL)); }
@@ -364,6 +384,11 @@ public final class AppPrefs {
     public static long hudHideMs(SharedPreferences p) { return normalizeHudHide(p.getLong(K_HUD_HIDE_MS, 4000)); }
     public static int playSpeedPm(SharedPreferences p) { return normalizePlaySpeed(p.getInt(K_PLAY_SPEED, 100)); }
     public static String aspectMode(SharedPreferences p) { return normalizeAspectMode(p.getString(K_ASPECT_MODE, ASPECT_FIT)); }
+    /** v3.3.0 — the gesture toggles (all ON by default: the VLC contract). */
+    public static boolean swipeBrightness(SharedPreferences p) { return p.getBoolean(K_SWIPE_BRIGHTNESS, true); }
+    public static boolean swipeVolume(SharedPreferences p) { return p.getBoolean(K_SWIPE_VOLUME, true); }
+    public static boolean swipeSeek(SharedPreferences p) { return p.getBoolean(K_SWIPE_SEEK, true); }
+    public static boolean lockOnStart(SharedPreferences p) { return p.getBoolean(K_LOCK_ON_START, false); }
     public static boolean dohDiag(SharedPreferences p) { return p.getBoolean(K_DOH_DIAG, true); }
     public static boolean cinemaPolish(SharedPreferences p) { return p.getBoolean(K_CINEMA_POLISH, true); }
     public static String receiverName(SharedPreferences p) { return normalizeReceiverName(p.getString(K_RECEIVER_NAME, null)); }

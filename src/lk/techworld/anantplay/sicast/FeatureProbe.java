@@ -51,6 +51,11 @@ public final class FeatureProbe {
 
     private FeatureProbe() { }
 
+    /** v3.3.0 — the navigation-shell verdict. Set by MainActivity.measureShell() on
+     *  every resume; it lives HERE (not in MainActivity) so this probe engine stays
+     *  free of Android imports and the lab can compile + run it on a bare JVM. */
+    static volatile boolean shellOk = false;
+
     /** One probe's outcome (immutable after finish). */
     public static final class Outcome {
         public final int id;          // 1..10
@@ -341,7 +346,7 @@ public final class FeatureProbe {
                 settings.put(AppPrefs.K_SUB_LINE_SPACING, 130);
                 settings.put(AppPrefs.K_SUB_ENGINE, "human-pa-free");
                 settings.put(AppPrefs.K_PLAY_SPEED, 125);
-                settings.put(AppPrefs.K_ASPECT_MODE, "zoom");
+                settings.put(AppPrefs.K_ASPECT_MODE, "16:9");
                 settings.put(AppPrefs.K_WEB_LINKS, "Baiscope|https://baiscope.lk\nTest|https://example.com");
                 String doc = SettingsBackup.export("3.2.0", System.currentTimeMillis(), settings);
                 SettingsBackup.Import imp = SettingsBackup.parseImport(doc);
@@ -352,14 +357,33 @@ public final class FeatureProbe {
                     && Integer.valueOf(26).equals(imp.values.get(AppPrefs.K_FONT_SP))
                     && Integer.valueOf(130).equals(imp.values.get(AppPrefs.K_SUB_LINE_SPACING))
                     && Integer.valueOf(125).equals(imp.values.get(AppPrefs.K_PLAY_SPEED))
-                    && "zoom".equals(imp.values.get(AppPrefs.K_ASPECT_MODE));
+                    && "16:9".equals(imp.values.get(AppPrefs.K_ASPECT_MODE));
                 boolean linksOk = AppPrefs.parseLinks(String.valueOf(imp.values.get(AppPrefs.K_WEB_LINKS))).size() == 2;
                 String crash = CrashLog.read(filesDir);
                 String crashState = crash == null ? "none captured"
                     : (CrashLog.staleFor(crash, AppInfo.VERSION_CODE, System.currentTimeMillis())
                         ? "stale (older versionCode — auto-cleared on next start)" : "captured (this version)");
-                o.pass = roundTrip && linksOk;
+                // ── v3.3.0 — THE THREE STRUCTURAL INVARIANTS that today's four
+                // field bugs violated, re-proved on EVERY troubleshoot run:
+                //   · the HTTP-403 header engine (browser UA + Origin + Accept)
+                //   · the aspect-ratio math (1920×1080 in a 1080×2400 portrait phone
+                //     must be 1080×608, never a 1080×2400 stretch)
+                //   · the navigation shell (bottom bar laid out INSIDE the window)
+                java.util.Map<String, String> h = StreamHttpConfig.normalize(null, null,
+                    "https://cdn.example.com/movie/index.m3u8");
+                boolean httpOk = StreamHttpConfig.CHROME_UA.equals(h.get("User-Agent"))
+                    && "*/*".equals(h.get("Accept"))
+                    && "https://cdn.example.com".equals(h.get("Origin"))
+                    && !StreamHttpConfig.isBlockedUa(h.get("User-Agent"));
+                int[] fit = VideoViewport.compute(1920, 1080, 1f, 1080, 2400, VideoViewport.FIT);
+                int[] fill = VideoViewport.compute(1920, 1080, 1f, 1080, 2400, VideoViewport.FILL);
+                boolean aspectOk = fit[0] == 1080 && fit[1] == 608 && fill[0] == 4267 && fill[1] == 2400;
+                boolean layoutOk = shellOk;
+                o.pass = roundTrip && linksOk && httpOk && aspectOk && layoutOk;
                 o.detail = "backup round-trip " + (roundTrip ? "✓" : "✗") + " · links " + (linksOk ? "✓" : "✗")
+                    + " · HTTP-403 headers " + (httpOk ? "✓" : "✗")
+                    + " · aspect 1080×608 " + (aspectOk ? "✓" : "✗")
+                    + " · nav shell " + (layoutOk ? "✓" : "✗")
                     + " · crash log: " + crashState;
             } catch (Exception e) {
                 o.pass = false;

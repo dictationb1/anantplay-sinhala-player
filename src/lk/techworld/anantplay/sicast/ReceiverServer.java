@@ -52,6 +52,18 @@ public final class ReceiverServer {
     public static final int PREFERRED_PORT = 8765;   // AnantPlay's convention (Cast.java:58)
     public static final int MAX_BODY = 256 * 1024;   // AnantPlay's own cap (Cast.java:110)
 
+    /**
+     * v3.3.0 AUDIT FIX — the loopback subtitle route that makes {@code 📺 VLC} work.
+     *
+     * <p>An external player runs in another process/UID and can NEVER read our private
+     * {@code cache/} directory, and an outgoing {@code file://} Uri would throw
+     * {@code FileUriExposedException}. The one thing VLC/MX/mpv CAN read is an HTTP URL
+     * — so the active Sinhala .srt is served here, from our own already-running
+     * loopback/LAN receiver, under the exact same "source must be this device"
+     * {@link LocalNet#isSelf} gate that protects /play and /do.
+     */
+    public static final String SUBS_PATH = "/subs/current.srt";
+
     /** What the server needs from its host. The Android service implements it with the
      *  real player; the lab implements it with a fake — the protocol code never changes. */
     public interface Backend {
@@ -83,6 +95,9 @@ public final class ReceiverServer {
      *  network callback. When a fresh HyperOS enumeration fails, the isSelf decision
      *  falls back to this list instead of refusing a same-device cast. */
     private volatile List<byte[]> ownSnapshot = new java.util.ArrayList<>();
+    /** v3.3.0 audit — the SRT body served at {@link #SUBS_PATH} (null / blank → 404).
+     *  A String, not a File: nothing of ours is ever exposed from the cache directory. */
+    private volatile String subsSrt;
     /** At most 12 in-flight requests: AnantPlay sends one at a time; a flood is dropped. */
     private static final int MAX_INFLIGHT = 12;
     private final AtomicInteger inFlight = new AtomicInteger();
@@ -98,6 +113,31 @@ public final class ReceiverServer {
     public void setDlna(DlnaEndpoint dlna) { this.dlna = dlna; }
     /** The mounted DLNA endpoint (null when none) — for /info diagnostics. */
     public DlnaEndpoint dlna() { return dlna; }
+
+    /**
+     * v3.3.0 audit — publish the Sinhala .srt an external player (VLC/MX/mpv) will fetch
+     * from {@link #SUBS_PATH}. Blank/null disables the route (404), so a stale subtitle
+     * can never be served after the cues were cleared.
+     */
+    public void setSubsSrt(String srt) {
+        this.subsSrt = (srt == null || srt.trim().isEmpty()) ? null : srt;
+        Diag.i("subs", this.subsSrt == null ? "/subs/current.srt cleared"
+            : "/subs/current.srt armed (" + this.subsSrt.length() + " chars)");
+    }
+
+    /** The body served at {@link #SUBS_PATH} (null when none is armed). */
+    public String subsSrt() { return subsSrt; }
+
+    /**
+     * The absolute loopback URL an external player can actually read, or null when the
+     * receiver is not up. 127.0.0.1 is used on purpose: the socket is bound to 0.0.0.0,
+     * so loopback reaches it, and {@link LocalNet#isSelf} accepts a loopback source —
+     * the URL never leaks the phone's LAN IP or a token.
+     */
+    public String subsUrl() {
+        int p = port;
+        return (running && p > 0) ? "http://127.0.0.1:" + p + SUBS_PATH : null;
+    }
 
     public ReceiverServer(Backend backend) { this(backend, PREFERRED_PORT); }
 
@@ -207,6 +247,7 @@ public final class ReceiverServer {
             boolean local = isSelf(sock);
             String out;
             String contentType = "application/json";
+            String extraHeaders = "";
             int status = 200;
             DlnaEndpoint d = dlna;
             if (!local) {
@@ -251,6 +292,22 @@ public final class ReceiverServer {
                 }
             } else if (path.equals("/status")) {
                 out = backend.status();
+            } else if (path.equals(SUBS_PATH)) {
+                // v3.3.0 audit — the loopback .srt an external player (VLC/MX/mpv) fetches.
+                // Only reachable from THIS device (the `local` gate above already refused
+                // every other source with a 403): the phone's own apps are the only
+                // consumers, so no LAN peer can read the user's subtitle text.
+                String srt = subsSrt;
+                if (srt == null) {
+                    verdict = "subs-none";
+                    status = 404;
+                    out = "{\"ok\":false,\"why\":\"no active subtitles\"}";
+                } else {
+                    verdict = "subs " + srt.length() + " chars";
+                    contentType = "text/plain; charset=utf-8";
+                    extraHeaders = "Cache-Control: no-store\r\n";
+                    out = srt;
+                }
             } else if (path.equals("/do") && req[0].equals("POST")) {
                 String a = param(u.getRawQuery(), "a"), toS = param(u.getRawQuery(), "to");
                 long to = 0;
@@ -280,7 +337,8 @@ public final class ReceiverServer {
             served.incrementAndGet();
             OutputStream o = sock.getOutputStream();
             byte[] b = out.getBytes(StandardCharsets.UTF_8);
-            o.write(("HTTP/1.0 " + status + " " + reason(status) + "\r\nContent-Type: " + contentType + "\r\nContent-Length: " + b.length + "\r\n\r\n")
+            o.write(("HTTP/1.0 " + status + " " + reason(status) + "\r\nContent-Type: " + contentType
+                + "\r\n" + extraHeaders + "Content-Length: " + b.length + "\r\n\r\n")
                 .getBytes(StandardCharsets.US_ASCII));
             o.write(b);
             o.flush();

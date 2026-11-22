@@ -1,4 +1,25 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v3.2.0
+# AnantPlay Sinhala Player (SI Cast Receiver) v3.3.0
+
+> **v3.3.0 — CINEMA PLAYER & NAVIGATION OVERHAUL · HTTP-403 KILLED ·
+> ASPECT-RATIO ENGINE · SRI LANKAN SUBTITLE CAPTURE · 660/660 CI LAB.**
+> Built on the 2026-11-22 22:17 real-device screenshots of v3.2.0, which showed
+> four catastrophic defects: (1) the **entire bottom navigation bar had
+> disappeared** — `buildUi()` constructed `bottomBar`, filled it with four tabs
+> and then **never called `root.addView(bottomBar)`**, leaving it parentless
+> (the only trace was 58 dp of reserved empty space under the Home page);
+> (2) a cast that plays perfectly inside official AnantPlay died with
+> **`ERROR_CODE_IO_BAD_HTTP_STATUS · Response code: 403`** because the player
+> sent a truncated stub User-Agent, never derived `Origin` from the `Referer`,
+> and forwarded one cast cookie to every CDN host; (3) the hand-rolled
+> `PlayActivity` **stretched a 16:9 movie to fill a 20:9 portrait screen** (no
+> `onVideoSizeChanged`, no aspect math) with a `‹ Back` button sitting on top of
+> the Retry row and 22 sp subtitles; (4) no automatic Sri Lankan subtitle
+> finding. v3.3.0 fixes all four at the source and proves it: **716/716 lab
+> checks PASS** (hosted CI), a live mock-CDN 403 lab, the aspect math (1080×608),
+> the nav-shell invariant, the loopback `/subs/current.srt` route that makes
+> `📺 VLC` work on Android 16 without a `file://` Uri (and without handing a
+> private cache path to another app), and a signed APK whose badging says
+> 3.3.0 / 30300.
 
 > **v3.2.0 — PLAYACTIVITY CRASH FIX · SELF-UPDATER SPIN-LOOP FIX ·
 > PRIVACY-FIRST DEEP TROUBLESHOOTER · SINHALA ZWJ CONJUNCT FIX ·

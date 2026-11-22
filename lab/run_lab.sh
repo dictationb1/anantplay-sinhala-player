@@ -30,6 +30,9 @@ javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes \
   src/lk/techworld/anantplay/sicast/Cue.java \
   src/lk/techworld/anantplay/sicast/CastPolicy.java \
   src/lk/techworld/anantplay/sicast/StreamHint.java \
+  src/lk/techworld/anantplay/sicast/VideoViewport.java \
+  src/lk/techworld/anantplay/sicast/StreamHttpConfig.java \
+  src/lk/techworld/anantplay/sicast/LkSubFinder.java \
   src/lk/techworld/anantplay/sicast/MiniJson.java \
   src/lk/techworld/anantplay/sicast/SrtLoader.java \
   src/lk/techworld/anantplay/sicast/SubtitleStore.java \
@@ -54,7 +57,11 @@ javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes \
 
 echo "── run the cast-protocol lab (GATING)"
 set +e
-java -cp lab/out/classes lk.techworld.anantplay.sicast.ReceiverLab > lab/out/lab.txt 2>&1
+# v3.3.0 — -Dsun.net.http.allowRestrictedHeaders=true makes the JDK's HttpURLConnection
+# send "Origin" like Android's OkHttp-backed one does. Without it the JDK SILENTLY DROPS
+# the header, and the 403 lab would be testing a client that is not the one we ship.
+java -Dsun.net.http.allowRestrictedHeaders=true -cp lab/out/classes \
+  lk.techworld.anantplay.sicast.ReceiverLab > lab/out/lab.txt 2>&1
 LAB_EXIT=$?
 set -e
 cat lab/out/lab.txt
@@ -84,7 +91,11 @@ echo "Lab proof: $PASSED checks passed (0 failed)"
 python3 lab/verify_refs.py
 
 echo "── live bridge E2E (best effort — never gating)"
-if javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes lab/BridgeLab.java; then
+# v3.3.0 — LAB_SKIP_LIVE=1 skips the network leg entirely (air-gapped runners and
+# local verification runs must finish in seconds, not wait on a worker timeout).
+if [ -n "${LAB_SKIP_LIVE:-}" ]; then
+  echo "(LAB_SKIP_LIVE set — bridge E2E skipped)"
+elif javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes lab/BridgeLab.java; then
   java -cp lab/out/classes lk.techworld.anantplay.sicast.BridgeLab lab/out/bridge.txt \
     > lab/out/bridge-run.txt 2>&1 || echo "(bridge unreachable or quota-limited — recorded as SKIP)"
 else

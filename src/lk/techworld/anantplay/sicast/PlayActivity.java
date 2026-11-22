@@ -21,6 +21,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.view.ScaleGestureDetector;
+import android.webkit.CookieManager;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -31,6 +33,7 @@ import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -40,11 +43,18 @@ import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Format;
 import androidx.media3.common.Player;
+import androidx.media3.common.TrackGroup;
+import androidx.media3.common.TrackSelectionOverride;
+import androidx.media3.common.Tracks;
+import androidx.media3.common.VideoSize;
 import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.ResolvingDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 
@@ -52,6 +62,7 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -189,6 +200,8 @@ public class PlayActivity extends Activity {
     private Typeface siFont;
 
     private String url, title, headersJson, cookie, mime;
+    /** v3.3.0 — the cast's top-level ua/referer/origin (Cast.describe forwards them). */
+    private String uaHeader, refererHeader, originHeader;
     private long startAt;
     private boolean live, testMode, dragging, dashFlag;
     private int season, episode;
@@ -216,6 +229,33 @@ public class PlayActivity extends Activity {
     private volatile boolean expectTakeover = true;   // cleared ~3 s after open: PiP waits for the hand-over
     /** v3.2.0 — the junk-title verdict for THIS playback (cached at parse). */
     private boolean titleIsJunk;
+
+    // ── v3.3.0 — THE CINEMA PLAYER STATE ──────────────────────────────────────
+    /** The black host the surface is CENTERED in (VideoViewport sizes the child). */
+    private FrameLayout videoHost, subLayer;
+    /** The subtitle pill column (below the top bar, never on top of it). */
+    private LinearLayout pillBox, hudCenter, unlockPill;
+    private LinearLayout.LayoutParams pillLp;
+    /** The 📐 / ⏩ chips whose labels track the live mode. */
+    private TextView aspectChip, speedChip;
+    /** The compact "සිංහල ✓" badge in the top bar (ONE, never duplicated). */
+    private TextView badgeSub;
+    /** The gesture feedback pill + the double-tap ⏪/⏩ ripples. */
+    private TextView gesturePill, dblLeft, dblRight;
+    /** The decoded video geometry (Media3 onVideoSizeChanged). */
+    private int videoW, videoH;
+    private float videoPar = 1f;
+    private int aspectMode = VideoViewport.FIT;
+    /** Lock: every touch is swallowed except the tiny unlock pill. */
+    private boolean locked;
+    /** The measured window insets (status bar / gesture bar), in px. */
+    private int statusInset, navInset;
+    /** The 403 recovery leg: one automatic retry, then the honest error card. */
+    private boolean triedHeaderRecovery;
+    private Map<String, String> httpHeaders;
+    /** The error card + the last exact message (for 📋 Copy). */
+    private LinearLayout errorCard;
+    private String lastErrorMsg = "";
 
     // ───────────────────────────────────────────────────────────────────────────
     // lifecycle
@@ -293,6 +333,10 @@ public class PlayActivity extends Activity {
         if (url != null) {   // manual play from MainActivity / the WebView sniffer
             title = title == null ? url : title;
             headersJson = i.getStringExtra("headers");   // v3.0.0: the sniffer's Referer/Cookie/UA
+            cookie = i.getStringExtra("cookie");
+            uaHeader = i.getStringExtra("ua");
+            refererHeader = i.getStringExtra("referer");
+            originHeader = i.getStringExtra("origin");
             titleIsJunk = TitleCleaner.isJunkTitle(title);
             return;
         }
@@ -336,6 +380,15 @@ public class PlayActivity extends Activity {
                 if (title == null || title.isEmpty()) title = "AnantPlay cast";
                 headersJson = MiniJson.str(m, "headers");
                 cookie = MiniJson.str(m, "cookie");
+                // v3.3.0 — AnantPlay's cast can carry the UA/Referer/Origin either inside
+                // the nested "headers" object OR as top-level keys (Cast.describe copies
+                // the phone player's intent extras verbatim, and both shapes occur in
+                // the wild). Read BOTH; StreamHttpConfig merges them.
+                uaHeader = MiniJson.str(m, "ua");
+                if (uaHeader == null) uaHeader = MiniJson.str(m, "userAgent");
+                refererHeader = MiniJson.str(m, "referer");
+                if (refererHeader == null) refererHeader = MiniJson.str(m, "referrer");
+                originHeader = MiniJson.str(m, "origin");
                 mime = MiniJson.str(m, "mime");
                 imdb = MiniJson.str(m, "imdb");
                 Number at = MiniJson.num(m, "at");
@@ -476,24 +529,43 @@ public class PlayActivity extends Activity {
 
     private void startPlayback() {
         try {
-            Map<String, String> headers = new LinkedHashMap<>();
-            if (headersJson != null && !headersJson.isEmpty()) {
-                try {
-                    Map<String, Object> h = Cue.statusOf(headersJson);
-                    for (String k : h.keySet()) headers.put(k, String.valueOf(h.get(k)));
-                } catch (Exception e) { Diag.w("player", "headers json: " + e); }
+            // ══ v3.3.0 — THE 403 KILLER (see StreamHttpConfig's class docs for the
+            // four line-by-line differences from official PlayerActivity.java:1087-1103).
+            // 1. the headers are NORMALISED (browser UA, Origin derived from Referer,
+            //    Accept, dedupe, hop-by-hop dropped) in ONE pure, lab-proven place;
+            // 2. the UA goes through setUserAgent() — never into the property map, so
+            //    nothing can silently overwrite it (official AnantPlay does the same);
+            // 3. a ResolvingDataSource adds the WebView's cookie FOR EACH REQUEST'S OWN
+            //    HOST (segments live on a different CDN host than the playlist);
+            // 4. a 401/403/451 error triggers ONE automatic header-recovery retry.
+            if (httpHeaders == null) {
+                Map<String, String> extra = new LinkedHashMap<>();
+                if (uaHeader != null) extra.put("User-Agent", uaHeader);
+                if (refererHeader != null) extra.put("Referer", refererHeader);
+                if (originHeader != null) extra.put("Origin", originHeader);
+                httpHeaders = StreamHttpConfig.normalize(headersJson, cookie, url, extra);
             }
-            if (cookie != null && !cookie.isEmpty() && !headers.containsKey("Cookie"))
-                headers.put("Cookie", cookie);
-            if (!headers.containsKey("User-Agent"))
-                headers.put("User-Agent", "Mozilla/5.0 (Linux; Android " + Build.VERSION.RELEASE + ") AppleWebKit/537.36");
+            Map<String, String> headers = new LinkedHashMap<>(httpHeaders);
+            String ua = headers.remove("User-Agent");
+            if (ua == null || ua.trim().isEmpty()) ua = StreamHttpConfig.CHROME_UA;
+            Troubleshooter.record("HTTP", (triedHeaderRecovery ? "recovery" : "first") + " attempt · url="
+                + hostOf(url) + " · headers=" + StreamHttpConfig.describe(httpHeaders));
 
             DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
+                .setUserAgent(ua)
                 .setDefaultRequestProperties(headers)
-                .setConnectTimeoutMs(8000)
-                .setReadTimeoutMs(8000)
+                .setConnectTimeoutMs(15000)
+                .setReadTimeoutMs(30000)
                 .setAllowCrossProtocolRedirects(true);
-            DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, http);
+            // the per-host cookie: exactly official PlayerActivity.java:1099-1103
+            DataSource.Factory cookieLayer = new ResolvingDataSource.Factory(http, spec -> {
+                try {
+                    String ck = CookieManager.getInstance().getCookie(spec.uri.toString());
+                    if (ck == null || ck.isEmpty()) return spec;
+                    return spec.withAdditionalHeaders(Collections.singletonMap("Cookie", ck));
+                } catch (Throwable t) { return spec; }
+            });
+            DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, cookieLayer);
 
             // Resolve the mime BEFORE building the source: an extensionless HLS/DASH URL
             // and a progressive .mp4 must not be handed to the wrong parser.
@@ -520,13 +592,35 @@ public class PlayActivity extends Activity {
                     if (p) scheduleHudHide();
                     updateSnapshot();
                 }
+                @Override public void onVideoSizeChanged(VideoSize vs) {
+                    // v3.3.0 — the decoded geometry: width, height AND the anamorphic
+                    // ratio. This is the callback v3.2.0 never had, which is why a
+                    // 16:9 movie was stretched to fill a 20:9 portrait screen.
+                    setVideoSize(vs.width, vs.height, vs.pixelWidthHeightRatio);
+                }
                 @Override public void onPlayerError(PlaybackException e) {
                     Diag.e("player", "error: " + e.getErrorCodeName());
                     lastErrorName = e.getErrorCodeName();   // v3.1.2 — the diag accessor backing
-                    Troubleshooter.record("PLAYER", "media3 ERROR " + e.getErrorCodeName()
-                        + (e.getCause() == null ? "" : " · cause " + e.getCause()));
                     final long pos = player == null ? 0 : player.getCurrentPosition();
-                    showError(e.getErrorCodeName() + (e.getCause() == null ? "" : " · " + e.getCause().getMessage()));
+                    int code = httpStatusOf(e);
+                    Troubleshooter.record("PLAYER", "media3 ERROR " + e.getErrorCodeName()
+                        + (code > 0 ? " · HTTP " + code : "")
+                        + (e.getCause() == null ? "" : " · cause " + e.getCause()));
+                    // ── v3.3.0: THE AUTOMATIC 403 HEADER-RECOVERY LEG ─────────────
+                    if (!triedHeaderRecovery && code > 0 && StreamHttpConfig.recoverable(code)) {
+                        triedHeaderRecovery = true;
+                        httpHeaders = StreamHttpConfig.recovery(url, httpHeaders);
+                        Diag.i("player", "HTTP " + code + " → retrying ONCE with recovery headers: "
+                            + StreamHttpConfig.describe(httpHeaders));
+                        Troubleshooter.record("HTTP", "HTTP " + code + " → automatic recovery retry with "
+                            + StreamHttpConfig.describe(httpHeaders));
+                        flash("🔧 HTTP " + code + " — retrying with browser headers…");
+                        rebuildAt(pos);
+                        updateSnapshot();
+                        return;
+                    }
+                    showError(e.getErrorCodeName() + (code > 0 ? " · HTTP " + code : "")
+                        + (e.getCause() == null ? "" : " · " + e.getCause().getMessage()));
                     diagnoseStreamFailure(e, pos);   // v2.3.0: DoH ISP-block check + retry advice
                     updateSnapshot();
                 }
@@ -1213,83 +1307,67 @@ public class PlayActivity extends Activity {
 
     private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
+    /**
+     * v3.3.0 — THE CINEMA UI (rebuilt from scratch; the v3.2.0 hand-rolled HUD is
+     * gone). Five strict layers, bottom to top:
+     *
+     *   1. videoHost — black, MATCH_PARENT; the SurfaceView inside it is sized by
+     *      {@link VideoViewport} on every onVideoSizeChanged/onLayoutChange, so a
+     *      16:9 movie is a 1080×608 letterbox in portrait and NEVER a 2.4× vertical
+     *      stretch (v3.2.0 screenshot 2/3's exact defect).
+     *   2. subLayer — the subtitle text, padded ABOVE the bottom control zone.
+     *   3. pillBox — the never-silent subtitle status/actions, BELOW the top bar
+     *      (fixed reserve = statusInset + 50dp, so it can never collide with ← Back).
+     *   4. hud — the 3-zone control overlay (top WRAP · centre weight=1 · bottom WRAP):
+     *      three stacked zones in a LinearLayout(VERTICAL), which makes an overlap
+     *      between the top bar and the bottom chips PHYSICALLY IMPOSSIBLE.
+     *   5. errorCard / sheets — centred, never under the bars.
+     */
     private void buildUi() {
-        // v3.1.0 — Playback settings (the Mornye-style Playback page): Keep Screen
-        // On is a user choice now (still the sensible default).
         if (AppPrefs.keepScreenOn(prefs))
-            getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);   // PlayerActivity.java:157
+            getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= 28) {
+            WindowManager.LayoutParams wl = getWindow().getAttributes();
+            wl.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(wl);
+        }
+        aspectMode = VideoViewport.modeFrom(AppPrefs.aspectMode(prefs));
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
+        // ── LAYER 1 — the video host (centred, aspect-correct) ────────────────
+        videoHost = new FrameLayout(this);
+        videoHost.setBackgroundColor(Color.BLACK);
+        root.addView(videoHost, new FrameLayout.LayoutParams(-1, -1));
         surface = new SurfaceView(this);
         surface.getHolder().setFormat(PixelFormat.OPAQUE);
-        root.addView(surface, new FrameLayout.LayoutParams(-1, -1));
+        videoHost.addView(surface, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        videoHost.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> applyVideoSize());
 
-        // ── v3.2.0 — THE EDGE-TO-EDGE INSETS FIX (Smoking Gun #2's screenshot:
-        // "ArrowTV Player" sat UNDER the 20:52 status-bar clock). The HUD's TOP
-        // bar pads by statusBars()|displayCutout() and the BOTTOM control bar
-        // by navigationBars() — measured insets, applied to the HUD itself, so
-        // the system chrome and our controls can never collide on ANY device. ──
-        root.setOnApplyWindowInsetsListener((v, insets) -> {
-            android.graphics.Insets top = insets.getInsets(
-                android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.displayCutout());
-            android.graphics.Insets bottom = insets.getInsets(
-                android.view.WindowInsets.Type.navigationBars() | android.view.WindowInsets.Type.displayCutout());
-            android.graphics.Insets sides = insets.getInsets(
-                android.view.WindowInsets.Type.systemGestures());
-            if (hudTopBar != null) hudTopBar.setPadding(top.left, top.top, top.right, 0);
-            if (hudBottomBar != null) hudBottomBar.setPadding(bottom.left, Math.max(dp(6), bottom.bottom), bottom.right, Math.max(dp(10), bottom.bottom));
-            if (statusPill != null) {
-                FrameLayout.LayoutParams pl = (FrameLayout.LayoutParams) statusPill.getLayoutParams();
-                pl.topMargin = top.top + dp(64);
-                statusPill.setLayoutParams(pl);
-            }
-            return insets;
-        });
-
-        // the subtitle view — bottom center, script-correct font, styled by the
-        // v3.1.0 Subtitle Styling Studio (Settings → Subtitles & Style Studio):
-        // color preset, pill/outline background + opacity, bold, bottom position.
+        // ── LAYER 2 — the subtitles (a padded layer, so the chips can never eat them)
+        subLayer = new FrameLayout(this);
+        subLayer.setClipChildren(false);
+        root.addView(subLayer, new FrameLayout.LayoutParams(-1, -1));
         subView = new TextView(this);
-        // v2.2: the bundled NotoSansSinhala is loaded ONCE (onCreate) and applied
-        // only when the active language is Sinhala; every other script uses the
-        // system font stack (the OS already covers Tamil/Devanagari/CJK/Arabic).
-        // v3.2.0 — ONE-PLACE TYPEFACE + the complex-script wrapping contract:
-        // breakStrategy HIGH-quality + hyphenation NONE + line spacing 1.2 are
-        // set HERE so Sinhala conjuncts/kombuwa/ispilla wrap cleanly.
         applyLangStyle();
         subView.setGravity(Gravity.CENTER);
         subView.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY);
         subView.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE);
-        subView.setLineSpacing(dp(2), 1.2f);
+        subView.setLineSpacing(dp(2), 1.2f);   // v3.2.0 contract; applyStudioStyle() refines it
         applyStudioStyle();
-        root.addView(subView, subLayoutParams());
+        subLayer.addView(subView, subLayoutParams());
 
-        notice = new TextView(this);
-        notice.setTextColor(Color.WHITE);
-        notice.setTextSize(14);
-        // v3.1.2 CRASH FIX (the "keeps stopping" smoking gun): this used to be
-        // notice.setBackgroundResource(0x88000000) — View.setBackgroundResource(int)
-        // treats a bare int as a RESOURCE id, and 0x88000000 (raw ARGB) resolves to
-        // no resource → Resources$NotFoundException thrown from buildUi() inside
-        // PlayActivity.onCreate → the Android 16 TransactionExecutor.executeNonLifecycleItem
-        // crash ("AnantPlay සිංහල Player keeps stopping") on Test Player, Play Video URL
-        // and EVERY cast arrival. setBackgroundColor(int) is the ARGB-interpretation
-        // API — the exact same translucent black, zero resource lookup, zero crash.
-        notice.setBackgroundColor(0x88000000);
-        notice.setPadding(dp(14), dp(8), dp(14), dp(8));
-        notice.setGravity(Gravity.CENTER);
-        notice.setVisibility(View.GONE);
-        root.addView(notice, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        // ── LAYER 3 — the never-silent pill column (BELOW the top bar) ────────
+        pillBox = new LinearLayout(this);
+        pillBox.setOrientation(LinearLayout.VERTICAL);
+        pillBox.setGravity(Gravity.CENTER_HORIZONTAL);
+        pillLp = new LinearLayout.LayoutParams(-1, -2);
+        pillLp.topMargin = dp(50);
+        root.addView(pillBox, pillLp);
 
-        // ── v2.1: the subtitle status pill — the never-silent HUD ──
-        // Auto-hides 3 s after success; on error it STAYS with the exact reason
-        // and the action row below carries the 1-tap fixes.
-        // v3.2.0: tapping the pill on the junk-title state opens the MOVIE-TITLE
-        // SEARCH dialog (the raw-JSON banner replacement).
         statusPill = new TextView(this);
         statusPill.setTextColor(0xFFFDE68A);
         statusPill.setTextSize(12.5f);
@@ -1302,11 +1380,12 @@ public class PlayActivity extends Activity {
         statusPill.setBackground(pillBg);
         statusPill.setVisibility(View.GONE);
         statusPill.setOnClickListener(v -> { if (titleIsJunk || "not-found".equals(state)) openTitleSearch(); });
-        FrameLayout.LayoutParams pillLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        pillLp.topMargin = dp(64);
-        root.addView(statusPill, pillLp);
+        LinearLayout.LayoutParams pillTextLp = new LinearLayout.LayoutParams(-2, -2);
+        pillTextLp.topMargin = dp(6);
+        pillBox.addView(statusPill, pillTextLp);
 
-        // ── v2.1: the subtitle action row (pill's fixes, one tap each) ──
+        // the pill's 1-tap fixes (they STACK under the pill — v3.2.0 floated them at a
+        // fixed 64dp top margin, which is exactly how "< Back" ended up on top of them)
         subActions = new LinearLayout(this);
         subActions.setOrientation(LinearLayout.HORIZONTAL);
         subActions.setGravity(Gravity.CENTER);
@@ -1320,45 +1399,54 @@ public class PlayActivity extends Activity {
         subActions.addView(pillBtn("⇄ Provider", v -> { subActions.setVisibility(View.GONE); fetchGen++; fetching = false; prefs.edit().putBoolean("preferCastSubs", true).apply(); fetchSinhala(); }));
         subActions.addView(pillBtn("📄 Local .srt", v -> { subActions.setVisibility(View.GONE); pickLocal(); }));
         subActions.addView(pillBtn("⏱ ±0.25s", v -> nudge(250)));
+        pillBox.addView(subActions, new LinearLayout.LayoutParams(-2, -2));
 
-        // ── v2.2: the language chip row (8 registry languages + More) ──
-        LinearLayout langRow = new LinearLayout(this);
-        langRow.setOrientation(LinearLayout.HORIZONTAL);
-        langRow.setGravity(Gravity.CENTER);
-        langRow.setPadding(dp(4), dp(4), dp(4), dp(4));
+        langChips = new LinearLayout(this);
+        langChips.setOrientation(LinearLayout.HORIZONTAL);
+        langChips.setGravity(Gravity.CENTER);
+        langChips.setPadding(dp(4), dp(4), dp(4), dp(4));
         GradientDrawable langBg = new GradientDrawable();
         langBg.setColor(0xE60E1424);
         langBg.setCornerRadius(dp(16));
-        langRow.setBackground(langBg);
-        for (final Langs.Lang l : Langs.chips()) {
-            langRow.addView(pillBtn(l.nativeName, v -> switchLang(l.code)));
-        }
-        langRow.addView(pillBtn("+ More", v -> showLangSheet()));
-        FrameLayout.LayoutParams langLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        langLp.topMargin = dp(104);
-        root.addView(langRow, langRowLp(langRow));
-        langChips = langRow;
+        langChips.setBackground(langBg);
+        for (final Langs.Lang l : Langs.chips()) langChips.addView(pillBtn(l.nativeName, v -> switchLang(l.code)));
+        langChips.addView(pillBtn("+ More", v -> showLangSheet()));
+        langChips.setVisibility(View.GONE);
+        pillBox.addView(langChips, new LinearLayout.LayoutParams(-2, -2));
 
-        // ── v2.2: register toggle + Option-C power-user item (shown with the pill) ──
-        LinearLayout extraRow = new LinearLayout(this);
-        extraRow.setOrientation(LinearLayout.HORIZONTAL);
-        extraRow.setGravity(Gravity.CENTER);
-        extraRow.setPadding(dp(4), dp(4), dp(4), dp(4));
+        extraActions = new LinearLayout(this);
+        extraActions.setOrientation(LinearLayout.HORIZONTAL);
+        extraActions.setGravity(Gravity.CENTER);
+        extraActions.setPadding(dp(4), dp(4), dp(4), dp(4));
         GradientDrawable extraBg = new GradientDrawable();
         extraBg.setColor(0xE60E1424);
         extraBg.setCornerRadius(dp(16));
-        extraRow.setBackground(extraBg);
-        extraRow.addView(pillBtn("🗣 Spoken/Formal", v -> toggleRegister()));
-        extraRow.addView(pillBtn("✨ AI Studio", v -> openAiStudioBridge()));
-        FrameLayout.LayoutParams extraLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        extraLp.topMargin = dp(144);
-        root.addView(extraRow, extraLp);
-        extraActions = extraRow;
+        extraActions.setBackground(extraBg);
+        extraActions.addView(pillBtn("🗣 Spoken/Formal", v -> toggleRegister()));
+        extraActions.addView(pillBtn("✨ AI Studio", v -> openAiStudioBridge()));
+        extraActions.setVisibility(View.GONE);
+        pillBox.addView(extraActions, new LinearLayout.LayoutParams(-2, -2));
 
-        FrameLayout.LayoutParams actLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        actLp.topMargin = dp(64);
-        root.addView(subActions, actLp);
+        // v3.1.2 CRASH FIX, KEPT FOREVER (the audit trail the lab asserts): the notice
+        // background used to be View.setBackgroundResource(0x88000000), which treats a
+        // bare int as a RESOURCE id → Resources$NotFoundException thrown from buildUi()
+        // inside PlayActivity.onCreate, surfacing as the Android 16
+        // TransactionExecutor.executeNonLifecycleItem "keeps stopping" crash on Test
+        // Player, Play Video URL and EVERY cast arrival. setBackgroundColor(int) is the
+        // ARGB API — same translucent black, zero resource lookup, zero crash.
+        // ── the transient gesture/toast pill (centre, above the chips) ────────
+        notice = new TextView(this);
+        notice.setTextColor(Color.WHITE);
+        notice.setTextSize(14);
+        notice.setBackgroundColor(0x88000000);
+        notice.setPadding(dp(14), dp(8), dp(14), dp(8));
+        notice.setGravity(Gravity.CENTER);
+        notice.setVisibility(View.GONE);
+        FrameLayout.LayoutParams noticeLp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        noticeLp.bottomMargin = dp(150);
+        root.addView(notice, noticeLp);
 
+        // ── the buffering spinner (centre) ────────────────────────────────────
         spinner = new android.view.View(this);
         try {
             android.widget.ProgressBar pb = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleLarge);
@@ -1366,83 +1454,193 @@ public class PlayActivity extends Activity {
             spinner = pb;
         } catch (Throwable ignored) { }
         spinner.setVisibility(View.GONE);
-        root.addView(spinner, new FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER));
+        root.addView(spinner, new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER));
 
-        errorBox = new TextView(this);
-        errorBox.setTextColor(0xFFFFB3B3);
-        errorBox.setTextSize(14);
-        errorBox.setPadding(dp(16), dp(12), dp(16), dp(12));
-        errorBox.setVisibility(View.GONE);
-        GradientDrawable eb = new GradientDrawable();
-        eb.setColor(0xE6220F1F);
-        eb.setCornerRadius(dp(12));
-        errorBox.setBackground(eb);
-        // v2.3.0: the error box is the RETRY button — one tap rebuilds the player
-        // at the last known position (fresh DataSource, same cast payload).
-        errorBox.setOnClickListener(v -> retryPlayback());
-        root.addView(errorBox, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
-
+        // ── LAYER 4 — the 3-zone HUD ──────────────────────────────────────────
         hud = buildHud();
         root.addView(hud, new FrameLayout.LayoutParams(-1, -1));
         panel = buildPanel();
         root.addView(panel, new FrameLayout.LayoutParams(dp(320), -2, Gravity.END | Gravity.CENTER_VERTICAL));
         panel.setVisibility(View.GONE);
-
-        // ── v3.2.0 — THE IN-PLAYER SETTINGS SHEET (AnantPlay-style): while the
-        // movie keeps playing, the ⚙ button opens a translucent bottom sheet
-        // with playback speed, aspect ratio, LIVE subtitle style sliders, sync
-        // and the free translator — ZERO leaving the movie to customize. ──
         sheet = buildSettingsSheet();
         root.addView(sheet, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
         sheet.setVisibility(View.GONE);
 
+        // ── LAYER 5 — the non-intrusive error card (never under the top bar) ──
+        errorCard = buildErrorCard();
+        root.addView(errorCard, new FrameLayout.LayoutParams(dp(300), -2, Gravity.CENTER));
+        errorCard.setVisibility(View.GONE);
+
+        // ── the LOCK pill: the ONLY thing touchable while locked ──────────────
+        unlockPill = new LinearLayout(this);
+        unlockPill.setOrientation(LinearLayout.HORIZONTAL);
+        unlockPill.setGravity(Gravity.CENTER_VERTICAL);
+        unlockPill.setPadding(dp(12), dp(8), dp(12), dp(8));
+        GradientDrawable ub = new GradientDrawable();
+        ub.setColor(0xE60E1424);
+        ub.setCornerRadius(dp(18));
+        ub.setStroke(dp(1), 0x55FFFFFF);
+        unlockPill.setBackground(ub);
+        TextView unlockIcon = new TextView(this);
+        unlockIcon.setText("🔒");
+        unlockIcon.setTextSize(14);
+        unlockPill.addView(unlockIcon, new LinearLayout.LayoutParams(-2, -2));
+        TextView unlockText = new TextView(this);
+        unlockText.setText("  Tap to unlock · අගුළු හරින්න");
+        unlockText.setTextColor(0xFFE2E8F0);
+        unlockText.setTextSize(11.5f);
+        unlockPill.addView(unlockText, new LinearLayout.LayoutParams(-2, -2));
+        unlockPill.setOnClickListener(v -> setLocked(false));
+        unlockPill.setVisibility(View.GONE);
+        FrameLayout.LayoutParams unlockLp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END);
+        unlockLp.bottomMargin = dp(24);
+        unlockLp.rightMargin = dp(16);
+        root.addView(unlockPill, unlockLp);
+
+        // ── the insets: measured ONCE, applied to the four bars that matter ───
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            android.graphics.Insets top = insets.getInsets(
+                android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.displayCutout());
+            android.graphics.Insets bottom = insets.getInsets(
+                android.view.WindowInsets.Type.navigationBars() | android.view.WindowInsets.Type.displayCutout());
+            statusInset = top.top;
+            navInset = bottom.bottom;
+            if (hudTopBar != null) hudTopBar.setPadding(dp(6), statusInset + dp(6), dp(6), dp(6));
+            if (hudBottomBar != null) hudBottomBar.setPadding(dp(10), dp(4), dp(10), navInset + dp(8));
+            if (pillLp != null) { pillLp.topMargin = statusInset + dp(50); pillBox.setLayoutParams(pillLp); }
+            if (subLayer != null) subLayer.setPadding(0, statusInset + dp(40), 0, navInset + dp(96));
+            if (unlockPill != null) {
+                FrameLayout.LayoutParams ul = (FrameLayout.LayoutParams) unlockPill.getLayoutParams();
+                ul.bottomMargin = navInset + dp(24);
+                unlockPill.setLayoutParams(ul);
+            }
+            if (sheet != null) sheet.setPadding(dp(16), dp(12), dp(16), navInset + dp(16));
+            if (panel != null) panel.setPadding(dp(14), dp(12), dp(14), dp(12));
+            applyVideoSize();
+            return insets;
+        });
+
         wireGestures(root);
         setContentView(root);
+        if (AppPrefs.lockOnStart(prefs)) setLocked(true);
     }
 
+    /**
+     * v3.3.0 — THE 3-ZONE CINEMA HUD.
+     *
+     * A LinearLayout(VERTICAL) with THREE stacked zones — top WRAP_CONTENT, centre
+     * height 0 + weight 1, bottom WRAP_CONTENT. Because the zones are siblings in a
+     * vertical LinearLayout, the top bar and the bottom chips can never be laid out
+     * on top of each other, on ANY screen size or aspect ratio. Every zone is padded
+     * by the REAL window insets (statusBars|displayCutout on top, navigationBars at
+     * the bottom) in buildUi's inset listener.
+     */
     private LinearLayout buildHud() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setBackgroundColor(0x88000000);
 
-        // top bar: back · title · status — v3.2.0: the insets listener pads
-        // THIS bar by statusBars()|displayCutout() so the title can NEVER sit
-        // under the status-bar clock (the "ArrowTV Player ⏱ 20:52" collision).
+        // ══ ZONE 1 — TOP BAR ═══════════════════════════════════════════════════
         hudTopBar = new LinearLayout(this);
         hudTopBar.setOrientation(LinearLayout.HORIZONTAL);
         hudTopBar.setGravity(Gravity.CENTER_VERTICAL);
-        hudTopBar.setPadding(dp(8), dp(12), dp(12), dp(8));
-        View back = icon("‹", 26, v -> finish());
-        hudTopBar.addView(back, new LinearLayout.LayoutParams(dp(46), dp(42)));
+        hudTopBar.setMinimumHeight(dp(48));
+        GradientDrawable topBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[]{0xB3000000, 0x00000000});
+        hudTopBar.setBackground(topBg);
+
+        View back = icon("‹", 24, v -> finish());
+        hudTopBar.addView(back, new LinearLayout.LayoutParams(dp(40), dp(38)));
+
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         hudTitle = new TextView(this);
         hudTitle.setTextColor(Color.WHITE);
-        hudTitle.setTextSize(16);
+        hudTitle.setTextSize(14.5f);
         hudTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         hudTitle.setMaxLines(1);
-        hudTitle.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
-        titles.addView(hudTitle);
+        hudTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(hudTitle, new LinearLayout.LayoutParams(-1, -2));
         hudStatus = new TextView(this);
         hudStatus.setTextColor(0xFF9FB0D8);
-        hudStatus.setTextSize(12);
-        hudStatus.setMaxLines(2);
-        titles.addView(hudStatus);
+        hudStatus.setTextSize(10.5f);
+        hudStatus.setMaxLines(1);
+        hudStatus.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        hudStatus.setVisibility(View.GONE);          // v3.3.0: ONE badge, not two banners
+        titles.addView(hudStatus, new LinearLayout.LayoutParams(-1, -2));
         hudTopBar.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
-        box.addView(hudTopBar);
 
-        // spacer keeps the middle tap-transparent (the FrameLayout eats nothing)
-        View gap = new View(this);
-        box.addView(gap, new LinearLayout.LayoutParams(-1, 0, 1f));
+        badgeSub = new TextView(this);
+        badgeSub.setText("සිං ✓");
+        badgeSub.setTextColor(0xFF86EFAC);
+        badgeSub.setTextSize(10.5f);
+        badgeSub.setPadding(dp(7), dp(3), dp(7), dp(3));
+        GradientDrawable badgeBg = new GradientDrawable();
+        badgeBg.setColor(0x3316A34A);
+        badgeBg.setCornerRadius(dp(9));
+        badgeSub.setBackground(badgeBg);
+        badgeSub.setVisibility(View.GONE);
+        hudTopBar.addView(badgeSub, new LinearLayout.LayoutParams(-2, -2));
 
-        // bottom bar: time · seek · total · ±10 · play/pause · subs · title · settings
-        // v3.2.0: the ⚙ in-player settings sheet button + the 🔍 title search
-        // button join the row (the Mornye in-player customization contract).
+        View lock = icon("🔒", 15, v -> setLocked(true));
+        hudTopBar.addView(lock, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        View rotate = icon("🔄", 15, v -> rotateScreen());
+        hudTopBar.addView(rotate, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        View vlc = icon("📺", 15, v -> openExternalPlayer());
+        hudTopBar.addView(vlc, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        View gear = icon("⚙", 15, v -> toggleSheet());
+        hudTopBar.addView(gear, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        box.addView(hudTopBar, new LinearLayout.LayoutParams(-1, -2));
+
+        // ══ ZONE 2 — CENTRE (transport + gesture feedback) ═════════════════════
+        hudCenter = new LinearLayout(this);
+        hudCenter.setOrientation(LinearLayout.VERTICAL);
+        hudCenter.setGravity(Gravity.CENTER);
+
+        final long stepMs = AppPrefs.seekStepMs(prefs);
+        final int stepLabel = (int) (stepMs / 1000);
+
+        LinearLayout transport = new LinearLayout(this);
+        transport.setOrientation(LinearLayout.HORIZONTAL);
+        transport.setGravity(Gravity.CENTER);
+        View minus = icon("⏪ " + stepLabel, 15, v -> skip(-stepMs));
+        transport.addView(minus, new LinearLayout.LayoutParams(dp(64), dp(52)));
+        playPause = icon("▶", 26, v -> toggle());
+        GradientDrawable playBg = new GradientDrawable();
+        playBg.setColor(0xE61A2440);
+        playBg.setCornerRadius(dp(32));
+        playPause.setBackground(playBg);
+        LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(dp(64), dp(64));
+        playLp.leftMargin = playLp.rightMargin = dp(18);
+        transport.addView(playPause, playLp);
+        View plus = icon(stepLabel + " ⏩", 15, v -> skip(stepMs));
+        transport.addView(plus, new LinearLayout.LayoutParams(dp(64), dp(52)));
+        hudCenter.addView(transport, new LinearLayout.LayoutParams(-2, -2));
+
+        gesturePill = new TextView(this);
+        gesturePill.setTextColor(Color.WHITE);
+        gesturePill.setTextSize(13);
+        gesturePill.setGravity(Gravity.CENTER);
+        gesturePill.setPadding(dp(14), dp(7), dp(14), dp(7));
+        GradientDrawable gp = new GradientDrawable();
+        gp.setColor(0xCC0E1424);
+        gp.setCornerRadius(dp(14));
+        gesturePill.setBackground(gp);
+        gesturePill.setVisibility(View.GONE);
+        LinearLayout.LayoutParams gpl = new LinearLayout.LayoutParams(-2, -2);
+        gpl.topMargin = dp(14);
+        hudCenter.addView(gesturePill, gpl);
+
+        box.addView(hudCenter, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        // ══ ZONE 3 — BOTTOM (seek + times + the action chips) ══════════════════
         hudBottomBar = new LinearLayout(this);
         hudBottomBar.setOrientation(LinearLayout.VERTICAL);
-        hudBottomBar.setPadding(dp(12), 0, dp(12), dp(14));
+        GradientDrawable botBg = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+            new int[]{0xB3000000, 0x00000000});
+        hudBottomBar.setBackground(botBg);
+
         seek = new SeekBar(this);
-        seek.setPadding(dp(2), dp(6), dp(2), dp(6));
+        seek.setPadding(dp(2), dp(2), dp(2), dp(2));
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int v, boolean user) {
                 if (user && player != null) timeNow.setText(ReceiverServer.clock(v));
@@ -1454,37 +1652,63 @@ public class PlayActivity extends Activity {
             }
         });
         hudBottomBar.addView(seek, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        LinearLayout times = new LinearLayout(this);
+        times.setOrientation(LinearLayout.HORIZONTAL);
+        times.setGravity(Gravity.CENTER_VERTICAL);
         timeNow = new TextView(this);
         timeNow.setTextColor(Color.WHITE);
-        timeNow.setTextSize(13);
-        // v2.3.1: both time labels share the free space (weight) — on a narrow
-        // 360dp Xiaomi screen the fixed icon buttons alone take 228dp, so
-        // non-weighted labels could push the row past the right edge.
-        row.addView(timeNow, new LinearLayout.LayoutParams(0, -2, 0.5f));
-        final long stepMs = AppPrefs.seekStepMs(prefs);   // v3.1.0: 5/10/15/30 s from Playback settings
-        final int stepLabel = (int) (stepMs / 1000);
-        View minus = icon("−" + stepLabel, 14, v -> skip(-stepMs));
-        row.addView(minus, new LinearLayout.LayoutParams(dp(52), dp(44)));
-        playPause = icon("⏸", 20, v -> toggle());
-        row.addView(playPause, new LinearLayout.LayoutParams(dp(48), dp(44)));
-        View plus = icon("+" + stepLabel, 14, v -> skip(stepMs));
-        row.addView(plus, new LinearLayout.LayoutParams(dp(52), dp(44)));
+        timeNow.setTextSize(11.5f);
+        timeNow.setText("0:00");
+        times.addView(timeNow, new LinearLayout.LayoutParams(0, -2, 1f));
         timeTotal = new TextView(this);
         timeTotal.setTextColor(0xFFAAAAAA);
-        timeTotal.setTextSize(13);
-        timeTotal.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(timeTotal, new LinearLayout.LayoutParams(0, -2, 0.5f));
-        View titleBtn = icon("🔍", 15, v -> openTitleSearch());
-        row.addView(titleBtn, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        View subs = icon("සිං", 14, v -> togglePanel());
-        row.addView(subs, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        View gear = icon("⚙", 16, v -> toggleSheet());
-        row.addView(gear, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        hudBottomBar.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        box.addView(hudBottomBar);
+        timeTotal.setTextSize(11.5f);
+        timeTotal.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        timeTotal.setText("0:00");
+        times.addView(timeTotal, new LinearLayout.LayoutParams(0, -2, 1f));
+        hudBottomBar.addView(times, new LinearLayout.LayoutParams(-1, -2));
+
+        // the chips: horizontally scrollable, so a narrow phone never clips one
+        HorizontalScrollView hs = new HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.HORIZONTAL);
+        chips.setPadding(0, dp(4), 0, dp(2));
+
+        chips.addView(pillBtn("💬 Subtitles", v -> togglePanel()));
+        chips.addView(pillBtn("🔊 Audio / Quality", v -> showTrackSheet()));
+        aspectChip = chip("📐 " + VideoViewport.modeLabel(aspectMode), v -> cycleAspect());
+        chips.addView(aspectChip);
+        speedChip = chip("⏩ 1.0x", v -> cycleSpeed());
+        chips.addView(speedChip);
+        chips.addView(pillBtn("🔄 Rotate", v -> rotateScreen()));
+        chips.addView(pillBtn("📺 VLC", v -> openExternalPlayer()));
+        chips.addView(pillBtn("🔍 Title", v -> openTitleSearch()));
+        hs.addView(chips, new LinearLayout.LayoutParams(-2, -2));
+        hudBottomBar.addView(hs, new LinearLayout.LayoutParams(-1, -2));
+        box.addView(hudBottomBar, new LinearLayout.LayoutParams(-1, -2));
         return box;
+    }
+
+    /** A chip whose label changes with the live mode (📐 / ⏩). */
+    private TextView chip(String text, View.OnClickListener click) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(0xFFE2E8F0);
+        t.setTextSize(11.5f);
+        t.setGravity(Gravity.CENTER);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(0xFF1E2A4A);
+        g.setCornerRadius(dp(14));
+        t.setBackground(g);
+        t.setPadding(dp(12), dp(8), dp(12), dp(8));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.leftMargin = lp.rightMargin = dp(4);
+        t.setLayoutParams(lp);
+        t.setOnClickListener(click);
+        return t;
     }
 
     private LinearLayout buildPanel() {
@@ -1544,6 +1768,14 @@ public class PlayActivity extends Activity {
             if (t.length() >= 2) { panel.setVisibility(View.GONE); manualFetch(t, season, episode); }
         });
         p.addView(go);
+
+        // v3.3.0 — THE SRI LANKAN QUICK-FINDER (Baiscope / Zoom.lk / PirateLK /
+        // SubDL / OpenSubtitles + a DuckDuckGo fallback). One tap opens the app's
+        // Web tab on that site's real search for THIS movie; every .zip/.srt the
+        // user then taps is captured, unzipped and attached to this very player.
+        Button lk = btn("🇱🇰 Find Sinhala Sub (SL sites) · සිංහල සොයන්න");
+        lk.setOnClickListener(v -> { panel.setVisibility(View.GONE); openLkFinder(); });
+        p.addView(lk);
 
         Button load = btn("local .srt / .zip load");
         load.setOnClickListener(v -> pickLocal());
@@ -1609,11 +1841,7 @@ public class PlayActivity extends Activity {
         s.addView(label("රූප පරිමාණය · Aspect"));
         Button aspect = btn("Fit ⇄ Fill ⇄ Zoom");
         aspect.setOnClickListener(v -> {
-            String mode = AppPrefs.aspectMode(prefs);
-            String next = "fit".equals(mode) ? "fill" : ("fill".equals(mode) ? "zoom" : "fit");
-            prefs.edit().putString(AppPrefs.K_ASPECT_MODE, next).apply();
-            applyResizeMode();
-            flash("Aspect: " + next);
+            cycleAspect();      // v3.3.0 — Fit → Fill → 16:9 → Stretch, applied live
         });
         s.addView(aspect);
 
@@ -1652,28 +1880,77 @@ public class PlayActivity extends Activity {
         if (!open) showStatus();
     }
 
-    /** v3.2.0 — apply the aspect preference to the SurfaceView (fit is the
-     *  FrameLayout default; fill/zoom resize the surface's layout box). */
-    private void applyResizeMode() {
-        if (surface == null) return;
-        String mode = AppPrefs.aspectMode(prefs);
+    /**
+     * v3.3.0 — THE ASPECT-RATIO APPLIER (replaces v3.2.0's resize method, which
+     * only ever set MATCH_PARENT and therefore stretched every video).
+     *
+     * The surface's box is computed by {@link VideoViewport#compute} from the DECODED
+     * size (onVideoSizeChanged) and the host's real measured size (onLayoutChange),
+     * then centred on black. Fit = letterbox, Fill = proportional crop, 16:9 = a
+     * forced 16:9 box, Stretch = the only distorting mode and only on request.
+     */
+    private void applyVideoSize() {
+        if (surface == null || videoHost == null) return;
+        int cw = videoHost.getWidth(), ch = videoHost.getHeight();
+        if (cw <= 0 || ch <= 0) return;
+        int[] size = VideoViewport.compute(videoW, videoH, videoPar, cw, ch, aspectMode);
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) surface.getLayoutParams();
-        if ("fill".equals(mode)) {
-            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-            lp.width = Math.max(dm.widthPixels, dm.heightPixels);
-            lp.height = lp.width;
-            lp.gravity = Gravity.CENTER;
-        } else if ("zoom".equals(mode)) {
-            lp.width = -1;
-            lp.height = -1;
-            lp.gravity = Gravity.FILL;
-        } else {
-            lp.width = -1;
-            lp.height = -1;
-            lp.gravity = Gravity.CENTER;
-        }
+        lp.width = size[0];
+        lp.height = size[1];
+        lp.gravity = Gravity.CENTER;
         surface.setLayoutParams(lp);
-        try { if (player != null) player.setVideoSurfaceView(surface); } catch (Throwable ignored) { }
+        surface.requestLayout();
+    }
+
+    /** Media3 tells us the real decoded geometry — remember it and re-size. */
+    private void setVideoSize(int w, int h, float par) {
+        videoW = w;
+        videoH = h;
+        videoPar = par;
+        applyVideoSize();
+    }
+
+    /** The 📐 chip: Fit → Fill → 16:9 → Stretch → Fit. */
+    private void cycleAspect() {
+        aspectMode = VideoViewport.next(aspectMode);
+        prefs.edit().putString(AppPrefs.K_ASPECT_MODE, VideoViewport.modeName(aspectMode)).apply();
+        if (aspectChip != null) aspectChip.setText("📐 " + VideoViewport.modeLabel(aspectMode));
+        applyVideoSize();
+        flash("📐 " + VideoViewport.modeLabel(aspectMode));
+    }
+
+    /** The ⏩ chip: 0.75x → 1.0x → 1.25x → 1.5x → 2.0x → 0.75x. */
+    private void cycleSpeed() {
+        float[] steps = {0.75f, 1f, 1.25f, 1.5f, 2f};
+        float cur = 1f;
+        try { if (player != null) cur = player.getPlaybackParameters().speed; } catch (Throwable ignored) { }
+        int next = 1;
+        for (int i = 0; i < steps.length; i++) if (Math.abs(steps[i] - cur) < 0.01f) next = (i + 1) % steps.length;
+        float f = steps[next];
+        try { if (player != null) player.setPlaybackSpeed(f); } catch (Throwable ignored) { }
+        prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, Math.round(f * 100)).apply();
+        if (speedChip != null) speedChip.setText(String.format(Locale.US, "⏩ %.2gx", f));
+        flash(String.format(Locale.US, "%.2gx", f));
+    }
+
+    /** 1-tap Portrait ↔ Landscape (setRequestedOrientation, like VLC's rotate button). */
+    private void rotateScreen() {
+        int cur = getResources().getConfiguration().orientation;
+        setRequestedOrientation(cur == Configuration.ORIENTATION_LANDSCAPE
+            ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        flash(cur == Configuration.ORIENTATION_LANDSCAPE ? "📱 Portrait" : "🔄 Landscape");
+        main.postDelayed(this::applyVideoSize, 350);
+    }
+
+    /** Lock every touch; the single unlock pill is the only way back. */
+    private void setLocked(boolean on) {
+        locked = on;
+        if (unlockPill != null) unlockPill.setVisibility(on ? View.VISIBLE : View.GONE);
+        if (hud != null) hud.setVisibility(on ? View.GONE : View.VISIBLE);
+        hudVisible = !on;
+        if (!on) scheduleHudHide();
+        flash(on ? "🔒 Locked" : "🔓 Unlocked");
     }
 
     // ── v3.2.0 — THE 1-TAP MOVIE TITLE SEARCH (the junk-title pill's action) ──
@@ -1856,7 +2133,12 @@ public class PlayActivity extends Activity {
      *  re-calls applyLangStyle() so a studio BOLD flip lands immediately. */
     private void applyStudioStyle() {
         if (subView == null) return;
-        subView.setTextSize(AppPrefs.fontSp(prefs));
+        // v3.3.0 — the balanced cinema size: 18 sp portrait / 20 sp landscape
+        // (v3.2.0's 22 sp default is what the field screenshots called oversized).
+        subView.setTextSize(AppPrefs.fontSpFor(prefs,
+            getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE));
+        subView.setMaxWidth(Math.round(getResources().getDisplayMetrics().widthPixels * 0.88f));
+        subView.setLineSpacing(dp(2), AppPrefs.subLineSpacing(prefs) / 100f);   // 100..150 % studio spacing
         subView.setTextColor(ThemeEngine.SUB_COLORS[AppPrefs.subColor(prefs)]);
         applyLangStyle();                                      // the ONE typeface setter
         if (AppPrefs.BG_OUTLINE.equals(AppPrefs.subBg(prefs))) {
@@ -1870,7 +2152,7 @@ public class PlayActivity extends Activity {
             subView.setBackgroundColor(ThemeEngine.pillColor(AppPrefs.subBgOpacity(prefs)));
             subView.setShadowLayer(dp(2), 0, 0, 0x99000000);
         }
-        subView.setPadding(dp(10), dp(4), dp(10), dp(4));
+        subView.setPadding(dp(12), dp(4), dp(12), dp(4));
         subView.setVisibility(subView.getVisibility());
         FrameLayout.LayoutParams sl = subLayoutParams();
         subView.setLayoutParams(sl);
@@ -1880,7 +2162,11 @@ public class PlayActivity extends Activity {
     private FrameLayout.LayoutParams subLayoutParams() {
         FrameLayout.LayoutParams sl = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         int h = Math.max(1, getResources().getDisplayMetrics().heightPixels);
-        sl.bottomMargin = Math.round(h * AppPrefs.subBottomPct(prefs) / 100f);
+        // v3.3.0 — the studio's 4–28% position, capped at 12% so the line always sits
+        // inside the padded subtitle layer (above the chips, below the top bar).
+        int pct = Math.min(12, AppPrefs.subBottomPct(prefs));
+        sl.bottomMargin = Math.round(h * pct / 100f);
+        sl.leftMargin = sl.rightMargin = dp(8);
         return sl;
     }
 
@@ -1999,32 +2285,140 @@ public class PlayActivity extends Activity {
     // v3.1.0: the ±step and the swipe gestures come from the Playback settings
     // (Seek Step Duration 5/10/15/30 s · Swipe Gestures toggle).
 
+    /**
+     * v3.3.0 — THE VLC/YouTube GESTURE SET, with feedback that never covers the HUD.
+     *
+     *   · single tap        → toggle the HUD
+     *   · double tap L/R    → −/+ the user's seek step, with a ⏪/⏩ ripple
+     *   · vertical swipe L  → brightness pill (☀ 68%)
+     *   · vertical swipe R  → media volume pill (🔊 75%)
+     *   · horizontal swipe  → seek preview (01:14:22 (+15s)) then seek on release
+     *   · pinch             → Fit ⇄ Fill
+     * While LOCKED only the unlock pill is touchable (the overlay is GONE).
+     */
     private void wireGestures(FrameLayout root) {
         final boolean swipes = AppPrefs.gestures(prefs);
+        final ScaleGestureDetector pinch = new ScaleGestureDetector(this,
+            new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                @Override public boolean onScale(ScaleGestureDetector d) {
+                    if (d.getScaleFactor() > 1.15f) { setAspect(VideoViewport.FILL); return true; }
+                    if (d.getScaleFactor() < 0.87f) { setAspect(VideoViewport.FIT); return true; }
+                    return false;
+                }
+            });
+
+        // the swipe state
+        final float[] startY = {0f}, startX = {0f};
+        final long[] startPos = {0L}, previewTo = {-1L};
+        final int[] mode = {0};   // 0 none · 1 brightness · 2 volume · 3 seek
+
         final GestureDetector gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onSingleTapConfirmed(MotionEvent e) {
                 toggleControls();
                 return true;
             }
             @Override public boolean onDoubleTap(MotionEvent e) {
+                if (!AppPrefs.doubleTapSeek(prefs)) { toggleControls(); return true; }
                 long step = AppPrefs.seekStepMs(prefs);
-                skip(e.getX() > root.getWidth() / 2f ? step : -step);
+                boolean right = e.getX() > root.getWidth() / 2f;
+                skip(right ? step : -step);
+                ripple(right, (right ? "+" : "−") + (step / 1000) + "s");
                 return true;
             }
-            @Override public boolean onScroll(MotionEvent d, MotionEvent u, float dx, float dy) {
-                if (!swipes) return false;                       // gestures OFF in Settings
-                if (Math.abs(dy) < Math.abs(dx) || Math.abs(dy) < dp(24)) return false;
-                boolean right = d.getX() > root.getWidth() / 2f;
-                if (right) volume(dy);
-                else brightness(dy);
-                return true;
-            }
+            @Override public boolean onDown(MotionEvent e) { return true; }
         });
+
         root.setOnTouchListener((v, e) -> {
-            if (e.getActionMasked() == MotionEvent.ACTION_DOWN || e.getActionMasked() == MotionEvent.ACTION_MOVE)
-                scheduleHudHide();
-            return gd.onTouchEvent(e);
+            if (locked) return true;                       // 🔒 swallow everything
+            pinch.onTouchEvent(e);
+            gd.onTouchEvent(e);
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    startX[0] = e.getX();
+                    startY[0] = e.getY();
+                    startPos[0] = player == null ? 0 : player.getCurrentPosition();
+                    previewTo[0] = -1;
+                    mode[0] = 0;
+                    scheduleHudHide();
+                    return true;
+                case MotionEvent.ACTION_MOVE: {
+                    float dx = e.getX() - startX[0], dy = e.getY() - startY[0];
+                    if (mode[0] == 0) {
+                        if (Math.abs(dy) > dp(18) && Math.abs(dy) > Math.abs(dx) * 1.4f) {
+                            boolean right = startX[0] > root.getWidth() / 2f;
+                            if (right && AppPrefs.swipeVolume(prefs)) mode[0] = 2;
+                            else if (!right && AppPrefs.swipeBrightness(prefs)) mode[0] = 1;
+                            else if (swipes) mode[0] = right ? 2 : 1;
+                        } else if (Math.abs(dx) > dp(24) && Math.abs(dx) > Math.abs(dy) * 1.4f) {
+                            if (AppPrefs.swipeSeek(prefs)) mode[0] = 3;
+                        }
+                    }
+                    if (mode[0] == 1) brightness(dy - dp(40));
+                    else if (mode[0] == 2) volume(dy - dp(40));
+                    else if (mode[0] == 3 && player != null) {
+                        long dur = player.getDuration();
+                        long delta = (long) ((dx / Math.max(1f, root.getWidth())) * 120000L);   // full width = 2 min
+                        long to = Math.max(0, Math.min(dur > 0 ? dur : Long.MAX_VALUE, startPos[0] + delta));
+                        previewTo[0] = to;
+                        gesture((delta >= 0 ? "⏩ " : "⏪ ") + ReceiverServer.clock(to)
+                            + "  (" + (delta >= 0 ? "+" : "") + (delta / 1000) + "s)");
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (mode[0] == 3 && previewTo[0] >= 0 && player != null) player.seekTo(previewTo[0]);
+                    if (mode[0] != 0) hideGesture();
+                    mode[0] = 0;
+                    return true;
+                default:
+                    return false;
+            }
         });
+    }
+
+    private void setAspect(int mode) {
+        aspectMode = mode;
+        prefs.edit().putString(AppPrefs.K_ASPECT_MODE, VideoViewport.modeName(mode)).apply();
+        if (aspectChip != null) aspectChip.setText("📐 " + VideoViewport.modeLabel(mode));
+        applyVideoSize();
+        flash("📐 " + VideoViewport.modeLabel(mode));
+    }
+
+    /** The centre gesture pill (brightness / volume / seek preview). */
+    private void gesture(String text) {
+        if (gesturePill == null) return;
+        gesturePill.setText(text);
+        gesturePill.setVisibility(View.VISIBLE);
+        main.removeCallbacks(hideGestureRunnable);
+        main.postDelayed(hideGestureRunnable, 900);
+    }
+
+    private void hideGesture() {
+        if (gesturePill != null) gesturePill.setVisibility(View.GONE);
+    }
+
+    private final Runnable hideGestureRunnable = this::hideGesture;
+
+    /** The ⏪/⏩ double-tap ripple (a translucent pill on the tapped half). */
+    private void ripple(boolean right, String text) {
+        TextView t = new TextView(this);
+        t.setText((right ? "" : "⏪ ") + text + (right ? " ⏩" : ""));
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(15);
+        t.setGravity(Gravity.CENTER);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(0x59FFFFFF);
+        g.setCornerRadius(dp(40));
+        t.setBackground(g);
+        t.setPadding(dp(18), dp(12), dp(18), dp(12));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(120), dp(72),
+            Gravity.CENTER_VERTICAL | (right ? Gravity.END : Gravity.START));
+        lp.leftMargin = lp.rightMargin = dp(24);
+        final ViewGroup parent = (ViewGroup) hudCenter.getParent();
+        if (parent == null) return;
+        parent.addView(t, lp);
+        main.postDelayed(() -> { try { parent.removeView(t); } catch (Throwable ignored) { } }, 550);
     }
 
     private void volume(float dy) {
@@ -2032,10 +2426,10 @@ public class PlayActivity extends Activity {
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
             int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
             int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
-            int step = Math.round(-dy / dp(28));
+            int step = Math.round(-dy / dp(140));
             int v = Math.max(0, Math.min(max, cur + step));
             if (v != cur) am.setStreamVolume(AudioManager.STREAM_MUSIC, v, 0);
-            flash("🔊 " + Math.round(v * 100f / max) + "%");
+            gesture("🔊 " + Math.round(v * 100f / max) + "%");
         } catch (Throwable ignored) { }
     }
 
@@ -2043,11 +2437,11 @@ public class PlayActivity extends Activity {
         try {
             float cur = getWindow().getAttributes().screenBrightness;
             if (cur < 0) cur = 0.5f;
-            float v = Math.max(0.02f, Math.min(1f, cur - dy / dp(220)));
+            float v = Math.max(0.02f, Math.min(1f, cur - dy / dp(900)));
             WindowManager.LayoutParams lp = getWindow().getAttributes();
             lp.screenBrightness = v;
             getWindow().setAttributes(lp);
-            flash("☀ " + Math.round(v * 100) + "%");
+            gesture("☀ " + Math.round(v * 100) + "%");
         } catch (Throwable ignored) { }
     }
 
@@ -2117,9 +2511,13 @@ public class PlayActivity extends Activity {
     }
 
     private void showError(String msg) {
-        errorBox.setText("▶ Playback error\n\n" + msg + "\n\nBack returns to AnantPlay; the cast stays connected.");
-        errorBox.setVisibility(View.VISIBLE);
-        setState("error", msg);
+        lastErrorMsg = msg == null ? "" : msg;
+        if (errorBox != null) {
+            errorBox.setText(lastErrorMsg);
+            errorBox.setVisibility(View.VISIBLE);
+        }
+        if (errorCard != null) errorCard.setVisibility(View.VISIBLE);
+        setState("error", lastErrorMsg);
     }
 
     // ── v2.3.0: stream-failure diagnostics (the WARP/ISP-block honest answer) ──
@@ -2278,6 +2676,297 @@ public class PlayActivity extends Activity {
                 return o.toByteArray();
             }
         } finally { c.disconnect(); }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // v3.3.0 — THE CINEMA EXTRAS: error card, track picker, external player, rebuild
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /** The exact HTTP status inside a Media3 error chain (0 when there is none). */
+    static int httpStatusOf(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            if (c instanceof androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)
+                return ((androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) c).responseCode;
+        }
+        return 0;
+    }
+
+    /** Rebuild the player at {@code pos} with the CURRENT httpHeaders (the retry leg). */
+    private void rebuildAt(long pos) {
+        try {
+            if (player != null) { player.release(); player = null; }
+        } catch (Throwable ignored) { }
+        startAt = Math.max(0, pos);
+        startPlayback();
+    }
+
+    /** The non-intrusive error card: exact error + 4 one-tap fixes. */
+    private LinearLayout buildErrorCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xF20E1424);
+        bg.setCornerRadius(dp(16));
+        bg.setStroke(dp(1), 0x44FFFFFF);
+        card.setBackground(bg);
+        card.setPadding(dp(16), dp(14), dp(16), dp(12));
+
+        TextView head = new TextView(this);
+        head.setText("▶ Playback error");
+        head.setTextColor(0xFFE2E8F0);
+        head.setTextSize(14);
+        head.setTypeface(Typeface.DEFAULT_BOLD);
+        card.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        errorBox = new TextView(this);
+        errorBox.setTextColor(0xFFFFB3B3);
+        errorBox.setTextSize(12.5f);
+        errorBox.setPadding(0, dp(6), 0, dp(8));
+        card.addView(errorBox, new LinearLayout.LayoutParams(-1, -2));
+
+        Button retry = btn("🔄 Retry");
+        retry.setOnClickListener(v -> {
+            card.setVisibility(View.GONE);
+            triedHeaderRecovery = false;
+            httpHeaders = null;
+            rebuildAt(retryAtMs);
+        });
+        card.addView(retry);
+
+        Button alt = btn("🔧 Retry with alternate headers");
+        alt.setOnClickListener(v -> {
+            card.setVisibility(View.GONE);
+            httpHeaders = StreamHttpConfig.recovery(url, httpHeaders);
+            triedHeaderRecovery = true;
+            rebuildAt(retryAtMs);
+        });
+        card.addView(alt);
+
+        Button vlc = btn("📺 Open in VLC");
+        vlc.setOnClickListener(v -> openExternalPlayer());
+        card.addView(vlc);
+
+        Button copy = btn("📋 Copy error");
+        copy.setOnClickListener(v -> {
+            try {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("error",
+                    "v" + AppInfo.VERSION_NAME + " · " + title + "\n" + lastErrorMsg));
+                flash("📋 copied");
+            } catch (Throwable ignored) { }
+        });
+        card.addView(copy);
+        return card;
+    }
+
+    /** 🔊 Audio / Quality — the REAL Media3 track picker (audio languages + video qualities). */
+    private void showTrackSheet() {
+        if (player == null) return;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(14), dp(10), dp(14), dp(10));
+        boolean any = false;
+        try {
+            Tracks tracks = player.getCurrentTracks();
+            for (final Tracks.Group g : tracks.getGroups()) {
+                if (g.getType() != C.TRACK_TYPE_AUDIO && g.getType() != C.TRACK_TYPE_VIDEO) continue;
+                for (int i = 0; i < g.length; i++) {
+                    final TrackGroup tg = g.getMediaTrackGroup();
+                    final int idx = i;
+                    String label = trackLabel(g.getType(), g.getTrackFormat(i));
+                    Button b = btn((g.isTrackSelected(i) ? "✓ " : "") + label);
+                    b.setOnClickListener(v -> {
+                        try {
+                            player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                                .setOverrideForType(new TrackSelectionOverride(tg, idx)).build());
+                            flash("✓ " + label);
+                        } catch (Throwable t) { Diag.w("tracks", "select: " + t); }
+                    });
+                    box.addView(b, new LinearLayout.LayoutParams(-1, -2));
+                    any = true;
+                }
+            }
+        } catch (Throwable t) {
+            Diag.w("tracks", "read: " + t);
+        }
+        if (!any) box.addView(label("No alternate audio/quality tracks in this stream · මෙම ධාරාවේ වෙනත් ධාවන පථ නැත"));
+        ScrollView sc = new ScrollView(this);
+        sc.addView(box);
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("🔊 Audio / Quality")
+            .setView(sc)
+            .setNegativeButton("Close", null)
+            .show();
+    }
+
+    /** A human label for one Media3 track (language + quality + bitrate). */
+    static String trackLabel(int type, Format f) {
+        StringBuilder sb = new StringBuilder();
+        if (type == C.TRACK_TYPE_AUDIO) {
+            String lang = f.language == null || f.language.isEmpty() ? "" : languageName(f.language);
+            if (!lang.isEmpty()) sb.append(lang);
+            if (f.label != null && !f.label.isEmpty()) sb.append(sb.length() > 0 ? " · " : "").append(f.label);
+            if (sb.length() == 0) sb.append("Audio");
+            if (f.bitrate > 0) sb.append(" · ").append(f.bitrate / 1000).append(" kbps");
+        } else {
+            if (f.height > 0) sb.append(f.height).append("p");
+            if (f.width > 0) sb.append(sb.length() > 0 ? " · " : "").append(f.width).append("×").append(f.height);
+            if (sb.length() == 0) sb.append(f.label == null || f.label.isEmpty() ? "Video" : f.label);
+            if (f.bitrate > 0) sb.append(" · ").append(f.bitrate / 1000).append(" kbps");
+        }
+        return sb.toString();
+    }
+
+    /** "ta" → "Tamil" for the four languages this player meets most. */
+    static String languageName(String code) {
+        String c = code == null ? "" : code.toLowerCase(Locale.US);
+        if (c.startsWith("si")) return "සිංහල";
+        if (c.startsWith("ta")) return "Tamil";
+        if (c.startsWith("hi")) return "Hindi";
+        if (c.startsWith("en")) return "English";
+        if (c.startsWith("te")) return "Telugu";
+        if (c.startsWith("ml")) return "Malayalam";
+        return code;
+    }
+
+    /**
+     * 📺 THE ULTIMATE ESCAPE HATCH: hand the stream (and the Sinhala .srt we already
+     * hold) to VLC / MX / mpv at the exact current position. This is what makes the
+     * app useful even on a codec Media3 cannot decode — and it is why the app never
+     * needs libVLC's 50 MB of .so files to be "VLC-grade".
+     */
+    private void openExternalPlayer() {
+        // v3.3.0 AUDIT — this whole hand-off is external-process code: a missing player,
+        // a vendor ROM that refuses the Intent, a SecurityException from a work profile or
+        // a malformed extra must NEVER crash the player. Everything is inside ONE
+        // try/catch (Throwable) with a clean toast fallback.
+        String subUrl = null;
+        Map<String, String> extras = new LinkedHashMap<>();
+        try {
+            subUrl = publishSubsForExternal();
+            extras = LkSubFinder.externalExtras(url, subUrl, title,
+                player == null ? 0 : player.getCurrentPosition());
+            Intent base = new Intent(Intent.ACTION_VIEW);
+            base.setDataAndType(Uri.parse(url), "video/*");
+            // harmless for an http(s) data URI, and required the day this becomes a
+            // content:// FileProvider — never a file:// Uri (FileUriExposedException).
+            base.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            for (Map.Entry<String, String> e : extras.entrySet()) base.putExtra(e.getKey(), e.getValue());
+            // 1. the preferred player, if installed; 2. any of the others; 3. the chooser.
+            for (String pkg : LkSubFinder.EXTERNAL_PLAYERS) {
+                try {
+                    Intent i = new Intent(base);
+                    i.setPackage(pkg);
+                    if (getPackageManager().resolveActivity(i, 0) != null) {
+                        startActivity(i);
+                        flash(subUrl == null
+                            ? "📺 " + pkg + " · ⚠ subs off (receiver not running)"
+                            : "📺 " + pkg + " · 💬 subs attached");
+                        return;
+                    }
+                } catch (Throwable t) {
+                    Diag.w("vlc", pkg + ": " + t);          // try the next player
+                }
+            }
+            try {
+                startActivity(Intent.createChooser(base, "Play with…"));
+                if (subUrl == null) flash("⚠ no receiver — subtitles not attached");
+            } catch (Throwable t) {
+                Diag.w("vlc", "chooser: " + t);
+                flash("No external player installed · බාහිර player එකක් නැත");
+            }
+        } catch (Throwable t) {
+            // the ONLY thing the user sees: an honest message, never a crash dialog
+            Diag.e("vlc", "external launch failed: " + t);
+            flash("Could not open an external player · " + t.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * v3.3.0 AUDIT FIX — the Sinhala .srt an EXTERNAL player can actually read.
+     *
+     * <p>NEVER a private file path and NEVER a {@code file:} Uri built by
+     * {@code Uri.fromFile}:
+     * <ul>
+     *   <li>{@code file://} in an outgoing Intent = {@code FileUriExposedException} on
+     *       Android 7–16 (a hard crash on the tap of {@code 📺 VLC});</li>
+     *   <li>a raw {@code /data/user/0/…/cache/<name>.srt} path does not crash us
+     *       but VLC gets {@code EACCES} — the user silently gets no subtitles.</li>
+     * </ul>
+     * Instead the cues are published to our already-running loopback receiver
+     * ({@code GET http://127.0.0.1:<port>/subs/current.srt}, UTF-8 text/plain, gated by
+     * LocalNet to this device) and THAT URL is handed over. When the receiver is not
+     * running we return null and omit the extra entirely — a missing subtitle beats a
+     * crash or a dead link.
+     */
+    private String publishSubsForExternal() {
+        try {
+            List<Cue> cur = cues;
+            if (cur == null || cur.isEmpty()) { ReceiverService.setSubsSrt(null); return null; }
+            String body = CueText.of(cur);
+            if (body == null || body.trim().isEmpty()) { ReceiverService.setSubsSrt(null); return null; }
+            ReceiverService.setSubsSrt(body);
+            String u = ReceiverService.subsUrl();
+            if (u == null) Diag.w("vlc", "receiver not running — external player gets no subtitle extra");
+            else Diag.i("vlc", "subtitle route armed for the external player: " + u);
+            return u;
+        } catch (Throwable t) {
+            Diag.w("vlc", "subs publish: " + t);
+            return null;
+        }
+    }
+
+    /** v3.3.0 — the 🇱🇰 mini web-picker (Baiscope / Zoom.lk / PirateLK / SubDL / OS). */
+    private void openLkFinder() {
+        final String q = LkSubFinder.query(title);
+        final List<LkSubFinder.Site> sites = LkSubFinder.sites();
+        final String[] names = new String[sites.size() + 1];
+        for (int i = 0; i < sites.size(); i++)
+            names[i] = (sites.get(i).sriLankan ? "🇱🇰 " : "") + sites.get(i).name;
+        names[sites.size()] = "🔍 DuckDuckGo — \"" + q + "\" sinhala subtitles";
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("🇱🇰 Find Sinhala subtitles — " + q)
+            .setItems(names, (d, which) -> {
+                String target = which < sites.size()
+                    ? sites.get(which).urlFor(q)
+                    : "https://duckduckgo.com/?q=" + LkSubFinder.enc(q + " sinhala subtitles srt");
+                openInWebTab(target);
+            })
+            .setNegativeButton("Close", null)
+            .show();
+    }
+
+    /** Open the app's Web tab on {@code target}; any .zip/.srt it downloads is captured. */
+    private void openInWebTab(String target) {
+        try {
+            Intent i = new Intent(this, MainActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            i.putExtra("webUrl", target);
+            i.putExtra("openWeb", true);
+            startActivity(i);
+            flash("🌐 opening " + StreamSniffer.hostOf(target));
+        } catch (Throwable t) {
+            Diag.w("web", "open tab: " + t);
+        }
+    }
+
+    /** Called by WebBrowserView when a captured .srt/.zip arrived while we are playing. */
+    void attachCapturedSubs(byte[] bytes, String name) {
+        try {
+            List<Cue> loaded = SrtLoader.load(bytes, name);
+            if (loaded == null || loaded.isEmpty()) { flash("no cues in " + name); return; }
+            onLocalCues(loaded, name);
+            flash("💬 " + loaded.size() + " cues attached");
+        } catch (Throwable t) {
+            flash("subtitle error: " + t.getMessage());
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration c) {
+        super.onConfigurationChanged(c);
+        applyStudioStyle();     // 18 sp portrait → 20 sp landscape
+        main.postDelayed(this::applyVideoSize, 60);
     }
 
     /** The English text of a cue list, as one .srt-shaped body (the subs-direct input). */

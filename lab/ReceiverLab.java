@@ -1424,9 +1424,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30200 strictly > 30102 (v3.1.2) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30200 && AppInfo.VERSION_CODE > 30102 && AppInfo.VERSION_CODE < 40000
-              && "3.2.0".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30300 strictly > 30200 (v3.2.0) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30300 && AppInfo.VERSION_CODE > 30200 && AppInfo.VERSION_CODE < 40000
+              && "3.3.0".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1458,9 +1458,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.2.0 / 30200 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.2.0}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30200}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.3.0 / 30300 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.3.0}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30300}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -1507,6 +1507,18 @@ public class ReceiverLab {
         v320CustomizationChecks();
         System.out.println("== v3.2.0 10-point troubleshooter ==");
         v320TroubleshooterChecks();
+
+        // ═════════ v3.3.0 — THE CINEMA PLAYER, THE 403 KILLER & THE NAV SHELL ═════════
+        System.out.println("== v3.3.0 navigation & HUD layout invariants ==");
+        v330LayoutChecks();
+        System.out.println("== v3.3.0 HTTP-403 header forwarding & recovery ==");
+        v330Http403Checks();
+        System.out.println("== v3.3.0 video aspect-ratio math ==");
+        v330AspectChecks();
+        System.out.println("== v3.3.0 Sri Lankan subtitles, .zip capture & external VLC ==");
+        v330SubtitleChecks();
+        System.out.println("== v3.3.0 version & pipeline parity ==");
+        v330VersionParityChecks();
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
@@ -2417,8 +2429,8 @@ public class ReceiverLab {
                 && AppPrefs.normalizeUiLang("xx").equals("bi"));
         check("v31 prefs: accent clamp (v3.2.0: 8 presets)",
             AppPrefs.normalizeAccent(-1) == 0 && AppPrefs.normalizeAccent(8) == 0 && AppPrefs.normalizeAccent(7) == 7 && AppPrefs.normalizeAccent(3) == 3);
-        check("v31 prefs: font size clamps to the 14–40 bounds (v3.2.0)",
-            AppPrefs.normalizeFontSp(1) == 14 && AppPrefs.normalizeFontSp(99) == 40 && AppPrefs.normalizeFontSp(22) == 22);
+        check("v31 prefs: font size clamps to the 12–36 bounds (v3.3.0 cinema range)",
+            AppPrefs.normalizeFontSp(1) == 12 && AppPrefs.normalizeFontSp(99) == 36 && AppPrefs.normalizeFontSp(22) == 22);
         check("v31 prefs: pill opacity clamps to the 0–95 bounds (v3.2.0)",
             AppPrefs.normalizeSubBgOpacity(-5) == 0 && AppPrefs.normalizeSubBgOpacity(100) == 95 && AppPrefs.normalizeSubBgOpacity(30) == 30);
         check("v31 prefs: bottom position clamps to the 2–35% bounds (v3.2.0)",
@@ -2585,18 +2597,18 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v31 sec: both workflows carry versionCode 30200 / 3.2.0",
-            buildYml.contains("30200") && buildYml.contains("3.2.0") && relYml.contains("3.2.0"));
+        check("v31 sec: both workflows carry versionCode 30300 / 3.3.0",
+            buildYml.contains("30300") && buildYml.contains("3.3.0") && relYml.contains("3.3.0"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
-        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30200 + versionName 3.2.0",
-            srcManifest.contains("android:versionCode=\"30200\"")
-                && srcManifest.contains("android:versionName=\"3.2.0\"")
-                && "30200".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.2.0".equals(AppInfo.VERSION_NAME));
+        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30300 + versionName 3.3.0",
+            srcManifest.contains("android:versionCode=\"30300\"")
+                && srcManifest.contains("android:versionName=\"3.3.0\"")
+                && "30300".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.3.0".equals(AppInfo.VERSION_NAME));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -2606,10 +2618,10 @@ public class ReceiverLab {
         // that survived the 3.1.0 bump: the build job still uploaded
         // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
         check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.2.0.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.3.0.apk")
                 && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
         check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.2.0.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.3.0.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
         // v3.1.1 — REPRODUCIBILITY GUARD: the pre-merge build and the post-merge
         // release build of the SAME commit used to differ only by the ZIP entry
@@ -2834,7 +2846,7 @@ public class ReceiverLab {
         check("v312 tsr: the report's crash section leads with the EXCEPTION line",
             rep.contains("EXCEPTION android.content.res.Resources$NotFoundException"));
         check("v312 tsr: the report header stamps the app version + SDK only (no model)",
-            rep.contains("app v3.2.0") && rep.contains("Android SDK"));
+            rep.contains("app v3.3.0") && rep.contains("Android SDK"));
         check("v312 tsr: the report is zero-PII end-to-end (the whole bundle re-scrubbed)",
             !rep.contains("24117RN76G") && !rep.contains("192.168.1.39"));
     }
@@ -3330,18 +3342,32 @@ public class ReceiverLab {
             playSrc.contains("silently re-ensuring"));
     }
 
-    /** The translator cache round-trip on a real temp dir. */
+    /**
+     * The translator cache round-trip on a real temp dir — DETERMINISTIC since
+     * v3.3.0: v3.2.0's version called translate() twice and hoped the network
+     * answered, so it FAILED on every offline/CI runner (exactly the kind of
+     * "green locally, red in CI" test that erodes trust in a lab). Now the cache
+     * is seeded through the SAME writer the engine uses, and the hit is proved
+     * with ZERO network: a cache hit must return the exact cues, instantly.
+     */
     static boolean cacheRoundTrip() {
         try {
             java.io.File dir = java.io.File.createTempFile("subcache", ".d");
             dir.delete();
             dir.mkdirs();
             List<Cue> src = new java.util.ArrayList<>();
-            src.add(new Cue(0, 0, 3000, null, "hello there friend", null, "hello there friend"));
-            FreeSubTranslator.Result r1 = FreeSubTranslator.translate(dir, src, "si", null);
-            // force a second pass — a complete first pass caches, so run 2 hits
-            FreeSubTranslator.Result r2 = FreeSubTranslator.translate(dir, src, "si", null);
-            return r2.cacheHits == 1 || r1.complete;   // hit OR the offline-lab's graceful path
+            src.add(new Cue(0, 0, 3000, null, "hello there friend", null, "ආයුබෝවන් යාළුවා"));
+            src.add(new Cue(1, 4000, 6000, null, "see you soon", null, "ආයෙත් හමුවෙමු"));
+            String hash = SelfUpdateCore.sha256(FreeSubTranslator.sourceBytes(src));
+            java.io.File cacheFile = new java.io.File(FreeSubTranslator.cacheDir(dir), hash + ".si.srt");
+            FreeSubTranslator.writeCachedSrt(cacheFile, src);
+            if (!cacheFile.isFile() || cacheFile.length() == 0) return false;
+            List<Cue> readBack = FreeSubTranslator.readCachedSrt(cacheFile);
+            if (readBack == null || readBack.size() != 2) return false;
+            if (!"ආයුබෝවන් යාළුවා".equals(readBack.get(0).si)) return false;
+            // and the ENGINE hits it: no request may be made on a cached list
+            FreeSubTranslator.Result r = FreeSubTranslator.translate(dir, src, "si", null);
+            return r.cacheHits == 1 && r.requests == 0 && r.complete;
         } catch (Throwable t) {
             return false;
         }
@@ -3456,14 +3482,17 @@ public class ReceiverLab {
         check("v320 cust: sub bg styles (pill|outline|box|shadow)",
             AppPrefs.normalizeSubBg("box").equals("box") && AppPrefs.normalizeSubBg("shadow").equals("shadow")
                 && AppPrefs.normalizeSubBg("glow").equals("pill"));
-        check("v320 cust: fontSp clamps to 14..40, line spacing to 100..150, bottom pct to 2..35",
-            AppPrefs.normalizeFontSp(99) == 40 && AppPrefs.normalizeFontSp(3) == 14
+        check("v320 cust: fontSp clamps to 12..36 (v3.3.0), line spacing to 100..150, bottom pct to 2..35",
+            AppPrefs.normalizeFontSp(99) == 36 && AppPrefs.normalizeFontSp(3) == 12
                 && AppPrefs.normalizeSubLineSpacing(180) == 150 && AppPrefs.normalizeSubBottomPct(1) == 2
                 && AppPrefs.normalizeSubBottomPct(60) == 35);
         check("v320 cust: play speed clamps to 0.5x..2.0x (per-mille 50..200)",
             AppPrefs.normalizePlaySpeed(300) == 200 && AppPrefs.normalizePlaySpeed(10) == 50);
-        check("v320 cust: aspect whitelist (fit|fill|zoom)",
-            AppPrefs.normalizeAspectMode("zoom").equals("zoom") && AppPrefs.normalizeAspectMode("wide").equals("fit"));
+        check("v320 cust: aspect whitelist (v3.3.0: fit|fill|16:9|stretch, the old zoom alias → fill)",
+            AppPrefs.normalizeAspectMode("16:9").equals("16:9")
+                && AppPrefs.normalizeAspectMode("stretch").equals("stretch")
+                && AppPrefs.normalizeAspectMode("zoom").equals("fill")
+                && AppPrefs.normalizeAspectMode("wide").equals("fit"));
         check("v320 cust: receiver port clamps to 1024..65535 (8765 default)",
             AppPrefs.normalizeReceiverPort(80) == 8765 && AppPrefs.normalizeReceiverPort(9000) == 9000);
         check("v320 cust: 8 curated accents + 6 subtitle colors shipped",
@@ -3532,7 +3561,7 @@ public class ReceiverLab {
             && Boolean.TRUE.equals(imp.values.get(AppPrefs.K_AUTO_TRANSLATE_NON_SI))
             && Boolean.FALSE.equals(imp.values.get(AppPrefs.K_AUTO_ZIP))
             && Integer.valueOf(150).equals(imp.values.get(AppPrefs.K_PLAY_SPEED))
-            && "zoom".equals(imp.values.get(AppPrefs.K_ASPECT_MODE))
+            && "fill".equals(imp.values.get(AppPrefs.K_ASPECT_MODE))   // v3.3.0: zoom → fill
             && Boolean.FALSE.equals(imp.values.get(AppPrefs.K_DOUBLE_TAP_SEEK))
             && Integer.valueOf(9000).equals(imp.values.get(AppPrefs.K_RECEIVER_PORT))
             && Boolean.FALSE.equals(imp.values.get(AppPrefs.K_AD_BLOCK))
@@ -3547,7 +3576,7 @@ public class ReceiverLab {
         Map<String, Object> clean = AppPrefs.normalizeMap(hostile);
         check("v320 cust: hostile import values normalize (99→clamped, junk→default)",
             clean.containsKey(AppPrefs.K_ACCENT) && Integer.valueOf(0).equals(clean.get(AppPrefs.K_ACCENT))
-                && Integer.valueOf(40).equals(clean.get(AppPrefs.K_FONT_SP))
+                && Integer.valueOf(36).equals(clean.get(AppPrefs.K_FONT_SP))
                 && "dark".equals(clean.get(AppPrefs.K_THEME_MODE)));
         // the static UI contract: 5 tabs, the links manager page, the sheet
         String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
@@ -3602,9 +3631,15 @@ public class ReceiverLab {
         FeatureProbe.Outcome font = FeatureProbe.probe9FontAsset(null, null);
         check("v320 probe: probe 9 (font + shaping) runs IN the lab and passes",
             font.pass, font.detail);
+        // v3.3.0 — the nav-shell verdict is measured on-device by MainActivity.measureShell();
+        // the lab simulates a measured-OK shell (and checks the default is FAIL, below).
+        boolean shellDefault = FeatureProbe.shellOk;
+        FeatureProbe.shellOk = true;
         FeatureProbe.Outcome backup = FeatureProbe.probe10BackupCrash(null, null);
         check("v320 probe: probe 10 (backup round-trip) runs IN the lab and passes",
             backup.pass, backup.detail);
+        check("v330 probe: probe 10 is HONEST — an unmeasured nav shell never reports PASS",
+            !shellDefault);
         // the static wiring: the Troubleshoot tab carries the hero + copy/share
         String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
         check("v320 probe: the Troubleshoot tab ships the Run Full App Troubleshoot hero",
@@ -3626,6 +3661,440 @@ public class ReceiverLab {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // v3.3.0 — PHASE 1's FOUR FIELD BUGS, MADE STRUCTURALLY IMPOSSIBLE
+    //   · the vanished bottom navigation bar   (layout invariants)
+    //   · ERROR_CODE_IO_BAD_HTTP_STATUS: 403   (the live mock-CDN lab)
+    //   · the stretched portrait video         (the aspect-ratio math)
+    //   · the Sri Lankan .zip subtitle hunt    (capture + external VLC)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /** BUG #1 — the bottom bar was BUILT but never ADDED to the root. */
+    static void v330LayoutChecks() throws Exception {
+        String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
+        String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+
+        check("v330 layout: the shell is a LinearLayout(VERTICAL)",
+            mainSrc.contains("shell.setOrientation(LinearLayout.VERTICAL)"));
+        check("v330 layout: the content host is height 0 + weight 1.0f (a bar pushed off-screen is now arithmetically impossible)",
+            mainSrc.contains("new LinearLayout.LayoutParams(-1, 0, 1f)"));
+        check("v330 layout: the bottom bar is REALLY added to the shell (the exact v3.2.0 defect)",
+            mainSrc.contains("shell.addView(bottomBar, new LinearLayout.LayoutParams(-1, -2))"));
+        check("v330 layout: the top app bar is added to the shell",
+            mainSrc.contains("shell.addView(topBar, new LinearLayout.LayoutParams(-1, -2))"));
+        check("v330 layout: the old FrameLayout shell with a parentless bar is gone",
+            !mainSrc.contains("root.addView(pages"));
+        check("v330 layout: the top bar carries 1-tap 🩺 Troubleshoot AND ⚙️ Settings",
+            mainSrc.contains("topBarIcon(\"\uD83E\uDE7A\"") && mainSrc.contains("topBarIcon(\"\u2699"));
+        check("v330 layout: the top bar pads by statusBars()|displayCutout()",
+            mainSrc.contains("WindowInsets.Type.statusBars()") && mainSrc.contains("WindowInsets.Type.displayCutout()"));
+        check("v330 layout: the bottom bar pads by navigationBars()",
+            mainSrc.contains("WindowInsets.Type.navigationBars()"));
+        check("v330 layout: the 4 tabs are Home/Web/Customize/Troubleshoot — and 3 when Web is hidden (never hiding Customize/Troubleshoot)",
+            mainSrc.contains("new int[]{TAB_HOME, TAB_WEB, TAB_SETTINGS, TAB_TROUBLE}")
+                && mainSrc.contains("new int[]{TAB_HOME, TAB_SETTINGS, TAB_TROUBLE}"));
+        check("v330 layout: the bottom bar has a 64dp minimum height",
+            mainSrc.contains("bottomBar.setMinimumHeight(dp(64))"));
+        check("v330 layout: the runtime shell invariant is measured on every resume",
+            mainSrc.contains("measureShell") && mainSrc.contains("bottomBar.getTop() >= pages.getBottom() - 1"));
+
+        check("v330 layout: the player HUD is THREE stacked zones (centre = height 0 + weight 1)",
+            playSrc.contains("box.addView(hudCenter, new LinearLayout.LayoutParams(-1, 0, 1f))"));
+        check("v330 layout: the player's top bar pads by the measured status inset",
+            playSrc.contains("hudTopBar.setPadding(dp(6), statusInset + dp(6), dp(6), dp(6))"));
+        check("v330 layout: the player's bottom bar pads by the measured nav inset",
+            playSrc.contains("navInset + dp(8)"));
+        check("v330 layout: the subtitle layer reserves the top AND bottom bar zones",
+            playSrc.contains("subLayer.setPadding(0, statusInset + dp(40), 0, navInset + dp(96))"));
+        check("v330 layout: the v3.2.0 fixed-64dp floating pill row (the '< Back' overlap) is gone",
+            !playSrc.contains("pillLp.topMargin = dp(64)"));
+        check("v330 layout: the SurfaceView is NOT MATCH_PARENT any more (VideoViewport sizes it)",
+            !playSrc.contains("root.addView(surface, new FrameLayout.LayoutParams(-1, -1))"));
+        check("v330 layout: v3.2.0's applyResizeMode() is deleted",
+            !playSrc.contains("applyResizeMode"));
+        check("v330 layout: the player wires Player.Listener.onVideoSizeChanged",
+            playSrc.contains("public void onVideoSizeChanged(VideoSize vs)"));
+        check("v330 layout: the 4 aspect modes ship (Fit/Fill/16:9/Stretch)",
+            playSrc.contains("VideoViewport.next(aspectMode)") && playSrc.contains("VideoViewport.modeLabel"));
+        check("v330 layout: rotate + lock are 1-tap HUD actions",
+            playSrc.contains("private void rotateScreen()") && playSrc.contains("private void setLocked(boolean on)"));
+        check("v330 layout: the lock swallows every touch",
+            playSrc.contains("if (locked) return true;"));
+        check("v330 layout: the error card never sits under the top bar (centred card, 4 fixes)",
+            playSrc.contains("buildErrorCard") && playSrc.contains("Retry with alternate headers"));
+    }
+
+    /** BUG #2 — the live mock CDN: 403 unless Referer+Origin+UA+Cookie are exact. */
+    static void v330Http403Checks() throws Exception {
+        final String wantReferer = "https://player.example.net/watch/123";
+        final String wantOrigin = "https://player.example.net";
+        final String wantCookie = "cf_clearance=abc123";
+
+        com.sun.net.httpserver.HttpServer srv =
+            com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        srv.createContext("/", ex -> {
+            String ua = ex.getRequestHeaders().getFirst("User-Agent");
+            String ref = ex.getRequestHeaders().getFirst("Referer");
+            String org = ex.getRequestHeaders().getFirst("Origin");
+            String ck = ex.getRequestHeaders().getFirst("Cookie");
+            String acc = ex.getRequestHeaders().getFirst("Accept");
+            boolean ok = ua != null && ua.contains("Chrome/") && !ua.contains("AndroidXMedia3")
+                && ref != null && ref.startsWith(wantOrigin) && wantOrigin.equals(org)
+                && ck != null && ck.contains(wantCookie) && acc != null;
+            byte[] body = (ok ? "#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:6.0,\nseg1.ts\n"
+                              : "403 forbidden").getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(ok ? 200 : 403, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        srv.start();
+        int port = srv.getAddress().getPort();
+        String url = "http://127.0.0.1:" + port + "/hls/index.m3u8";
+        try {
+            // the mock is genuinely strict — this is the v3.2.0 field failure, reproduced
+            Map<String, String> legacy = new LinkedHashMap<>();
+            legacy.put("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36");
+            legacy.put("Referer", wantReferer);
+            legacy.put("Cookie", wantCookie);
+            check("v330 http403: the mock CDN 403s v3.2.0's stub User-Agent (the field bug, reproduced)",
+                status(url, legacy) == 403);
+
+            Map<String, String> media3 = new LinkedHashMap<>(legacy);
+            media3.put("User-Agent", "AndroidXMedia3/1.11.1");
+            check("v330 http403: ...and refuses Media3's own default User-Agent",
+                status(url, media3) == 403);
+
+            // the normalized headers win on the FIRST attempt
+            String castJson = "{\"Referer\":\"" + wantReferer + "\","
+                + "\"User-Agent\":\"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36\"}";
+            Map<String, String> norm = StreamHttpConfig.normalize(castJson, wantCookie, url);
+            check("v330 http403: normalize() swaps the stub UA for a browser-grade Chrome UA",
+                norm.get("User-Agent") != null && norm.get("User-Agent").contains("Chrome/131"));
+            check("v330 http403: normalize() derives Origin from the Referer",
+                wantOrigin.equals(norm.get("Origin")));
+            check("v330 http403: normalize() merges the cast's cookie exactly once",
+                norm.get("Cookie") != null && norm.get("Cookie").contains(wantCookie));
+            check("v330 http403: normalize() adds Accept: */*", "*/*".equals(norm.get("Accept")));
+            check("v330 http403: normalize() adds Accept-Language",
+                norm.get("Accept-Language") != null);
+            check("v330 http403: the normalized headers get HTTP 200 on the FIRST try",
+                status(url, norm) == 200, "status=" + status(url, norm));
+
+            // the recovery leg
+            Map<String, String> broken = new LinkedHashMap<>();
+            broken.put("User-Agent", "AndroidXMedia3/1.11.1");
+            broken.put("Cookie", wantCookie);
+            check("v330 http403: without a Referer/Origin even a browser UA is refused",
+                status(url, broken) == 403);
+            Map<String, String> rec = StreamHttpConfig.recovery(wantReferer, broken);
+            check("v330 http403: recovery() forces the Chrome UA",
+                rec.get("User-Agent") != null && rec.get("User-Agent").contains("Chrome/131"));
+            check("v330 http403: recovery() derives the Origin from the Referer",
+                wantOrigin.equals(rec.get("Origin")));
+            check("v330 http403: recovery() adds the Sec-Fetch triple a real Chrome sends",
+                "video".equals(rec.get("Sec-Fetch-Dest")) && "no-cors".equals(rec.get("Sec-Fetch-Mode"))
+                    && "cross-site".equals(rec.get("Sec-Fetch-Site")));
+            check("v330 http403: the recovered headers get HTTP 200 (the automatic retry really works)",
+                status(url, rec) == 200);
+
+            // every cast shape AnantPlay can send
+            String nested = "{\"headers\":{\"referer\":\"" + wantReferer + "\",\"cookie\":\"" + wantCookie
+                + "\"},\"ua\":\"Dalvik/2.1.0 (Linux; U; Android 16)\"}";
+            Map<String, String> n2 = StreamHttpConfig.normalize(nested, null, url);
+            check("v330 http403: a NESTED {\"headers\":{...}} cast parses (referer+cookie) and its top-level ua is replaced",
+                wantReferer.equals(n2.get("Referer")) && n2.get("Cookie").contains(wantCookie)
+                    && n2.get("User-Agent").contains("Chrome/131"));
+            check("v330 http403: the nested-shape cast plays (HTTP 200)", status(url, n2) == 200);
+
+            Map<String, String> hostile = new LinkedHashMap<>();
+            hostile.put("Host", "evil.example");
+            hostile.put("Content-Length", "999");
+            hostile.put("Connection", "keep-alive");
+            hostile.put("Referer", wantReferer);
+            Map<String, String> cleaned = StreamHttpConfig.normalize(null, wantCookie, url,
+                new LinkedHashMap<>(hostile));
+            check("v330 http403: hop-by-hop headers (Host/Content-Length/Connection) are dropped",
+                !cleaned.containsKey("Host") && !cleaned.containsKey("Content-Length")
+                    && !cleaned.containsKey("Connection") && cleaned.containsKey("Referer"));
+            check("v330 http403: a header name is canonicalised (referer → Referer, user-agent → User-Agent)",
+                cleaned.containsKey("Referer") && cleaned.containsKey("User-Agent"));
+            check("v330 http403: describe() logs header NAMES only — never a cookie or a token",
+                !StreamHttpConfig.describe(cleaned).contains(wantCookie)
+                    && StreamHttpConfig.describe(cleaned).contains("Cookie"));
+            check("v330 http403: recoverable() covers 401/403/451 only",
+                StreamHttpConfig.recoverable(401) && StreamHttpConfig.recoverable(403)
+                    && StreamHttpConfig.recoverable(451) && !StreamHttpConfig.recoverable(404)
+                    && !StreamHttpConfig.recoverable(200));
+            check("v330 http403: isBlockedUa() flags Media3 / Dalvik / the truncated stub, not a real Chrome",
+                StreamHttpConfig.isBlockedUa("AndroidXMedia3/1.11.1")
+                    && StreamHttpConfig.isBlockedUa("Dalvik/2.1.0 (Linux; U; Android 16)")
+                    && StreamHttpConfig.isBlockedUa("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36")
+                    && StreamHttpConfig.isBlockedUa(null)
+                    && !StreamHttpConfig.isBlockedUa(StreamHttpConfig.CHROME_UA));
+            check("v330 http403: originOf() strips the path AND any credentials",
+                "https://cdn.example.com".equals(StreamHttpConfig.originOf("https://user:pw@cdn.example.com/a/b?c=1"))
+                    && StreamHttpConfig.originOf("ftp://x/y") == null);
+            check("v330 http403: the player builds the DataSource exactly like official AnantPlay (setUserAgent + cross-protocol redirects)",
+                stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"))
+                    .contains(".setUserAgent(ua)") );
+            check("v330 http403: the player adds the WebView cookie PER REQUEST HOST (ResolvingDataSource)",
+                stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"))
+                    .contains("new ResolvingDataSource.Factory(http"));
+            check("v330 http403: a 401/403/451 triggers ONE automatic recovery retry",
+                stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"))
+                    .contains("StreamHttpConfig.recovery(url, httpHeaders)"));
+        } finally {
+            srv.stop(0);
+        }
+    }
+
+    /** One GET with exactly these headers → the status code. */
+    static int status(String url, Map<String, String> headers) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
+            c.setConnectTimeout(4000);
+            c.setReadTimeout(4000);
+            if (headers != null) for (Map.Entry<String, String> e : headers.entrySet())
+                c.setRequestProperty(e.getKey(), e.getValue());
+            return c.getResponseCode();
+        } catch (Exception e) {
+            return -1;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    /** BUG #3 — the aspect-ratio math that stops the vertical stretch. */
+    static void v330AspectChecks() {
+        int[] fit = VideoViewport.compute(1920, 1080, 1f, 1080, 2400, VideoViewport.FIT);
+        check("v330 aspect: Fit 1920×1080 in a 1080×2400 portrait screen → 1080×608 (16:9, ZERO vertical stretch)",
+            fit[0] == 1080 && fit[1] == 608, fit[0] + "×" + fit[1]);
+        int[] fill = VideoViewport.compute(1920, 1080, 1f, 1080, 2400, VideoViewport.FILL);
+        check("v330 aspect: Fill → 4267×2400 (proportional crop, aspect preserved)",
+            fill[0] == 4267 && fill[1] == 2400, fill[0] + "×" + fill[1]);
+        int[] land = VideoViewport.compute(1920, 1080, 1f, 2400, 1080, VideoViewport.FIT);
+        check("v330 aspect: Landscape 2400×1080 Fit → exactly 1920×1080",
+            land[0] == 1920 && land[1] == 1080, land[0] + "×" + land[1]);
+        int[] stretch = VideoViewport.compute(1920, 1080, 1f, 1080, 2400, VideoViewport.STRETCH);
+        check("v330 aspect: Stretch is the ONLY distorting mode (1080×2400) and it must be asked for",
+            stretch[0] == 1080 && stretch[1] == 2400);
+        int[] r169 = VideoViewport.compute(1440, 1080, 1f, 1080, 2400, VideoViewport.R16_9);
+        check("v330 aspect: 16:9 forced on a 4:3 stream → 1080×608",
+            r169[0] == 1080 && r169[1] == 608, r169[0] + "×" + r169[1]);
+        int[] par = VideoViewport.compute(1440, 1080, 4f / 3f, 1920, 1080, VideoViewport.FIT);
+        check("v330 aspect: anamorphic par (1440×1080 @ 1.333) is treated as 1920×1080",
+            par[0] == 1920 && par[1] == 1080, par[0] + "×" + par[1]);
+        int[] unknown = VideoViewport.compute(0, 0, 1f, 1080, 2400, VideoViewport.FIT);
+        check("v330 aspect: an unknown (0×0) video size falls back to the container, never a crash",
+            unknown[0] == 1080 && unknown[1] == 2400);
+        int[] nanPar = VideoViewport.compute(1920, 1080, Float.NaN, 1080, 2400, VideoViewport.FIT);
+        check("v330 aspect: a NaN/0 par is treated as 1 (no NaN geometry reaches the layout)",
+            nanPar[0] == 1080 && nanPar[1] == 608);
+        check("v330 aspect: the mode strings round-trip (fit/fill/zoom/16:9/stretch)",
+            VideoViewport.modeFrom("fit") == VideoViewport.FIT
+                && VideoViewport.modeFrom("fill") == VideoViewport.FILL
+                && VideoViewport.modeFrom("zoom") == VideoViewport.FILL
+                && VideoViewport.modeFrom("16:9") == VideoViewport.R16_9
+                && VideoViewport.modeFrom("stretch") == VideoViewport.STRETCH
+                && VideoViewport.modeFrom(null) == VideoViewport.FIT);
+        check("v330 aspect: the 📐 chip cycles Fit → Fill → 16:9 → Stretch → Fit",
+            VideoViewport.next(VideoViewport.FIT) == VideoViewport.FILL
+                && VideoViewport.next(VideoViewport.FILL) == VideoViewport.R16_9
+                && VideoViewport.next(VideoViewport.R16_9) == VideoViewport.STRETCH
+                && VideoViewport.next(VideoViewport.STRETCH) == VideoViewport.FIT);
+        check("v330 aspect: coversScreen() is true only for Fill",
+            VideoViewport.coversScreen(fill, 1080, 2400) && !VideoViewport.coversScreen(fit, 1080, 2400));
+        check("v330 aspect: the cinema subtitle default is 18 sp (was 22), clamped 12..36",
+            AppPrefs.normalizeFontSp(18) == 18 && AppPrefs.normalizeFontSp(99) == 36
+                && AppPrefs.normalizeFontSp(1) == 12);
+    }
+
+    /** BUG #4 — Sri Lankan subtitles: capture, unzip, translate routing, external VLC. */
+    static void v330SubtitleChecks() throws Exception {
+        check("v330 subzip: .srt/.zip/.ass/.vtt/.ssa/.sub links are recognised",
+            LkSubFinder.isSubtitleDownload("https://x.lk/a/movie.srt")
+                && LkSubFinder.isSubtitleDownload("https://x.lk/a/movie.zip")
+                && LkSubFinder.isSubtitleDownload("https://x.lk/a/movie.ass")
+                && LkSubFinder.isSubtitleDownload("https://x.lk/a/movie.vtt"));
+        check("v330 subzip: a ?file=movie.zip query form is recognised",
+            LkSubFinder.isSubtitleDownload("https://baiscope.lk/download.php?f=Movie.zip&x=1"));
+        check("v330 subzip: a normal page is NOT a subtitle link",
+            !LkSubFinder.isSubtitleDownload("https://baiscope.lk/movie/the-odyssey/")
+                && !LkSubFinder.isSubtitleDownload("javascript:alert(1)"));
+        check("v330 subzip: isZip / isPlainSub separate the two capture paths",
+            LkSubFinder.isZip("https://x.lk/a.zip") && !LkSubFinder.isZip("https://x.lk/a.srt")
+                && LkSubFinder.isPlainSub("https://x.lk/a.srt") && !LkSubFinder.isPlainSub("https://x.lk/a.zip"));
+        check("v330 subzip: the capture labels name the archive correctly",
+            LkSubFinder.captureLabel("https://x/a.zip").contains(".zip")
+                && LkSubFinder.captureLabel("https://x/a.srt").contains("Subtitle"));
+
+        java.util.List<LkSubFinder.Site> sites = LkSubFinder.sites();
+        check("v330 subzip: the SL site list leads with Baiscope / Zoom.lk / PirateLK",
+            sites.size() >= 5 && "Baiscope".equals(sites.get(0).name)
+                && "Zoom.lk".equals(sites.get(1).name) && "PirateLK".equals(sites.get(2).name));
+        check("v330 subzip: the 🇱🇰 list is exactly the Sri Lankan three",
+            LkSubFinder.sriLankanSites().size() == 3);
+        String baiscope = LkSubFinder.searchUrl("Baiscope", "The Odyssey (2026) 1080p WEB-DL");
+        check("v330 subzip: a search URL is built and the junk noise is cleaned",
+            baiscope.startsWith("https://baiscope.lk/?s=") && baiscope.contains("Odyssey")
+                && !baiscope.contains("1080p") && !baiscope.contains("WEB-DL"), baiscope);
+        check("v330 subzip: the query is URL-encoded (spaces become %20)",
+            LkSubFinder.searchUrl("SubDL", "Kung Fu Panda").contains("Kung%20Fu%20Panda"));
+        check("v330 subzip: an unknown site falls back to a DuckDuckGo search",
+            LkSubFinder.searchUrl("Nope", "X").startsWith("https://duckduckgo.com/?q="));
+        check("v330 subzip: every site yields a deep link for the picker",
+            LkSubFinder.allSearchUrls("The Odyssey").size() == sites.size());
+        check("v330 subzip: preferredEntry() picks the Sinhala .srt out of a multi-file archive",
+            "Movie/sinhala.srt".equals(LkSubFinder.preferredEntry(
+                java.util.Arrays.asList("Movie/readme.txt", "Movie/english.srt", "Movie/sinhala.srt"))));
+
+        // a real Baiscope-shaped archive with a ZWJ conjunct, extracted by the shipped loader
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        ZipOutputStream zs = new ZipOutputStream(buf);
+        String srt = "1\n00:00:01,000 --> 00:00:03,000\n\u0DC1\u0DCA\u200D\u0DBB\u0DD3 \u0DBD\u0D82\u0D9A\u0DCF\u0DC0\u0DDA \u0DA0\u0DD2\u0DAD\u0DCA\u200D\u0DBB\u0DB4\u0DA7\u0DD2\u0DBA\n\n";
+        zs.putNextEntry(new ZipEntry("Movie.2026/Sinhala.srt"));
+        zs.write(srt.getBytes(StandardCharsets.UTF_8));
+        zs.closeEntry();
+        zs.close();
+        List<Cue> fromZip = SrtLoader.load(buf.toByteArray(), "captured.zip");
+        check("v330 subzip: the captured .zip extracts in-app (1 cue)",
+            fromZip != null && fromZip.size() == 1);
+        check("v330 subzip: the Sinhala ZWJ conjunct ශ්‍රී survives the whole capture path",
+            fromZip != null && !fromZip.isEmpty() && fromZip.get(0).si.indexOf('\u200D') >= 0
+                && fromZip.get(0).si.contains("\u0DC1\u0DCA\u200D\u0DBB\u0DD3"));
+        check("v330 subzip: the extracted list is detected as Sinhala (no needless translate)",
+            SubLangDetect.looksSinhala(fromZip.get(0).si));
+        check("v330 subzip: an English list is NOT Sinhala — it is routed to the translator",
+            !SubLangDetect.looksSinhala("hello there friend, this is an english subtitle line"));
+
+        // ── v3.3.0 AUDIT FIX: ONLY a URI another app can READ may cross the Intent ──
+        // The old build passed /data/user/0/<pkg>/cache/sinhala-sub.srt (absolute path):
+        // VLC runs under another UID, gets EACCES, and the user silently loses the
+        // subtitles. A file:// Uri in an outgoing Intent would throw
+        // FileUriExposedException on Android 7–16 (a crash on the 📺 VLC tap).
+        String loopUrl = "http://127.0.0.1:8765/subs/current.srt";
+        Map<String, String> extras = LkSubFinder.externalExtras("https://cdn/x.m3u8", loopUrl, "The Odyssey", 7410000L);
+        check("v330 subzip: the external-player extras carry url/title/position/subtitles",
+            "https://cdn/x.m3u8".equals(extras.get("url")) && "The Odyssey".equals(extras.get("title"))
+                && "7410000".equals(extras.get("position"))
+                && loopUrl.equals(extras.get("subtitles_location"))
+                && loopUrl.equals(extras.get("subtitle"))
+                && loopUrl.equals(extras.get("subs")));
+        check("v330 subzip: no subtitle path → no subtitle extras (never an empty file name)",
+            !LkSubFinder.externalExtras("https://cdn/x.m3u8", null, "t", 0).containsKey("subtitles_location"));
+        check("v330 vlc: a PRIVATE cache path is never handed to an external player (EACCES trap)",
+            LkSubFinder.safeSubLocation("/data/user/0/lk.techworld.anantplay.sicast/cache/sinhala-sub.srt") == null
+                && LkSubFinder.safeSubLocation("/tmp/si.srt") == null
+                && !LkSubFinder.externalExtras("https://cdn/x.m3u8", "/data/user/0/lk/cache/sinhala-sub.srt", "t", 0)
+                    .containsKey("subtitles_location"));
+        check("v330 vlc: a file:// Uri is never forwarded (FileUriExposedException trap)",
+            LkSubFinder.safeSubLocation("file:///data/user/0/lk/cache/sinhala-sub.srt") == null
+                && !LkSubFinder.externalExtras("https://cdn/x.m3u8", "file:///storage/emulated/0/si.srt", "t", 0)
+                    .containsKey("subtitles_location"));
+        check("v330 vlc: http(s)/content URIs are the only accepted subtitle locations",
+            loopUrl.equals(LkSubFinder.safeSubLocation(loopUrl))
+                && "https://cdn.example/si.srt".equals(LkSubFinder.safeSubLocation("https://cdn.example/si.srt"))
+                && "content://lk.techworld.anantplay.subs/si.srt"
+                    .equals(LkSubFinder.safeSubLocation("content://lk.techworld.anantplay.subs/si.srt"))
+                && LkSubFinder.safeSubLocation("  ") == null);
+        check("v330 subzip: VLC is the preferred external player, MX/mpv follow",
+            "org.videolan.vlc".equals(LkSubFinder.preferredPlayer())
+                && LkSubFinder.EXTERNAL_PLAYERS.length >= 3);
+
+        String webSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
+        String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        check("v330 subzip: the WebView intercepts subtitle downloads (never navigates away)",
+            webSrc.contains("LkSubFinder.isSubtitleDownload(us)"));
+        check("v330 subzip: the WebView has a DownloadListener capture path too",
+            webSrc.contains("setDownloadListener") && webSrc.contains("captureSubtitle"));
+        check("v330 subzip: the capture attaches to the LIVE player",
+            webSrc.contains("attachCapturedSubs") && playSrc.contains("void attachCapturedSubs("));
+        check("v330 subzip: the player's 💬 sheet ships the 🇱🇰 Find Sinhala Sub button",
+            playSrc.contains("openLkFinder") && playSrc.contains("Find Sinhala Sub"));
+        check("v330 subzip: the mini web-picker opens the app's Web tab on the site search",
+            playSrc.contains("putExtra(\"webUrl\", target)")
+                && stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"))
+                    .contains("openWebFromIntent"));
+        check("v330 subzip: the download is capped (6 MB) and the unzip is 5 MB/64-entry bomb-safe",
+            webSrc.contains("6 * 1024 * 1024") && SrtLoader.MAX_BYTES == 5 * 1024 * 1024
+                && SrtLoader.MAX_ENTRIES == 64);
+
+        // ── the SOURCE-level proof: no external-launch path can reintroduce the crash ──
+        check("v330 vlc: PlayActivity contains NO Uri.fromFile() call at all",
+            !playSrc.contains("Uri.fromFile(") && !playSrc.contains("getCacheDir()"));
+        check("v330 vlc: the external launch publishes to the loopback /subs route, not a file",
+            playSrc.contains("ReceiverService.setSubsSrt(") && playSrc.contains("ReceiverService.subsUrl()")
+                && !playSrc.contains("sinhala-sub.srt"));
+        check("v330 vlc: the whole external hand-off is wrapped in try/catch (Throwable)",
+            playSrc.contains("Could not open an external player")
+                && playSrc.contains("No external player installed"));
+
+        // ── the ROUTE itself, driven over a real socket (UTF-8 Sinhala body) ────────
+        ReceiverServer subsSrv = new ReceiverServer(new FakeBackend(), 18775);
+        String srtBody = "1\n00:00:01,000 --> 00:00:03,000\n\u0DC1\u0DCA\u200D\u0DBB\u0DD3 \u0DBD\u0D82\u0D9A\u0DCF\n\n";
+        boolean started = subsSrv.start();
+        check("v330 vlc: the receiver the URL points at starts", started, "port " + subsSrv.port());
+        if (started) {
+            String get = "GET " + ReceiverServer.SUBS_PATH + " HTTP/1.0\r\nHost: tv\r\n\r\n";
+            String empty = raw(subsSrv.port(), get);
+            check("v330 vlc: /subs/current.srt → 404 while no subtitle is armed",
+                empty.contains("404"), firstLine(empty));
+            check("v330 vlc: an unarmed route leaks no subtitle text",
+                !empty.contains("\u0DC1\u0DCA\u200D\u0DBB\u0DD3"));
+            subsSrv.setSubsSrt(srtBody);
+            String served = raw(subsSrv.port(), get);
+            check("v330 vlc: /subs/current.srt → 200 text/plain; charset=utf-8",
+                served.contains("200 OK")
+                    && served.contains("Content-Type: text/plain; charset=utf-8"), firstLine(served));
+            check("v330 vlc: the served body is the UTF-8 .srt (Sinhala ZWJ conjunct intact)",
+                served.contains(srtBody.trim()) && served.contains("\u0DC1\u0DCA\u200D\u0DBB\u0DD3"));
+            check("v330 vlc: the Content-Length is the UTF-8 byte length, and it is no-store",
+                served.contains("Content-Length: " + srtBody.getBytes(StandardCharsets.UTF_8).length)
+                    && served.contains("Cache-Control: no-store"));
+            check("v330 vlc: the URL handed to VLC is loopback + the shipped route",
+                ("http://127.0.0.1:" + subsSrv.port() + ReceiverServer.SUBS_PATH).equals(subsSrv.subsUrl()),
+                String.valueOf(subsSrv.subsUrl()));
+            subsSrv.setSubsSrt(null);
+            check("v330 vlc: clearing the cues disarms the route (no stale subtitle served)",
+                raw(subsSrv.port(), get).contains("404"));
+            subsSrv.stop();
+            check("v330 vlc: a stopped receiver yields NO subtitle URL (extra omitted, never a dead link)",
+                subsSrv.subsUrl() == null);
+        }
+    }
+
+    /** The version/pipeline parity gate (3.3.0 / 30300 everywhere, never 4.x). */
+    static void v330VersionParityChecks() throws Exception {
+        String manifest = readRepoFile("AndroidManifest.xml");
+        check("v330 parity: AndroidManifest.xml says 3.3.0 / 30300",
+            manifest.contains("android:versionCode=\"30300\"") && manifest.contains("android:versionName=\"3.3.0\""));
+        check("v330 parity: AppInfo says 3.3.0 / 30300",
+            "3.3.0".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30300);
+        String build = readRepoFile("build.sh");
+        check("v330 parity: build.sh defaults to 3.3.0 / 30300 (previous 30200)",
+            build.contains("VERSION_NAME:-3.3.0") && build.contains("VERSION_CODE:-30300")
+                && build.contains("PREV_VERSION_CODE:-30200"));
+        String latest = readRepoFile("docs/latest.json");
+        check("v330 parity: docs/latest.json carries 3.3.0 / 30300",
+            latest.contains("\"version\":\"3.3.0\"") && latest.contains("\"code\":30300"));
+        check("v330 parity: README.md announces v3.3.0",
+            readRepoFile("README.md").contains("3.3.0"));
+        check("v330 parity: SETUP-SI.md announces v3.3.0",
+            readRepoFile("SETUP-SI.md").contains("3.3.0"));
+        String buildWf = readRepoFile(".github/workflows/build-apk.yml");
+        check("v330 parity: build-apk.yml asserts 30300 / 3.3.0",
+            buildWf.contains("30300") && buildWf.contains("3.3.0"));
+        String relWf = readRepoFile(".github/workflows/release-apk.yml");
+        check("v330 parity: release-apk.yml defaults to 3.3.0",
+            relWf.contains("default: '3.3.0'"));
+        check("v330 parity: strictly v3.x — no 4.x anywhere in the identity files",
+            !manifest.contains("versionName=\"4.") && !"4".equals(AppInfo.VERSION_NAME.substring(0, 1)));
+        check("v330 parity: the report ships inside the repo",
+            new java.io.File("V3_3_0_CINEMA_PLAYER_AND_403_FIX_REPORT.md").isFile());
     }
 
 }
