@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="lk.techworld.anantplay.sicast">
+    package="lk.techworld.anantplay.sicast"
+    android:versionCode="30101"
+    android:versionName="3.1.1">
 
     <!-- The cast-receiver permission set — a strict subset of what official AnantPlay
          itself holds (its AndroidManifest.xml). NO AccessibilityService, NO
@@ -116,7 +118,7 @@
         <!-- v2.4.0: the PackageInstaller result receiver -->
         <receiver android:name=".SelfUpdater$InstallResultReceiver" android:exported="false"/>
 
-        <!-- v3.1.0: the quiet update notification actions (tap-to-install /
+        <!-- v3.1: the quiet update notification actions (tap-to-install /
              skip-this-version) — exported=false, nothing outside the app can fire it -->
         <receiver android:name=".SelfUpdater$UpdateActionReceiver" android:exported="false"/>
 

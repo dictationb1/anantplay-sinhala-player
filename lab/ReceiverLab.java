@@ -108,7 +108,7 @@ public class ReceiverLab {
         Diag.install(null);
         System.out.println("== AnantPlay Cast protocol lab ==");
 
-        // ── unit: isSelf (the LAN-source lock; v3.1.0 = the LocalNet matrix) ───
+        // ── unit: isSelf (the LAN-source lock; v3.1 = the LocalNet matrix) ───
         byte[] ownLan = new byte[]{(byte)192,(byte)168,1,39};
         List<byte[]> own = java.util.Arrays.asList(
             ownLan, new byte[]{10,0,0,7},
@@ -1416,9 +1416,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30100 strictly > 30000 (v3.0.0) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30100 && AppInfo.VERSION_CODE > 30000 && AppInfo.VERSION_CODE < 40000
-              && "3.1.0".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30101 strictly > 30000 (v3.0.0) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30101 && AppInfo.VERSION_CODE > 30000 && AppInfo.VERSION_CODE < 40000
+              && "3.1.1".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1450,9 +1450,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.1.0 / 30100 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.1.0}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30100}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.1.1 / 30101 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.1.1}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30101}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -1467,9 +1467,9 @@ public class ReceiverLab {
               manifest.contains("enableOnBackInvokedCallback=\"false\""));
 
         // ════════════════════════════════════════════════════════════════════
-        // v3.1.0 — THE 2026-11-22 16:36 FIELD-BUG REGRESSIONS (5 smoking guns)
+        // v3.1 — THE 2026-11-22 16:36 FIELD-BUG REGRESSIONS (5 smoking guns)
         // ════════════════════════════════════════════════════════════════════
-        System.out.println("== v3.1.0 field-bug regressions ==");
+        System.out.println("== v3.1 field-bug regressions ==");
         v31LocalNetChecks();
         v31AnnouncerChecks();
         v31UpdaterChecks();
@@ -2096,7 +2096,7 @@ public class ReceiverLab {
         return new String(java.nio.file.Files.readAllBytes(new java.io.File(path).toPath()), StandardCharsets.UTF_8);
     }
     // ════════════════════════════════════════════════════════════════════════
-    // v3.1.0 — Bug 1: the LocalNet same-host matrix + the live DLNA E2E
+    // v3.1 — Bug 1: the LocalNet same-host matrix + the live DLNA E2E
     // (the 2026-11-22 16:36 "GET /dlna/desc.xml -> refused-nonlocal" proof)
     // ════════════════════════════════════════════════════════════════════════
     static void v31LocalNetChecks() throws Exception {
@@ -2172,7 +2172,7 @@ public class ReceiverLab {
             public String statusJson() { return ReceiverServer.idleJson(); }
             public int getVolume() { return 50; }
             public void setVolume(int v) { }
-        }, "SIcast-lab31", "සිංහල Player", "lab/3.1.0"));
+        }, "SIcast-lab31", "සිංහල Player", "lab/3.1.1"));
         String base31 = "http://127.0.0.1:" + srv.port();
         String desc = get(base31 + "/dlna/desc.xml");
         check("v31 e2e: GET /dlna/desc.xml answers HTTP 200 XML (NOT a 403/JSON refusal)",
@@ -2206,7 +2206,7 @@ public class ReceiverLab {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // v3.1.0 — Bug 3: the NON-DESTRUCTIVE watchdog (AnnouncerPolicy matrix)
+    // v3.1 — Bug 3: the NON-DESTRUCTIVE watchdog (AnnouncerPolicy matrix)
     // ════════════════════════════════════════════════════════════════════════
     static void v31AnnouncerChecks() {
         check("v31 b3: the watchdog still fires for the silent hang (answered=false, announced=false)",
@@ -2248,7 +2248,7 @@ public class ReceiverLab {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // v3.1.0 — Bug 5: silent updater (throttle · cooldown · skip · cleanup)
+    // v3.1 — Bug 5: silent updater (throttle · cooldown · skip · cleanup)
     // ════════════════════════════════════════════════════════════════════════
     static void v31UpdaterChecks() {
         // THE FLOOD BREAKER: 500 chunk callbacks in one second → exactly ONE notify
@@ -2294,15 +2294,15 @@ public class ReceiverLab {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // v3.1.0 — Bug 2: CrashLog (format · redaction · atomic round-trip)
+    // v3.1 — Bug 2: CrashLog (format · redaction · atomic round-trip)
     // ════════════════════════════════════════════════════════════════════════
     static void v31CrashLogChecks() throws Exception {
         Exception root = new IllegalStateException("stream failed for https://x/v.m3u8 Cookie: sid=TOPSECRET99 token=ABC123XYZ");
         try { throw new RuntimeException("play failed", root); } catch (RuntimeException withCause) {
-            String report = CrashLog.format(1732280200000L, "3.1.0",
+            String report = CrashLog.format(1732280200000L, "3.1.1",
                 "sdk 36 | Xiaomi 25013PS27C | release-16", "si-req", withCause);
             check("v31 b2: the report carries the app version + thread + BOTH causes",
-                report.contains("v3.1.0") && report.contains("si-req")
+                report.contains("v3.1.1") && report.contains("si-req")
                     && report.contains("RuntimeException") && report.contains("CAUSED BY java.lang.IllegalStateException"));
             check("v31 b2: the full stack frame lines are present (no 3000-char cap)",
                 report.contains("at ") && report.contains("v31CrashLogChecks"));
@@ -2319,7 +2319,7 @@ public class ReceiverLab {
         // the atomic file round-trip
         java.io.File dir = new java.io.File(System.getProperty("java.io.tmpdir"), "si-lab-crash-" + System.currentTimeMillis());
         dir.mkdirs();
-        String rep = CrashLog.format(1732280200001L, "3.1.0", "sdk 36 | lab", "main",
+        String rep = CrashLog.format(1732280200001L, "3.1.1", "sdk 36 | lab", "main",
             new ArithmeticException("/ by zero"));
         check("v31 b2: writeAtomically persists the report", CrashLog.writeAtomically(dir, rep));
         check("v31 b2: read() returns the same text", rep.equals(CrashLog.read(dir)));
@@ -2333,7 +2333,7 @@ public class ReceiverLab {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // v3.1.0 — Phase 2: ThemeEngine · AppPrefs · SettingsBackup (the Mornye engine)
+    // v3.1 — Phase 2: ThemeEngine · AppPrefs · SettingsBackup (the Mornye engine)
     // ════════════════════════════════════════════════════════════════════════
     static void v31ThemeChecks() {
         // ThemeEngine: the modes
@@ -2439,7 +2439,7 @@ public class ReceiverLab {
         mine.put(AppPrefs.K_SEEK_STEP_MS, 15000L);
         mine.put(AppPrefs.K_AUTO_RESUME, Boolean.FALSE);
         mine.put(AppPrefs.K_RECEIVER_NAME, "මගේ Player");
-        String json = SettingsBackup.export("3.1.0", 1732280200000L, mine);
+        String json = SettingsBackup.export("3.1.1", 1732280200000L, mine);
         check("v31 backup: the export is a schema-1 document of THIS app",
             json.contains("\"app\":\"" + SettingsBackup.APP + "\"") && json.contains("\"schema\":1"));
         SettingsBackup.Import imp = SettingsBackup.parseImport(json);
@@ -2472,7 +2472,7 @@ public class ReceiverLab {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // v3.1.0 — Phase 3: security hardening + pipeline parity (source greps)
+    // v3.1 — Phase 3: security hardening + pipeline parity (source greps)
     // ════════════════════════════════════════════════════════════════════════
     static void v31SecurityChecks() throws Exception {
         String web = readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java");
@@ -2547,21 +2547,36 @@ public class ReceiverLab {
             main.contains("🟢 සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න"));
 
         String readMd = readRepoFile("README.md");
-        check("v31 sec: the README carries the v3.1.0 story",
-            readMd.contains("v3.1.0") && readMd.contains("refused-nonlocal"));
+        check("v31 sec: the README carries the v3.1 story",
+            readMd.contains("v3.1.1") && readMd.contains("refused-nonlocal"));
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v31 sec: both workflows carry versionCode 30100 / 3.1.0",
-            buildYml.contains("30100") && buildYml.contains("3.1.0") && relYml.contains("3.1.0"));
-        // v3.1.0 — THE ARTIFACT-NAME PARITY GUARD (the v3.0.0 filename remnants
+        check("v31 sec: both workflows carry versionCode 30101 / 3.1.1",
+            buildYml.contains("30101") && buildYml.contains("3.1.1") && relYml.contains("3.1.1"));
+        // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
+        // explicitly on <manifest> (not injected only by aapt2's --version-name),
+        // so a badging dump of the un-built source agrees with AppInfo.java.
+        String srcManifest = readRepoFile("AndroidManifest.xml");
+        String shippedBuildSh = readRepoFile("build.sh");
+        check("v311 pipe: AndroidManifest.xml declares the shipped versionCode 30101 + versionName 3.1.1",
+            srcManifest.contains("android:versionCode=\"30101\"")
+                && srcManifest.contains("android:versionName=\"3.1.1\"")
+                && "30101".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.1.1".equals(AppInfo.VERSION_NAME));
+        check("v311 pipe: no stale 3.1.0 / 30100 build-or-lab assertion survives the bump",
+            !buildYml.contains("30100") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.0")
+                && !relYml.contains("default: '3.1.0'")
+                && !shippedBuildSh.contains("VERSION_CODE=${VERSION_CODE:-30100}")
+                && !srcManifest.contains("30100"));
+        // v3.1 — THE ARTIFACT-NAME PARITY GUARD (the v3.0.0 filename remnants
         // that survived the 3.1.0 bump: the build job still uploaded
         // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
         check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.0.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1.apk")
                 && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
         check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.0.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
         check("v31 sec: the repo keeps .gitignore for the Arena.ai-ready zip",
             new java.io.File(".gitignore").exists());
