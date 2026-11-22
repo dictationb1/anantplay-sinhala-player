@@ -1,7 +1,8 @@
 # AnantPlay Sinhala Player (SI Cast Receiver) v3.2.0
 
 > **v3.2.0 — PLAYACTIVITY CRASH FIX · SELF-UPDATER SPIN-LOOP FIX ·
-> PRIVACY-FIRST DEEP TROUBLESHOOTER · 481/481 CI LAB + BYTECODE VERIFIER.**
+> PRIVACY-FIRST DEEP TROUBLESHOOTER · SINHALA ZWJ CONJUNCT FIX ·
+> 606/606 CI LAB + BYTECODE VERIFIER.**
 > Built on the 2026-11-22 real-device log: the player died on every launch with
 > `Resources$NotFoundException: Resource ID #0x88000000` —
 > `View.setBackgroundResource(int)` treats a bare int as a **resource id**, so
@@ -16,7 +17,7 @@
 > 1-tap `📋 Copy Full Troubleshoot Report (Privacy-Safe)` + `📤 Share Report`),
 > with `PrivacyScrubber` enforcing **zero phone model / IP / MAC / EUI-64 /
 > SSID / token / path** leaks on every log line, crash trace and report.
-> The lab is now **481/481 PASS** and a new bytecode reference verifier
+> The lab is now **606/606 PASS** and a new bytecode reference verifier
 > (`lab/verify_refs.py`) makes `NoClassDefFoundError` structurally impossible.
 > Still 100% pure Java / Android SDK — **strictly v3.x, never v4.**
 
@@ -124,7 +125,7 @@ The media3 1.11.1 + guava jars (the exact set AnantPlay ships in its `libs/`, Ap
 ## Verify
 
 ```sh
-./lab/run_lab.sh     # the gating lab — 481 checks + the bytecode verifier, byte-compatible with Cast.java
+./lab/run_lab.sh     # the gating lab — 606 checks + the bytecode verifier, byte-compatible with Cast.java
 ```
 
 The lab drives `ReceiverServer` with the exact requests official AnantPlay's
@@ -188,7 +189,7 @@ src/.../sicast/
   CastPolicy.java            cast-arrival policy (schemes, /do whitelist, seek clamp) — pure Java
   StreamHint.java            Media3 mime defaulting for extensionless HLS/DASH — pure Java
   BridgeApi/Cue/MiniJson/SrtLoader/SubtitleStore   the proven v1 engines (pure Java)
-lab/ReceiverLab.java         the 481-check gating lab (protocol + security + i18n + v3.2.0 field-bug regressions)
+lab/ReceiverLab.java         the 606-check gating lab (protocol + security + i18n + v3.2.0 field-bug regressions)
 lab/verify_refs.py           the bytecode reference verifier (every .class ref resolves)
 lab/BridgeLab.java           live worker E2E (best effort)
 PrivacyScrubber.java         the zero-PII scrubber (IP / MAC / EUI-64 / model / token / path)
@@ -246,8 +247,16 @@ with file:line proof and covered by new regression checks in
   `scripts/troubleshoot-adb.ps1` (PowerShell 5.1-compatible) filter live logcat
   to this app's cast/crash lines and pipe them through the same scrub rules —
   nothing is written to the phone.
-- **The 481-check CI lab + bytecode verifier.** `lab/ReceiverLab.java` grows to
-  **481 checks** (54 new v3.2.0 suites: crash, privacy, troubleshooter,
+- **Sinhala conjuncts are never mangled (ZWJ/ZWNJ preserved).** `Cue.stripMarkup()`
+  cleans `{\an8}` ASS blocks, `<i>`/`<font>` tags and HTML entities, but it
+  now strips only **genuine** invisible garbage — BOM (U+FEFF), ZWSP (U+200B),
+  soft-hyphen (U+00AD) and word-joiner (U+2060). **U+200D (ZWJ) and U+200C
+  (ZWNJ) survive**, because Sinhala requires ZWJ for the rakaransaya and
+  yansaya: `ශ්‍රී`, `චිත්‍රපටිය`, `ක්‍රියා`, `ප්‍රශ්නය`, `ව්‍යාපෘතිය` keep their
+  joiners through worker JSON, `.srt`, `.zip` and the free translator —
+  no more broken hal-kirima glyphs.
+- **The 606-check CI lab + bytecode verifier.** `lab/ReceiverLab.java` grows to
+  **606 checks** (125 new v3.2.0 suites: crash, privacy, troubleshooter,
   updater spin-loop, launch contracts). `lab/verify_refs.py` parses every
   compiled `.class` constant pool and proves every referenced type resolves to
   a lab class, the JDK or `android.*` — a missing Media3/R class cannot ship.
