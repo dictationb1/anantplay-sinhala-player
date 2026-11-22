@@ -59,7 +59,8 @@
         android:theme="@style/AppTheme"
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="false">
 
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
@@ -70,13 +71,37 @@
 
         <!-- Our player: the same orientation/PiP/configChanges shape as AnantPlay's own
              PlayerActivity (AndroidManifest.xml:49-51) so rotation never restarts it.
-             singleTask: a second cast re-targets the open player instead of stacking. -->
-        <activity android:name=".PlayActivity" android:exported="false"
+             singleTask: a second cast re-targets the open player instead of stacking.
+
+             v3.0.0 — SHARE/OPEN ANY VIDEO LINK STRAIGHT INTO THE SINHALA PLAYER:
+             · ACTION_SEND (text/plain): AnantPlay's own Share ⋮ → "Copy link" (or any
+               app's share sheet) offers "සිංහල Player" — the first http(s) URL in the
+               text plays here with automatic Sinhala subtitles.
+             · ACTION_VIEW (http/https): browsers' "Open with" lists us for a direct
+               stream link. Works on Wi-Fi AND Mobile Data, zero Cast involved.
+             enableOnBackInvokedCallback=false is PINNED so the WebView tab's
+             onBackPressed history handling keeps working identically on Android 16
+             (targetSdk 36) instead of inheriting a per-build default. -->
+        <activity android:name=".PlayActivity" android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="fullUser"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode"/>
+            android:enableOnBackInvokedCallback="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode">
+            <intent-filter android:label="සිංහල Player — Play with Subs">
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+            <intent-filter android:label="සිංහල Player — Play with Subs">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="http"/>
+                <data android:scheme="https"/>
+            </intent-filter>
+        </activity>
 
         <!-- THE receiver: a connectedDevice foreground service hosting the cast server
              (AnantPlay's own Cast$Keep is declared exactly like this). exported=false:

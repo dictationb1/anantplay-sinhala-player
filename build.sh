@@ -16,7 +16,7 @@
 #   2. a stable debug keystore reused across local builds (~/.android/sicast-debug.keystore)
 #   3. an ephemeral debug key generated for this run — clearly marked as such.
 #
-# v2.4.0 hardening (the release pipeline):
+# v2.3.0 hardening (the release pipeline):
 #   · VERSION_NAME/VERSION_CODE may be overridden by env for release runs, but the
 #     aapt2 badging of the OUTPUT is ALWAYS verified to carry exactly these values
 #     (an accidental stale version can never ship).
@@ -43,11 +43,20 @@ BT=""
   esac
   if [ -z "$BT" ] || [ "$(printf '%s\n%s\n' "$BT" "$d" | sort -V | tail -1)" = "$d" ]; then BT=$d; fi
 done
-JAR=$SDK/platforms/android-34/android.jar
+# v3.0.0 — a TRUE Android 16 (SDK 36) build: compiles + links against
+# platforms/android-36 (falling back to 35/34 when only those are installed)
+# and stamps targetSdkVersion 36 (edge-to-edge enforced; MainActivity pads by
+# the real window insets).
+JAR=""
+for p in android-36 android-35 android-34; do
+  [ -f "$SDK/platforms/$p/android.jar" ] && { JAR="$SDK/platforms/$p/android.jar"; break; }
+done
+[ -n "$JAR" ] || JAR="$SDK/platforms/android-34/android.jar"
+TARGET_SDK=36
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-2.4.0}
-VERSION_CODE=${VERSION_CODE:-20400}
-PREV_VERSION_CODE=${PREV_VERSION_CODE:-20301}   # v2.3.1 — the last released build
+VERSION_NAME=${VERSION_NAME:-3.0.0}
+VERSION_CODE=${VERSION_CODE:-30000}
+PREV_VERSION_CODE=${PREV_VERSION_CODE:-20400}   # v2.4.0 — the last released build
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -74,7 +83,7 @@ mkdir -p build/classes dist
 echo "── aapt2: compile + link resources"
 "$BT/aapt2" compile --dir res -o build/res.zip
 "$BT/aapt2" link -o build/app.apk -I "$JAR" --manifest AndroidManifest.xml build/res.zip \
-  -A assets --java build --min-sdk-version 26 --target-sdk-version 34 $VERSION
+  -A assets --java build --min-sdk-version 26 --target-sdk-version $TARGET_SDK $VERSION
 
 echo "── javac (Java 8 bytecode target, android.jar + media3 on the classpath)"
 LAMBDA=$BT/core-lambda-stubs.jar

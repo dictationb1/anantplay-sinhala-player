@@ -15,29 +15,14 @@
     <string name="channel_cast_desc">High-priority prompts when a cast needs one tap (open the player, allow video access).</string>
     <string name="cast_ready_title">Cast received · %1$s</string>
     <string name="cast_ready_text">Tap to watch here with Sinhala subtitles (no overlay permission needed).</string>
-    <string name="chk_service">Cast receiver service</string>
-    <string name="chk_announced">mDNS announcement</string>
-    <string name="chk_discovery">Same-device discovery (the real test)</string>
-    <string name="chk_wifi">Wi-Fi</string>
-    <string name="announced_ok">cast entry visible</string>
-    <string name="announced_wait">announce pending — retry self-test</string>
-    <string name="btn_arm">▶ Start receiver</string>
-    <string name="btn_selftest">🧪 Self-test</string>
-    <string name="btn_testplayer">🎬 Test player right now (video + Sinhala)</string>
-    <string name="btn_openanant">Open AnantPlay</string>
-    <string name="btn_save">Save</string>
-    <string name="btn_autofetch">Auto-fetch subs: %1$s</string>
-    <string name="selftest_idle">Self-test: loopback → mDNS (probe + discovery) → bridge.</string>
     <string name="pick_srt">Pick .srt / .zip</string>
     <string name="need_media_title">Downloaded video cast needs media access</string>
     <string name="need_media_text">Tap, then allow Videos access to play "%1$s" here with Sinhala subs.</string>
-    <!-- v2.1: the bilingual guided-setup strings (titles are built in code with
-         Sinhala+English inline; these are the shared labels). -->
-    <string name="perm_open_setting">Open setting</string>
-    <string name="perm_other">Other permissions</string>
-    <string name="adguard_title">AdGuard / VPN help · AdGuard උදව්</string>
-    <string name="sub_retry">↻ Retry</string>
-    <string name="sub_switch_provider">⇄ Provider</string>
-    <string name="sub_local">📄 Local .srt</string>
-    <string name="sub_sync">⏱ ±0.25s</string>
+    <!-- v3.0.0: the built-in cinema browser + the 4-tab UI (labels also live in
+         code where they are composed bilingually with the Sinhala inline). -->
+    <string name="web_hint">URL හෝ සෙවුම · url or search</string>
+    <string name="tab_home">Home</string>
+    <string name="tab_web">WebView</string>
+    <string name="tab_settings">Settings</string>
+    <string name="tab_diag">Diagnostics</string>
 </resources>

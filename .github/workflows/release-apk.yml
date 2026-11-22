@@ -1,29 +1,39 @@
 name: Release APK (signed, Obtainium-ready)
 
-# THE RELEASE PIPELINE (v2.4.0):
-#   Trigger A — push a semantic tag:  git tag v2.4.0 && git push origin v2.4.0
-#   Trigger B — 1-click manual: the "Run workflow" button takes a version (e.g. 2.4.0);
-#               the workflow verifies the Lab passes, builds + signs with the PERMANENT
-#               keystore (GitHub Secrets), verifies the signature, writes SHA256SUMS.txt,
-#               creates the tag (when dispatched), and publishes a GitHub Release whose
-#               ONLY APK asset is AnantPlay-Sinhala-Player-v<version>.apk (+ SHA256SUMS.txt)
-#               — exactly one unambiguous .apk so Obtainium needs zero regex guessing.
+# v3.0.0 — THE MERGE-TO-RELEASE PIPELINE: every Pull Request merged into main
+# becomes a release automatically. No tag ceremony, no manual step.
 #
-# SIGNING (the zero-uninstall contract):
-#   KS_BASE64 / KS_PASS / KS_KEYPASS / KS_ALIAS are the permanent release secrets made by
-#   scripts/create-release-keystore.sh (or .ps1). With them set, EVERY release is signed
-#   by the same key → Obtainium updates in place, no uninstall, ever. Without them the
-#   workflow REFUSES to publish a release (a debug-signed release would break updates).
+#   Trigger A — push to main (a merged PR):   the workflow extracts
+#     VERSION_NAME/VERSION_CODE from build.sh, checks whether the tag
+#     v<VERSION_NAME> already exists (→ exit cleanly, no duplicate release),
+#     and when it is NEW and the permanent signing secrets are configured:
+#     Lab gate (100% PASS) → build + sign → verify → SHA256SUMS.txt →
+#     create+push the tag → publish the GitHub Release with EXACTLY ONE .apk
+#     asset (AnantPlay-Sinhala-Player-v<ver>.apk) + SHA256SUMS.txt.
+#     When KS_BASE64 is not yet configured, a push to main logs a friendly
+#     summary notice and exits green (the build-apk.yml workflow still builds
+#     and attaches the debug-signed APK to the run for testing).
+#   Trigger B — push a semantic tag: git tag v3.0.1 && git push origin v3.0.1
+#     (same pipeline; a missing KS_BASE64 FAILS here — a tag is an explicit
+#     release intent, and a debug-signed release would break in-place updates).
+#   Trigger C — 1-click manual dispatch (takes a version, creates the tag).
+#
+# SIGNING (the zero-uninstall contract, byte-identical names everywhere):
+#   KS_BASE64 / KS_PASS / KS_KEYPASS / KS_ALIAS — the permanent release secrets
+#   made by scripts/create-release-keystore.sh (or .ps1). With them set, EVERY
+#   release is signed by the same key → the app's built-in SelfUpdater, Obtainium
+#   and manual sideloads all update in place, no uninstall, ever.
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g. 2.4.0 — no leading v)'
+        description: 'Version to release (e.g. 3.0.1 — no leading v)'
         required: true
-        default: '2.4.0'
+        default: '3.0.0'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -39,21 +49,27 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tag-exists check needs the real tag list
 
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      # ── 1. resolve the version (tag trigger or manual input) ──────────────
+      # ── 1. resolve the version (build.sh defaults / tag / manual input) ────
       - name: Resolve the release version
         id: ver
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             V="${{ github.event.inputs.version }}"
-          else
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
             V="${GITHUB_REF_NAME#v}"
+          else
+            # push to main: the version comes from build.sh itself (the file
+            # that ships) — VERSION_NAME=${VERSION_NAME:-<default>}
+            V=$(grep -o 'VERSION_NAME=\${VERSION_NAME:-[^}]*}' build.sh | head -1 | sed 's/.*:-\([^}]*\)}/\1/')
           fi
           echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::version '$V' is not X.Y.Z"; exit 1; }
           MAJOR=$(echo "$V" | cut -d. -f1); MINOR=$(echo "$V" | cut -d. -f2); PATCH=$(echo "$V" | cut -d. -f3)
@@ -63,8 +79,48 @@ jobs:
           echo "tag=v$V" >> "$GITHUB_OUTPUT"
           echo "releasing v$V (versionCode $CODE)"
 
-      # ── 2. the Lab MUST pass before anything is released ──────────────────
+      # ── 2. the merge-to-release gate: an existing tag means "already released" ─
+      - name: Skip when the tag already exists (merge-to-release idempotence)
+        if: github.event_name == 'push' && github.ref_type == 'branch'
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ver.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::notice title=Release skipped::tag $TAG already exists — nothing new to release (no duplicate release error)."
+            echo "SKIP=true" >> "$GITHUB_ENV"
+          else
+            echo "SKIP=false" >> "$GITHUB_ENV"
+          fi
+
+      # ── 3. a push to main without the permanent keystore: a FRIENDLY notice ─
+      - name: Check the signing secrets (friendly on push-to-main, strict on tags)
+        if: env.SKIP != 'true'
+        env:
+          KS_BASE64: ${{ secrets.KS_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KS_BASE64" ]; then
+            if [ "${{ github.ref_type }}" = "tag" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "::error title=No signing key::KS_BASE64 is not set. Run scripts/create-release-keystore.sh (or .ps1) once and add the 4 secrets (KS_BASE64, KS_PASS, KS_KEYPASS, KS_ALIAS). A debug-signed RELEASE would break in-place updates for every user."
+              exit 1
+            fi
+            {
+              echo "### ℹ️ Release skipped — no signing key configured"
+              echo ""
+              echo "This push to \`main\` merged cleanly, but the permanent release keystore secrets"
+              echo "(KS_BASE64 / KS_PASS / KS_KEYPASS / KS_ALIAS) are not configured yet, so no"
+              echo "GitHub Release was published. Everything else (the Lab gate, the APK build) ran"
+              echo "in the build-apk.yml workflow."
+              echo ""
+              echo "Run \`scripts/create-release-keystore.sh\` (or \`.ps1\`) once, add the 4 secrets, then"
+              echo "re-run this workflow — every future merge to main then releases automatically."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "SKIP=true" >> "$GITHUB_ENV"
+          fi
+
+      # ── 4. the Lab MUST pass before anything is released ───────────────────
       - name: Cast protocol lab (gating)
+        if: env.SKIP != 'true'
         run: |
           set -euo pipefail
           chmod +x lab/run_lab.sh
@@ -74,8 +130,9 @@ jobs:
           echo "::notice title=Lab::${PASSED}/$((PASSED+FAILED)) PASS — releasing v${{ steps.ver.outputs.version }}"
           [ "$FAILED" -eq 0 ]
 
-      # ── 3. the Android toolchain (build-tools 35.0.1 is a HARD requirement) ─
-      - name: Prepare Android SDK (platform 34 + build-tools 35.0.1)
+      # ── 5. the Android toolchain (build-tools 35.0.1 is a HARD requirement) ─
+      - name: Prepare Android SDK (platform 36 + build-tools 35.0.1)
+        if: env.SKIP != 'true'
         run: |
           set -euo pipefail
           SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
@@ -88,7 +145,7 @@ jobs:
             yes 2>/dev/null | "$SDKM" --sdk_root="$SDK" --licenses > /dev/null 2>&1 || true
           fi
           NEED=""
-          [ -f "$SDK/platforms/android-34/android.jar" ] || NEED="$NEED platforms;android-34"
+          [ -f "$SDK/platforms/android-36/android.jar" ] || NEED="$NEED platforms;android-36"
           [ -x "$SDK/build-tools/35.0.1/aapt2" ] || NEED="$NEED build-tools;35.0.1"
           if [ -n "$NEED" ]; then
             [ -n "$SDKM" ] || { echo "::error::no sdkmanager available to install$NEED"; exit 1; }
@@ -97,8 +154,9 @@ jobs:
           [ -x "$SDK/build-tools/35.0.1/aapt2" ] || { echo "::error::build-tools;35.0.1 missing"; exit 1; }
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
 
-      # ── 4. build + sign with the PERMANENT keystore (or refuse) ───────────
+      # ── 6. build + sign with the PERMANENT keystore ────────────────────────
       - name: Build + sign the release APK
+        if: env.SKIP != 'true'
         env:
           KS_BASE64: ${{ secrets.KS_BASE64 }}
           KS_PASS: ${{ secrets.KS_PASS }}
@@ -108,14 +166,11 @@ jobs:
           VERSION_CODE: ${{ steps.ver.outputs.code }}
         run: |
           set -euo pipefail
-          if [ -z "$KS_BASE64" ]; then
-            echo "::error title=No signing key::KS_BASE64 is not set. Run scripts/create-release-keystore.sh (or .ps1) once and add the 4 secrets. A debug-signed RELEASE would break in-place updates for every user."
-            exit 1
-          fi
           chmod +x build.sh
           bash build.sh
 
       - name: Verify the release APK (signature + version + assets)
+        if: env.SKIP != 'true'
         run: |
           set -euo pipefail
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
@@ -132,6 +187,7 @@ jobs:
           unzip -l "$APK" | grep -E "classes.*dex|AndroidManifest.xml|assets/fonts/NotoSansSinhala-Regular.ttf"
 
       - name: SHA256SUMS.txt (the integrity file next to the APK)
+        if: env.SKIP != 'true'
         run: |
           set -euo pipefail
           cd dist
@@ -139,20 +195,24 @@ jobs:
           sha256sum "$APK" > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      # ── 5. the tag (manual dispatch) + the Release ─────────────────────────
-      - name: Create the git tag (manual dispatch only)
-        if: github.event_name == 'workflow_dispatch'
+      # ── 7. the tag (created for merge-to-release + manual dispatch) ────────
+      - name: Create + push the git tag
+        if: env.SKIP != 'true' && github.ref_type != 'tag'
         run: |
           set -euo pipefail
           TAG="${{ steps.ver.outputs.tag }}"
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            echo "tag $TAG already exists — reusing it"
+            echo "::notice::tag $TAG already exists — reusing it"
           else
+            git config user.name "release-bot"
+            git config user.email "actions@github.com"
             git tag "$TAG"
             git push origin "$TAG"
           fi
 
+      # ── 8. the Release: EXACTLY ONE .apk asset + SHA256SUMS.txt ────────────
       - name: Publish the GitHub Release (one APK + SHA256SUMS)
+        if: env.SKIP != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
@@ -163,19 +223,27 @@ jobs:
             **Zero fork · zero accessibility · official AnantPlay untouched.**
 
             ## What is in this release
-            - Router-free cast discovery (own RFC-6762 mDNS responder + honest 3-layer self-test)
-            - Noisy-title cleaning for subtitle lookup on arbitrary streaming sites
-            - DoH-based ISP-block diagnostics + one-tap playback retry
-            - In-app GitHub update checker + the Obtainium pipeline
+            - Cast, three redundant ways: NsdManager + our own RFC-6762 mDNS
+              responder (TTL 255, pinned egress, always-multicast replies) +
+              a UPnP/DLNA MediaRenderer (SSDP) — the Cast chip works even when
+              the platform mDNS stack hangs (the Android 16 fix).
+            - Built-in WebView Cinema Browser with the live stream sniffer:
+              "🎬 සිංහල උපසිරැසි සමඟ බලන්න" — zero Cast needed, works on any network.
+            - 4-tab modern UI (Home / WebView / Settings / Diagnostics) with
+              1-tap Copy Log diagnostics.
+            - App-open auto-updater (checks the moment the app opens + every 4 h,
+              live progress, SHA-256-verified, temp files always cleaned).
 
             ## Install / update
-            - **Obtainium users**: this release is detected automatically (one unambiguous
+            - **In-app**: Settings → Updates (or just open the app — the update
+              downloads itself and the OS's 1-tap "Update" prompt appears).
+            - **Obtainium users**: detected automatically (one unambiguous
               `.apk` asset). Updates install in place — no uninstall ever.
             - **Manual**: download `AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk`
               and install over the previous version (same permanent signing key).
             - Verify with `SHA256SUMS.txt`.
 
-            Full story: see `ROUTER_FREE_CAST_AND_OBTAINIUM_REPORT.md` in the repo.
+            Full story: see `V3_MASTER_ARCHITECTURE_AND_ANDROID16_REPORT.md` in the repo.
           files: |
             dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk
             dist/SHA256SUMS.txt
@@ -190,10 +258,12 @@ jobs:
             echo ''
             echo '| item | value |'
             echo '| --- | --- |'
+            echo "| trigger | ${{ github.event_name }} (${{ github.ref }}) |"
             echo "| version | ${{ steps.ver.outputs.version }} (versionCode ${{ steps.ver.outputs.code }}) |"
             echo "| apk | AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk |"
             if [ -f dist/SHA256SUMS.txt ]; then
               echo "| sha256 | $(cut -d' ' -f1 dist/SHA256SUMS.txt) |"
             fi
-            echo "| signing | ${{ secrets.KS_BASE64 != '' && 'permanent release keystore' || 'REFUSED (no KS_BASE64)' }} |"
+            echo "| outcome | ${{ env.SKIP == 'true' && 'skipped (tag exists / no signing key — see the notice above)' || 'released' }} |"
+            echo "| signing | ${{ secrets.KS_BASE64 != '' && 'permanent release keystore' || 'not configured' }} |"
           } >> "$GITHUB_STEP_SUMMARY"

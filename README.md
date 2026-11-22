@@ -1,4 +1,4 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v2.4.0
+# AnantPlay Sinhala Player (SI Cast Receiver) v3.0.0
 
 **The zero-accessibility, zero-fork Sinhala subtitle solution for the 100% official, unmodified
 AnantPlay app** — built for the hardest target: a **Xiaomi HyperOS (Android 14–16)** phone.
@@ -133,7 +133,6 @@ the APK on JDK 17 + **Android SDK 34 + build-tools 35.0.1** with **zero Gradle**
    opens the player on one tap (nothing crashes, nothing is silently dropped).
 
 Sinhala setup guide: **SETUP-SI.md** · Full architecture + audit trail: **docs/CAST-VERIFICATION.md**
-· Android 16 cast + self-updater audit: **[ANDROID16_CAST_AND_AUTOUPDATE_REPORT_v2.4.md](ANDROID16_CAST_AND_AUTOUPDATE_REPORT_v2.4.md)**
 
 ## Repo layout
 
@@ -152,13 +151,57 @@ src/.../sicast/
   CastPolicy.java            cast-arrival policy (schemes, /do whitelist, seek clamp) — pure Java
   StreamHint.java            Media3 mime defaulting for extensionless HLS/DASH — pure Java
   BridgeApi/Cue/MiniJson/SrtLoader/SubtitleStore   the proven v1 engines (pure Java)
-lab/ReceiverLab.java         the gating lab (protocol + security + Android 16 + i18n)
+lab/ReceiverLab.java         the 95-check gating lab (protocol + security + i18n regressions)
 lab/BridgeLab.java           live worker E2E (best effort)
 docs/CAST-VERIFICATION.md    every AnantPlay file:line this is built on
-ANDROID16_CAST_AND_AUTOUPDATE_REPORT_v2.4.md   the Android 16 mDNS + self-updater audit
 THIRD_PARTY.md               licenses of every bundled jar + the Sinhala font
 SETUP-SI.md                  the Sinhala setup checklist
 ```
+
+## What's new in v3.0.0 (TRUE Android 16 cast fix · WebView cinema browser · 4-tab UI · merge-to-release CI)
+
+The complete overhaul, built on the 2026-11-22 15:15 real-device log (Xiaomi
+Android 16, sdk 36). Full story: `V3_MASTER_ARCHITECTURE_AND_ANDROID16_REPORT.md`.
+
+- **Cast fixed at the root** — the log DISPROVED the sabotage theory (the
+  responder was off while `announced` was already false) and the router theory
+  (other LAN devices' mDNS reached the phone). The real causes, proven against
+  the AOSP android16-release sources: (1) Android 14+ `MdnsAdvertiser` delivers
+  NO callback ever when `MdnsSocketProvider` never creates a Wi-Fi socket
+  (no timeout — `NsdService.java:1049 → mPendingRegistrations`); (2) v2.4.0's
+  QU replies were unicast-only to the phone's own :5353 — a packet that travels
+  the kernel `local` route (`lo`) which the `SO_BINDTODEVICE(wlan0)` system
+  socket can never receive; (3) the multicast egress was never pinned, so the
+  kernel loopback never reached the system socket; (4) TTL stayed at Java's
+  default 1 and there was no AAAA for the `fe80::` queriers.
+- **v3 mDNS responder**: replies ALWAYS multicast to `224.0.0.251` + `ff02::fb`
+  (kernel fan-out to every joined socket), `setTimeToLive(255)`,
+  `setNetworkInterface` pinned, AAAA added, RFC-6763 full-name PTR rdata, plus
+  a 12 s/2 min registration watchdog that re-drives a hung NsdManager
+  registration with fresh transaction ids.
+- **DLNA MediaRenderer (new)** — a pure-Java UPnP renderer (SSDP responder on
+  UDP 1900 + `/dlna/desc.xml` + AVTransport/RenderingControl SOAP on port
+  8765): official AnantPlay's `Dlna.search()` finds it and `Cast.any()` counts
+  it exactly like a TV — the Cast chip works with ZERO NsdManager involvement.
+- **Built-in WebView cinema browser (new)** — Tab 2 sniffs the streams of any
+  site you browse (HLS/DASH/MP4/MKV/WEBM, ad/segment/pixel filtered) and the
+  "🎬 සිංහල උපසිරැසි සමඟ බලන්න" pill opens our player with the site's own
+  headers + automatic Sinhala subtitles — on Wi-Fi OR mobile data, any router.
+  `ACTION_SEND`/`ACTION_VIEW` targets let AnantPlay's Share ⋮ → Copy link (or
+  any browser) open a video straight in the Sinhala player.
+- **4-tab modern UI (rebuilt)** — Home (hero status + quick actions +
+  collapsible guide + hidden-when-green checklist), WebView, Settings,
+  Diagnostics with **1-tap 📋 Copy Full Log**. Edge-to-edge safe on targetSdk 36.
+- **App-open auto-updater** — checks the moment the app opens (60 s debounce) +
+  every 4 h; downloads itself with a live percentage, enforces https-only, a
+  30 MB cap and strict SHA-256 against SHA256SUMS.txt, hands off to
+  PackageInstaller (explicit mutable PendingIntent, BAL-safe fallback) and
+  deletes the temp apk the moment the session owns it + sweeps on every start.
+- **Merge-to-release CI** — every PR merged to `main` now publishes a GitHub
+  Release automatically (Lab-gated, idempotent, one apk + SHA256SUMS.txt;
+  a friendly green notice while the signing secrets are not yet configured).
+- **Lab: 288/288 PASS** (from 190) — DLNA SSDP/SOAP E2E, the sniffer, the
+  updater, storage-cleanup and pipeline-parity checks included.
 
 ## What's new in v2.4.0 (the Android 16 cast-discovery fix + self-updater)
 
