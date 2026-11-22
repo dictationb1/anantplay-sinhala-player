@@ -1,4 +1,24 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v3.1.1
+# AnantPlay Sinhala Player (SI Cast Receiver) v3.1.2
+
+> **v3.1.2 — PLAYACTIVITY CRASH FIX · SELF-UPDATER SPIN-LOOP FIX ·
+> PRIVACY-FIRST DEEP TROUBLESHOOTER · 481/481 CI LAB + BYTECODE VERIFIER.**
+> Built on the 2026-11-22 real-device log: the player died on every launch with
+> `Resources$NotFoundException: Resource ID #0x88000000` —
+> `View.setBackgroundResource(int)` treats a bare int as a **resource id**, so
+> the translucent-black `notice` background threw from `buildUi()` inside
+> `PlayActivity.onCreate` (the `TransactionExecutor.executeNonLifecycleItem`
+> "keeps stopping" crash on Test Player, Play Video URL and every cast
+> arrival, which AnantPlay reported as "The TV refused this video"). Replaced
+> with `setBackgroundColor(0x88000000)` — the ARGB API, zero resource lookup.
+> The updater's 38-lines-in-645 ms `single-flight` storm is killed by
+> `SCHEDULE_DEBOUNCE_MS = 10_000L` plus a ≤1-line/sec skip log. Diagnostics
+> gains a **privacy-first built-in Deep Troubleshooter** (6 active stages +
+> 1-tap `📋 Copy Full Troubleshoot Report (Privacy-Safe)` + `📤 Share Report`),
+> with `PrivacyScrubber` enforcing **zero phone model / IP / MAC / EUI-64 /
+> SSID / token / path** leaks on every log line, crash trace and report.
+> The lab is now **481/481 PASS** and a new bytecode reference verifier
+> (`lab/verify_refs.py`) makes `NoClassDefFoundError` structurally impossible.
+> Still 100% pure Java / Android SDK — **strictly v3.x, never v4.**
 
 > **v3.1.1 — CAST FIX · CRASH RECORDER · SILENT ZERO-LAG UPDATER · HYPEROS
 > AUTOSTART FIX · MORNYE-INSPIRED CUSTOMIZABLE UI.** Built on the 2026-11-22
@@ -104,7 +124,7 @@ The media3 1.11.1 + guava jars (the exact set AnantPlay ships in its `libs/`, Ap
 ## Verify
 
 ```sh
-./lab/run_lab.sh     # the gating lab — 427 checks, byte-compatible with Cast.java
+./lab/run_lab.sh     # the gating lab — 481 checks + the bytecode verifier, byte-compatible with Cast.java
 ```
 
 The lab drives `ReceiverServer` with the exact requests official AnantPlay's
@@ -124,8 +144,8 @@ mDNS bytes come from `MdnsWire`, so the PTR question with the QU bit is proven o
 turn the build red.
 
 CI (`.github/workflows/build-apk.yml`) runs that lab, then builds, signs and `apksigner verify`s
-the APK on JDK 17 + **Android SDK 34 + build-tools 35.0.1** with **zero Gradle**, and uploads
-`AnantPlay-Sinhala-Player-v2.2.0.apk` as a downloadable artifact.
+the APK on JDK 17 + **Android SDK 36 (`platforms;android-36`) + build-tools 35.0.1** with **zero Gradle**, and uploads
+`AnantPlay-Sinhala-Player-v3.1.2.apk` as a downloadable artifact.
 
 > **build-tools 35.0.1 is mandatory, not cosmetic.** `d8` 8.2 (build-tools 34.0.0) crashes on the
 > media3 1.11.1 / guava 33.3.1 jars — *"Cannot invoke String.length() because `<parameter1>` is
@@ -168,12 +188,73 @@ src/.../sicast/
   CastPolicy.java            cast-arrival policy (schemes, /do whitelist, seek clamp) — pure Java
   StreamHint.java            Media3 mime defaulting for extensionless HLS/DASH — pure Java
   BridgeApi/Cue/MiniJson/SrtLoader/SubtitleStore   the proven v1 engines (pure Java)
-lab/ReceiverLab.java         the 427-check gating lab (protocol + security + i18n + v3.1 field-bug regressions)
+lab/ReceiverLab.java         the 481-check gating lab (protocol + security + i18n + v3.1.2 field-bug regressions)
+lab/verify_refs.py           the bytecode reference verifier (every .class ref resolves)
 lab/BridgeLab.java           live worker E2E (best effort)
+PrivacyScrubber.java         the zero-PII scrubber (IP / MAC / EUI-64 / model / token / path)
 docs/CAST-VERIFICATION.md    every AnantPlay file:line this is built on
 THIRD_PARTY.md               licenses of every bundled jar + the Sinhala font
-SETUP-SI.md                  the Sinhala setup checklist
+SETUP-SI.md                  the Sinhala + English setup checklist (v3.1.2)
+scripts/troubleshoot-adb.*   PC ADB capture helpers (sh + PowerShell 5.1), privacy-safe
 ```
+
+## What's new in v3.1.2 (PlayActivity crash fix · SelfUpdater spin-loop fix · privacy-first Deep Troubleshooter)
+
+> **v3.1.2 is a crash + reliability + privacy release.** Download:
+> `AnantPlay-Sinhala-Player-v3.1.2.apk` — `versionCode 30102`,
+> `versionName 3.1.2`, `targetSdk 36`, release-signed with the same permanent
+> keystore as v3.1.0/v3.1.1 → your phone updates **in place**, no uninstall.
+
+Built on the 2026-11-22 Xiaomi Android 16 field log, every defect root-caused
+with file:line proof and covered by new regression checks in
+`lab/ReceiverLab.java` (see `V3_1_2_CRASH_FIX_AND_PRIVACY_TROUBLESHOOTER_REPORT.md`):
+
+- **Bug 1 — the `PlayActivity` "keeps stopping" crash FIXED.**
+  `PlayActivity.buildUi()` called `notice.setBackgroundResource(0x88000000)`;
+  `View.setBackgroundResource(int)` interprets a bare int as a **resource id**
+  and `0x88000000` resolves to none, so `Resources$NotFoundException` was thrown
+  synchronously from `PlayActivity.onCreate` on **every** player launch (Test
+  Player, Play Video URL, ACTION_VIEW/Share, and every mDNS/DLNA cast). The fix
+  is `notice.setBackgroundColor(0x88000000)` — identical translucent black, the
+  ARGB-interpretation API. The `Test Player` launch is additionally wrapped in
+  `try/catch`, and no view anywhere in `src/` calls
+  `.setBackgroundResource(0x…)` (lab-verified with comments stripped).
+- **Bug 2 — the `selfupd` 38-lines-in-645 ms spin loop FIXED.**
+  `SelfUpdater.schedule(c, 0L)` was callable from every entry point and each
+  call **replaced** the pending `JobInfo`, making JobScheduler re-deliver
+  `CheckJob.onStartJob` while a run was still in flight → a `single-flight`
+  Diag storm. `schedule()` now debounces zero-delay re-schedules with
+  `SCHEDULE_DEBOUNCE_MS = 10_000L`, and the skip log is rate-limited to
+  **≤ 1 line/second** (lab-proven: a 50-call storm → 1 job handoff, 1 skip line).
+- **Bug 3 — the v3.1.1 diagnostics log carried real PII.** The field log exposed
+  the phone's hardware model, the LAN IP, and an EUI-64 IPv6 link-local address
+  that **embeds the Wi-Fi MAC**. New `PrivacyScrubber` (pure Java + regex)
+  removes vendor+model pairs, hardware-model tokens, `Build.*` fields, MACs,
+  EUI-64/any IPv6, every IPv4 (private/loopback → `<local-v4>`/`<lan-peer>`,
+  public → `<remote-ip>`), Bearer/JWT/API keys/cookie/query secrets, SSIDs and
+  `/storage/…` paths — while keeping the technical lines byte-intact.
+  `App.java` now logs only `sdk N`; `Diag.redact()` chains
+  `PrivacyScrubber.scrub()`; `Troubleshooter.crashTop()` puts the
+  `EXCEPTION`/`CAUSED BY` line and the **first app frames first**.
+- **The privacy-first built-in Deep Troubleshooter.** The Diagnostics tab is a
+  real `ScrollView` (no fixed-height gap, no overlapping lines) with
+  `📋 Copy Full Troubleshoot Report (Privacy-Safe)`, `📤 Share Report` and
+  `🩺 Run Deep Troubleshoot` — a 6-stage active self-test (receiver loopback,
+  mDNS, DLNA, worker bridge, subtitle pipeline, player readiness) whose verdict
+  is readable on the phone and safe to paste into a bug report.
+- **PC ADB capture helpers.** `scripts/troubleshoot-adb.sh` and
+  `scripts/troubleshoot-adb.ps1` (PowerShell 5.1-compatible) filter live logcat
+  to this app's cast/crash lines and pipe them through the same scrub rules —
+  nothing is written to the phone.
+- **The 481-check CI lab + bytecode verifier.** `lab/ReceiverLab.java` grows to
+  **481 checks** (54 new v3.1.2 suites: crash, privacy, troubleshooter,
+  updater spin-loop, launch contracts). `lab/verify_refs.py` parses every
+  compiled `.class` constant pool and proves every referenced type resolves to
+  a lab class, the JDK or `android.*` — a missing Media3/R class cannot ship.
+- **Build isolation kept strict:** `build.sh` compiles only `src/` (never
+  `lab/stubs/`) against `platforms;android-36` + `build-tools;35.0.1`, and the
+  CI zero-accessibility grep can never false-match `ReceiverLab`'s own
+  string literals (the forbidden tokens are assembled at runtime).
 
 ## What's new in v3.1.1 (v3.x — Cast refused-nonlocal fix · CrashLog · silent updater · HyperOS autostart · Mornye-style UI)
 

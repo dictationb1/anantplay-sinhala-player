@@ -336,12 +336,15 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         if (!CastPolicy.allowed(url, media)) {
             if (CastPolicy.allowedScheme(url)) {   // file:// cast we may not read yet
                 Diag.w("play", "file cast without media permission");
+                Troubleshooter.record("CAST", "/play refused — file cast without media permission (notification posted)");
                 PlayActivity.notifyNeedsMedia(this, title);
             } else {
                 Diag.w("play", "refused link: " + url);
+                Troubleshooter.record("CAST", "/play refused — bad link scheme");
             }
             return ReceiverServer.whyJson(CastPolicy.rejectWhy(url));   // Cast.play's wording
         }
+        Troubleshooter.record("CAST", "/play accepted · opening the Sinhala player");
 
         String castJson = MiniJson.write(body);
         Intent i = new Intent(this, PlayActivity.class)
@@ -352,6 +355,7 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
             startActivity(i);   // works with the overlay grant; blocked (silently) without it
         } catch (Throwable t) {
             Diag.w("play", "startActivity: " + t);
+            Troubleshooter.record("CAST", "/play launch failed: " + t + " — falling back to the notification");
         }
         // Without the overlay grant Android 10+ refuses the background activity launch, so
         // wait a shorter window and then hand the user a tap-to-open notification. The cast
@@ -361,16 +365,19 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
             try { Thread.sleep(100); } catch (InterruptedException e) { break; }
             if (PlayActivity.current() != null) {
                 Diag.i("play", "player opened" + (overlay ? "" : " (no overlay perm — it worked anyway)"));
+                Troubleshooter.record("CAST", "player opened ✓" + (overlay ? "" : " (no overlay perm)"));
                 if (overlay) scheduleTakeover();  // hand the screen from AnantPlay's Remote to our player
                 return ReceiverServer.okJson();
             }
         }
         if (!overlay) {
             Diag.i("play", "no overlay permission — posting the tap-to-open cast notification");
+            Troubleshooter.record("CAST", "no overlay permission — tap-to-open notification posted");
             PlayActivity.notifyCastReady(this, title, castJson);
             return ReceiverServer.okJson();       // cast accepted: tap the notification to watch
         }
         Diag.e("play", "player did not open despite the overlay grant");
+        Troubleshooter.record("CAST", "player did not open despite the overlay grant — notification posted");
         PlayActivity.notifyCastReady(this, title, castJson);   // last resort, still recoverable
         return ReceiverServer.whyJson("did not open");
     }

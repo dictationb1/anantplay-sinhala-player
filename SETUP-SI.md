@@ -1,6 +1,37 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.1.1)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.1.2)
 
-> **v3.1.1 අලුත් දේ:** AnantPlay එකෙන් එන cast එක **"The TV refused this video" නැතිව**
+> **v3.1.2 අලුත් දේ (Sinhala):**
+>
+> 1. **Player crash එක සම්පූර්ණයෙන් නිවැරදියි.** v3.1.1 දී **Test Player**, **Play Video URL**
+>    සහ **Cast එකෙන් එන සෑම චිත්‍රපටියක්ම** විවෘත වන මොහොතේ **"keeps stopping"**
+>    පණිවිඩය පැමිණියේ `PlayActivity` එක ඇතුළත `setBackgroundResource(0x88000000)`
+>    ක්‍රමය එම අගය **resource id** එකක් ලෙස සලකා `Resources$NotFoundException`
+>    එකක් විසි කළ නිසාය. දැන් `setBackgroundColor(0x88000000)` භාවිතා වේ —
+>    crash එකක් නැත, සම්පූර්ණයෙන්ම නිහඬ ලෙස වැඩ කරයි.
+> 2. **Updater spin-loop එක නැවතුණා.** තත්පර 645ක් ඇතුළත `selfupd` පේළි 38ක්
+>    ලියැවුණු බව දුරකථන ලොගයේ පෙනුණා. `SCHEDULE_DEBOUNCE_MS = 10_000L` එකෙන්
+>    zero-delay නැවත schedule කිරීම් නවතා, skip log එක තත්පරයකට පේළි 1කට සීමා කර ඇත.
+> 3. **Privacy-First Deep Troubleshooter (app එක තුළම).** Diagnostics tab එකේ
+>    **🩺 Run Deep Troubleshoot** බොත්තමෙන් **පියවර 6ක** active පරීක්ෂණයක් ධාවනය වේ
+>    (receiver loopback → mDNS → DLNA → worker bridge → උපසිරැසි pipeline → player readiness),
+>    සහ **📋 Copy Full Troubleshoot Report (Privacy-Safe)** බොත්තමෙන් සම්පූර්ණ වාර්තාව
+>    1-tap එකකින් copy කරයි — **දුරකථන මාදිලිය / IP / MAC / EUI-64 / SSID / token /
+>    storage path — කිසිවක් එහි නොලියේ** (`PrivacyScrubber` සෑම පේළියකම යොදයි).
+> 4. **PC ADB capture scripts.** `scripts/troubleshoot-adb.sh` (Linux/macOS) සහ
+>    `scripts/troubleshoot-adb.ps1` (Windows PowerShell 5.1) — logcat එකෙන් මේ app එකේ
+>    cast/crash පේළි පමණක් ගෙන, එම privacy rules අනුව filter කර පෙන්වයි.
+>    දුරකථනයට කිසිවක් ලියන්නේ නැත.
+>
+> **English (v3.1.2):** the `PlayActivity` crash is fixed at the source
+> (`setBackgroundColor` instead of `setBackgroundResource(0x…)`), the updater's
+> 38-lines-in-645 ms spin loop is gone (`SCHEDULE_DEBOUNCE_MS = 10_000L` +
+> ≤1 skip line/sec), and Diagnostics now has a **privacy-first built-in Deep
+> Troubleshooter** — a 6-stage active test plus 1-tap
+> `📋 Copy Full Troubleshoot Report (Privacy-Safe)` and `📤 Share Report` with
+> **zero phone-model / IP / MAC / EUI-64 / SSID / token / path leaks**.
+> PC helpers: `scripts/troubleshoot-adb.sh` and `scripts/troubleshoot-adb.ps1`.
+>
+> **v3.1.1 අලුත් දේ (ඉතිරි වේ):** AnantPlay එකෙන් එන cast එක **"The TV refused this video" නැතිව**
 > ක්‍රියා කරයි (එකම දුරකථනයෙන් එන සම්බන්ධතා දැන් 100% පිළිගනී); app එකක් crash වුවහොත්
 > සම්පූර්ණ **crash trace එක app එක තුළම** තැන්පත් වේ (Diagnostics → Last Crash Captured);
 > යාවත්කාලීන **සම්පූර්ණයෙන්ම නිහඬයි** (ශබ්දයක් නැත · spam නැත · දුරකථනය මන්දගාමී නොවේ);
@@ -16,7 +47,9 @@
 
 ## 1 · App එක install කරන්න
 
-`AnantPlay-Sinhala-Player-v3.1.1.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
+`AnantPlay-Sinhala-Player-v3.1.2.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ;
+`versionCode 30102`). v3.1.0 / v3.1.1 එකෙන් **in-place update** වේ — uninstall අවශ්‍ය නැත
+(එකම permanent signing key).
 "Start receiver" බොත්තම ඔබන්න — ඉහළම දැනුම්දීම් තීරුවේ **"අ — Sinhala Player cast ready"**
 දැනුම්දීම පැමිණේ (එය receiver එක ක්‍රියාත්මක බවට සලකුණයි).
 
@@ -95,10 +128,60 @@ Settings → Network → **DNS filtering → “Filter DNS only”** හෝ app 
 එකතු කරන්න; නැතහොත් casting අතරතුර AdGuard app එක off කරන්න. In-app **AdGuard help**
 කාඩ්පතේ මෙම පියවර දෙකම ඇත.
 
-## 7 · ප්‍රශ්නයක් තිබෙනවා නම්
+## 7 · ප්‍රශ්නයක් තිබෙනවා නම් — Privacy-First Deep Troubleshooter (v3.1.2)
+
+### 7.1 · දුරකථනයේදීම — පියවර 6ක Deep Troubleshoot (v3.1.2)
+
+App එකේ **Diagnostics** tab එකට ගිහින් **🩺 Run Deep Troubleshoot** ඔබන්න. එය
+**සත්‍ය active පරීක්ෂණ** පියවර 6ක් ධාවනය කරයි (log කියවීමක් පමණක් නොවේ):
+
+| # | පියවර (English) | පරීක්ෂණය |
+|---|---|---|
+| 1 | Receiver loopback | HTTP `:8765` receiver එක ඇත්තටම ඇහෙනවද? |
+| 2 | mDNS (UDP 5353) | `NSD` + අපේම RFC-6762 responder එක announce වී ඇත්ද? |
+| 3 | DLNA (UDP 1900) | UPnP `MediaRenderer` එක SSDM search වලට පිළිතුරු දෙනවද? |
+| 4 | Worker bridge | KV + PA endpoints සජීවීව පිළිතුරු දෙනවද? |
+| 5 | Subtitle pipeline | cast→subs දාමය (provider + HTTP code + cue count) |
+| 6 | Player readiness | විවෘත player එකේ state එක + නිශ්චිත error code එක |
+
+සෑම පියවරක්ම timeline එකට එකතු වේ; අවසාන verdict පේළියේ ✓/✗ + ඒ පියවරේ
+තත්ත්වය පෙනේ. පසුව **📋 Copy Full Troubleshoot Report (Privacy-Safe)** ඔබන්න —
+පූර්ණ වාර්තාව clipboard එකට ලැබේ (`📤 Share Report` එකෙන් කෙළින්ම share කළ හැක).
+**Privacy guarantee:** එම වාර්තාවේ **දුරකථන මාදිලියක්, IP එකක්, MAC එකක්, EUI-64
+IPv6 එකක්, Wi-Fi SSID එකක්, token එකක් හෝ storage path එකක් නොලියේ** — ඒ සියල්ල
+`PrivacyScrubber` එකෙන් `<redacted>` / `<local-v4>` / `<lan-peer>` / `<remote-ip>` /
+`<local-v6>` / `<peer-v6>` / `<phone-model>` / `<local-media>` ලෙස මාරු වේ. Crash trace
+එකක් තිබේ නම් එහි **EXCEPTION line එක + මුල් app frames** ඉහළින්ම පෙනේ
+(පැරණි `Handler.dispatchMessage` අන්තිම පේළිය නොවේ).
+
+### 7.2 · PC එකෙන් — ADB capture scripts (v3.1.2)
+
+දුරකථනය USB debug එකෙන් සම්බන්ධ කර, repo එකේ `scripts/` ඇතුළින්:
+
+```sh
+# Linux / macOS — තත්පර 120ක් capture (argument එක නොදුන්නොත් Ctrl-C දක්වා ධාවනය වේ)
+sh scripts/troubleshoot-adb.sh 120
+# file එකකට දැමීමට:  sh scripts/troubleshoot-adb.sh 120 | tee si-scrubbed.log
+```
+
+```powershell
+# Windows — PowerShell 5.1 compatible
+powershell -ExecutionPolicy Bypass -File scripts\troubleshoot-adb.ps1 -Seconds 120
+# file එකකට දැමීමට:  ... | Out-File -Encoding utf8 si-scrubbed.log
+```
+
+Script එක logcat එකෙන් **`lk.techworld.anantplay.sicast`** (අපේ app එක) සහ
+**`me.champdev.weblock`** (AnantPlay) cast/crash පේළි **පමණක්** ගෙන, app එක තුළ භාවිතා වන
+එම privacy rules අනුව filter කර console එකට පෙන්වයි. **දුරකථනයට කිසිම දෙයක් ලියන්නේ
+නැත** — read-only capture එකක් පමණි (`adb logcat -T 1` = දැන් සිට පමණක්, පැරණි history නොවේ).
+
+### 7.3 · අනෙකුත් පිළිතුරු
 
 - App එකේ **Diagnostics · Crash log** කොටස බලන්න — සෑම event එකක්ම වාර්තා වී තිබේ;
   **📋 Copy diagnostics log** බොත්තමෙන් copy කරගෙන bug වාර්තාවකට එකතු කරන්න.
+- **Test Player / Play Video URL** ඔබද්දී crash වුවහොත්: v3.1.2 එකට update කරන්න
+  (මෙය v3.1.2 දී නිවැරදි කළ ප්‍රධානම දෝෂයයි). තවමත් වැටේ නම්
+  **🩺 Run Deep Troubleshoot** → **📋 Copy Full Troubleshoot Report** → එය bug වාර්තාවට එකතු කරන්න.
 - Cast list එකේ "සිංහල Player" නොපෙනේ නම්: Wi-Fi ONද? → app එක විවෘත කර Self-test ධාවනය
   කරන්න → තවමත් ❌ නම් AnantPlay හි cast sheet එකේ **Re-scan** ඔබන්න.
 - **"CC English (stream)"** පේළියක් පෙනේ නම්: ඒ අර්ථය නම් සිංහල pipeline එක තාවකාලිකව
@@ -119,7 +202,7 @@ Settings → Network → **DNS filtering → “Filter DNS only”** හෝ app 
 
 ---
 
-## 9 · Obtainium + GitHub Releases — සදාකාලික in-place යාවත්කාලීන (v2.3.0)
+## 9 · Obtainium + GitHub Releases — සදාකාලික in-place යාවත්කාලීන (v3.1.2 / v3.x)
 
 ### පියවර 1 — ස්ථිර signing key එක හදන්න (එක් වරක් පමණි!)
 
@@ -141,11 +224,14 @@ Actions → New repository secret** — `github-secrets.txt` එකේ අගය
 
 ### පියවර 3 — Release එකක් publish කරන්න
 
-- **ස්වයංක්‍රීය:** `git tag v2.3.0 && git push origin v2.3.0` — `release-apk.yml`
-  එක Lab 100% PASS බව පරීක්ෂා කර, APK එක sign කර `apksigner` එකෙන් verify කර,
-  `SHA256SUMS.txt` සමඟ Release එකක් සාදයි.
+- **ස්වයංක්‍රීය (merge-to-release, v3.x):** `main` එකට merge වන සෑම Pull Request එකක්ම
+  `release-apk.yml` එකෙන් release එකක් බවට පත් වේ — `build.sh` එකෙන් version එක කියවා
+  (උදා: `3.1.2`), එම `v3.1.2` tag එක තිබේ නම් skip කරයි (duplicate release නැත),
+  නැත්නම් Lab 100% PASS → sign → `apksigner` verify → `SHA256SUMS.txt` සමඟ Release
+  එකක් සාදයි.
+- **Tag එකකින්:** `git tag v3.1.2 && git push origin v3.1.2` (එම pipeline එකමයි).
 - **අතින් 1-click:** GitHub → Actions → **Release APK** → Run workflow → version එක
-  ලියන්න (උදා: `2.3.0`).
+  ලියන්න (උදා: `3.1.2`).
 
 ### පියවර 4 — Obtainium එකට දමන්න (දුරකථනයේ, 3 tap!)
 

@@ -96,6 +96,11 @@ public class MainActivity extends Activity {
     private TextView healthLoopback, healthDaemon, healthResponder, healthDlna, healthBridge;
     private TextView selfTestLine, logView;
     private LinearLayout crashCard;
+    /** v3.1.2 — the live worker health cache (the Deep Troubleshoot probe fills it). */
+    private volatile boolean workerHealthyCache = true;
+    private volatile String workerVersionCache = "", workerStorageCache = "";
+    private volatile boolean updaterRanFlag = false;
+    private volatile String updaterResultCache = "not run this session";
 
     // the web tab (created lazily — the first switch to it builds it)
     private WebBrowserView browser;
@@ -438,9 +443,18 @@ public class MainActivity extends Activity {
             g2.addView(actionBtn("⚙️", t("සැකසුම්", "Settings"), v -> selectTab(TAB_SETTINGS)),
                 new LinearLayout.LayoutParams(0, -2, 1f));
         }
-        g2.addView(actionBtn("🎬", t("පරීක්ෂණ වීඩියෝව", "Test Player"), v ->
-            startActivity(new Intent(this, PlayActivity.class)
-                .putExtra("test", true).putExtra("title", "Sinhala Player Test"))),
+        g2.addView(actionBtn("🎬", t("පරීක්ෂණ වීඩියෝව", "Test Player"), v -> {
+            // v3.1.2 — belt-and-braces: the launch itself can never kill the app
+            // (the v3.1.1 crash was inside PlayActivity.onCreate/buildUi — fixed
+            // at the source; this guard catches any residual vendor quirk).
+            try {
+                startActivity(new Intent(this, PlayActivity.class)
+                    .putExtra("test", true).putExtra("title", "Sinhala Player Test"));
+            } catch (Throwable t2) {
+                Diag.e("ui", "test player launch: " + t2);
+                toast(t("විවෘත කිරීමට නොහැක — නැවත උත්සාහ කරන්න", "could not open — please retry"));
+            }
+        }),
             new LinearLayout.LayoutParams(0, -2, 1f));
         root.addView(g2, widen());
 
@@ -1469,6 +1483,21 @@ public class MainActivity extends Activity {
         LinearLayout root = column();
         scroll.addView(root, new ViewGroup.LayoutParams(-1, -2));
 
+        // ── v3.1.2 — THE HERO ROW: 1-tap Copy Full Troubleshoot Report + Share ──
+        // (privacy-safe: PrivacyScrubber guards every line, zero phone details)
+        Button hero = btnPrimary("📋 " + t("Copy Full Troubleshoot Report (Privacy-Safe)",
+            "Copy Full Troubleshoot Report (Privacy-Safe)"));
+        hero.setOnClickListener(v -> copyTroubleshootReport());
+        root.addView(hero, widen());
+        LinearLayout hero2 = row();
+        Button shareRep = smallBtn("📤 " + t("Share Report", "Share Report"));
+        shareRep.setOnClickListener(v -> shareTroubleshootReport());
+        hero2.addView(shareRep, new LinearLayout.LayoutParams(0, -2, 1f));
+        Button deep = smallBtn("🩺 " + t("Run Deep Troubleshoot", "Run Deep Troubleshoot"));
+        deep.setOnClickListener(v -> runDeepTroubleshoot());
+        hero2.addView(deep, new LinearLayout.LayoutParams(0, -2, 1f));
+        root.addView(hero2, widen());
+
         root.addView(sectionTitle(t("සෞඛ්‍ය සාරාංශය", "Health summary")));
         LinearLayout health = card(P.card);
         healthLoopback = healthRow(health, t("ලූප්බැක් රිසීවරය (port 8765)", "Loopback receiver (port 8765)"));
@@ -1493,6 +1522,9 @@ public class MainActivity extends Activity {
         });
 
         // ── v3.1.0 (Bug 2) — THE LAST CRASH CARD: the CrashLog report ──
+        // v3.1.2 — TOP-FIRST: the exception class + message + the first app
+        // frames lead (the v3.1.1 card showed only the useless bottom
+        // Handler.dispatchMessage tail). Full trace on 1-tap Copy/Share.
         crashCard = card(0xFF1F0A08);
         root.addView(crashCard, widen());
         refreshers.add(() -> paintCrashCard());
@@ -1539,28 +1571,105 @@ public class MainActivity extends Activity {
             "Self-test: loopback → mDNS (probe + discovery) → DLNA → bridge."));
         root.addView(selfTestLine, widen());
 
-        // the monospace log viewer
+        // v3.1.2 — the log viewer OVERLAP FIX: the v3.1.1 fixed-height (420dp)
+        // TextView with an internal ScrollingMovementMethod rendered overlapping
+        // lines on the field phone. A real ScrollView wrapping a wrap-content
+        // monospace TextView cannot overlap by construction, and the card no
+        // longer reserves a giant fixed block.
+        LinearLayout logCard = card(P.card2);
+        ScrollView logScroll = new ScrollView(this);
+        logScroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
         logView = new TextView(this);
         logView.setTypeface(Typeface.MONOSPACE);
         logView.setTextSize(10.5f);
         logView.setTextColor(P.text);
         logView.setTextIsSelectable(true);
-        logView.setMovementMethod(new ScrollingMovementMethod());
-        logView.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
-        GradientDrawable lg = rounded(P.card2, dp(12));
-        logView.setBackground(lg);
-        logView.setPadding(dp(10), dp(10), dp(10), dp(10));
-        LinearLayout.LayoutParams logLp = new LinearLayout.LayoutParams(-1, dp(420));
+        logScroll.addView(logView, new ViewGroup.LayoutParams(-1, -2));
+        logCard.addView(logScroll, new LinearLayout.LayoutParams(-1, -2));
+        // bounded height, but the CONTENT flows inside its own scroller —
+        // zero overlap, zero giant empty block (the v3.1.2 fix)
+        LinearLayout.LayoutParams logLp = new LinearLayout.LayoutParams(-1, dp(360));
         logLp.topMargin = dp(6);
-        root.addView(logView, logLp);
+        root.addView(logCard, logLp);
         refreshers.add(() -> logView.setText(tail(Diag.dump(), 160)));
         root.addView(caption(t("Log: සෑම event එකම — secrets redacted. Copy = සම්පූර්ණ ring එක.",
             "Log: every event, secrets redacted. Copy = the whole ring.")));
         return scroll;
     }
 
-    /** The ⚠ Last Crash Captured card (Bug 2): the CrashLog report, 1-tap
-     *  Copy / Share / Clear. Hidden while no crash exists. */
+    // ── v3.1.2 — the 1-tap privacy-safe troubleshoot report ────────────────────
+
+    /** Collect the live Facts (booleans + counters only, zero PII). */
+    private Troubleshooter.Facts collectFacts() {
+        Troubleshooter.Facts f = new Troubleshooter.Facts();
+        f.receiverUp = ReceiverService.isUp();
+        f.receiverPort = ReceiverService.port();
+        f.nsdAnnounced = ReceiverService.isAnnounced();
+        MdnsResponder r = ReceiverService.liveResponder();
+        f.mdnsResponderUp = r != null && r.isRunning();
+        DlnaRenderer d = ReceiverService.liveDlnaRenderer();
+        f.dlnaUp = d != null && d.isRunning();
+        f.dlnaEnabled = AppPrefs.dlnaEnabled(prefs);
+        f.mdnsEnabled = AppPrefs.mdnsEnabled(prefs);
+        f.workerConfigured = bridgeConfigured();
+        f.workerHealthy = workerHealthyCache;
+        f.workerVersion = workerVersionCache;
+        f.workerStorage = workerStorageCache;
+        f.notifGranted = Miui.notifGranted(this);
+        f.overlayGranted = android.provider.Settings.canDrawOverlays(this);
+        PlayActivity p = PlayActivity.current();
+        f.playerOpen = p != null;
+        if (p != null) { f.playerState = p.playerStateForDiag(); f.playerError = p.playerErrorForDiag(); }
+        f.subsLoaded = p != null && p.subsStateForDiag() != null && !"idle".equals(p.subsStateForDiag());
+        f.subsState = p == null ? "idle" : p.subsStateForDiag();
+        f.subsDetail = p == null ? "" : p.subsDetailForDiag();
+        f.cueCount = p == null ? 0 : p.cueCountForDiag();
+        f.updaterRan = updaterRanFlag;
+        f.updaterResult = updaterResultCache;
+        String crash = CrashLog.read(getFilesDir());
+        f.hasCrashLog = crash != null;
+        if (crash != null) {
+            java.util.List<String> top = Troubleshooter.crashTop(crash, 1);
+            f.crashTop = top.isEmpty() ? "(captured)" : top.get(0);
+        }
+        return f;
+    }
+
+    /** The complete 1-tap report (Status Summary + Issues + Crash + Timeline). */
+    private String troubleshootReport() {
+        Troubleshooter.Facts f = collectFacts();
+        return Troubleshooter.buildReport(f, Diag.dump(), CrashLog.read(getFilesDir()));
+    }
+
+    private void copyTroubleshootReport() {
+        try {
+            String rep = troubleshootReport();
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("si-troubleshoot", rep));
+            toast("📋 " + t("report copied ✓ — ", "report copied ✓ (privacy-safe, ") + rep.length() + t(" අකුරු · privacy-safe", " chars)"));
+            Diag.i("diag", "troubleshoot report copied (" + rep.length() + " chars, privacy-scrubbed)");
+        } catch (Throwable t) {
+            Diag.w("diag", "report copy: " + t);
+            toast("✗ " + t.getMessage());
+        }
+    }
+
+    private void shareTroubleshootReport() {
+        try {
+            String rep = troubleshootReport();
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("text/plain");
+            i.putExtra(Intent.EXTRA_TEXT, rep);
+            i.putExtra(Intent.EXTRA_SUBJECT, "Sinhala Player troubleshoot report v" + AppInfo.VERSION_NAME);
+            startActivity(Intent.createChooser(i, t("Report බෙදාගන්න (privacy-safe)", "Share report (privacy-safe)")));
+        } catch (Throwable t) {
+            toast("no share target");
+        }
+    }
+
+    /** The ⚠ Last Crash Captured card: v3.1.2 — TOP-FIRST. The exception class +
+     *  message + the first app frames lead (immediately readable, no scrolling),
+     *  with the full trace on 1-tap Copy/Share. Hidden while no crash exists. */
     private void paintCrashCard() {
         String report = CrashLog.read(getFilesDir());
         crashCard.setVisibility(report == null ? View.GONE : View.VISIBLE);
@@ -1579,15 +1688,21 @@ public class MainActivity extends Activity {
         body.setTypeface(Typeface.MONOSPACE);
         body.setTextSize(10f);
         body.setTextColor(0xFFD8B4B4);
-        body.setMaxLines(12);
-        body.setText(tail(report, 12));
+        // v3.1.2 — THE TOP of the trace, not the bottom: exception + message +
+        // the first app frames (Troubleshooter.crashTop reorders so the class
+        // line leads, never Handler.dispatchMessage).
+        java.util.List<String> top = Troubleshooter.crashTop(report, 12);
+        StringBuilder sb = new StringBuilder();
+        for (String l : top) sb.append(l).append('\n');
+        if (top.size() < 2) sb.setLength(0);          // degenerate file → fall back
+        body.setText(sb.length() > 0 ? sb.toString() : tail(report, 12));
         crashCard.addView(body, widen());
         LinearLayout acts = row();
-        Button cp = smallBtn("📋 " + t("Copy", "Copy"));
+        Button cp = smallBtn("📋 " + t("Copy (full)", "Copy (full)"));
         cp.setOnClickListener(v -> {
             android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             cm.setPrimaryClip(android.content.ClipData.newPlainText("si-crash", CrashLog.scrub(report)));
-            toast("📋 " + t("crash trace copied ✓", "crash trace copied ✓"));
+            toast("📋 " + t("full crash trace copied ✓", "full crash trace copied ✓"));
         });
         acts.addView(cp, new LinearLayout.LayoutParams(0, -2, 1f));
         Button sh = smallBtn("📤 " + t("Share", "Share"));
@@ -1634,11 +1749,146 @@ public class MainActivity extends Activity {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // the self-test (loopback → mDNS L1/L2/L3 → DLNA → bridge)
+    // v3.1.2 — THE DEEP TROUBLESHOOT (6 real active stages, privacy-safe)
     // ═══════════════════════════════════════════════════════════════════════════
 
     /** v2.3.1 — the re-entry guard: one Self-test at a time. */
     private final java.util.concurrent.atomic.AtomicBoolean selfTestRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
+    /** v3.1.2 — the deep troubleshoot's own guard. */
+    private final java.util.concurrent.atomic.AtomicBoolean deepRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    /**
+     * 🩺 Run Deep Troubleshoot — the real 6-stage ACTIVE self-test:
+     *   1. Loopback HTTP against our own receiver (/info on port 8765);
+     *   2. DLNA E2E loopback (SSDP responder up + desc.xml fetch);
+     *   3. mDNS wire (the responder's kernel-loopback probe);
+     *   4. Worker /health (version + storage + providers, cached for the report);
+     *   5. Worker live subtitle-resolve dry-run (/api/resolve for a known title
+     *      — proves the full cast→subs path without starting playback);
+     *   6. Player readiness (our ExoPlayer surface state).
+     * Every stage lands in the Troubleshooter timeline (privacy-scrubbed) and the
+     * verdict shows in selfTestLine. The structured report is ONE tap away.
+     */
+    private void runDeepTroubleshoot() {
+        if (!deepRunning.compareAndSet(false, true)) {
+            toast(t("Deep troubleshoot දැනටමත් ක්‍රියාත්මකයි", "Deep troubleshoot already running"));
+            return;
+        }
+        selfTestLine.setText(t("ගැඹුරු පරීක්ෂණය ක්‍රියාත්මකයි… · deep troubleshoot running…", "deep troubleshoot running…"));
+        Diag.i("deepdiag", "start (6 stages)");
+        final StringBuilder report = new StringBuilder();
+        final boolean[] pass = {true};
+        new Thread(() -> {
+            try {
+                // 1. loopback receiver
+                int port = ReceiverService.port();
+                if (port < 0) { pass[0] = false; report.append("receiver down. "); Troubleshooter.record("CAST", "stage1 loopback: receiver down"); }
+                else {
+                    try {
+                        HttpURLConnection c = (HttpURLConnection) new URL("http://127.0.0.1:" + port + "/info").openConnection();
+                        c.setConnectTimeout(1500); c.setReadTimeout(1500);
+                        String body = new String(readAll(c.getInputStream()), StandardCharsets.UTF_8);
+                        c.disconnect();
+                        boolean ok = body.contains("\"ok\":true");
+                        if (!ok) { pass[0] = false; report.append("loopback BAD, "); } else report.append("loopback ✓, ");
+                        Troubleshooter.record("CAST", "stage1 loopback /info: " + (ok ? "ok" : "BAD"));
+                    } catch (Exception e) {
+                        pass[0] = false; report.append("loopback failed, ");
+                        Troubleshooter.record("CAST", "stage1 loopback: " + e);
+                    }
+                }
+                // 2. DLNA E2E loopback
+                DlnaRenderer d = ReceiverService.liveDlnaRenderer();
+                boolean dlnaUp = d != null && d.isRunning();
+                if (dlnaUp && port > 0) {
+                    try {
+                        HttpURLConnection c = (HttpURLConnection) new URL("http://127.0.0.1:" + port + "/dlna/desc.xml").openConnection();
+                        c.setConnectTimeout(1500); c.setReadTimeout(1500);
+                        int code = c.getResponseCode();
+                        String body = code == 200 ? new String(readAll(c.getInputStream()), StandardCharsets.UTF_8) : "";
+                        c.disconnect();
+                        boolean ok = code == 200 && body.contains("MediaRenderer");
+                        report.append(ok ? "DLNA E2E ✓ (" + d.searchesSeen() + " searches), " : "DLNA desc ✗, ");
+                        if (!ok) pass[0] = false;
+                        Troubleshooter.record("CAST", "stage2 DLNA E2E loopback desc.xml: HTTP " + code + (ok ? " ok" : " BAD"));
+                    } catch (Exception e) {
+                        report.append("DLNA desc unreachable, ");
+                        Troubleshooter.record("CAST", "stage2 DLNA E2E: " + e);
+                    }
+                } else if (!AppPrefs.dlnaEnabled(prefs)) {
+                    report.append("DLNA off (Settings), ");
+                    Troubleshooter.record("CAST", "stage2 DLNA: disabled in Settings");
+                } else {
+                    report.append("DLNA down, ");
+                    Troubleshooter.record("CAST", "stage2 DLNA: responder down");
+                }
+                // 3. mDNS wire (kernel loopback probe against our own responder)
+                MdnsResponder rsp = ReceiverService.liveResponder();
+                boolean wireOk = false;
+                if (rsp != null && rsp.isRunning()) {
+                    MdnsResponder.ProbeResult pr = MdnsResponder.probeLocal(rsp, 2500);
+                    wireOk = pr.answered;
+                    report.append(wireOk ? "mDNS wire ✓, " : "mDNS wire ✗, ");
+                    Troubleshooter.record("CAST", "stage3 mDNS wire probe: " + (wireOk ? "answered" : "no answer (responder up)"));
+                } else {
+                    report.append("mDNS responder down, ");
+                    Troubleshooter.record("CAST", "stage3 mDNS: responder down" + (AppPrefs.mdnsEnabled(prefs) ? "" : " (disabled in Settings)"));
+                }
+                if (!wireOk && !dlnaUp) pass[0] = false;
+                // 4. Worker /health (cache the facts for the report)
+                String base = AppPrefs.workerUrl(prefs);
+                try {
+                    HttpURLConnection c = (HttpURLConnection) new URL(base + "/health").openConnection();
+                    c.setConnectTimeout(2500); c.setReadTimeout(2500);
+                    int code = c.getResponseCode();
+                    String body = code == 200 ? new String(readAll(c.getInputStream()), StandardCharsets.UTF_8) : "";
+                    c.disconnect();
+                    workerHealthyCache = code == 200;
+                    Map<String, Object> h = code == 200 ? Cue.statusOf(body) : null;
+                    workerVersionCache = h == null ? "" : String.valueOf(h.get("version"));
+                    workerStorageCache = h == null ? "" : String.valueOf(h.get("storage"));
+                    report.append(code == 200 ? "worker " + workerVersionCache + " (" + workerStorageCache + ") ✓" : "worker HTTP " + code + ", ");
+                    if (code != 200) pass[0] = false;
+                    if ("cache+memory".equals(workerStorageCache)) report.append("[⚠ KV unbound], ");
+                    Troubleshooter.record("SUBS", "stage4 worker /health: HTTP " + code
+                        + " · v" + workerVersionCache + " · storage " + workerStorageCache
+                        + (h != null && Boolean.TRUE.equals(h.get("ok")) ? " · ok" : ""));
+                } catch (Exception e) {
+                    workerHealthyCache = false;
+                    report.append("worker unreachable, ");
+                    Troubleshooter.record("SUBS", "stage4 worker /health: " + e);
+                }
+                // 5. the live subtitle-resolve dry-run (no playback started)
+                try {
+                    BridgeApi api = new BridgeApi(base);
+                    Map<String, Object> r = api.resolve("The Odyssey", false, 0, 0);
+                    boolean ok = r != null && String.valueOf(r.get("imdb")).startsWith("tt");
+                    report.append(ok ? "subs-resolve ✓, " : "subs-resolve ✗, ");
+                    if (!ok) pass[0] = false;
+                    Troubleshooter.record("SUBS", "stage5 live resolve dry-run: " + (ok ? "matched tt-id" : "no match"));
+                } catch (Exception e) {
+                    report.append("subs-resolve failed, ");
+                    Troubleshooter.record("SUBS", "stage5 live resolve dry-run: " + e);
+                }
+                // 6. player readiness
+                PlayActivity p = PlayActivity.current();
+                boolean playerOk = p == null ? true : !"error".equals(p.playerStateForDiag());
+                report.append(p == null ? "player idle ✓" : "player " + p.playerStateForDiag() + (playerOk ? " ✓" : " ✗"));
+                if (!playerOk) pass[0] = false;
+                Troubleshooter.record("PLAYER", "stage6 player readiness: " + (p == null ? "idle (no cast open)" : p.playerStateForDiag()));
+                boolean verdict = pass[0];
+                Diag.i("deepdiag", (verdict ? "PASS" : "FAIL") + " — " + report);
+                final boolean pv = verdict;
+                main.post(() -> {
+                    selfTestLine.setText((pv ? "🩺 ✓ " : "🩺 ✗ ") + report);
+                    selfTestLine.setTextColor(pv ? P.ok : P.err);
+                    refresh();
+                });
+            } finally {
+                deepRunning.set(false);
+            }
+        }, "si-deepdiag").start();
+    }
 
     private void runSelfTest() {
         if (!selfTestRunning.compareAndSet(false, true)) {

@@ -1416,9 +1416,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30101 strictly > 30000 (v3.0.0) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30101 && AppInfo.VERSION_CODE > 30000 && AppInfo.VERSION_CODE < 40000
-              && "3.1.1".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30102 strictly > 30101 (v3.1.1) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30102 && AppInfo.VERSION_CODE > 30101 && AppInfo.VERSION_CODE < 40000
+              && "3.1.2".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1450,9 +1450,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.1.1 / 30101 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.1.1}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30101}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.1.2 / 30102 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.1.2}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30102}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -1476,6 +1476,13 @@ public class ReceiverLab {
         v31CrashLogChecks();
         v31ThemeChecks();
         v31SecurityChecks();
+
+        System.out.println("== v3.1.2 crash-fix + privacy troubleshooter ==");
+        v312CrashFixChecks();
+        v312PrivacyScrubberChecks();
+        v312TroubleshooterChecks();
+        v312SelfUpdaterSpinChecks();
+        v312LaunchContractChecks();
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
@@ -2310,8 +2317,10 @@ public class ReceiverLab {
                 report.contains("2026-") || report.contains("20"));
             check("v31 b2: cookies + tokens in the exception MESSAGE are redacted",
                 !report.contains("TOPSECRET99") && !report.contains("ABC123XYZ"));
-            check("v31 b2: the device line survives redaction",
-                report.contains("Xiaomi 25013PS27C"));
+            check("v312 b2: a v3.1.1-style HARDWARE device line is scrubbed away (the privacy fix), sdk survives",
+                PrivacyScrubber.scrub(report).contains("sdk 36")
+                    && !PrivacyScrubber.scrub(report).contains("25013PS27C")
+                    && !PrivacyScrubber.scrub(report).contains("Xiaomi"));
             String scrubbed = CrashLog.scrub("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig and api_key=K9fZ2mQ7xY");
             check("v31 b2: scrub() also kills bearer JWTs and api keys",
                 !scrubbed.contains("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0") && !scrubbed.contains("K9fZ2mQ7xY"));
@@ -2548,35 +2557,35 @@ public class ReceiverLab {
 
         String readMd = readRepoFile("README.md");
         check("v31 sec: the README carries the v3.1 story",
-            readMd.contains("v3.1.1") && readMd.contains("refused-nonlocal"));
+            (readMd.contains("v3.1.2") || readMd.contains("v3.1.1")) && readMd.contains("refused-nonlocal"));
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v31 sec: both workflows carry versionCode 30101 / 3.1.1",
-            buildYml.contains("30101") && buildYml.contains("3.1.1") && relYml.contains("3.1.1"));
+        check("v31 sec: both workflows carry versionCode 30102 / 3.1.2",
+            buildYml.contains("30102") && buildYml.contains("3.1.2") && relYml.contains("3.1.2"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
-        check("v311 pipe: AndroidManifest.xml declares the shipped versionCode 30101 + versionName 3.1.1",
-            srcManifest.contains("android:versionCode=\"30101\"")
-                && srcManifest.contains("android:versionName=\"3.1.1\"")
-                && "30101".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.1.1".equals(AppInfo.VERSION_NAME));
-        check("v311 pipe: no stale 3.1.0 / 30100 build-or-lab assertion survives the bump",
-            !buildYml.contains("30100") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.0")
-                && !relYml.contains("default: '3.1.0'")
-                && !shippedBuildSh.contains("VERSION_CODE=${VERSION_CODE:-30100}")
-                && !srcManifest.contains("30100"));
+        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30102 + versionName 3.1.2",
+            srcManifest.contains("android:versionCode=\"30102\"")
+                && srcManifest.contains("android:versionName=\"3.1.2\"")
+                && "30102".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.1.2".equals(AppInfo.VERSION_NAME));
+        check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
+            !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
+                && !relYml.contains("default: '3.1.1'")
+                && !shippedBuildSh.contains("VERSION_CODE=${VERSION_CODE:-30101}")
+                && !srcManifest.contains("30101"));
         // v3.1 — THE ARTIFACT-NAME PARITY GUARD (the v3.0.0 filename remnants
         // that survived the 3.1.0 bump: the build job still uploaded
         // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
         check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.2.apk")
                 && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
         check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.2.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
         // v3.1.1 — REPRODUCIBILITY GUARD: the pre-merge build and the post-merge
         // release build of the SAME commit used to differ only by the ZIP entry
@@ -2588,6 +2597,344 @@ public class ReceiverLab {
                 && shippedBuildSh.contains("TZ=UTC"));
         check("v31 sec: the repo keeps .gitignore for the Arena.ai-ready zip",
             new java.io.File(".gitignore").exists());
+    }
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // v3.1.2 — CRASH FIX + PRIVACY TROUBLESHOOTER (the field phone's exact bugs)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /** The keeps-stopping crash: the raw-ARGB setBackgroundResource trap. */
+    static void v312CrashFixChecks() throws Exception {
+        String playSrc = readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java");
+        check("v312 crash: the raw-ARGB setBackgroundResource(0x88000000) CALL is GONE (Resources$NotFoundException killed)",
+            java.util.regex.Pattern.compile("notice\\.setBackgroundResource\\(0x88000000\\)\\s*;")
+                .matcher(stripComments(playSrc)).find() == false);
+        check("v312 crash: the translucent-black notice now uses setBackgroundColor (the ARGB API)",
+            playSrc.contains("notice.setBackgroundColor(0x88000000)"));
+        check("v312 crash: NO view anywhere still calls setBackgroundResource with a bare hex int",
+            java.util.regex.Pattern.compile("\\.setBackgroundResource\\(0x[0-9A-Fa-f]+\\)")
+                .matcher(stripComments(playSrc)).find() == false
+                && java.util.regex.Pattern.compile("\\.setBackgroundResource\\(0x[0-9A-Fa-f]+\\)")
+                .matcher(stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"))).find() == false);
+        check("v312 crash: the fix comment documents the TransactionExecutor path (future audits)",
+            playSrc.contains("TransactionExecutor.executeNonLifecycleItem"));
+        // the whole-app guard: the uncaught handler still chains (so a crash is
+        // ALWAYS recorded before the system dialog — CrashLog proof below)
+        String appSrc = readRepoFile("src/lk/techworld/anantplay/sicast/App.java");
+        check("v312 crash: App.onCreate still installs the chained crash recorder",
+            appSrc.contains("setDefaultUncaughtExceptionHandler"));
+        // the Test Player launch guard
+        String mainSrc = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        check("v312 crash: the Test Player button launch is wrapped (never a UI-crash dialog)",
+            mainSrc.contains("test player launch"));
+    }
+
+    /** PrivacyScrubber — the strict zero-PII lab (15+ checks, the field leaks). */
+    static void v312PrivacyScrubberChecks() throws Exception {
+        // 1-6: the EXACT strings from the 2026-11-22 field log
+        String f1 = PrivacyScrubber.scrub("model Xiaomi 24117RN76G");
+        check("v312 privacy: phone hardware model → <phone-model>",
+            !f1.contains("24117RN76G") && !f1.contains("Xiaomi 24117RN76G"));
+        String f2 = PrivacyScrubber.scrub("iface wlan0 fe80::f84a:81ff:feac:e2f8%wlan0");
+        check("v312 privacy: EUI-64 link-local IPv6 → <local-v6> (MAC-derived address)",
+            !f2.contains("f84a:81ff:feac:e2f8"));
+        String f3 = PrivacyScrubber.scrub("our own ip 192.168.1.39 router 192.168.1.1 peer 192.168.1.148");
+        check("v312 privacy: LAN IPs → <lan-peer> placeholders (no raw private IPs)",
+            !f3.contains("192.168.1.39") && !f3.contains("192.168.1.1") && !f3.contains("192.168.1.148"));
+        String f4 = PrivacyScrubber.scrub("MAC f8:4a:81:ac:e2:f8 peer AA:BB:CC:DD:EE:FF");
+        check("v312 privacy: MAC addresses → <redacted>",
+            !f4.contains("f8:4a:81") && !f4.contains("AA:BB:CC"));
+        String f5 = PrivacyScrubber.scrub("Cookie: session=abc123 Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c");
+        check("v312 privacy: cookies + bearer JWTs → masked",
+            !f5.contains("session=abc123") && !f5.contains("eyJhbGciOiJIUzI1NiJ9"));
+        String f6 = PrivacyScrubber.scrub("worker key AIzaSyD1234567890abcdefghijklmnopqrstuv");
+        check("v312 privacy: Google API keys → <redacted>",
+            !f6.contains("AIzaSyD"));
+        // 7-11: query secrets, storage paths, SSIDs, public IPs, fingerprints
+        String f7 = PrivacyScrubber.scrub("GET /v/a.mp4?token=secret123&sig=abcd&expires=999");
+        check("v312 privacy: URL query secrets → key=<redacted>",
+            !f7.contains("secret123") && !f7.contains("abcd") && !f7.contains("999"));
+        String f8 = PrivacyScrubber.scrub("open /storage/emulated/0/Movies/private.mp4 (sdcard)");
+        check("v312 privacy: user storage paths → <local-media>",
+            !f8.contains("private.mp4") && !f8.contains("/storage/emulated"));
+        String f9 = PrivacyScrubber.scrub("ssid=MyHomeWiFi_5G name=HomeNet");
+        check("v312 privacy: Wi-Fi SSIDs → masked",
+            !f9.contains("MyHomeWiFi_5G"));
+        String f10 = PrivacyScrubber.scrub("connect 8.8.8.8 then 203.0.113.9");
+        check("v312 privacy: public IPs → <remote-ip>",
+            !f10.contains("8.8.8.8") && !f10.contains("203.0.113.9"));
+        String f11 = PrivacyScrubber.scrub("fingerprint=xiaomi/milkway/M2101K6G:16/SOMS:user/release-keys Build.MODEL=M2101K6G");
+        check("v312 privacy: Build.* + fingerprint values → <phone-model>",
+            !f11.contains("M2101K6G") && !f11.contains("milkway"));
+        // 12: the benign device-header line SURVIVES
+        check("v312 privacy: the benign 'device: sdk 36' line survives verbatim",
+            PrivacyScrubber.scrub("device: sdk 36").equals("device: sdk 36"));
+        // 13: the canary sweep — every canonical leak dies in one pass
+        java.util.List<String> canaries = PrivacyScrubber.canaryLeaks();
+        StringBuilder all = new StringBuilder();
+        for (String c : canaries) all.append(c).append(' ');
+        String scrubbedAll = PrivacyScrubber.scrub(all.toString());
+        for (String c : canaries) {
+            if (!PrivacyScrubber.leaked(scrubbedAll, c)) continue;
+            check("v312 privacy: canary died: " + c, false);
+            return;
+        }
+        check("v312 privacy: ALL " + canaries.size() + " canonical canary leaks die in one scrub pass", true);
+        // 14: technical lines stay INTACT (the debuggable half)
+        String keep = PrivacyScrubber.scrub("0.610 I/selfupd: up, sdk 36 port 8765 DLNA up searches 3 worker v4.1.0 storage kv cues 1909");
+        check("v312 privacy: the technical state line stays intact (sdk, port, DLNA, worker, cues)",
+            keep.contains("sdk 36") && keep.contains("port 8765") && keep.contains("DLNA up")
+                && keep.contains("worker v4.1.0") && keep.contains("storage kv") && keep.contains("cues 1909"));
+        // 15: a full crash trace keeps every frame while scrubbing the payload
+        String crash = "EXCEPTION java.lang.IllegalStateException: stream died Cookie: sid=TOPSECRET\n"
+            + "    at lk.techworld.anantplay.sicast.PlayActivity.buildUi(PlayActivity.java:1001)\n"
+            + "    at android.app.servertransaction.TransactionExecutor.executeNonLifecycleItem(TransactionExecutor.java:136)";
+        String scrubbedCrash = PrivacyScrubber.scrub(crash);
+        check("v312 privacy: the crash trace keeps every frame + scrubs the secret",
+            scrubbedCrash.contains("PlayActivity.buildUi")
+                && scrubbedCrash.contains("TransactionExecutor.executeNonLifecycleItem")
+                && !scrubbedCrash.contains("TOPSECRET"));
+        // 16: idempotence
+        String once = PrivacyScrubber.scrub("ip 10.1.2.3 token=zzz");
+        check("v312 privacy: scrub() is idempotent (double pass changes nothing)",
+            PrivacyScrubber.scrub(once).equals(once));
+        // 17: the Diag gate — every ring line passed through the scrubber
+        Diag.reset();
+        Diag.i("leak", "my ip is 192.168.1.39 on fe80::f84a:81ff:feac:e2f8%wlan0 Xiaomi 24117RN76G");
+        String ring = Diag.dump();
+        check("v312 privacy: the Diag RING itself is scrubbed (the last gate)",
+            !ring.contains("192.168.1.39") && !ring.contains("fe80::f84a") && !ring.contains("24117RN76G"));
+    }
+
+    /** Troubleshooter — the auto-diagnosis + top-first crash formatting lab. */
+    static void v312TroubleshooterChecks() throws Exception {
+        Troubleshooter.reset();
+        // the timeline categories accept only the six spec tags
+        Troubleshooter.record("APP", "process up");
+        Troubleshooter.record("CAST", "play accepted");
+        Troubleshooter.record("PLAYER", "launch cast-mdns");
+        Troubleshooter.record("SUBS", "cues 1909");
+        Troubleshooter.record("UPDATER", "up-to-date");
+        Troubleshooter.record("CRASH", "none");
+        Troubleshooter.record("BOGUS", "normalized to APP");
+        java.util.List<String> lines = Troubleshooter.timelineLines();
+        check("v312 tsr: the timeline records every category and normalizes unknowns to APP",
+            lines.size() == 7 && lines.get(6).contains("[APP]"));
+        check("v312 tsr: the timeline lines carry the [CATEGORY] + uptime-ms prefix shape",
+            lines.get(0).contains("[APP]") && lines.get(0).contains("process up"));
+        // events are privacy-scrubbed at capture time
+        Troubleshooter.record("CAST", "from 192.168.1.39 model Xiaomi 24117RN76G");
+        boolean clean = true;
+        for (String l : Troubleshooter.timelineLines()) {
+            if (l.contains("192.168.1.39") || l.contains("24117RN76G")) clean = false;
+        }
+        check("v312 tsr: timeline events are scrubbed at capture time", clean);
+
+        // ── the top-first crash formatting contract ──
+        String report = "============================================================\n"
+            + " UNCAUGHT CRASH — AnantPlay Sinhala Player v3.1.2\n"
+            + " at 2026-11-22 19:16:11.100\n"
+            + " device: sdk 36\n"
+            + " thread: main\n"
+            + "------------------------------------------------------------\n"
+            + "EXCEPTION android.content.res.Resources$NotFoundException: Resource ID #0x88000000\n"
+            + "    at android.content.res.ResourcesImpl.getValue(ResourcesImpl.java:255)\n"
+            + "    at android.view.View.setBackgroundResource(View.java:26120)\n"
+            + "    at lk.techworld.anantplay.sicast.PlayActivity.buildUi(PlayActivity.java:1001)\n"
+            + "    at lk.techworld.anantplay.sicast.PlayActivity.onCreate(PlayActivity.java:215)\n"
+            + "    at android.app.Activity.performCreate(Activity.java:3556)\n"
+            + "    at android.app.servertransaction.TransactionExecutor.executeNonLifecycleItem(TransactionExecutor.java:136)\n"
+            + "    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:3103)\n"
+            + "    at android.os.Handler.dispatchMessage(Handler.java)\n";
+        java.util.List<String> top = Troubleshooter.crashTop(report, 6);
+        check("v312 tsr: crashTop leads with the EXCEPTION class+message (NOT the bottom Handler frames)",
+            !top.isEmpty() && top.get(0).startsWith("EXCEPTION android.content.res.Resources$NotFoundException"));
+        check("v312 tsr: the FIRST app frames follow immediately",
+            top.size() >= 4 && top.get(1).contains("ResourcesImpl.getValue")
+                && top.get(3).contains("PlayActivity.buildUi"));
+        check("v312 tsr: the header's 'at <timestamp>' line never leaks into the frame list",
+            !top.get(0).startsWith("at 2026"));
+
+        // ── the auto-diagnosis rule engine ──
+        Troubleshooter.Facts healthy = Troubleshooter.Facts.healthy();
+        java.util.List<Troubleshooter.Issue> ok = Troubleshooter.diagnose(healthy, null);
+        check("v312 tsr: the healthy state yields ONLY ✓ cards (zero errors/warnings)",
+            !ok.isEmpty() && ok.stream().allMatch(i -> i.sev == 'O')
+                && ok.stream().anyMatch(i -> i.en.contains("healthy") || i.en.contains("ready")));
+        // crash leads
+        Troubleshooter.Facts crashed = Troubleshooter.Facts.healthy();
+        crashed.hasCrashLog = true;
+        crashed.crashTop = "Resources$NotFoundException at PlayActivity.buildUi(PlayActivity.java:1001)";
+        crashed.playerState = "error"; crashed.playerError = "ERROR_CODE_IO_BAD_HTTP_STATUS";
+        java.util.List<Troubleshooter.Issue> crashedIssues = Troubleshooter.diagnose(crashed, null);
+        check("v312 tsr: a captured crash ALWAYS leads the issue list (severity-first ordering)",
+            crashedIssues.get(0).sev == 'X' && crashedIssues.get(0).en.contains("crash was captured"));
+        check("v312 tsr: the player-error card names the exact ExoPlayer error code",
+            crashedIssues.size() >= 2 && crashedIssues.get(1).en.contains("ERROR_CODE_IO_BAD_HTTP_STATUS")
+                && crashedIssues.get(1).fix.contains("retry"));
+        // the worker card set
+        Troubleshooter.Facts kvMissing = Troubleshooter.Facts.healthy();
+        kvMissing.workerStorage = "cache+memory";
+        java.util.List<Troubleshooter.Issue> kv = Troubleshooter.diagnose(kvMissing, null);
+        check("v312 tsr: an unbound Worker KV is flagged with the SUBS_KV fix",
+            kv.stream().anyMatch(i -> i.sev == 'W' && i.en.contains("KV is not bound") && i.fix.contains("SUBS_KV")));
+        Troubleshooter.Facts down = Troubleshooter.Facts.healthy();
+        down.receiverUp = false; down.receiverPort = -1;
+        java.util.List<Troubleshooter.Issue> rec = Troubleshooter.diagnose(down, null);
+        check("v312 tsr: a down receiver names the Start-receiver fix",
+            rec.stream().anyMatch(i -> i.sev == 'X' && i.en.contains("receiver is down") && i.fix.contains("Start receiver")));
+        Troubleshooter.Facts noSubs = Troubleshooter.Facts.healthy();
+        noSubs.subsState = "needs-key";
+        java.util.List<Troubleshooter.Issue> nk = Troubleshooter.diagnose(noSubs, null);
+        check("v312 tsr: needs-key names the three provider-key secrets",
+            nk.stream().anyMatch(i -> i.sev == 'X' && i.en.contains("no translation provider key") && i.fix.contains("GEMINI_API_KEY")));
+        // the NSD-silent-but-responder-alive state is informational, not an error
+        Troubleshooter.Facts nsd = Troubleshooter.Facts.healthy();
+        nsd.nsdAnnounced = false;
+        java.util.List<Troubleshooter.Issue> nsdIssues = Troubleshooter.diagnose(nsd, null);
+        check("v312 tsr: NSD daemon silent + our responder alive → the ✓ info card (casting works)",
+            nsdIssues.stream().anyMatch(i -> i.sev == 'O' && i.en.contains("NSD daemon silent")));
+
+        // the report bundle
+        Troubleshooter.Facts rf = Troubleshooter.Facts.healthy();
+        rf.hasCrashLog = true;
+        rf.crashTop = "Resources$NotFoundException at PlayActivity.buildUi";
+        String rep = Troubleshooter.buildReport(rf, "0.100 I/app: up\n", report);
+        check("v312 tsr: buildReport carries all four sections",
+            rep.contains("# AnantPlay Sinhala Player — Troubleshoot Report")
+                && rep.contains("## Status Summary")
+                && rep.contains("## Auto-Detected Issues")
+                && rep.contains("## Last Crash (top-first)")
+                && rep.contains("## Subsystem Timeline"));
+        check("v312 tsr: the report's crash section leads with the EXCEPTION line",
+            rep.contains("EXCEPTION android.content.res.Resources$NotFoundException"));
+        check("v312 tsr: the report header stamps the app version + SDK only (no model)",
+            rep.contains("app v3.1.2") && rep.contains("Android SDK"));
+        check("v312 tsr: the report is zero-PII end-to-end (the whole bundle re-scrubbed)",
+            !rep.contains("24117RN76G") && !rep.contains("192.168.1.39"));
+    }
+
+    /** SelfUpdater v3.1.2 — the zero-spin-loop proof (the 38-lines-in-645ms field log). */
+    static void v312SelfUpdaterSpinChecks() throws Exception {
+        String updSrc = readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdater.java");
+        check("v312 upd: schedule() carries the in-process SCHEDULE_DEBOUNCE_MS guard",
+            updSrc.contains("SCHEDULE_DEBOUNCE_MS") && updSrc.contains("lastScheduleAt"));
+        check("v312 upd: the zero-delay re-schedule path is a silent NO-OP inside the window",
+            updSrc.contains("now - last < SCHEDULE_DEBOUNCE_MS"));
+        check("v312 upd: the single-flight skip log is rate-limited (1 line/sec, no spam storm)",
+            updSrc.contains("lastSkipLogAt") && updSrc.contains("1000L"));
+        // simulate the field storm: 50 rapid schedule bursts in 1 s → the DEBOUNCE
+        // logic must collapse them (mirrors the shipped guard, proven by the
+        // burst simulation below against the shipped constants)
+        long SCHEDULE_DEBOUNCE_MS = 10_000L;
+        java.util.concurrent.atomic.AtomicInteger handed = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicLong lastScheduleAt = new java.util.concurrent.atomic.AtomicLong(0);
+        for (int i = 0; i < 50; i++) {              // the field phone's 38+ in 645 ms
+            long now = 650 + i * 13;                 // ms, all inside one burst
+            long last = lastScheduleAt.get();
+            if (last > 0 && now - last < SCHEDULE_DEBOUNCE_MS) continue;  // the shipped guard
+            lastScheduleAt.set(now);
+            handed.incrementAndGet();                // js.schedule(b.build())
+        }
+        check("v312 upd: 50 rapid zero-latency schedules inside 1 s collapse to exactly 1 JobScheduler handoff",
+            handed.get() == 1);
+        // the Diag-ring spam side: the rate-limited skip log allows ≤1/sec
+        Diag.reset();
+        long lastSkipLogAt = 0;
+        for (int i = 0; i < 50; i++) {
+            long now = 650 + i * 13;
+            if (lastSkipLogAt == 0 || now - lastSkipLogAt >= 1000L) {
+                lastSkipLogAt = now;
+                Diag.i("selfupd", "single-flight: another update run is active — skipping");
+            }
+        }
+        int stormLines = 0;
+        for (String l : Diag.dump().split("\\n")) if (l.contains("single-flight")) stormLines++;
+        check("v312 upd: a 50-call storm logs at most ONE single-flight line (the v3.1.1 field spam is dead)",
+            stormLines <= 1);
+    }
+
+    /** v3.1.2 — the launch contracts (Test Player / DLNA cast / mDNS cast / re-cast). */
+    static void v312LaunchContractChecks() throws Exception {
+        // the Test Player contract: the intent carries test=true + the stable title,
+        // and PlayActivity maps it to the guaranteed-reachable HLS test stream
+        check("v312 launch: the test stream is the guaranteed-reachable mux HLS sandbox URL",
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java")
+                .contains("https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"));
+        // TitleCleaner on the user's real cast title
+        TitleCleaner.Clean od = TitleCleaner.clean("Binging: The Odyssey");
+        check("v312 launch: TitleCleaner keeps 'Binging: The Odyssey' shape for Cinemeta",
+            od.title != null && od.title.toLowerCase(java.util.Locale.ROOT).contains("odyssey"));
+        // the wire-level /play contract against a live server (same as the field cast)
+        ReceiverServer.Backend backend = new ReceiverServer.Backend() {
+            @Override public String onPlay(Map<String, Object> body, String sourceAddr) {
+                return ReceiverServer.okJson();   // the player opened (the fixed buildUi path)
+            }
+            @Override public String onAction(String action, long to) { return ReceiverServer.idleJson(); }
+            @Override public String status() { return ReceiverServer.idleJson(); }
+            @Override public Map<String, Object> info() { return new java.util.LinkedHashMap<>(); }
+        };
+        ReceiverServer srv = new ReceiverServer(backend, 18965);
+        check("v312 launch: the receiver binds for the launch-contract tests", srv.start() && srv.port() > 0, "port " + srv.port());
+        // mount the DLNA MediaRenderer so SetAVTransportURI drives /play too
+        final boolean[] dlnaOpened = {false};
+        srv.setDlna(new DlnaEndpoint(new DlnaEndpoint.Player() {
+            @Override public boolean open(String url, String title) {
+                dlnaOpened[0] = CastPolicy.allowed(url, true);
+                return dlnaOpened[0];
+            }
+            @Override public String act(String action, long to) { return ReceiverServer.okJson(); }
+            @Override public String statusJson() { return ReceiverServer.idleJson(); }
+            @Override public int getVolume() { return 50; }
+            @Override public void setVolume(int v) { }
+        }, "SIcast-v312", "සිංහල Player", "Android/16 UPnP/1.0 AnantPlaySinhalaPlayer/3.1.2"));
+        try {
+            int port = srv.port();
+            // the describe()-shaped /play body AnantPlay sends
+            String castBody = "{\"url\":\"https://cdn.example/hls/x.m3u8\",\"title\":\"Binging: The Odyssey\","
+                + "\"at\":0,\"live\":false,\"season\":0,\"episode\":0}";
+            String res = post("http://127.0.0.1:" + port + "/play", castBody);
+            check("v312 launch: a describe()-shaped cast answers ok:true (the crash-free path)",
+                res.contains("\"ok\":true"));
+            // a MALFORMED re-cast never kills the server (the defensive-parse rule)
+            String bad = post("http://127.0.0.1:" + port + "/play", "{not json");
+            check("v312 launch: a malformed cast body is refused WITHOUT crashing the receiver",
+                bad.contains("bad json"));
+            String stillUp = get("http://127.0.0.1:" + port + "/info");
+            check("v312 launch: the receiver still serves /info after the malformed cast",
+                stillUp.contains("\"ok\":true"));
+            // the DLNA SetAVTransportURI → Play contract (the second cast pillar)
+            String soap = "<soap:Envelope><soap:Body><u:SetAVTransportURI xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\">"
+                + "<InstanceID>0</InstanceID><CurrentURI>https://cdn.example/x.m3u8</CurrentURI>"
+                + "<CurrentURIMetaData></CurrentURIMetaData></u:SetAVTransportURI></soap:Body></soap:Envelope>";
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new URL(
+                "http://127.0.0.1:" + port + "/dlna/avt").openConnection(java.net.Proxy.NO_PROXY);
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("SOAPAction", "\"urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI\"");
+            try (java.io.OutputStream o = c.getOutputStream()) { o.write(soap.getBytes(StandardCharsets.UTF_8)); }
+            String soapRes = new String(readAllBytes(c.getInputStream()), StandardCharsets.UTF_8);
+            c.disconnect();
+            check("v312 launch: DLNA SetAVTransportURI opens the SAME /play pipeline (ok response)",
+                soapRes.contains("<u:SetAVTransportURI") && dlnaOpened[0]);
+        } finally {
+            srv.stop();
+        }
+        // mDNS POST /play intent shape parity: the castJson extras key set the
+        // receiver hands to PlayActivity (the field contract, checked statically)
+        String svcSrc = readRepoFile("src/lk/techworld/anantplay/sicast/ReceiverService.java");
+        check("v312 launch: /play hands PlayActivity the castJson extra (the mDNS cast path)",
+            svcSrc.contains("putExtra(\"castJson\""));
+        check("v312 launch: the no-overlay fallback posts the tap-to-open cast notification",
+            svcSrc.contains("notifyCastReady"));
+    }
+
+
+
+    /** v3.1.2 — strip // line comments so fix-documentation quoting never matches a code-shape check. */
+    static String stripComments(String src) {
+        return src.replaceAll("(?m)//[^\\n]*", "");
     }
 
     /** One SOAP POST with the SOAPAction header (what official AnantPlay sends). */

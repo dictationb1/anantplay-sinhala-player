@@ -32,3 +32,7 @@ Thumbs.db
 *.class
 *.log
 hs_err_pid*
+
+# python noise (the bytecode verifier is run from source)
+__pycache__/
+*.pyc

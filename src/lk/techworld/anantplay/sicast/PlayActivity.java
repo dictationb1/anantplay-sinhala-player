@@ -215,6 +215,9 @@ public class PlayActivity extends Activity {
         buildUi();
         startPlayback();
         startTicker();
+        // v3.1.2 — the Troubleshooter timeline: the launch source + the open fact
+        Troubleshooter.record("PLAYER", "launch source=" + launchSource()
+            + " · title=\"" + (title == null ? "" : title) + "\" · state=open");
         // v3.0.0 — the never-silent launch pill: the user sees the subtitle
         // pipeline is ALIVE from the very first frame, before any network
         // round-trip completes ("✨ … ලබාගනිමින්…" → "✓ සූදානම්" once cues land).
@@ -222,6 +225,20 @@ public class PlayActivity extends Activity {
         main.postDelayed(() -> { expectTakeover = false; armAutoPip(); }, 3000);   // PiP only after the hand-over
         if (testMode || prefs.getBoolean("autoFetch", true)) fetchSinhala();
         Diag.i("player", "open: " + title + " · " + url);
+    }
+
+    /** v3.1.2 — the structured launch source for the Troubleshooter timeline. */
+    private String launchSource() {
+        Intent i = getIntent();
+        if (i == null) return "unknown";
+        if (i.getBooleanExtra("test", false)) return "test-player";
+        String u = i.getStringExtra("url");
+        if (u != null) return "manual-url";
+        String action = i.getAction();
+        if (Intent.ACTION_VIEW.equals(action)) return "webview";
+        if (Intent.ACTION_SEND.equals(action)) return "share";
+        if (i.getStringExtra("castJson") != null) return "cast";
+        return "unknown";
     }
 
     private void parseIntent() {
@@ -451,6 +468,8 @@ public class PlayActivity extends Activity {
             player.addListener(new Player.Listener() {
                 @Override public void onPlaybackStateChanged(int s) {
                     spinner.setVisibility(s == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
+                    // v3.1.2 — the Media3 transition lands in the Troubleshooter timeline
+                    Troubleshooter.record("PLAYER", "media3 state=" + stateName(s));
                     if (s == Player.STATE_READY) onReady();
                     updateSnapshot();
                 }
@@ -460,6 +479,9 @@ public class PlayActivity extends Activity {
                 }
                 @Override public void onPlayerError(PlaybackException e) {
                     Diag.e("player", "error: " + e.getErrorCodeName());
+                    lastErrorName = e.getErrorCodeName();   // v3.1.2 — the diag accessor backing
+                    Troubleshooter.record("PLAYER", "media3 ERROR " + e.getErrorCodeName()
+                        + (e.getCause() == null ? "" : " · cause " + e.getCause()));
                     final long pos = player == null ? 0 : player.getCurrentPosition();
                     showError(e.getErrorCodeName() + (e.getCause() == null ? "" : " · " + e.getCause().getMessage()));
                     diagnoseStreamFailure(e, pos);   // v2.3.0: DoH ISP-block check + retry advice
@@ -530,6 +552,45 @@ public class PlayActivity extends Activity {
         showStatus();
         scheduleHudHide();
     }
+
+    /** v3.1.2 — Media3 state int → the exact name for the timeline. */
+    static String stateName(int s) {
+        if (s == Player.STATE_IDLE) return "IDLE";
+        if (s == Player.STATE_BUFFERING) return "BUFFERING";
+        if (s == Player.STATE_READY) return "READY";
+        if (s == Player.STATE_ENDED) return "ENDED";
+        return "state-" + s;
+    }
+
+    // ── v3.1.2 — the privacy-safe diagnostic accessors (booleans + counters only,
+    // never URLs/titles; the Troubleshooter Facts and the Deep Troubleshoot read these) ──
+
+    /** The last Media3 error-code name, "" while none (v3.1.2 diag accessor backing). */
+    private volatile String lastErrorName = "";
+
+    /** The player's own state name (idle|buffering|ready|ended|error). */
+    public String playerStateForDiag() {
+        if (player == null) return "idle";
+        try {
+            if (!lastErrorName.isEmpty()) return "error";
+            if (player.getPlaybackState() == Player.STATE_READY) return "ready";
+            if (player.getPlaybackState() == Player.STATE_BUFFERING) return "buffering";
+            if (player.getPlaybackState() == Player.STATE_ENDED) return "ended";
+            return "idle";
+        } catch (Throwable t) { return "idle"; }
+    }
+
+    /** The last Media3 error-code name ("" while none). */
+    public String playerErrorForDiag() { return lastErrorName; }
+
+    /** The subtitle pipeline state (idle|fetching|ready|local|not-found|needs-key|error). */
+    public String subsStateForDiag() { return state; }
+
+    /** The last subtitle status detail line. */
+    public String subsDetailForDiag() { return stateDetail; }
+
+    /** The loaded cue count. */
+    public int cueCountForDiag() { List<Cue> c = cues; return c == null ? 0 : c.size(); }
 
     private void updateSnapshot() {
         PlayActivity p = currentInstance;
@@ -617,6 +678,9 @@ public class PlayActivity extends Activity {
                         Diag.w("subs", "cleaned title did not resolve — retrying with the raw title");
                         r = api.resolve(title, series, season, episode);
                     }
+                    Troubleshooter.record("SUBS", "TitleCleaner \"" + title + "\" → \"" + lookupTitle + "\""
+                        + (cleaned.year != null ? " (" + cleaned.year + ")" : "")
+                        + " · /api/resolve " + (r == null ? "no-match" : "ok imdb=" + String.valueOf(r.get("imdb"))));
                     if (r == null) {
                         setState("not-found", "Cinemeta couldn't match \"" + title + "\" — try the title override", myGen);
                         fallbackEnglishTrack();
@@ -764,6 +828,7 @@ public class PlayActivity extends Activity {
         setState("ready", "සිංහල උපසිරැසි සූදානම් · " + loaded.size() + " cues · " + how
             + (hasEn ? "" : " · human Sinhala"));
         Diag.i("subs", "applied " + loaded.size() + " cues (" + how + ")");
+        Troubleshooter.record("SUBS", "cues loaded: " + loaded.size() + " · source=" + how + " · render=on");
     }
 
     /** Nothing in Sinhala: offer the stream's own text track (the "CC English" habit). */
@@ -998,7 +1063,15 @@ public class PlayActivity extends Activity {
         notice = new TextView(this);
         notice.setTextColor(Color.WHITE);
         notice.setTextSize(14);
-        notice.setBackgroundResource(0x88000000);
+        // v3.1.2 CRASH FIX (the "keeps stopping" smoking gun): this used to be
+        // notice.setBackgroundResource(0x88000000) — View.setBackgroundResource(int)
+        // treats a bare int as a RESOURCE id, and 0x88000000 (raw ARGB) resolves to
+        // no resource → Resources$NotFoundException thrown from buildUi() inside
+        // PlayActivity.onCreate → the Android 16 TransactionExecutor.executeNonLifecycleItem
+        // crash ("AnantPlay සිංහල Player keeps stopping") on Test Player, Play Video URL
+        // and EVERY cast arrival. setBackgroundColor(int) is the ARGB-interpretation
+        // API — the exact same translucent black, zero resource lookup, zero crash.
+        notice.setBackgroundColor(0x88000000);
         notice.setPadding(dp(14), dp(8), dp(14), dp(8));
         notice.setGravity(Gravity.CENTER);
         notice.setVisibility(View.GONE);

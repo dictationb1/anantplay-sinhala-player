@@ -63,23 +63,32 @@ public class App extends Application {
                 } catch (Throwable ignored) { }
             }
         });
-        Diag.i("app", AppInfo.NAME + " v" + AppInfo.VERSION_NAME + " up, sdk " + android.os.Build.VERSION.SDK_INT
-            + " " + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL);
+        // v3.1.2 PRIVACY FIX (the 2026-11-22 field leak): v3.1.1 logged
+        // Build.MANUFACTURER + Build.MODEL ("Xiaomi 24117RN76G") here AND in every
+        // crash header. Hardware identifiers are NEVER collected, logged, displayed
+        // or exported again — only the generic SDK integer travels (PrivacyScrubber
+        // enforces this everywhere and the lab proves it on synthetic leaks).
+        Diag.i("app", AppInfo.NAME + " v" + AppInfo.VERSION_NAME + " up, sdk " + android.os.Build.VERSION.SDK_INT);
 
         final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             // v3.1.0 (Bug 2) — THE PERSISTENT CRASH RECORDER: the FULL redacted
-            // report (timestamp, version, device, thread, every cause + frame)
-            // lands atomically in filesDir/last_crash.txt BEFORE the system
-            // dialog, so "keeps stopping" is always explainable afterwards from
+            // report (timestamp, version, thread, every cause + frame) lands
+            // atomically in filesDir/last_crash.txt BEFORE the system dialog, so
+            // "keeps stopping" is always explainable afterwards from
             // Diagnostics → Last Crash Captured (1-tap Copy/Share).
+            // v3.1.2: deviceInfo is the GENERIC "sdk N" line only — zero phone
+            // model / manufacturer / fingerprint ever enters a crash report.
+        // v3.1.0 (Bug 2) — THE PERSISTENT CRASH RECORDER ... (v3.1.2: also the
+        // Troubleshooter CRASH timeline entry, privacy-scrubbed top-first)
             try {
                 String report = CrashLog.format(System.currentTimeMillis(), AppInfo.VERSION_NAME,
-                    "sdk " + android.os.Build.VERSION.SDK_INT + " | " + android.os.Build.MANUFACTURER
-                        + " " + android.os.Build.MODEL + " | " + android.os.Build.VERSION.RELEASE,
+                    "sdk " + android.os.Build.VERSION.SDK_INT,
                     t.getName(), e);
                 CrashLog.writeAtomically(getFilesDir(), report);
                 Diag.crash("thread " + t.getName(), e);   // ring + file, then the system dialog
+                Troubleshooter.record("CRASH", "uncaught on thread " + t.getName()
+                    + ": " + e.getClass().getName() + (e.getMessage() == null ? "" : " — " + e.getMessage()));
             } catch (Throwable ignored) { }
             if (prev != null) prev.uncaughtException(t, e);
         });
@@ -112,12 +121,15 @@ public class App extends Application {
             Diag.w("app", "channel: " + t);
         }
 
+        // v3.1.2 — the Troubleshooter timeline starts here: process start + arming
+        Troubleshooter.record("APP", "process up v" + AppInfo.VERSION_NAME + " (sdk " + android.os.Build.VERSION.SDK_INT + ")");
         // The receiver arms itself from process start (boot, tile, launcher, or cast
         // retry) — foreground service rules differ per entry point, so this is best
         // effort with the main activity as the reliable path. (Single-process app:
         // no WebView sandbox processes to skip, unlike AnantPlay's own App.)
         try {
             ReceiverService.arm(this, "app-start");
+            Troubleshooter.record("APP", "receiver arm requested (app-start)");
         } catch (Throwable t) {
             Diag.w("app", "auto-arm: " + t);   // e.g. background FGS restrictions; MainActivity arms it
         }

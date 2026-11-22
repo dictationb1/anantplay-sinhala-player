@@ -34,6 +34,8 @@ javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes \
   src/lk/techworld/anantplay/sicast/SrtLoader.java \
   src/lk/techworld/anantplay/sicast/SubtitleStore.java \
   src/lk/techworld/anantplay/sicast/Diag.java \
+  src/lk/techworld/anantplay/sicast/PrivacyScrubber.java \
+  src/lk/techworld/anantplay/sicast/Troubleshooter.java \
   src/lk/techworld/anantplay/sicast/MdnsWire.java \
   src/lk/techworld/anantplay/sicast/MdnsResponder.java \
   src/lk/techworld/anantplay/sicast/DlnaEndpoint.java \
@@ -63,6 +65,20 @@ if grep -q "  FAIL " lab/out/lab.txt; then
 fi
 PASSED=$(grep -c "  PASS " lab/out/lab.txt || true)
 echo "Lab proof: $PASSED checks passed (0 failed)"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.1.2 — THE BYTECODE REFERENCE VERIFIER (structure-level crash prevention)
+#
+# Parses every compiled .class constant pool and proves that EVERY class the
+# pure engines reference resolves to (a) another lab class, (b) the JDK, or
+# (c) android.* (checked against android.jar at APK build time — the same
+# contract build.sh enforces by compiling against android.jar + libs/*.jar).
+# A missing Media3 class or a deleted R.string.* is structurally IMPOSSIBLE to
+# ship once this gate passes at build time, which is exactly the class of
+# NoClassDefFoundError / Resources$NotFoundException the v3.1.1 field crash
+# taught us to prevent.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 lab/verify_refs.py
 
 echo "── live bridge E2E (best effort — never gating)"
 if javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes lab/BridgeLab.java; then
