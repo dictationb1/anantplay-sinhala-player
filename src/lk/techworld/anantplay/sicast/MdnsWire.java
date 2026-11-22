@@ -37,7 +37,13 @@ final class MdnsWire {
         }
         b.write(0);                        // the root label
         b.write(0); b.write(12);           // QTYPE 12 = PTR
-        b.write(0); b.write(0x01 | 0x80);  // QCLASS: IN + the QU unicast bit
+        // QCLASS: IN (1) + the QU top bit (0x8000) — RFC 6762 §5.4 "unicast response
+        // preferred". v2.3.0 FIX: v2.2.0 wrote 0x00,0x81 (the bit in the LOW byte =
+        // class 129 — meaningless), so the QU flag was never actually on the wire and
+        // one-shot queriers got multicast replies they could not receive on their
+        // ephemeral ports. The real unicast-reply request is the TOP bit of the
+        // 16-bit class field: bytes 0x80, 0x01.
+        b.write(0x80); b.write(0x01);
         return b.toByteArray();
     }
 

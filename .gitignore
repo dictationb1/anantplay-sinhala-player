@@ -14,6 +14,8 @@ lab/out/
 # signing material — never commit a keystore or its passwords
 *.jks
 *.keystore
+github-secrets.txt
+release-keystore.*
 *.p12
 *.pepk
 keystore/

@@ -1,4 +1,4 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v2.2.0
+# AnantPlay Sinhala Player (SI Cast Receiver) v2.3.0
 
 **The zero-accessibility, zero-fork Sinhala subtitle solution for the 100% official, unmodified
 AnantPlay app** — built for the hardest target: a **Xiaomi HyperOS (Android 14–16)** phone.
@@ -157,6 +157,40 @@ docs/CAST-VERIFICATION.md    every AnantPlay file:line this is built on
 THIRD_PARTY.md               licenses of every bundled jar + the Sinhala font
 SETUP-SI.md                  the Sinhala setup checklist
 ```
+
+## What's new in v2.3.0 (router-free cast · noisy-title fix · DoH diagnostics · Obtainium)
+
+- **Router-free mDNS (`MdnsResponder.java`)** — our own pure-Java RFC-6762 responder on
+  UDP 5353 (`SO_REUSEADDR` alongside `mdnsd`, graceful `EADDRINUSE` degradation): answers
+  PTR/SRV/TXT/A for `_anantplay._tcp` + legacy `_fmhyplay._tcp` with **unicast replies**
+  (the QU bit), and gives the Self-test a **kernel-loopback proof path** that needs ZERO
+  router reflection (the fix for the old-router "mDNS FAILED (no-answer)" false negative).
+- **A real wire bug fixed** — v2.2.0's query packet wrote the QU bit into the LOW class
+  byte (`0x00,0x81` = class 129, meaningless); the correct form is `0x80,0x01`. Proven
+  byte-for-byte by the lab.
+- **The honest 3-layer Self-test** — (1) the *daemon probe*: a unicast QU question to the
+  phone's own `mdnsd` (the exact service AnantPlay's `NsdManager` discovery reads —
+  `Cast.java:239-259`), (2) the *wire probe* against our own responder via kernel
+  multicast loopback, (3) legacy `discoverServices` as a bonus. PASS = any layer.
+- **Noisy-title cleaner (`TitleCleaner.java`)** — arbitrary streaming sites send page
+  titles like "Watch The Odyssey 2026 Full Movie Free HD - OnlyFlix"; the cleaner strips
+  site suffixes/noise, extracts year + SxxExx, and feeds Cinemeta the right lookup (the
+  display title stays as-is; a failed clean lookup retries with the raw title).
+- **DoH ISP-block diagnostics (`DohResolver.java`)** — AnantPlay forwards the RAW url
+  (WARP is phone-side only, `Warp.java:202-207`), so an ISP-blocked stream fails here.
+  On a network-ish playback error we compare system DNS vs Cloudflare/AdGuard DoH and
+  say exactly why, bilingually; the error box becomes a one-tap **retry** that resumes
+  at the last position.
+- **Language-switch race guard** — stale fetch threads can no longer flip the subtitle
+  status pill after you switch language mid-movie (`setState` is generation-guarded).
+- **HyperOS self-heal** — the receiver re-checks itself every 15 min and re-arms if a
+  powerkeeper pass half-killed it.
+- **In-app update checker (`UpdateChecker.java`)** — "⬆ Check for updates" queries
+  GitHub's latest release with a clean semver compare.
+- **The Obtainium pipeline** — permanent-keystore scripts, `release-apk.yml` (tag or
+  1-click dispatch → lab gate → signed APK → `SHA256SUMS.txt` → GitHub Release with
+  exactly ONE `.apk` asset), and `docs/obtainium-config.json`. See
+  [SETUP-SI.md](SETUP-SI.md) §9 for the 3-tap setup.
 
 ## What's new in v2.2.0 (18 languages · two-stage cinema polish · Option-C)
 
