@@ -163,33 +163,33 @@ jobs:
           chmod +x build.sh
           bash build.sh
 
-      - name: Assert the artifact is a real, signed, installable v3.1.0 APK
+      - name: Assert the artifact is a real, signed, installable v3.1.1 APK
         run: |
           set -euo pipefail
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           SRC=dist/AnantPlay-Sinhala-Player.apk
           test -s "$SRC"
           # the artifact users download carries the version in its name
-          cp "$SRC" dist/AnantPlay-Sinhala-Player-v3.1.0.apk
-          APK=dist/AnantPlay-Sinhala-Player-v3.1.0.apk
+          cp "$SRC" dist/AnantPlay-Sinhala-Player-v3.1.1.apk
+          APK=dist/AnantPlay-Sinhala-Player-v3.1.1.apk
           test -s "$APK"
           echo "size: $(stat -c %s "$APK") bytes"
           "$BT/apksigner" verify --verbose --print-certs "$APK"
           "$BT/zipalign" -c 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)"
-          # the release identity is part of the contract: 3.1.0 / 30100
-          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionCode='30100'"
-          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionName='3.1.0'"
+          # the release identity is part of the contract: 3.1.1 / 30101
+          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionCode='30101'"
+          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionName='3.1.1'"
           unzip -l "$APK" | grep -E "classes.*dex|AndroidManifest.xml|assets/fonts/NotoSansSinhala-Regular.ttf"
           sha256sum "$APK" | tee dist/sha256.txt
-          echo "::notice title=APK version::3.1.0 (versionCode 30100)"
+          echo "::notice title=APK version::3.1.1 (versionCode 30101)"
 
       - name: Upload the installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: AnantPlay-Sinhala-Player-v3.1.0-apk
+          name: AnantPlay-Sinhala-Player-v3.1.1-apk
           path: |
-            dist/AnantPlay-Sinhala-Player-v3.1.0.apk
+            dist/AnantPlay-Sinhala-Player-v3.1.1.apk
             dist/sha256.txt
           if-no-files-found: error
           retention-days: 90
@@ -197,9 +197,9 @@ jobs:
       - name: Publish the APK facts as run annotations
         if: always()
         run: |
-          APK=dist/AnantPlay-Sinhala-Player-v3.1.0.apk
+          APK=dist/AnantPlay-Sinhala-Player-v3.1.1.apk
           if [ -s "$APK" ]; then
-            echo "::notice title=APK bytes (AnantPlay-Sinhala-Player-v3.1.0.apk)::$(stat -c %s "$APK")"
+            echo "::notice title=APK bytes (AnantPlay-Sinhala-Player-v3.1.1.apk)::$(stat -c %s "$APK")"
           fi
           if [ -f dist/sha256.txt ]; then
             echo "::notice title=APK sha256::$(cut -d' ' -f1 dist/sha256.txt)"
@@ -213,10 +213,10 @@ jobs:
             echo ''
             echo '| item | value |'
             echo '| --- | --- |'
-            echo "| file | AnantPlay-Sinhala-Player-v3.1.0.apk |"
-            echo "| version | 3.1.0 (versionCode 30100) |"
-            if [ -f dist/AnantPlay-Sinhala-Player-v3.1.0.apk ]; then
-              echo "| bytes | $(stat -c %s dist/AnantPlay-Sinhala-Player-v3.1.0.apk) |"
+            echo "| file | AnantPlay-Sinhala-Player-v3.1.1.apk |"
+            echo "| version | 3.1.1 (versionCode 30101) |"
+            if [ -f dist/AnantPlay-Sinhala-Player-v3.1.1.apk ]; then
+              echo "| bytes | $(stat -c %s dist/AnantPlay-Sinhala-Player-v3.1.1.apk) |"
             fi
             if [ -f dist/sha256.txt ]; then
               echo "| sha256 | $(cut -d' ' -f1 dist/sha256.txt) |"

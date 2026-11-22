@@ -1,6 +1,6 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.1.0)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.1.1)
 
-> **v3.1.0 අලුත් දේ:** AnantPlay එකෙන් එන cast එක **"The TV refused this video" නැතිව**
+> **v3.1.1 අලුත් දේ:** AnantPlay එකෙන් එන cast එක **"The TV refused this video" නැතිව**
 > ක්‍රියා කරයි (එකම දුරකථනයෙන් එන සම්බන්ධතා දැන් 100% පිළිගනී); app එකක් crash වුවහොත්
 > සම්පූර්ණ **crash trace එක app එක තුළම** තැන්පත් වේ (Diagnostics → Last Crash Captured);
 > යාවත්කාලීන **සම්පූර්ණයෙන්ම නිහඬයි** (ශබ්දයක් නැත · spam නැත · දුරකථනය මන්දගාමී නොවේ);
@@ -16,7 +16,7 @@
 
 ## 1 · App එක install කරන්න
 
-`AnantPlay-Sinhala-Player-v3.1.0.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
+`AnantPlay-Sinhala-Player-v3.1.1.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
 "Start receiver" බොත්තම ඔබන්න — ඉහළම දැනුම්දීම් තීරුවේ **"අ — Sinhala Player cast ready"**
 දැනුම්දීම පැමිණේ (එය receiver එක ක්‍රියාත්මක බවට සලකුණයි).
 
