@@ -325,21 +325,37 @@ public class PlayActivity extends Activity {
         String oldCast = getIntent().getStringExtra("castJson");
         setIntent(i);
         if (newCast != null && newCast.equals(oldCast == null ? "" : oldCast)) return;   // same cast again
-        Diag.i("player", "re-targeted by a new cast — reloading");
-        if (player != null) { try { player.release(); } catch (Throwable ignored) { } player = null; }
-        cues = new ArrayList<>();
-        enFallbackOn = false;
-        subDelayMs = 0;
-        parseIntent();
-        if (url != null) {
-            startPlayback();
-            fetchSinhala();
+        // v3.1.0 (Bug 2 hardening): a malformed re-cast must never kill the
+        // player that is already running — parse defensively, keep the old
+        // stream alive when the new payload does not produce a playable url.
+        try {
+            Diag.i("player", "re-targeted by a new cast — reloading");
+            String prevUrl = url;
+            if (player != null) { try { player.release(); } catch (Throwable ignored) { } player = null; }
+            cues = new ArrayList<>();
+            enFallbackOn = false;
+            subDelayMs = 0;
+            parseIntent();
+            if (url != null) {
+                startPlayback();
+                fetchSinhala();
+            } else {
+                Diag.w("player", "re-cast had no playable url — resuming the previous stream");
+                url = prevUrl;
+                startPlayback();   // rebuild the previous stream; no half-dead activity
+            }
+        } catch (Throwable t) {
+            // absolute last resort: the player may be torn down — finish cleanly
+            // instead of a crash dialog (CrashLog still records the reason).
+            Diag.e("player", "re-target failed: " + t);
+            finish();
         }
     }
 
     @Override
     protected void onDestroy() {
         finished = true;
+        saveResumePoint();   // v3.1.0 — Auto-Resume: keep the last position before teardown
         // v2.2 leak fix: the two-stage Cinema Polish re-check (and the 4 Hz ticker,
         // the HUD/pill hide timers, the delayed PiP arming) all live on `main`.
         // Clearing the queue here is what makes the re-check "cancelled in
@@ -366,9 +382,11 @@ public class PlayActivity extends Activity {
         if (panel != null) panel.setVisibility(View.GONE);      // never a floating subs panel
     }
 
-    /** Android 12+: let the system enter PiP itself (no onUserLeaveHint race). */
+    /** Android 12+: let the system enter PiP itself (no onUserLeaveHint race).
+     *  v3.1.0: gated by the Playback settings' Auto-PiP toggle. */
     private void armAutoPip() {
         if (Build.VERSION.SDK_INT < 31) return;
+        if (!AppPrefs.autoPip(prefs)) return;
         try {
             setPictureInPictureParams(new android.app.PictureInPictureParams.Builder()
                 .setAutoEnterEnabled(true).build());
@@ -383,6 +401,7 @@ public class PlayActivity extends Activity {
         // never during the cast hand-over (AnantPlay's Remote opens on top of us for
         // ~0.8 s before our takeover brings the player back)
         if (expectTakeover) return;
+        if (!AppPrefs.autoPip(prefs)) return;                   // v3.1.0: the user's choice
         try {
             if (player != null && player.isPlaying() && Build.VERSION.SDK_INT >= 26)
                 enterPictureInPictureMode(new android.app.PictureInPictureParams.Builder().build());
@@ -456,6 +475,20 @@ public class PlayActivity extends Activity {
             player.setMediaItem(item);
             player.prepare();
             if (startAt > 10000 && !live) player.seekTo(startAt);   // Cast.play's castAt carry-on
+            else if (!live && AppPrefs.autoResume(prefs)) {
+                // v3.1.0 — Auto-Resume Last Position (Playback settings): a
+                // re-opened URL jumps to where it was left (never near the end,
+                // which would look like a broken replay).
+                try {
+                    long saved = prefs.getLong(resumeKey(), 0);
+                    long dur = player.getDuration();
+                    if (saved > 10000 && (dur <= 0 || saved < dur - 15000)) {
+                        player.seekTo(saved);
+                        startAt = saved;
+                        flash("↻ " + ReceiverServer.clock(saved) + " සිට · resumed");
+                    }
+                } catch (Throwable ignored) { }
+            }
             player.setPlayWhenReady(true);
         } catch (Throwable t) {
             Diag.e("player", "start: " + t);
@@ -781,6 +814,7 @@ public class PlayActivity extends Activity {
      * the status pill flashes "✨ Cinema Polish Ready". Runs at most twice.
      */
     private void schedulePolishRecheck(final String key, final int myGen) {
+        if (!AppPrefs.cinemaPolish(prefs)) return;   // v3.1.0: Cinema Polish toggle OFF
         main.postDelayed(() -> {
             if (myGen != fetchGen || finished) return;
             new Thread(() -> {
@@ -842,6 +876,7 @@ public class PlayActivity extends Activity {
     // ───────────────────────────────────────────────────────────────────────────
 
     private final Runnable ticker = new Runnable() {
+        int tick;                                   // 4 Hz — Auto-Resume saves at ~1 Hz
         @Override public void run() {
             if (finished) return;
             if (player != null && !enFallbackOn) {
@@ -867,6 +902,7 @@ public class PlayActivity extends Activity {
                     timeNow.setText(ReceiverServer.clock(player.getCurrentPosition()));
                     if (!dragging) seek.setProgress((int) Math.max(0, player.getCurrentPosition()));
                 }
+                if (++tick % 4 == 0) saveResumePoint();   // v3.1.0: Auto-Resume
             }
             updateSnapshot();
             main.postDelayed(this, 250);
@@ -930,7 +966,10 @@ public class PlayActivity extends Activity {
     private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
     private void buildUi() {
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);   // PlayerActivity.java:157
+        // v3.1.0 — Playback settings (the Mornye-style Playback page): Keep Screen
+        // On is a user choice now (still the sensible default).
+        if (AppPrefs.keepScreenOn(prefs))
+            getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);   // PlayerActivity.java:157
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
 
@@ -941,7 +980,9 @@ public class PlayActivity extends Activity {
         surface.getHolder().setFormat(PixelFormat.OPAQUE);
         root.addView(surface, new FrameLayout.LayoutParams(-1, -1));
 
-        // the subtitle view — bottom center, script-correct font, mask, like AnantPlay's own (PlayerActivity.java:396-401)
+        // the subtitle view — bottom center, script-correct font, styled by the
+        // v3.1.0 Subtitle Styling Studio (Settings → Subtitles & Style Studio):
+        // color preset, pill/outline background + opacity, bold, bottom position.
         subView = new TextView(this);
         // v2.2: the bundled NotoSansSinhala is loaded ONCE (onCreate) and applied
         // only when the active language is Sinhala; every other script uses the
@@ -951,15 +992,8 @@ public class PlayActivity extends Activity {
         // rendered cue all go through it, so the two can never disagree.
         applyLangStyle();
         subView.setGravity(Gravity.CENTER);
-        subView.setTextColor(Color.WHITE);
-        subView.setTextSize(prefs.getInt("fontSp", 22));
-        applyMask(prefs.getInt("maskPct", 85));
-        subView.setShadowLayer(dp(4), 0, 0, 0xFF000000);
-        subView.setPadding(dp(10), dp(4), dp(10), dp(4));
-        subView.setVisibility(View.GONE);
-        FrameLayout.LayoutParams sl = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        sl.bottomMargin = dp(24);
-        root.addView(subView, sl);
+        applyStudioStyle();
+        root.addView(subView, subLayoutParams());
 
         notice = new TextView(this);
         notice.setTextColor(Color.WHITE);
@@ -1133,11 +1167,13 @@ public class PlayActivity extends Activity {
         // 360dp Xiaomi screen the fixed icon buttons alone take 228dp, so
         // non-weighted labels could push the row past the right edge.
         row.addView(timeNow, new LinearLayout.LayoutParams(0, -2, 0.5f));
-        View minus = icon("−10", 14, v -> skip(-10000));
+        final long stepMs = AppPrefs.seekStepMs(prefs);   // v3.1.0: 5/10/15/30 s from Playback settings
+        final int stepLabel = (int) (stepMs / 1000);
+        View minus = icon("−" + stepLabel, 14, v -> skip(-stepMs));
         row.addView(minus, new LinearLayout.LayoutParams(dp(58), dp(44)));
         playPause = icon("⏸", 20, v -> toggle());
         row.addView(playPause, new LinearLayout.LayoutParams(dp(54), dp(44)));
-        View plus = icon("+10", 14, v -> skip(10000));
+        View plus = icon("+" + stepLabel, 14, v -> skip(stepMs));
         row.addView(plus, new LinearLayout.LayoutParams(dp(58), dp(44)));
         timeTotal = new TextView(this);
         timeTotal.setTextColor(0xFFAAAAAA);
@@ -1167,7 +1203,9 @@ public class PlayActivity extends Activity {
         p.addView(step("−", "+", () -> mask(-10), () -> mask(10)));
         p.addView(label("කාල ගැලපුම · Sync nudge"));
         p.addView(step("−1s", "+1s", () -> nudge(-1000), () -> nudge(1000)));
-        p.addView(step("−0.25s", "+0.25s", () -> nudge(-250), () -> nudge(250)));
+        final long syncStep = AppPrefs.syncStepMs(prefs);      // v3.1.0: 0.1/0.25/0.5 s
+        final String syncLabel = syncStep >= 1000 ? "1s" : (syncStep / 1000f) + "s";
+        p.addView(step("−" + syncLabel, "+" + syncLabel, () -> nudge(-syncStep), () -> nudge(syncStep)));
 
         Button retry = btn("නැවත ලබාගන්න · Refetch subs");
         retry.setOnClickListener(v -> { panel.setVisibility(View.GONE); fetchSinhala(); });
@@ -1301,6 +1339,55 @@ public class PlayActivity extends Activity {
             ? android.view.View.TEXT_DIRECTION_ANY_RTL : android.view.View.TEXT_DIRECTION_LTR);
     }
 
+    // ── v3.1.0: the Subtitle Styling Studio application (Settings → Subtitles) ──
+    // Color preset · pill/outline background + opacity · bold · bottom position
+    // (4–28% of screen height) — every value pre-clamped by AppPrefs.
+
+    /** (Re)apply every studio dimension to the live subtitle view. */
+    private void applyStudioStyle() {
+        if (subView == null) return;
+        subView.setTextSize(AppPrefs.fontSp(prefs));
+        subView.setTextColor(ThemeEngine.SUB_COLORS[AppPrefs.subColor(prefs)]);
+        subView.setTypeface(subView.getTypeface(),
+            AppPrefs.subBold(prefs) ? Typeface.BOLD : Typeface.NORMAL);
+        if (AppPrefs.BG_OUTLINE.equals(AppPrefs.subBg(prefs))) {
+            // crisp black edge/outline only — no pill background
+            subView.setBackgroundColor(Color.TRANSPARENT);
+            subView.setShadowLayer(dp(4), 0, 0, 0xFF000000);
+        } else {
+            subView.setBackgroundColor(ThemeEngine.pillColor(AppPrefs.subBgOpacity(prefs)));
+            subView.setShadowLayer(dp(2), 0, 0, 0x99000000);
+        }
+        subView.setPadding(dp(10), dp(4), dp(10), dp(4));
+        subView.setVisibility(subView.getVisibility());
+        FrameLayout.LayoutParams sl = subLayoutParams();
+        subView.setLayoutParams(sl);
+    }
+
+    /** The subtitle view's bottom position: 4–28% of the screen height. */
+    private FrameLayout.LayoutParams subLayoutParams() {
+        FrameLayout.LayoutParams sl = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        int h = Math.max(1, getResources().getDisplayMetrics().heightPixels);
+        sl.bottomMargin = Math.round(h * AppPrefs.subBottomPct(prefs) / 100f);
+        return sl;
+    }
+
+    /** The panel's font-size steppers now clamp through the studio model (14–36). */
+    private void fontSp(int d) {
+        int sp = AppPrefs.normalizeFontSp(AppPrefs.fontSp(prefs) + d);
+        prefs.edit().putInt(AppPrefs.K_FONT_SP, sp).apply();
+        applyStudioStyle();
+        flash("Aa " + sp + " sp");
+    }
+
+    /** The panel's background stepper drives the studio opacity (0–90%). */
+    private void mask(int d) {
+        int pct = AppPrefs.normalizeSubBgOpacity(AppPrefs.subBgOpacity(prefs) + d);
+        prefs.edit().putInt(AppPrefs.K_SUB_BG_OPACITY, pct).apply();
+        applyStudioStyle();
+        flash("BG " + pct + "%");
+    }
+
     /** v2.2: 1-tap language switch — refetch in the new language (cached jobs
      *  return instantly; the store keys per language). */
     void switchLang(String code) {
@@ -1404,19 +1491,24 @@ public class PlayActivity extends Activity {
         }
     }
 
-    // ── gestures: tap = HUD, double-tap sides = ±10 s, left/right edge swipe = brightness/volume ──
+    // ── gestures: tap = HUD, double-tap sides = ±seek-step, left/right edge swipe = brightness/volume ──
+    // v3.1.0: the ±step and the swipe gestures come from the Playback settings
+    // (Seek Step Duration 5/10/15/30 s · Swipe Gestures toggle).
 
     private void wireGestures(FrameLayout root) {
+        final boolean swipes = AppPrefs.gestures(prefs);
         final GestureDetector gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onSingleTapConfirmed(MotionEvent e) {
                 toggleControls();
                 return true;
             }
             @Override public boolean onDoubleTap(MotionEvent e) {
-                skip(e.getX() > root.getWidth() / 2f ? 10000 : -10000);
+                long step = AppPrefs.seekStepMs(prefs);
+                skip(e.getX() > root.getWidth() / 2f ? step : -step);
                 return true;
             }
             @Override public boolean onScroll(MotionEvent d, MotionEvent u, float dx, float dy) {
+                if (!swipes) return false;                       // gestures OFF in Settings
                 if (Math.abs(dy) < Math.abs(dx) || Math.abs(dy) < dp(24)) return false;
                 boolean right = d.getX() > root.getWidth() / 2f;
                 if (right) volume(dy);
@@ -1500,7 +1592,7 @@ public class PlayActivity extends Activity {
 
     private void scheduleHudHide() {
         main.removeCallbacks(hudHide);
-        main.postDelayed(hudHide, 3500);   // AnantPlay's own hide window (PlayerActivity.java:1421)
+        main.postDelayed(hudHide, AppPrefs.hudHideMs(prefs));   // v3.1.0: 2/4/6 s from Playback settings (was fixed 3.5 s)
     }
 
     private final Runnable hudHide = new Runnable() {
@@ -1512,23 +1604,6 @@ public class PlayActivity extends Activity {
             }
         }
     };
-
-    private void fontSp(int d) {
-        int sp = Math.max(14, Math.min(40, prefs.getInt("fontSp", 22) + d));
-        prefs.edit().putInt("fontSp", sp).apply();
-        subView.setTextSize(sp);
-    }
-
-    private void mask(int d) {
-        int pct = Math.max(0, Math.min(100, prefs.getInt("maskPct", 85) + d));
-        prefs.edit().putInt("maskPct", pct).apply();
-        applyMask(pct);
-        flash("Mask " + pct + "%");
-    }
-
-    private void applyMask(int pct) {
-        subView.setBackgroundColor((Math.max(0, Math.min(100, pct)) * 255 / 100) << 24);
-    }
 
     private void nudge(long d) {
         subDelayMs -= d;   // +1s shows subs a second later, like AnantPlay's Timing
@@ -1556,6 +1631,7 @@ public class PlayActivity extends Activity {
      */
     private void diagnoseStreamFailure(PlaybackException e, long posMs) {
         retryAtMs = Math.max(0, posMs);
+        if (!AppPrefs.dohDiag(prefs)) return;   // v3.1.0: DoH diagnostics toggle OFF
         final String host = hostOf(url);
         if (host == null || host.isEmpty()) return;
         final int code = e == null ? -1 : e.errorCode;
@@ -1581,6 +1657,23 @@ public class PlayActivity extends Activity {
                 Diag.w("doh", "diagnose: " + t);
             }
         }, "si-doh").start();
+    }
+
+    /** v3.1.0 — the Auto-Resume store key for the playing URL. */
+    private String resumeKey() {
+        return "resume:" + Integer.toHexString(url == null ? 0 : url.hashCode());
+    }
+
+    /** v3.1.0 — persist the last position (called from the ticker ~1 Hz; also
+     *  on destroy). Skips the last 15 s so a finished movie restarts fresh. */
+    private void saveResumePoint() {
+        try {
+            if (player == null || finished || live) return;
+            long pos = player.getCurrentPosition(), dur = player.getDuration();
+            if (pos < 10000 || dur <= 0) return;
+            if (pos > dur - 15000) { prefs.edit().remove(resumeKey()).apply(); return; }
+            prefs.edit().putLong(resumeKey(), pos).apply();
+        } catch (Throwable ignored) { }
     }
 
     /** The one-tap retry: rebuild the player at the last known position (fresh

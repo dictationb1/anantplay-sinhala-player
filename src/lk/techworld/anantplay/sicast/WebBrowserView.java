@@ -64,8 +64,6 @@ public class WebBrowserView extends FrameLayout {
     private final Activity act;
     private final SharedPreferences prefs;
     private WebView web;
-    /** Set by destroy() — every later touch of `web` is then a no-op. */
-    private volatile boolean destroyed;
     private EditText urlBox;
     private ProgressBar progress;
     private TextView pill, autoChip;
@@ -78,12 +76,6 @@ public class WebBrowserView extends FrameLayout {
     private long lastAutoOpenAt;
 
     static final String HOME_URL = "https://duckduckgo.com/";
-    /** The ONLY schemes we hand to the system dialer/mail/market handlers from a
-     *  page navigation. Everything else (javascript:, file:, content:, data:,
-     *  blob:, about:, chrome: …) is dropped — a hostile page must not be able to
-     *  turn a link into a local-file or script-handoff intent. */
-    private static final java.util.HashSet<String> EXTERNAL_SCHEMES = new java.util.HashSet<>(
-        java.util.Arrays.asList("mailto", "tel", "sms", "smsto", "market", "intent", "geo", "whatsapp"));
     private static final String UA_DESKTOP =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
@@ -152,6 +144,18 @@ public class WebBrowserView extends FrameLayout {
         s.setUseWideViewPort(true);
         s.setBuiltInZoomControls(false);
         s.setMediaPlaybackRequiresUserGesture(false);
+        // v3.1.0 (security audit) — EXPLICIT hardening, never relying on platform
+        // defaults that shift between Android versions: no file:// or content://
+        // access from the page context, no file-scheme cross-origin escape, no
+        // geolocation beacon. The browser tab is for http(s) cinema sites only.
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
+        if (Build.VERSION.SDK_INT >= 16) {
+            s.setAllowFileAccessFromFileURLs(false);
+            s.setAllowUniversalAccessFromFileURLs(false);
+        }
+        s.setGeolocationEnabled(false);
+        s.setSaveFormData(false);
         if (Build.VERSION.SDK_INT >= 21) s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         // THE POPUP BLOCKER: no window.open targets at all — redirect popups of
         // streaming sites die right here instead of covering the video.
@@ -170,24 +174,21 @@ public class WebBrowserView extends FrameLayout {
                 }
                 String scheme = u == null ? "" : (u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT));
                 if ("http".equals(scheme) || "https".equals(scheme)) return false;   // we load it
-                // v3.0.0 — THE ESCAPE HATCH IS CLOSED: a page must never be able to
-                // hand a javascript:/file:/content:/data: URL to the system (or have
-                // it executed here). Only genuinely external PROTOCOLS are forwarded.
-                if (scheme.isEmpty() || scheme.equals("javascript") || scheme.equals("file")
-                    || scheme.equals("content") || scheme.equals("data") || scheme.equals("blob")
-                    || scheme.equals("about") || scheme.equals("chrome")) {
-                    Diag.w("web", "blocked unsafe navigation scheme '" + scheme + "' → " + us);
+                // v3.1.0 (security audit) — file://, content:// and intent:// are
+                // REFUSED outright (an intent:// escape can carry extras that hand
+                // the user to arbitrary components; a content:// URL can probe
+                // providers). Only the two SAFE external schemes (mailto:, tel:)
+                // go to the system's own chooser — and only when they carry no
+                // selector/flags games.
+                if ("mailto".equals(scheme) || "tel".equals(scheme)) {
+                    try {
+                        act.startActivity(new Intent(Intent.ACTION_VIEW, u));
+                    } catch (Throwable t) {
+                        Diag.w("web", "external scheme refused: " + us);
+                    }
                     return true;
                 }
-                if (!EXTERNAL_SCHEMES.contains(scheme)) {
-                    Diag.w("web", "blocked unknown navigation scheme '" + scheme + "'");
-                    return true;
-                }
-                try {   // mailto:, tel:, sms:, market:, intent: … → the system's own handlers
-                    act.startActivity(new Intent(Intent.ACTION_VIEW, u));
-                } catch (Throwable t) {
-                    Diag.w("web", "external scheme refused: " + us);
-                }
+                Diag.w("web", "blocked non-http(s) navigation: " + us);   // file:// content:// intent:// about:blob …
                 return true;
             }
 
@@ -319,26 +320,29 @@ public class WebBrowserView extends FrameLayout {
     }
 
     void load(String url) {
-        if (url == null || url.isEmpty() || web == null) return;
+        if (url == null || url.isEmpty()) return;
+        // v3.1.0 (security audit): the address box loads http(s) only — a
+        // pasted file:// or content:// URL is refused at the gate.
+        String t = url.trim().toLowerCase(Locale.ROOT);
+        if (!(t.startsWith("http://") || t.startsWith("https://"))) {
+            Diag.w("web", "refusing non-http(s) load: " + url);
+            return;
+        }
         prefs.edit().putString("webLastUrl", url).apply();
-        try { web.loadUrl(url); } catch (Throwable t) { Diag.w("web", "load: " + t); }
+        web.loadUrl(url);
     }
 
-    void reload() { WebView w = web; if (w == null) return; try { w.reload(); } catch (Throwable ignored) { } }
+    void reload() { try { web.reload(); } catch (Throwable ignored) { } }
 
     /** Back handling: TRUE when the browser consumed it (MainActivity asks). */
     public boolean goBack() {
-        WebView w = web;
         try {
-            if (w != null && w.canGoBack()) { w.goBack(); return true; }
+            if (web.canGoBack()) { web.goBack(); return true; }
         } catch (Throwable ignored) { }
         return false;
     }
 
-    public void forward() {
-        WebView w = web;
-        try { if (w != null && w.canGoForward()) w.goForward(); } catch (Throwable ignored) { }
-    }
+    public void forward() { try { if (web.canGoForward()) web.goForward(); } catch (Throwable ignored) { } }
 
     // ── the ⋮ menu ─────────────────────────────────────────────────────────────
 
@@ -354,12 +358,12 @@ public class WebBrowserView extends FrameLayout {
             switch (item.getItemId()) {
                 case 1:
                     prefs.edit().putBoolean("webDesktopUa", !desktop).apply();
-                    if (web != null) web.getSettings().setUserAgentString(!desktop ? UA_DESKTOP : null);
+                    web.getSettings().setUserAgentString(!desktop ? UA_DESKTOP : null);
                     toast(!desktop ? "🖥 Desktop mode ON (reload)" : "📱 Mobile mode ON (reload)");
                     reload();
                     return true;
                 case 2:
-                    addBookmark(web == null ? "" : web.getUrl(), web == null ? "" : web.getTitle());
+                    addBookmark(web.getUrl(), web.getTitle());
                     return true;
                 case 3:
                     showBookmarks();
@@ -492,42 +496,16 @@ public class WebBrowserView extends FrameLayout {
 
     // ── lifecycle ──────────────────────────────────────────────────────────────
 
-    /**
-     * v3.0.0 — leaving the app must stop audio, not just the UI: WebView.onPause()
-     * alone keeps JS timers and a playing <video> alive, so pauseTimers() is called
-     * too and the page is muted-and-paused through a guarded JS call. Every step is
-     * best-effort: a WebView whose renderer has died must never throw into the
-     * Activity lifecycle.
-     */
-    public void onPauseWeb() {
-        try { web.onPause(); } catch (Throwable ignored) { }
-        try { web.pauseTimers(); } catch (Throwable ignored) { }
-        try {
-            web.evaluateJavascript("(function(){try{var l=document.querySelectorAll('video,audio');"
-                + "for(var i=0;i<l.length;i++){try{l[i].pause();}catch(e){}}}catch(e){}})()", null);
-        } catch (Throwable ignored) { }
-    }
+    public void onPauseWeb() { try { web.onPause(); } catch (Throwable ignored) { } }
+    public void onResumeWeb() { try { web.onResume(); } catch (Throwable ignored) { } }
 
-    public void onResumeWeb() {
-        try { web.resumeTimers(); } catch (Throwable ignored) { }
-        try { web.onResume(); } catch (Throwable ignored) { }
-    }
-
-    /** Idempotent teardown: called by MainActivity.onDestroy() (the only owner). */
     public void destroy() {
-        if (destroyed) return;
-        destroyed = true;
-        WebView w = web;
-        web = null;
-        if (w == null) return;
-        try { w.stopLoading(); } catch (Throwable ignored) { }
-        try { w.loadUrl("about:blank"); } catch (Throwable ignored) { }
-        try { w.removeJavascriptInterface("SniJS"); } catch (Throwable ignored) { }
-        try { w.setWebChromeClient(null); } catch (Throwable ignored) { }
-        try { w.setWebViewClient(new WebViewClient()); } catch (Throwable ignored) { }
-        try { w.removeAllViews(); } catch (Throwable ignored) { }
-        try { removeView(w); } catch (Throwable ignored) { }
-        try { w.destroy(); } catch (Throwable ignored) { }
+        try {
+            web.stopLoading();
+            web.loadUrl("about:blank");
+            web.removeAllViews();
+            web.destroy();
+        } catch (Throwable ignored) { }
     }
 
     public WebView webView() { return web; }

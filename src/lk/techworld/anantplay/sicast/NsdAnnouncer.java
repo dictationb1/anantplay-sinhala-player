@@ -152,37 +152,45 @@ public final class NsdAnnouncer {
     /** v2.3.0 — our own responder (may be null/down when 5353 cannot be shared). */
     public MdnsResponder responder() { return responder; }
 
+    /** v3.1.0 — the Bug 3 helper: is OUR 5353 pillar currently serving? */
+    private boolean responderHealthy() { return responder != null && responder.isRunning(); }
+
     public void start() {
         if (nsd == null) {
             registrationAnswered = true;   // no daemon to wait for — never watchdog this
             Diag.w("nsd", "no NsdManager — cast discovery cannot see us");
             return;
         }
-        // v2.3.1 — IDEMPOTENT START (the churn fix). v2.3.0's start() ran stop()
-        // FIRST on every call, and stop() unregistered the network callback; the
-        // immediate re-register fired onAvailable, which posted reArm(500 ms) →
-        // start() again → an endless down/up cycle ("responder down / responder
-        // up / network up — re-announcing" repeating in the 2026-11-22 log) that
-        // churned NsdManager, released/reacquired the multicast lock and killed
-        // a HEALTHY responder mid-probe. Now: when everything is already healthy
-        // on the SAME Wi-Fi address, start() is a no-op; the teardown+rebuild
-        // path runs only for a genuine change (first arm, network change, or a
-        // dead component), and the network callback is registered ONCE and only
-        // ever released by destroy() (ReceiverService.onDestroy).
+        // v2.3.1 — IDEMPOTENT START (the churn fix) + v3.1.0 — NON-DESTRUCTIVE
+        // RE-DRIVE (Bug 3, Smoking Gun #3): the 2026-11-22 16:36 log proved
+        // v3.0.0's watchdog → start() → stopRegistrations() chain tore down a
+        // HEALTHY MdnsResponder ("24.341 W/nsd: re-driving (attempt 2)" →
+        // "24.351 I/mdnsrsp: responder down") because the healthy gate demanded
+        // announced==true — never true during the very silent-hang the watchdog
+        // exists for. Now a re-drive on the SAME network with a LIVE responder
+        // re-registers ONLY the NsdManager records; the responder, its multicast
+        // lock and the DLNA renderer are sacrosanct (AnnouncerPolicy).
         InetAddress nowIp = wifiLanIp();
         String nowKey = netKey(ctx);
-        boolean healthy = announced
-            && responder != null && responder.isRunning()
-            && nowIp != null && nowIp.equals(lastArmedIp)
+        boolean sameNetwork = nowIp != null && nowIp.equals(lastArmedIp)
             && NetPolicy.sameKey(lastArmedNetKey, nowKey);
+        boolean responderAlive = responder != null && responder.isRunning();
+        boolean healthy = announced && responderAlive && sameNetwork;
         if (healthy) {
             Diag.i("nsd", "already announced on " + nowKey + " — start() is a no-op (v2.3.1 churn fix)");
             return;
         }
+        // Bug 3 fix: only a GENUINE network change may tear the responder down.
+        boolean reRegisterOnly = responderAlive && sameNetwork;
         lastArmedIp = nowIp;
         lastArmedNetKey = nowKey;
         armedAt = System.currentTimeMillis();
-        stopRegistrations();
+        if (reRegisterOnly) {
+            Diag.i("nsd", "responder healthy — re-driving NSD registrations ONLY (responder untouched, v3.1.0)");
+            stopNsdRegistrations();
+        } else {
+            stopRegistrations();
+        }
         String service = PREFIX + NAME;
         String[] types = {TYPE, OLD_TYPE};
         boolean any = false;
@@ -256,16 +264,22 @@ public final class NsdAnnouncer {
      *  it triggers (start() always posts a fresh watchdog on the non-healthy path),
      *  so there is exactly one pending watchdog at any time. After MAX_FAST_RETRIES
      *  unanswered cycles it slows to SLOW_RETRY_MS — the DLNA renderer and our own
-     *  mDNS responder keep cast alive meanwhile, so the retry is best-effort. */
+     *  mDNS responder keep cast alive meanwhile, so the retry is best-effort.
+     *
+     *  v3.1.0 (Bug 3): the scope comes from AnnouncerPolicy — a running responder
+     *  is NEVER touched by a watchdog re-drive; start() takes the
+     *  re-register-only path when the responder is alive on the same network. */
     private final Runnable watchdog = new Runnable() {
         @Override public void run() {
-            if (destroyed || registrationAnswered || announced) return;
+            if (!AnnouncerPolicy.watchdogFires(registrationAnswered, announced, destroyed)) return;
             fastRetries++;
+            AnnouncerPolicy.Scope scope = AnnouncerPolicy.watchdogScope(responder != null && responder.isRunning());
             Diag.w("nsd", "registration silent (the Android 14–16 MdnsAdvertiser no-callback hang —"
                 + " NsdService.java:1049 → mPendingRegistrations, no timeout)"
-                + " — re-driving with fresh transaction ids (attempt " + fastRetries + ")");
-            // A stop/start cycle on the SAME Wi-Fi: the healthy check is false
-            // because announced==false, so start() rebuilds everything.
+                + " — re-driving NSD registrations with fresh transaction ids (attempt " + fastRetries + ","
+                + (scope == AnnouncerPolicy.Scope.RE_REGISTER_ONLY
+                    ? " responder alive → UNTOUCHED" : " responder down → may start") + ", v3.1.0)");
+            // Non-destructive: with a live responder start() re-registers NSD only.
             start();
         }
     };
@@ -316,12 +330,18 @@ public final class NsdAnnouncer {
             netWatch = new ConnectivityManager.NetworkCallback() {
                 @Override public void onAvailable(Network n) {
                     String key = netKey(ctx);
-                    boolean healthy = announced && responder != null && responder.isRunning();
-                    if (!NetPolicy.shouldReArm(lastArmedNetKey, key, healthy, armedAt, registrationPending)) {
+                    // v3.1.0: a live responder counts as healthy for the debounce —
+                    // during a daemon silent-hang (announced==false, responder up)
+                    // same-network repeats must not re-drive anything (Bug 3).
+                    boolean healthy = announced || responderHealthy();
+                    AnnouncerPolicy.Scope scope = AnnouncerPolicy.networkEventScope(
+                        NetPolicy.sameKey(lastArmedNetKey, key), healthy,
+                        registrationPending, armedAt, NetPolicy.ARM_GRACE_MS);
+                    if (scope == AnnouncerPolicy.Scope.NONE) {
                         Diag.i("nsd", "network up on " + key + " — already announced, no re-arm (debounced)");
                         return;
                     }
-                    Diag.i("nsd", "network up on " + key + " — re-announcing");
+                    Diag.i("nsd", "network up on " + key + " — re-announcing (scope " + scope + ")");
                     retry.removeCallbacks(reArm);
                     retry.postDelayed(reArm, 500);
                 }
@@ -354,9 +374,28 @@ public final class NsdAnnouncer {
         }
     }
 
+    /** v3.1.0 (Bug 3) — the NON-DESTRUCTIVE teardown: unregister ONLY the
+     *  NsdManager listeners. The MdnsResponder, the multicast lock and the
+     *  watchdog state are untouched — this is what a same-network re-drive uses,
+     *  so a healthy responder can never be killed by the watchdog again
+     *  (AnnouncerPolicy.mayStopResponder is false for every re-register scope). */
+    void stopNsdRegistrations() {
+        for (int i = 0; i < listeners.length; i++) {
+            if (listeners[i] != null) {
+                try { nsd.unregisterService(listeners[i]); } catch (Throwable ignored) { }
+                listeners[i] = null;
+            }
+            registered[i] = false;
+        }
+        announced = false;
+        retry.removeCallbacks(reArm);
+        retry.removeCallbacks(watchdog);   // no duplicate watchdogs on re-drive
+    }
+
     /** Teardown for a RE-ARM (registrations + responder + lock, but the network
      *  callback STAYS — re-registering it fires an immediate onAvailable and
-     *  was half of the v2.3.0 churn loop). */
+     *  was half of the v2.3.0 churn loop). v3.1.0: only ever called for a
+     *  GENUINE network change or destroy() — never from the watchdog path. */
     void stopRegistrations() {
         for (int i = 0; i < listeners.length; i++) {
             if (listeners[i] != null) {

@@ -1,103 +1,24 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.0.0)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.1.0)
+
+> **v3.1.0 අලුත් දේ:** AnantPlay එකෙන් එන cast එක **"The TV refused this video" නැතිව**
+> ක්‍රියා කරයි (එකම දුරකථනයෙන් එන සම්බන්ධතා දැන් 100% පිළිගනී); app එකක් crash වුවහොත්
+> සම්පූර්ණ **crash trace එක app එක තුළම** තැන්පත් වේ (Diagnostics → Last Crash Captured);
+> යාවත්කාලීන **සම්පූර්ණයෙන්ම නිහඬයි** (ශබ්දයක් නැත · spam නැත · දුරකථනය මන්දගාමී නොවේ);
+> HyperOS **Autostart** අනතුරු ඇඟවීම දැන් **"✓ Done / මම සක්‍රිය කළා"** බොත්තමෙන් ස්ථිරව
+> ඉවත් කළ හැක; සහ **Mornye-ආකෘතියේ අලුත් පෙනුම** — තේමා (AMOLED ඇතුළු), වර්ණ 6ක්,
+> උපසිරැසි Style Studio (සජීවී preview), ධාවන සැකසුම් සහ Backup & Restore.
 
 > **අලුත්ම ක්‍රමය: Accessibility අවසරයක් අවශ්‍ය නැත.** AnantPlay හි **Cast** බොත්තමෙන් චිත්‍රපටිය
 > **මෙම app එකටම** එවනවා — සිංහල උපසිරැසි සහිතව. AnantPlay නිල app එක තවමත් 100% නොවෙනස්ව තිබේ.
 >
-> **v3.0.0 අලුත් දේ:** **ටැබ් 4ක UI** (Home · WebView · Settings · Diagnostics + 1-tap Copy Log),
-> **ආරක්ෂිත Cast මාර්ග දෙකක්** (mDNS + **`සිංහල Player - DLNA`** MediaRenderer),
-> **ඇතුළතම ඇති Cinema Browser** (cast නැතුව, Wi-Fi හෝ Mobile Data — ස්වයංක්‍රීය සිංහල උපසිරැසි),
-> සහ **App-open Auto-Updater** (ඇප් එක විවෘත කරන විටම update පරීක්ෂා කරයි) + **Merge-to-Release CI**.
->
-> **v2.2 සිට තිබෙන දේ:** භාෂා **18ක්**, **Spoken/Formal** රටා මාරුව, **දෙවන අදියර Cinema Polish**
+> **v2.2 අලුත් දේ:** භාෂා **18ක්**, **Spoken/Formal** රටා මාරුව, **දෙවන අදියර Cinema Polish**
 > (ස්වයංක්‍රීයව උසස් වේ), සහ අවශ්‍ය නම් පමණක් **✨ AI Studio** බොත්තම.
 
 ## 1 · App එක install කරන්න
 
-`AnantPlay-Sinhala-Player-v3.0.0.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
+`AnantPlay-Sinhala-Player-v3.1.0.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
 "Start receiver" බොත්තම ඔබන්න — ඉහළම දැනුම්දීම් තීරුවේ **"අ — Sinhala Player cast ready"**
 දැනුම්දීම පැමිණේ (එය receiver එක ක්‍රියාත්මක බවට සලකුණයි).
-
-## 1.5 · v3.0.0 — ටැබ් 4ක UI · Cast මාර්ග දෙකක් · Cinema Browser · Auto-Updater
-
-### 1.5.1 · ටැබ් 4ක UI (Home · WebView · Settings · Diagnostics)
-
-පහළ තීරුවේ ටැබ් **4ක්** ඇත — Android 16 (targetSdk 36) edge-to-edge insets වලට ගැලපෙන ලෙස
-status bar / gesture bar යටින් කිසිවක් කැපී නොයයි:
-
-| Tab | භාවිතය |
-|---|---|
-| 🏠 **Home · මුල** | receiver pill (Start/Stop), Receiver · Cast/DLNA · Subs chips, quick actions, cast guide, update banner |
-| 🌐 **WebView · බ්‍රව්සර්** | ඇතුළතම ඇති Cinema Browser (§1.5.3) |
-| ⚙️ **Settings · සැකසුම්** | Auto-Update toggle, updates check, cast/subtitle සැකසුම් |
-| 🩺 **Diagnostics · දෝෂ නිර්ණය** | health rows (loopback · NsdManager · mDNS responder · DLNA · bridge), Self-test, log |
-
-**1-tap Copy Log (වඩාත්ම වැදගත්):** Diagnostics ටැබ් එකේ **📋 Copy Log** ඔබන විට මුළු log එකම
-clipboard එකට copy වේ (cookie/token/Authorization ස්වයංක්‍රීයව redact වේ). **📤 Share Log** එකෙන්
-එය වෙනත් app එකකට යැවිය හැක. Bug එකක් වාර්තා කරන විට මෙය එක තට්ටුවකින් සම්පූර්ණයි.
-
-**EN:** The bottom bar carries 4 tabs. Home (receiver status + quick actions), WebView (the
-built-in cinema browser), Settings (auto-update, updates, subtitle options) and Diagnostics
-(health rows, self-test, log). **📋 Copy Log** copies the entire log in one tap with
-cookies/tokens redacted; **📤 Share Log** hands it to any app.
-
-### 1.5.2 · Cast මාර්ග දෙකක් — mDNS **සහ** `සිංහල Player - DLNA`
-
-AnantPlay හි cast list එක දැන් **එකම වේලාවේ මාර්ග දෙකකින්** පිරේ — එකක් අසාර්ථක වුවත්
-Cast බොත්තම දැල්වේ:
-
-1. **mDNS (NsdManager + අපේම RFC-6762 responder):** TTL 255, egress interface pin කර ඇත,
-   පිළිතුර සැමවිටම multicast (224.0.0.251 + ff02::fb) — Android 16 හි NsdManager ප්‍රමාද වුවත්
-   අපේ responder එක ක්ෂණිකව පිළිතුරු දේ.
-2. **DLNA MediaRenderer (SSDP, UDP 1900):** AnantPlay හි DLNA list එකේ
-   **`සිංහල Player - DLNA`** ලෙස පෙනේ (`deviceType: MediaRenderer:1`, AVTransport +
-   RenderingControl සේවා). මෙය NsdManager/MdnsAdvertiser සම්පූර්ණයෙන් වෙන් වූ මාර්ගයකි —
-   ප්ලැට්ෆෝම් mDNS stack එක සම්පූර්ණයෙන් hang වුවත් DLNA මාර්ගය වැඩ කරයි.
-
-Diagnostics ටැබ් එකේ `mDNS responder` සහ `DLNA` පේළි දෙකෙන් කුමන මාර්ගය සක්‍රීයද පෙනේ.
-DLNA අංක 1900 bind කළ නොහැකි නම් එය **degraded** ලෙස පෙන්වයි — crash නොවේ, mDNS දිගටම වැඩ කරයි.
-
-**EN:** Cast discovery now fills from **two independent paths**: our own mDNS responder
-(TTL 255, pinned egress, always-multicast replies) **and** a UPnP/DLNA MediaRenderer that
-appears in AnantPlay's DLNA list as **`සිංහල Player - DLNA`**. SSDP shares no code with
-NsdManager, so the Cast chip lights up even when the platform mDNS stack hangs.
-
-### 1.5.3 · ඇතුළතම ඇති Cinema Browser + ස්වයංක්‍රීය සිංහල උපසිරැසි (Cast අවශ්‍ය නැත)
-
-🌐 **WebView** ටැබය = සම්පූර්ණ browser එකක් (URL box, back/forward/reload, ⋮ menu: desktop mode,
-bookmarks, paste link). වීඩියෝවක් play වන විට stream sniffer එක HLS/DASH/MP4/MKV/WEBM
-හඳුනාගෙන **“🎬 සිංහල උපසිරැසි සමඟ බලන්න”** pill එක පෙන්වයි — එය ඔබන විට **අපේම player** එක
-(එම URL + එම Referer/Cookie headers සමඟ) විවෘත වී සිංහල උපසිරැසි ස්වයංක්‍රීයව ලබාගනී.
-**Wi-Fi සහ Mobile Data දෙකෙහිම** වැඩ කරයි; router/mDNS වලට කිසිදු සම්බන්ධයක් නැත.
-
-- **ජාවාරම්/ads:** දන්නා ad/tracker domains block වේ, popup windows සම්පූර්ණයෙන් නවතී.
-- **⚡Auto chip:** ස්වයංක්‍රීය විවෘත කිරීම (default **OFF** — ඔබම තීරණය කරන්න).
-- App එකෙන් එලියට ගිය විට WebView එක pause වී ශබ්දය නවතී; app එක වැසුවහම WebView එක
-  සම්පූර්ණයෙන් destroy වේ (පසුබිම් ශබ්දයක්/leak එකක් නැත).
-- **AnantPlay එකෙන් link එකක් යවන්නත් පුළුවන්:** ඕනෑම app එකක Share → **“සිංහල Player”**
-  (ACTION_SEND) හෝ browser එකේ “Open with” → stream link එක කෙලින්ම අපේ player එකේ විවෘත වේ.
-
-**EN:** The WebView tab is a real browser with a stream sniffer. When a video plays, the
-**“🎬 Play with Sinhala subs”** pill appears; one tap opens our own Media3 player with the exact
-URL + Referer/Cookie/UA and auto-fetches Sinhala subtitles — on Wi-Fi **and** mobile data,
-with no Cast, mDNS or router involvement. Ads/popups are blocked, and the WebView is paused
-on background and destroyed with the app.
-
-### 1.5.4 · App-Open Auto-Updater (සහ Obtainium)
-
-- ඇප් එක **විවෘත කරන විටම** (තත්පර 60ක debounce එකක් සමඟ) සහ **සෑම පැය 4කට** වරක් GitHub
-  releases පරීක්ෂා වේ — රහසිගත බොත්තමක් ඔබන්නට අවශ්‍ය නැත.
-- අලුත් release එකක් නම්: **https-only** + **30 MB සීමාව** + **SHA-256 අනිවාර්ය සත්‍යාපනය**
-  (`SHA256SUMS.txt`) — පසුව OS එකේ **1-tap “Update”** තහඩුව පෙන්වයි (non-root Android හි
-  නිශ්ශබ්ද ස්ථාපනය OS මගින්ම අවහිර කර ඇත — එය නිර්මාණයෙන්ම එසේය).
-- “Unknown sources” අවසරය නැති නම්, කෙලින්ම Settings → **Install unknown apps** වෙත යන
-  1-tap දැනුම්දීමක් පැමිණේ.
-- බාගත කළ තාවකාලික `.apk` session එකට ලිවූ **වහාම** මකා දැමේ; සෑම ඇප් ආරම්භයකදීම
-  `cacheDir/updates/` පිරිසිදු වේ.
-
-**EN:** The updater checks the moment the app opens (60 s debounce) and every 4 h. A newer
-release is downloaded automatically (https-only, 30 MB cap, mandatory SHA-256 match) and the
-OS shows its 1-tap **Update** prompt. Temp APKs are deleted immediately after the installer
-handoff and swept at every startup.
 
 ## 2 · එක් වරක් — Display over other apps (වැදගත්ම එක)
 
@@ -135,11 +56,7 @@ App එක ඇතුළලේ **"Display over other apps"** පේළියේ �
 1. සාමාන්‍ය පරිදිම **AnantPlay** විවෘත කරන්න (Settings → Apps → Open AnantPlay බොත්තමෙන් හෝ
    launcher එකෙන්) — ඕනෑම site එකක ඕනෑම චිත්‍රපටියක්/කථාංශයක් විවෘත කරන්න.
 2. Player එකේ **cast icon** එක ඔබන්න → list එකේ පළමුණුවෙන්ම තිබෙන
-   **"සිංහල Player - AnantPlay (Recommended)"** තෝරන්න. එය නොපෙනේ නම් එම list එකේම
-   පහළින් ඇති **`සිංහල Player - DLNA`** එකද තෝරන්න පුළුවන් — එය සම්පූර්ණයෙන් වෙනස්
-   මාර්ගයක් (SSDP) නිසා එකක් අසාර්ථක වුවත් අනෙක වැඩ කරයි (§1.5.2).
-   *(EN: if the mDNS entry is missing, pick the **`සිංහල Player - DLNA`** entry — an entirely
-   independent SSDP path.)*
+   **"සිංහල Player - AnantPlay (Recommended)"** තෝරන්න.
 3. චිත්‍රපටිය මෙතනදී පානවා — සිංහල උපසිරැසි සමඟ. අඩුපුරවා ගන්නා විට
    **"අ" pill** එකේ (වම් පස search icon) — font size, mask, ±0.25s/±1s කාල ගැලපුම, title
    override, local .srt/.zip load සියල්ල එහි තිබෙනවා.
@@ -202,7 +119,7 @@ Settings → Network → **DNS filtering → “Filter DNS only”** හෝ app 
 
 ---
 
-## 9 · 1-වරක් ස්ථිර signing key · Merge-to-Release CI · Obtainium (v3.0.0)
+## 9 · Obtainium + GitHub Releases — සදාකාලික in-place යාවත්කාලීන (v2.3.0)
 
 ### පියවර 1 — ස්ථිර signing key එක හදන්න (එක් වරක් පමණි!)
 
@@ -222,26 +139,13 @@ Actions → New repository secret** — `github-secrets.txt` එකේ අගය
 | `KS_KEYPASS` | එම මුරපදයම |
 | `KS_ALIAS` | `sicast` |
 
-### පියවර 3 — Release එකක් publish කිරීම — **දැන් ස්වයංක්‍රීයයි (Merge-to-Release)**
+### පියවර 3 — Release එකක් publish කරන්න
 
-Secrets 4 set කළ පසු, **`main` වෙත merge වන සෑම PR එකක්ම** ස්වයංක්‍රීයව release එකක් බවට පත් වේ:
-
-1. `release-apk.yml` `build.sh` එකෙන් version එක කියවයි (`3.0.0` → `versionCode 30000`).
-2. එම tag එක (`v3.0.0`) දැනටමත් තිබේ නම් → **නිශ්ශබ්දව skip** (duplicate release error නැත).
-3. නැත්නම්: Lab 100% PASS → APK sign → `apksigner verify` → `SHA256SUMS.txt` → tag → Release.
-4. Release එකේ **එකම `.apk` එකක් පමණක්** ඇත (`AnantPlay-Sinhala-Player-v3.0.0.apk`) +
-   `SHA256SUMS.txt` — Obtainium ට වඩාත් පැහැදිලිය.
-
-- **අතින් (අවශ්‍ය නම් පමණක්):** GitHub → Actions → **Release APK** → Run workflow → version
-  එක ලියන්න (උදා: `3.0.1`). හෝ `git tag v3.0.1 && git push origin v3.0.1`.
-- `KS_BASE64` තවම set නොකර ඇත්නම් `main` push එක **රතු නොවේ** — එය මිත්‍රශීලී දැනුම්දීමක්
-  පමණක් පෙන්වා සාමාන්‍යයෙන් (green) අවසන් වේ; APK එක `build-apk.yml` artifact එකෙන් ලැබේ.
-
-**EN:** This is the whole one-time setup: run the keystore script, add
-`KS_BASE64` / `KS_PASS` / `KS_KEYPASS` / `KS_ALIAS` once. After that **every PR merged into
-`main`** is gated by the lab, built, signed with that permanent key and published as a GitHub
-Release (one `.apk` + `SHA256SUMS.txt`). Existing tags are skipped idempotently, and a
-push to `main` without the secrets exits green with a friendly notice.
+- **ස්වයංක්‍රීය:** `git tag v2.3.0 && git push origin v2.3.0` — `release-apk.yml`
+  එක Lab 100% PASS බව පරීක්ෂා කර, APK එක sign කර `apksigner` එකෙන් verify කර,
+  `SHA256SUMS.txt` සමඟ Release එකක් සාදයි.
+- **අතින් 1-click:** GitHub → Actions → **Release APK** → Run workflow → version එක
+  ලියන්න (උදා: `2.3.0`).
 
 ### පියවර 4 — Obtainium එකට දමන්න (දුරකථනයේ, 3 tap!)
 
@@ -255,66 +159,7 @@ push to `main` without the secrets exits green with a friendly notice.
 sign වන නිසා Android එක එය "same app" ලෙස හඳුනාගෙන data/data එක තබාගෙන update කරයි —
 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` කිසිදා නැත. Key එක වෙනස් වුණොත් පමණක් uninstall අවශ්‍ය වේ.
 
-### පියවර 5 — දුරකථනයේදීම update (App-Open Auto-Updater)
+### දුරකථනයේදීම update check
 
-**ඔබ කිසිවක් ඔබන්නේ නැතුව** ඇප් එක update වේ:
-
-1. ඇප් එක විවෘත කරන විටම (තත්පර 60ක debounce) + සෑම පැය 4කට වරක් GitHub releases පරීක්ෂා වේ.
-2. අලුත් version එකක් ඇත්නම් Home tab එකේ **live progress bar** එකක් + දැනුම්දීමක් පෙන්වමින්
-   බාගත වේ (https-only · 30 MB සීමාව · **SHA-256 අනිවාර්ය**).
-3. OS එකේ **1-tap “Update”** තහඩුව පැමිණේ → එක තට්ටුවකින් install (data එකම තිබේ).
-4. “Unknown sources” අවසරය නැති නම් Settings වෙත යන 1-tap දැනුම්දීමක් පැමිණේ.
-
-Settings ටැබයේ **Auto-Update** toggle එකෙන් මෙය off කළ හැක (එවිට දැනුම්දීමක් පමණක් පැමිණේ).
-
-**EN:** The app updates itself the moment it opens — no button, no Obtainium required.
-A newer release is downloaded with live progress, verified by SHA-256, and the OS shows its
-1-tap Update prompt (the only step Android allows a non-root app to leave to the user).
-
-### දුරකථනයේදීම අතින් check (Settings · Obtainium)
-
-- **Settings → Updates → Check now** — වහාම පරීක්ෂා කරයි (Auto-Update off කළත්).
-- **Obtainium** — දිගටම වැඩ කරයි; එය සහ ඇප් එකේ updater එක **එකම permanent key** එකෙන්
-  sign වන නිසා දෙකම in-place update වේ (uninstall කිසිදා නැත).
-- Release එකේ `SHA256SUMS.txt` එකෙන් APK එකේ අඛණ්ඩතාව අතින්ම තහවුරු කරගත හැක:
-  `sha256sum AnantPlay-Sinhala-Player-v3.0.0.apk`
-
-**EN:** Manual check: Settings → Updates → Check now. Obtainium keeps working, and both paths
-share the same permanent signing key, so updates always install in place. Every release
-carries `SHA256SUMS.txt` for independent verification.
-
----
-
-## 10 · v3.0.0 — Cast chip එක කොහෙද? · ගැටලු විසඳීම (සිංහල + English)
-
-### 10.1 · AnantPlay එකේ Cast chip එක — හරියටම කොහෙද
-
-1. AnantPlay (නිල app එක — `me.champdev.weblock`) විවෘත කරන්න.
-2. යම් වීඩියෝවක් play වෙන තිරයේ **පහළ toolbar** එක දෙස බලන්න.
-3. **Cast icon** එක එහි ඇත. එය ඔබන්න.
-4. ලැයිස්තුවේ **`සිංහල Player - AnantPlay (Recommended)`** හෝ **`සිංහල Player - DLNA`** තෝරන්න.
-5. එය සාර්ථක නම් Sinhala Player app එකේ player එක විවෘත වේ (Sinhala subtitles සමඟ).
-
-> මෙය නොපෙනේ නම්: app එකේ **🩺 Diagnostics → 🧪 Self-test** ඔබන්න. එහි
-> `L1 daemon ✓ · L2 responder ✓ · DLNA ✓` පෙනේ නම් discovery හරි. තවමත් ❌ නම් AnantPlay
-> cast sheet එකේ **Re-scan** ඔබන්න, නැත්නම් **🌐 WebView** ටැබයෙන් cast නැතුවම බලන්න (§1.5.3).
-
-**English:** In AnantPlay, open any video → the **bottom toolbar** carries the **Cast icon** →
-tap it → choose **`සිංහල Player - AnantPlay (Recommended)`** or **`සිංහල Player - DLNA`**.
-The Sinhala Player opens with Sinhala subtitles. If neither appears, run the in-app
-**Diagnostics → Self-test** (`L1 daemon ✓ · L2 responder ✓ · DLNA ✓` proves discovery), then
-**Re-scan** in AnantPlay's cast sheet — or skip casting entirely with the **WebView** tab.
-
-### 10.2 · ගැටලු විසඳීම (v3.0.0 විශේෂ)
-
-| ලක්ෂණය | අර්ථය | විසඳුම |
-|---|---|---|
-| `mDNS responder: degraded(mdnsd-only)` | UDP 5353 share කළ නොහැක (vendor block) | NsdManager මාර්ගය + DLNA දිගටම වැඩ කරයි; VPN/AdGuard off කරන්න |
-| `DLNA: bind-failed` | UDP 1900 වෙනත් app එකක (උදා: media server) අල්ලාගෙන | එම app එක නවත්වන්න හෝ mDNS මාර්ගය භාවිතා කරන්න |
-| WebView ටැබය “update කරන්න” කියයි | Android System WebView update වෙමින්/නැත | Play Store → **Android System WebView** update කර නැවත විවෘත කරන්න |
-| Update බාගත වුනත් install නොවේ | “Install unknown apps” අවසරය නැත | දැනුම්දීමේ 1-tap → අපේ app එකට Allow |
-
----
-
-— සියලු ගැඹුරු විස්තර (English): `V3_MASTER_ARCHITECTURE_AND_ANDROID16_REPORT.md` ·
-`docs/CAST-VERIFICATION.md` · `README.md`
+ඇප් එක තුළ **"⬆ Check for updates (GitHub)"** බොත්තම — අලුත් release එකක් ඇත්නම්
+Release පිටුව විවෘත වේ (Obtainium එකේදී එය ස්වයංක්‍රීයවම සිදු වේ).

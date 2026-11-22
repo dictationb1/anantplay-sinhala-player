@@ -1,4 +1,21 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v3.0.0
+# AnantPlay Sinhala Player (SI Cast Receiver) v3.1.0
+
+> **v3.1.0 — CAST FIX · CRASH RECORDER · SILENT ZERO-LAG UPDATER · HYPEROS
+> AUTOSTART FIX · MORNYE-INSPIRED CUSTOMIZABLE UI.** Built on the 2026-11-22
+> 16:36 real-device log: our own receiver refused official AnantPlay's
+> `GET /dlna/desc.xml` with `refused-nonlocal` (the same-phone cast was
+> misclassified as a stranger — fixed by the LocalNet same-host policy), the
+> NSD watchdog killed a healthy mDNS responder (now re-registers ONLY, the
+> responder is untouchable), update notifications spammed and lagged the phone
+> (now a silent IMPORTANCE_LOW channel, ≤ 1 notify/second, 24 h per-version
+> cooldown, Skip-this-version), and every uncaught crash now lands in
+> `filesDir/last_crash.txt` with a Diagnostics "Last Crash Captured" card.
+> The UI is redesigned the Mornye way (github.com/mornyeapp/Mornye — read-only
+> research reference, zero fork, zero Flutter): categorized settings
+> drill-down, theme modes + AMOLED + dynamic color + 6 accent presets, a
+> Subtitle Styling Studio with a REAL-TIME live preview, playback
+> customization, Cast & Network controls, and strict-schema Backup & Restore.
+> Still 100% pure Java / Android SDK (~3.3–3.8 MB APK, zero new libraries).
 
 **The zero-accessibility, zero-fork Sinhala subtitle solution for the 100% official, unmodified
 AnantPlay app** — built for the hardest target: a **Xiaomi HyperOS (Android 14–16)** phone.
@@ -87,7 +104,7 @@ The media3 1.11.1 + guava jars (the exact set AnantPlay ships in its `libs/`, Ap
 ## Verify
 
 ```sh
-./lab/run_lab.sh     # the gating lab — 95 checks, byte-compatible with Cast.java
+./lab/run_lab.sh     # the gating lab — 429 checks, byte-compatible with Cast.java
 ```
 
 The lab drives `ReceiverServer` with the exact requests official AnantPlay's
@@ -151,12 +168,56 @@ src/.../sicast/
   CastPolicy.java            cast-arrival policy (schemes, /do whitelist, seek clamp) — pure Java
   StreamHint.java            Media3 mime defaulting for extensionless HLS/DASH — pure Java
   BridgeApi/Cue/MiniJson/SrtLoader/SubtitleStore   the proven v1 engines (pure Java)
-lab/ReceiverLab.java         the 95-check gating lab (protocol + security + i18n regressions)
+lab/ReceiverLab.java         the 429-check gating lab (protocol + security + i18n + v3.1.0 field-bug regressions)
 lab/BridgeLab.java           live worker E2E (best effort)
 docs/CAST-VERIFICATION.md    every AnantPlay file:line this is built on
 THIRD_PARTY.md               licenses of every bundled jar + the Sinhala font
 SETUP-SI.md                  the Sinhala setup checklist
 ```
+
+## What's new in v3.1.0 (v3.x — Cast refused-nonlocal fix · CrashLog · silent updater · HyperOS autostart · Mornye-style UI)
+
+Built on the 2026-11-22 16:36 Xiaomi Android 16 field log, every defect
+root-caused with file:line proof and covered by new regression checks in
+`lab/ReceiverLab.java` (see `V3_1_CAST_CRASH_FIX_AND_MORNYE_UI_REPORT.md`):
+
+- **Bug 1 — `GET /dlna/desc.xml -> refused-nonlocal` FIXED.** v3.0.0's
+  `ReceiverServer.isSelf()` relied solely on a `NetworkInterface` enumeration
+  inside a swallowed try/catch; when the HyperOS stack returns nothing, a
+  same-device cast is classified as a stranger. v3.1.0 adds `LocalNet`
+  (pure Java): IPv4-mapped IPv6 normalization, byte-wise comparison, IPv6
+  scope-safe matching, a **same-host rule** (remote == the connection's own
+  destination means same phone — the LOCATION AnantPlay connects to is ours),
+  and a cached own-address snapshot fallback. Refusals are now HTTP 403 with
+  the exact remote IP logged. External LAN strangers (other phones) are still
+  refused.
+- **Bug 2 — "keeps stopping" crash hardened.** New `CrashLog`: a chained
+  UncaughtExceptionHandler atomically writes the FULL redacted crash report
+  (timestamp, version, device, thread, every cause + frame) to
+  `filesDir/last_crash.txt`; Diagnostics gains a "Last Crash Captured" card
+  with 1-tap Copy / Share / Clear. The re-cast path (`PlayActivity.onNewIntent`)
+  is now defensive end-to-end.
+- **Bug 3 — the NSD watchdog never kills a healthy responder again.** The
+  watchdog's scope comes from the pure `AnnouncerPolicy`: a re-drive
+  re-registers `NsdManager` records ONLY (fresh transaction ids); a running
+  `MdnsResponder`, its multicast lock and the DLNA renderer are untouchable.
+- **Bug 4 — HyperOS autostart false negative cleared.** `Miui.AutostartState
+  {ENABLED, DISABLED, UNKNOWN}` with a best-effort AppOps read; on HyperOS 15/16
+  (read blocked, UNKNOWN) the setup row carries a 1-tap "Done / the user
+  confirms" button that clears the warning permanently.
+- **Bug 5 — updates are 100% silent, zero-lag, zero-spam.** A dedicated
+  IMPORTANCE_LOW channel (no sound/vibration/badge), silent + only-alert-once
+  everywhere, a pure `UpdateNotify` throttle (at most 1 notify/second, deduped
+  per percent), an AtomicBoolean single-flight, a 24 h per-version alert
+  cooldown, and Skip-this-version (notification action + Settings + dialog).
+- **Mornye-inspired customization engine** (pure Java): `ThemeEngine`
+  (System / Dark Mornye Slate / AMOLED pure black / Light + Material You
+  dynamic color on Android 12+ + six accent presets), `AppPrefs` (every
+  setting typed + clamped, Mornye-style normalizers) and `SettingsBackup`
+  (strict-schema JSON Backup & Restore). The Settings tab is a categorized
+  drill-down; the Home hero status strip is a weighted grid that can never
+  clip; the Subtitle Styling Studio re-renders a live Sinhala preview as you
+  drag its sliders.
 
 ## What's new in v3.0.0 (TRUE Android 16 cast fix · WebView cinema browser · 4-tab UI · merge-to-release CI)
 

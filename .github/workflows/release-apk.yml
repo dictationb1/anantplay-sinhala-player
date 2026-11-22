@@ -1,6 +1,6 @@
 name: Release APK (signed, Obtainium-ready)
 
-# v3.0.0 — THE MERGE-TO-RELEASE PIPELINE: every Pull Request merged into main
+# v3.x — THE MERGE-TO-RELEASE PIPELINE: every Pull Request merged into main
 # becomes a release automatically. No tag ceremony, no manual step.
 #
 #   Trigger A — push to main (a merged PR):   the workflow extracts
@@ -33,7 +33,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.0.1 — no leading v)'
         required: true
-        default: '3.0.0'
+        default: '3.1.0'
 
 concurrency:
   group: release-${{ github.ref }}

@@ -108,7 +108,7 @@ public final class DlnaEndpoint {
         this.player = player;
         this.uuid = uuid == null ? "SIcast-0000" : uuid;
         this.friendlyName = friendlyName == null ? "Sinhala Player" : friendlyName;
-        this.serverString = serverString == null ? "UPnP/1.0 AnantPlaySinhalaPlayer/3.0" : serverString;
+        this.serverString = serverString == null ? "UPnP/1.0 AnantPlaySinhalaPlayer/3.1" : serverString;
     }
 
     public String uuid() { return uuid; }

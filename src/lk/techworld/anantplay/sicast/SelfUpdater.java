@@ -1,6 +1,7 @@
 package lk.techworld.anantplay.sicast;
 
 import android.app.Notification;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -78,7 +79,70 @@ public final class SelfUpdater {
         if (u != null) { try { u.onUpdateState(state); } catch (Throwable ignored) { } }
     }
 
+    /** v3.1.0 (Bug 5) — the SINGLE-FLIGHT guard: the launch-check job and the
+     *  4-hour periodic job can fire concurrently; without this, two downloads
+     *  race on the same temp file and double-notify. */
+    private static final java.util.concurrent.atomic.AtomicBoolean inFlight =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    /** v3.1.0 (Bug 5) — the progress THROTTLE: ≤ 1 notify() per second, deduped
+     *  per percent (UpdateNotify, lab-proven). v3.0.0 notified on every 64 KB
+     *  chunk on an IMPORTANCE_HIGH channel — the spam that lagged the phone. */
+    private static final UpdateNotify throttle = new UpdateNotify();
+
     private SelfUpdater() { }
+
+    // ── v3.1.0: the notification action receiver (tap-to-install / skip) ───────
+
+    static final String ACTION_INSTALL_NOW = "lk.techworld.anantplay.sicast.UPDATE_INSTALL_NOW";
+    static final String ACTION_SKIP_VERSION = "lk.techworld.anantplay.sicast.UPDATE_SKIP_VERSION";
+
+    /** The "Update ready — Tap to install" notification's content intent. */
+    static PendingIntent confirmPendingIntent(Context c) {
+        Intent i = new Intent(c, UpdateActionReceiver.class).setAction(ACTION_INSTALL_NOW);
+        return PendingIntent.getBroadcast(c, 20410, i,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /** The quiet Skip-this-version action. */
+    static PendingIntent skipPendingIntent(Context c, String version) {
+        Intent i = new Intent(c, UpdateActionReceiver.class).setAction(ACTION_SKIP_VERSION)
+            .putExtra("version", version == null ? "" : version);
+        return PendingIntent.getBroadcast(c, 20411, i,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /** v3.1.0 — 1-tap notification actions: install-now (a manual re-drive) and
+     *  skip-this-version (records the choice, cancels the banners, never alerts
+     *  for that version again until a NEWER release appears). */
+    public static final class UpdateActionReceiver extends android.content.BroadcastReceiver {
+        @Override public void onReceive(Context c, Intent i) {
+            try {
+                String a = i == null ? null : i.getAction();
+                if (ACTION_SKIP_VERSION.equals(a)) {
+                    String v = i.getStringExtra("version");
+                    if (v != null && !v.isEmpty()) {
+                        c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE).edit()
+                            .putString("skippedVersion", v).apply();
+                        Diag.i("selfupd", "user skipped v" + v + " — no more alerts until a newer release");
+                    }
+                    cancelBanners(c);
+                } else if (ACTION_INSTALL_NOW.equals(a)) {
+                    cancelBanners(c);
+                    schedule(c, 0L);   // an immediate best-effort job; the user asked
+                }
+            } catch (Throwable t) {
+                Diag.w("selfupd", "action receiver: " + t);
+            }
+        }
+    }
+
+    /** Cancel every update banner id (the quiet way to disappear). */
+    static void cancelBanners(Context c) {
+        try {
+            NotificationManager nm = c.getSystemService(NotificationManager.class);
+            if (nm != null) for (int id : new int[]{20401, 20402, 20403, 20405, 20406}) nm.cancel(id);
+        } catch (Throwable ignored) { }
+    }
 
     // ── storage: the one temp dir + the startup sweep ─────────────────────────
 
@@ -154,8 +218,26 @@ public final class SelfUpdater {
 
     // ── the flow: check + download (progress) + verify + install + cleanup ────
 
-    /** One update attempt. Returns a human-readable result (also logged). */
+    /** One update attempt (automatic cycle). */
     public static String checkAndMaybeInstall(final Context c) {
+        return checkAndMaybeInstall(c, false);
+    }
+
+    /**
+     * One update attempt. v3.1.0 (Bug 5) hardening on top of v3.0.0:
+     *   · SINGLE-FLIGHT — a concurrent launch-check + periodic job is a no-op;
+     *   · SKIP-VERSION — a user-skipped release never alerts again (until newer);
+     *   · 24 h PER-VERSION ALERT COOLDOWN — the 4 h cycle cannot re-alert the
+     *     same release within a day (the "අප්ඩේට් කරන්න…" spam); manual checks
+     *     deliberately bypass it;
+     *   · THROTTLED progress — UpdateNotify decides which chunk callbacks may
+     *     post the (silent, only-alert-once) banner: ≤ 1 per second.
+     * Returns a human-readable result (also logged). */
+    public static String checkAndMaybeInstall(final Context c, final boolean manualCheck) {
+        if (!inFlight.compareAndSet(false, true)) {
+            Diag.i("selfupd", "single-flight: another update run is active — skipping");
+            return "in-flight";
+        }
         try {
             SelfUpdateCore.Release rel = SelfUpdateCore.fetchRelease(API_LATEST);
             if (rel == null) return "no release";
@@ -163,6 +245,24 @@ public final class SelfUpdater {
                 Diag.i("selfupd", "up to date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
                 return "up-to-date";
             }
+            // v3.1.0 — the skip choice: never alert about a skipped version again
+            android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+            String skippedVersion = sp.getString("skippedVersion", null);
+            if (UpdateNotify.stillSkipped(skippedVersion, rel.version)) {
+                Diag.i("selfupd", "v" + rel.version + " skipped by the user — staying quiet");
+                return "skipped";
+            }
+            // v3.1.0 — the 24 h per-version alert cooldown (manual checks bypass)
+            String alertKey = "lastAlert:" + rel.version;
+            long lastAlert = sp.getLong(alertKey, 0);
+            if (!UpdateNotify.alertAllowed(rel.version, System.currentTimeMillis(), lastAlert,
+                    skippedVersion, manualCheck)) {
+                Diag.i("selfupd", "v" + rel.version + " alerted "
+                    + ((System.currentTimeMillis() - lastAlert) / 3600000L) + " h ago — cooldown, staying quiet");
+                return "cooldown";
+            }
+            sp.edit().putLong(alertKey, System.currentTimeMillis()).apply();
+
             // Auto-Update is ON by default (Settings → Updates → the toggle)
             if (!c.getSharedPreferences("sicast", Context.MODE_PRIVATE).getBoolean("autoUpdate", true)) {
                 Diag.i("selfupd", "new release " + rel.version + " but Auto-Update is OFF — notifying only");
@@ -185,16 +285,21 @@ public final class SelfUpdater {
                 App.notifyUpdateFailed(c, rel.version);
                 return "no-sha";
             }
-            Diag.i("selfupd", "new release " + rel.version + " > " + AppInfo.VERSION_NAME + " — downloading");
+            Diag.i("selfupd", "new release " + rel.version + " > " + AppInfo.VERSION_NAME + " — downloading (silent, throttled)");
             UiListener u = ui;
             if (u != null) { try { u.onUpdateAvailable(rel.version); } catch (Throwable ignored) { } }
 
-            // ── download → cacheDir/updates/<name>.apk with live progress ──
+            // ── download → cacheDir/updates/<name>.apk with THROTTLED progress ──
             sweepUpdates(c);   // never two temp files at once
             final File apk = new File(updatesDir(c), SelfUpdateCore.apkFileName(rel.apkUrl));
             App.notifyUpdateProgress(c, rel.version, 0);
             SelfUpdateCore.downloadToFile(rel.apkUrl, apk, (bytes, total, percent) -> {
-                App.notifyUpdateProgress(c, rel.version, percent);
+                // v3.1.0 — the SystemUI flood breaker: UpdateNotify allows at most
+                // ONE notify per second (deduped per percent); the chunk callback
+                // itself stays as cheap as a couple of long compares.
+                if (throttle.onProgress(percent)) {
+                    App.notifyUpdateProgress(c, rel.version, percent);
+                }
                 UiListener ul = ui;
                 if (ul != null) { try { ul.onDownloadProgress(percent); } catch (Throwable ignored) { } }
             });
@@ -231,6 +336,8 @@ public final class SelfUpdater {
             Diag.w("selfupd", "check: " + t);
             fire("යාවත්කාලීන පරීක්ෂාව අසාර්ථක — පසුව නැවත · update check failed — will retry");
             return "offline";
+        } finally {
+            inFlight.set(false);
         }
     }
 
@@ -303,19 +410,21 @@ public final class SelfUpdater {
         }
     }
 
-    /** The BAL-safe fallback: the confirm intent as a high-priority notification. */
+    /** The BAL-safe fallback: the confirm intent as a quiet tap-to-install note
+     *  (v3.1.0: silent channel + onlyAlertOnce, like every update banner). */
     static void postConfirmNotification(Context c, Intent confirm) {
         try {
             PendingIntent open = PendingIntent.getActivity(c, 20405, confirm,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            Notification n = new Notification.Builder(c, App.CHANNEL_CAST)
+            Notification n = new Notification.Builder(c, App.CHANNEL_UPDATES_SILENT)
                 .setSmallIcon(R.drawable.ic_stat_si)
                 .setContentTitle("AnantPlay Sinhala Player — update")
                 .setContentText("ස්ථාපනය කිරීමට තට්ටු කරන්න · tap to install (1 tap)")
-                .setPriority(Notification.PRIORITY_HIGH)
                 .setCategory(Notification.CATEGORY_RECOMMENDATION)
                 .setContentIntent(open)
                 .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(Notification.PRIORITY_LOW)
                 .build();
             c.getSystemService(android.app.NotificationManager.class).notify(20405, n);
         } catch (Throwable t) {
@@ -324,20 +433,21 @@ public final class SelfUpdater {
     }
 
     /** The 1-tap "Install unknown apps" prompt: a notification carrying the
-     *  exact settings deep-link (Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES). */
+     *  exact settings deep-link (v3.1.0: silent channel). */
     static void notifyInstallPermission(Context c, String version) {
         try {
             Intent open = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                 Uri.parse("package:" + c.getPackageName()));
             PendingIntent pi = PendingIntent.getActivity(c, 20406, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            Notification n = new Notification.Builder(c, App.CHANNEL_CAST)
+            Notification n = new Notification.Builder(c, App.CHANNEL_UPDATES_SILENT)
                 .setSmallIcon(R.drawable.ic_stat_si)
                 .setContentTitle("v" + version + " — install permission needed")
                 .setContentText("1-tap: \"Unknown sources\" මෙම ඇප් එකට ON කරන්න · allow installs from this app")
-                .setPriority(Notification.PRIORITY_HIGH)
                 .setContentIntent(pi)
                 .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(Notification.PRIORITY_LOW)
                 .build();
             c.getSystemService(android.app.NotificationManager.class).notify(20406, n);
         } catch (Throwable t) {

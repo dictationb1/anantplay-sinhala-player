@@ -74,16 +74,28 @@ public final class Diag {
      * line (the ring is small and logging is not in a hot loop).
      */
     public static String redact(String msg) {
-        if (msg == null) return "";
-        String out = BEARER.matcher(msg).replaceAll("$1" + Matcher.quoteReplacement("••••"));
-        Matcher kv = KV_SECRET.matcher(out);
-        StringBuffer sb = new StringBuffer(out.length());
-        while (kv.find()) {
-            kv.appendReplacement(sb, Matcher.quoteReplacement(kv.group(1) + kv.group(2) + mask(kv.group(3))));
-        }
-        kv.appendTail(sb);
-        out = LONG_BLOB.matcher(sb.toString()).replaceAll(Matcher.quoteReplacement("••••"));
+        String out = redactFull(msg);
         return out.length() > MAX_LINE ? out.substring(0, MAX_LINE) + "…" : out;
+    }
+
+    /** v3.1.0 — the SAME secret scrubbing, but for multi-line, arbitrarily long
+     *  texts (CrashLog reports): newlines are preserved and nothing is ever
+     *  truncated — a full stack trace must survive intact, only scrubbed. */
+    public static String redactFull(String msg) {
+        if (msg == null) return "";
+        StringBuilder sb = new StringBuilder(msg.length());
+        for (String line : msg.split("\n", -1)) {
+            String out = BEARER.matcher(line).replaceAll("$1" + Matcher.quoteReplacement("••••"));
+            Matcher kv = KV_SECRET.matcher(out);
+            StringBuffer lineSb = new StringBuffer(out.length());
+            while (kv.find()) {
+                kv.appendReplacement(lineSb, Matcher.quoteReplacement(kv.group(1) + kv.group(2) + mask(kv.group(3))));
+            }
+            kv.appendTail(lineSb);
+            sb.append(LONG_BLOB.matcher(lineSb.toString()).replaceAll(Matcher.quoteReplacement("••••")));
+            sb.append('\n');
+        }
+        return sb.length() > 0 ? sb.substring(0, sb.length() - 1) : "";
     }
 
     private static void add(String lvl, String tag, String msg) {

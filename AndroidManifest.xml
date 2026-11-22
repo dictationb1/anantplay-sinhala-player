@@ -59,8 +59,7 @@
         android:theme="@style/AppTheme"
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
-        android:supportsRtl="true"
-        android:enableOnBackInvokedCallback="false">
+        android:supportsRtl="true">
 
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
@@ -116,6 +115,10 @@
 
         <!-- v2.4.0: the PackageInstaller result receiver -->
         <receiver android:name=".SelfUpdater$InstallResultReceiver" android:exported="false"/>
+
+        <!-- v3.1.0: the quiet update notification actions (tap-to-install /
+             skip-this-version) — exported=false, nothing outside the app can fire it -->
+        <receiver android:name=".SelfUpdater$UpdateActionReceiver" android:exported="false"/>
 
         <service android:name=".CastTileService" android:exported="true"
             android:icon="@mipmap/ic_launcher"
