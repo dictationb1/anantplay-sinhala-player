@@ -90,6 +90,21 @@ echo "Lab proof: $PASSED checks passed (0 failed)"
 # ─────────────────────────────────────────────────────────────────────────────
 python3 lab/verify_refs.py
 
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.3.1 — THE STATIC LAYOUT-PARAMS VERIFIER (structure-level crash prevention)
+#
+# The 2026-11-23 field crash was a ClassCastException INSIDE the framework's own
+# measure pass (FrameLayout.onMeasure:195) — no try/catch of ours can ever catch
+# it, so the only real fix is to make the mismatch unwritable. This gate types
+# every container/child pair across all 46 Java files in src/ and fails the build
+# on any mismatch, on any unprovable call, on a raw-ARGB setBackgroundResource,
+# on Uri.fromFile, and on a receiver registered without an export flag.
+# Its own 13-case selftest runs first: a verifier that stopped catching bugs
+# would be worse than none.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 lab/verify_layouts.py --selftest
+python3 lab/verify_layouts.py
+
 echo "── live bridge E2E (best effort — never gating)"
 # v3.3.0 — LAB_SKIP_LIVE=1 skips the network leg entirely (air-gapped runners and
 # local verification runs must finish in seconds, not wait on a worker timeout).

@@ -109,7 +109,12 @@ public class MainActivity extends Activity {
     private volatile String updaterResultCache = "not run this session";
     /** v3.2.0 — the 10-point full-feature probe's live outcome list + the
      *  Troubleshoot tab's result card (Smoking Gun #5). */
-    private volatile java.util.List<FeatureProbe.Outcome> probeOutcomes;
+    /** v3.3.1 — ALWAYS an immutable snapshot (Collections.unmodifiableList). The
+     *  v3.3.0 field held a live ArrayList that the probe thread appended to while
+     *  the UI thread iterated it in paintProbeCard() — the exact
+     *  ConcurrentModificationException (MainActivity.java:2127) from the field log. */
+    private volatile java.util.List<FeatureProbe.Outcome> probeOutcomes =
+        java.util.Collections.emptyList();
 
     // the web tab (created lazily — the first switch to it builds it)
     private WebBrowserView browser;
@@ -174,7 +179,8 @@ public class MainActivity extends Activity {
                 Diag.w("theme", "dynamic color unavailable: " + t);
             }
         }
-        P = ThemeEngine.palette(mode, dynamicSeed, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs));
+        P = ThemeEngine.palette(mode, dynamicSeed, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
+            prefs.getString(AppPrefs.K_CARD_RADIUS, AppPrefs.RADIUS_ROUNDED));
     }
 
     /** The bilingual helper honoring the UI Language mode (Bilingual / si / en). */
@@ -1167,7 +1173,10 @@ public class MainActivity extends Activity {
             previewLabel.setTextSize(10.5f);
             previewCard.addView(previewLabel, widen());
             final TextView preview = new TextView(this);
-            preview.setText("ඔයා මොකක්ද කරන්නේ? — මේක හරිම පැහැදිලියි!");
+            // v3.3.1 — the preview line carries the Sinhala ZWJ conjunct
+            // (ශ්‍රී = ශ + ් + ZWJ + ර + ී), so a broken shaping stack is visible
+            // in the studio BEFORE the user ever opens a movie.
+            preview.setText("ශ්‍රී ලංකාවේ චිත්‍රපටිය — සිංහල උපසිරැසි");
             preview.setGravity(Gravity.CENTER);
             preview.setPadding(dp(10), dp(4), dp(10), dp(4));
             FrameLayout previewStage = new FrameLayout(this);
@@ -2111,10 +2120,29 @@ public class MainActivity extends Activity {
 
     /** The probe result card: one row per FeatureProbe outcome (✓/✗ + ms + detail). */
     private void paintProbeCard() {
+        // v3.3.1 — THE CRASH #2 HARDENING. Three independent guarantees:
+        //   1. a local IMMUTABLE snapshot is iterated (never the shared field, and
+        //      never a list another thread can append to),
+        //   2. a dead Activity's views are never touched,
+        //   3. any unexpected state is recorded in the Troubleshooter timeline
+        //      instead of taking the process down.
+        if (probeCard == null) return;
+        if (isFinishing() || isDestroyed()) return;
+        try {
+            paintProbeCardInner();
+        } catch (Throwable t) {
+            Diag.w("trouble", "probe card paint: " + t);
+            Troubleshooter.record("TROUBLE", "probe card paint failed: " + t.getClass().getSimpleName());
+        }
+    }
+
+    private void paintProbeCardInner() {
         if (probeCard == null) return;
         probeCard.removeAllViews();
-        java.util.List<FeatureProbe.Outcome> outcomes = probeOutcomes;
-        if (outcomes == null || outcomes.isEmpty()) {
+        // the immutable snapshot: safe to iterate on the UI thread at any moment
+        final java.util.List<FeatureProbe.Outcome> outcomes = probeOutcomes == null
+            ? java.util.Collections.<FeatureProbe.Outcome>emptyList() : probeOutcomes;
+        if (outcomes.isEmpty()) {
             TextView idle = new TextView(this);
             idle.setText(t("තව පරීක්ෂණයක් ධාවනය වී නැත — ඉහත hero බොත්තම ඔබන්න.",
                 "No full-feature run yet — tap the hero button above."));
@@ -2176,7 +2204,7 @@ public class MainActivity extends Activity {
             toast(t("පරීක්ෂණය දැනටමත් ක්‍රියාත්මකයි", "a troubleshoot run is already active"));
             return;
         }
-        probeOutcomes = new ArrayList<>();
+        probeOutcomes = java.util.Collections.emptyList();   // v3.3.1 — immutable, never a live list
         selfTestLine.setText(t("සම්පූර්ණ පරීක්ෂණය ධාවනය වෙමින්… · running all 10 feature probes…",
             "running all 10 feature probes…"));
         Diag.i("trouble", "full-feature troubleshoot start (10 probes)");
@@ -2195,21 +2223,24 @@ public class MainActivity extends Activity {
                         @Override public void onProbeDone(FeatureProbe.Outcome o) {
                             Troubleshooter.record("APP", "probe " + o.id + " " + o.name
                                 + " → " + (o.pass ? "PASS" : "FAIL") + " (" + o.ms + " ms)");
-                            java.util.List<FeatureProbe.Outcome> list = probeOutcomes;
-                            if (list != null) {
-                                list.add(o);
-                                main.post(MainActivity.this::paintProbeCard);
-                            }
+                        }
+                        // v3.3.1 — the engine hands over an IMMUTABLE snapshot; the
+                        // UI only ever swaps a reference, it never mutates a list.
+                        @Override public void onProbeSnapshot(java.util.List<FeatureProbe.Outcome> snap) {
+                            probeOutcomes = snap;
+                            main.post(MainActivity.this::paintProbeCard);
                         }
                     });
-                probeOutcomes = outcomes;
-                int pass = 0;
-                for (FeatureProbe.Outcome o : outcomes) if (o.pass) pass++;
-                final boolean all = pass == outcomes.size();
+                probeOutcomes = outcomes;      // already an immutable snapshot
+                int pass = 0, total = 0;
+                for (FeatureProbe.Outcome o : outcomes) { total++; if (o.pass) pass++; }
+                final int totalCount = total;
+                final boolean all = total > 0 && pass == total;
                 final int passCount = pass;
                 Diag.i("trouble", "full-feature troubleshoot: " + pass + "/10 PASS");
                 main.post(() -> {
-                    selfTestLine.setText((all ? "🩺 ✓ " : "🩺 ✗ ") + passCount + "/10 "
+                    if (isFinishing() || isDestroyed()) return;      // v3.3.1 — never touch a dead UI
+                    selfTestLine.setText((all ? "🩺 ✓ " : "🩺 ✗ ") + passCount + "/" + totalCount + " "
                         + t("විශේෂාංග PASS — report එක copy කරන්න", "features PASS — copy the report"));
                     selfTestLine.setTextColor(all ? P.ok : P.warn);
                     paintProbeCard();
@@ -2479,7 +2510,9 @@ public class MainActivity extends Activity {
         l.setOrientation(LinearLayout.VERTICAL);
         int vPad = compact() ? dp(9) : dp(12);
         l.setPadding(dp(14), vPad, dp(14), vPad);
-        GradientDrawable g = rounded(color, dp(16));
+        // v3.3.1 — the user's Card-corner-radius choice (6 / 16 / 28 dp), never a
+        // hard-coded 16: the Customize row used to change nothing on screen.
+        GradientDrawable g = rounded(color, dp(P.radiusCard));
         g.setStroke(dp(1), 0x1FFFFFFF);
         l.setBackground(g);
         return l;

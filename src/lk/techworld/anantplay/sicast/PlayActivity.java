@@ -233,9 +233,16 @@ public class PlayActivity extends Activity {
     // ── v3.3.0 — THE CINEMA PLAYER STATE ──────────────────────────────────────
     /** The black host the surface is CENTERED in (VideoViewport sizes the child). */
     private FrameLayout videoHost, subLayer;
+    /** v3.3.1 — the root FrameLayout, kept so transient overlays (the ⏪/⏩
+     *  double-tap ripples) mount on a FRAME parent, never on hudCenter's
+     *  LinearLayout parent (the v3.3.0 ClassCastException). */
+    private FrameLayout rootView;
     /** The subtitle pill column (below the top bar, never on top of it). */
     private LinearLayout pillBox, hudCenter, unlockPill;
-    private LinearLayout.LayoutParams pillLp;
+    /** v3.3.1 — FrameLayout.LayoutParams, because pillBox's parent is the root
+     *  FrameLayout. This was a LinearLayout.LayoutParams in v3.3.0: every
+     *  measure pass died in FrameLayout.onMeasure(FrameLayout.java:195). */
+    private FrameLayout.LayoutParams pillLp;
     /** The 📐 / ⏩ chips whose labels track the live mode. */
     private TextView aspectChip, speedChip;
     /** The compact "සිංහල ✓" badge in the top bar (ONE, never duplicated). */
@@ -1337,6 +1344,7 @@ public class PlayActivity extends Activity {
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
+        rootView = root;                      // v3.3.1 — the overlay parent
 
         // ── LAYER 1 — the video host (centred, aspect-correct) ────────────────
         videoHost = new FrameLayout(this);
@@ -1364,7 +1372,10 @@ public class PlayActivity extends Activity {
         pillBox = new LinearLayout(this);
         pillBox.setOrientation(LinearLayout.VERTICAL);
         pillBox.setGravity(Gravity.CENTER_HORIZONTAL);
-        pillLp = new LinearLayout.LayoutParams(-1, -2);
+        // v3.3.1 — FrameLayout.LayoutParams: pillBox is a child of the root
+        // FrameLayout, so LinearLayout.LayoutParams here threw
+        // ClassCastException inside FrameLayout.onMeasure on the first layout.
+        pillLp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         pillLp.topMargin = dp(50);
         root.addView(pillBox, pillLp);
 
@@ -1685,7 +1696,9 @@ public class PlayActivity extends Activity {
         chips.addView(pillBtn("🔄 Rotate", v -> rotateScreen()));
         chips.addView(pillBtn("📺 VLC", v -> openExternalPlayer()));
         chips.addView(pillBtn("🔍 Title", v -> openTitleSearch()));
-        hs.addView(chips, new LinearLayout.LayoutParams(-2, -2));
+        // v3.3.1 — a HorizontalScrollView IS a FrameLayout: its child must carry
+        // FrameLayout.LayoutParams (LinearLayout.LayoutParams died in onMeasure).
+        hs.addView(chips, new FrameLayout.LayoutParams(-2, -2));
         hudBottomBar.addView(hs, new LinearLayout.LayoutParams(-1, -2));
         box.addView(hudBottomBar, new LinearLayout.LayoutParams(-1, -2));
         return box;
@@ -1711,11 +1724,17 @@ public class PlayActivity extends Activity {
         return t;
     }
 
+    /** v3.3.1 — the ONE card radius the player paints (the user's Customize choice:
+     *  Sharp 6dp / Rounded 16dp / Apple Pill 28dp). v3.3.0 hard-coded dp(16) here,
+     *  so the Card-corner-radius setting had no effect inside the player. */
+    private int radiusCard() { return dp(ThemeEngine.radii(AppPrefs.cardRadius(prefs))[1]); }
+    private int radiusSheet() { return dp(ThemeEngine.radii(AppPrefs.cardRadius(prefs))[1]); }
+
     private LinearLayout buildPanel() {
         LinearLayout p = new LinearLayout(this);
         p.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(16));
+        bg.setCornerRadius(radiusCard());
         bg.setColor(0xF20E1424);
         bg.setStroke(dp(1), 0x33FFFFFF);
         p.setBackground(bg);
@@ -1796,7 +1815,7 @@ public class PlayActivity extends Activity {
         LinearLayout s = new LinearLayout(this);
         s.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(22));
+        bg.setCornerRadius(radiusSheet());
         bg.setColor(0xF20E1424);
         bg.setStroke(dp(1), 0x33FFFFFF);
         s.setBackground(bg);
@@ -1894,7 +1913,12 @@ public class PlayActivity extends Activity {
         int cw = videoHost.getWidth(), ch = videoHost.getHeight();
         if (cw <= 0 || ch <= 0) return;
         int[] size = VideoViewport.compute(videoW, videoH, videoPar, cw, ch, aspectMode);
-        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) surface.getLayoutParams();
+        // v3.3.1 — never an unchecked cast: if the surface ever gets re-parented
+        // or re-typed, we rebuild a correct FrameLayout.LayoutParams instead of
+        // throwing ClassCastException on the UI thread.
+        FrameLayout.LayoutParams lp = surface.getLayoutParams() instanceof FrameLayout.LayoutParams
+            ? (FrameLayout.LayoutParams) surface.getLayoutParams()
+            : new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER);
         lp.width = size[0];
         lp.height = size[1];
         lp.gravity = Gravity.CENTER;
@@ -2100,8 +2124,6 @@ public class PlayActivity extends Activity {
             if (extraActions != null) extraActions.setVisibility(View.GONE);
         }, 12000);
     }
-
-    private FrameLayout.LayoutParams langRowLp(LinearLayout row) { return new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL); }
 
     /**
      * v2.2 script-safe styling — the ONE place the subtitle view's typeface and
@@ -2415,7 +2437,12 @@ public class PlayActivity extends Activity {
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(120), dp(72),
             Gravity.CENTER_VERTICAL | (right ? Gravity.END : Gravity.START));
         lp.leftMargin = lp.rightMargin = dp(24);
-        final ViewGroup parent = (ViewGroup) hudCenter.getParent();
+        // v3.3.1 — THE CRASH #1 SOURCE. v3.3.0 mounted the ripple on
+        // hudCenter.getParent() — a LinearLayout — with FrameLayout.LayoutParams,
+        // so LinearLayout.measureVertical threw ClassCastException on the very
+        // next frame. The ripple is a full-screen overlay: it belongs on the ROOT
+        // FrameLayout, which is exactly the parent its LayoutParams describe.
+        final FrameLayout parent = rootView;
         if (parent == null) return;
         parent.addView(t, lp);
         main.postDelayed(() -> { try { parent.removeView(t); } catch (Throwable ignored) { } }, 550);
@@ -2706,7 +2733,7 @@ public class PlayActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xF20E1424);
-        bg.setCornerRadius(dp(16));
+        bg.setCornerRadius(radiusCard());
         bg.setStroke(dp(1), 0x44FFFFFF);
         card.setBackground(bg);
         card.setPadding(dp(16), dp(14), dp(16), dp(12));

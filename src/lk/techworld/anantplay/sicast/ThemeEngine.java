@@ -102,6 +102,22 @@ public final class ThemeEngine {
      *                    choice outranks the wallpaper seed (Mornye's own order).
      */
     public static Palette palette(String mode, int dynamicSeed, int accentIdx, String customHex) {
+        return palette(mode, dynamicSeed, accentIdx, customHex, null);
+    }
+
+    /**
+     * v3.3.1 — THE CARD-RADIUS FIX.
+     *
+     * <p>v3.2.0 exposed a "Card corner radius" setting (Sharp 6dp / Rounded 16dp /
+     * Apple Pill 24dp) and then painted every card with a hard-coded {@code dp(16)}
+     * — the palette called {@code radii(null)}, so the token was ALWAYS the default
+     * and the setting had no visible effect anywhere in the app. The radius now
+     * flows from the user's preference into the palette, and every card paints
+     * {@code P.radiusCard}, so tapping the row changes the UI immediately (the
+     * Customize page recreates the activity on every theme/radius change).
+     */
+    public static Palette palette(String mode, int dynamicSeed, int accentIdx, String customHex,
+                                  String cardRadiusPref) {
         int preset = ACCENTS[AppPrefs.normalizeAccent(accentIdx)];
         int custom = AppPrefs.accentHexColor(AppPrefs.normalizeAccentHex(customHex));
         // ARGB ints are NEGATIVE when the alpha byte is 0xFF — the seed is "on"
@@ -130,7 +146,7 @@ public final class ThemeEngine {
         }
         int ok = 0xFF22C55E, warn = 0xFFF59E0B, err = 0xFFEF4444;
         if (AppPrefs.THEME_LIGHT.equals(m)) { ok = 0xFF15803D; warn = 0xFFB45309; err = 0xFFB91C1C; }
-        int[] r = radii(null);   // the radius choice lives on prefs; the caller paints it
+        int[] r = radii(cardRadiusPref);   // v3.3.1 — the user's radius choice, honoured
         return new Palette(m, bg, card, card2, chip, title, text, desc, accent, accentDim, accentSoft, ok, warn, err,
             r[0], r[1], r[2]);
     }

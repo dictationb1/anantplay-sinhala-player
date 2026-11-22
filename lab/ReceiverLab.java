@@ -1424,9 +1424,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30300 strictly > 30200 (v3.2.0) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30300 && AppInfo.VERSION_CODE > 30200 && AppInfo.VERSION_CODE < 40000
-              && "3.3.0".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30301 strictly > 30300 (v3.3.0) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30301 && AppInfo.VERSION_CODE > 30300 && AppInfo.VERSION_CODE < 40000
+              && "3.3.1".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1458,9 +1458,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.3.0 / 30300 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.3.0}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30300}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.3.1 / 30301 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.3.1}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30301}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -1519,6 +1519,9 @@ public class ReceiverLab {
         v330SubtitleChecks();
         System.out.println("== v3.3.0 version & pipeline parity ==");
         v330VersionParityChecks();
+
+        // ═════════ v3.3.1 — ZERO-CRASH HARDENING (the two field crashes) ═════════
+        v331ZeroCrashChecks();
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
@@ -2597,18 +2600,18 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v31 sec: both workflows carry versionCode 30300 / 3.3.0",
-            buildYml.contains("30300") && buildYml.contains("3.3.0") && relYml.contains("3.3.0"));
+        check("v31 sec: both workflows carry versionCode 30301 / 3.3.1",
+            buildYml.contains("30301") && buildYml.contains("3.3.1") && relYml.contains("3.3.1"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
-        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30300 + versionName 3.3.0",
-            srcManifest.contains("android:versionCode=\"30300\"")
-                && srcManifest.contains("android:versionName=\"3.3.0\"")
-                && "30300".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.3.0".equals(AppInfo.VERSION_NAME));
+        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30301 + versionName 3.3.1",
+            srcManifest.contains("android:versionCode=\"30301\"")
+                && srcManifest.contains("android:versionName=\"3.3.1\"")
+                && "30301".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.3.1".equals(AppInfo.VERSION_NAME));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -2618,10 +2621,10 @@ public class ReceiverLab {
         // that survived the 3.1.0 bump: the build job still uploaded
         // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
         check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.3.0.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.3.1.apk")
                 && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
         check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.3.0.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.3.1.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
         // v3.1.1 — REPRODUCIBILITY GUARD: the pre-merge build and the post-merge
         // release build of the SAME commit used to differ only by the ZIP entry
@@ -2846,7 +2849,7 @@ public class ReceiverLab {
         check("v312 tsr: the report's crash section leads with the EXCEPTION line",
             rep.contains("EXCEPTION android.content.res.Resources$NotFoundException"));
         check("v312 tsr: the report header stamps the app version + SDK only (no model)",
-            rep.contains("app v3.3.0") && rep.contains("Android SDK"));
+            rep.contains("app v3.3.1") && rep.contains("Android SDK"));
         check("v312 tsr: the report is zero-PII end-to-end (the whole bundle re-scrubbed)",
             !rep.contains("24117RN76G") && !rep.contains("192.168.1.39"));
     }
@@ -4067,34 +4070,459 @@ public class ReceiverLab {
         }
     }
 
-    /** The version/pipeline parity gate (3.3.0 / 30300 everywhere, never 4.x). */
+    /** The version/pipeline parity gate (3.3.1 / 30301 everywhere, never 4.x). */
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
-        check("v330 parity: AndroidManifest.xml says 3.3.0 / 30300",
-            manifest.contains("android:versionCode=\"30300\"") && manifest.contains("android:versionName=\"3.3.0\""));
-        check("v330 parity: AppInfo says 3.3.0 / 30300",
-            "3.3.0".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30300);
+        check("v331 parity: AndroidManifest.xml says 3.3.1 / 30301",
+            manifest.contains("android:versionCode=\"30301\"") && manifest.contains("android:versionName=\"3.3.1\""));
+        check("v331 parity: AppInfo says 3.3.1 / 30301",
+            "3.3.1".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30301);
+        check("v331 parity: 30301 strictly > 30300 (v3.3.0) — an in-place update, no downgrade",
+            AppInfo.VERSION_CODE == 30301 && AppInfo.VERSION_CODE > 30300);
         String build = readRepoFile("build.sh");
-        check("v330 parity: build.sh defaults to 3.3.0 / 30300 (previous 30200)",
-            build.contains("VERSION_NAME:-3.3.0") && build.contains("VERSION_CODE:-30300")
+        check("v331 parity: build.sh defaults to 3.3.1 / 30301 (previous 30300)",
+            build.contains("VERSION_NAME:-3.3.1") && build.contains("VERSION_CODE:-30301")
                 && build.contains("PREV_VERSION_CODE:-30200"));
         String latest = readRepoFile("docs/latest.json");
-        check("v330 parity: docs/latest.json carries 3.3.0 / 30300",
-            latest.contains("\"version\":\"3.3.0\"") && latest.contains("\"code\":30300"));
-        check("v330 parity: README.md announces v3.3.0",
-            readRepoFile("README.md").contains("3.3.0"));
-        check("v330 parity: SETUP-SI.md announces v3.3.0",
-            readRepoFile("SETUP-SI.md").contains("3.3.0"));
+        check("v331 parity: docs/latest.json carries 3.3.1 / 30301",
+            latest.contains("\"version\":\"3.3.1\"") && latest.contains("\"code\":30301"));
+        check("v331 parity: docs/latest.json apkUrl points at the v3.3.1 asset",
+            latest.contains("/download/v3.3.1/AnantPlay-Sinhala-Player-v3.3.1.apk"));
+        check("v331 parity: README.md announces v3.3.1",
+            readRepoFile("README.md").contains("3.3.1"));
+        check("v331 parity: SETUP-SI.md announces v3.3.1",
+            readRepoFile("SETUP-SI.md").contains("3.3.1"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v330 parity: build-apk.yml asserts 30300 / 3.3.0",
-            buildWf.contains("30300") && buildWf.contains("3.3.0"));
+        check("v331 parity: build-apk.yml asserts 30301 / 3.3.1",
+            buildWf.contains("versionCode='30301'") && buildWf.contains("versionName='3.3.1'")
+                && buildWf.contains("AnantPlay-Sinhala-Player-v3.3.1.apk"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v330 parity: release-apk.yml defaults to 3.3.0",
-            relWf.contains("default: '3.3.0'"));
-        check("v330 parity: strictly v3.x — no 4.x anywhere in the identity files",
+        check("v331 parity: release-apk.yml defaults to 3.3.1",
+            relWf.contains("default: '3.3.1'"));
+        check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
             !manifest.contains("versionName=\"4.") && !"4".equals(AppInfo.VERSION_NAME.substring(0, 1)));
-        check("v330 parity: the report ships inside the repo",
+        check("v331 parity: the v3.3.1 report ships inside the repo",
+            new java.io.File("V3_3_1_ZERO_CRASH_AUDIT_AND_FIX_REPORT.md").isFile());
+        check("v331 parity: the v3.3.0 report is preserved (history is never rewritten)",
             new java.io.File("V3_3_0_CINEMA_PLAYER_AND_403_FIX_REPORT.md").isFile());
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // v3.3.1 — THE TWO REAL-DEVICE CRASHES OF 2026-11-23, MADE IMPOSSIBLE
+    //
+    //   crash #1 (02:03:40.645)  java.lang.ClassCastException:
+    //        android.widget.LinearLayout$LayoutParams cannot be cast to
+    //        android.widget.FrameLayout$LayoutParams
+    //        at android.widget.FrameLayout.onMeasure(FrameLayout.java:195)
+    //
+    //   crash #2 (02:04:58.461)  java.util.ConcurrentModificationException
+    //        at MainActivity.paintProbeCard(MainActivity.java:2127)
+    //
+    // Everything below is a REAL execution, not a string grep of a promise:
+    // the static verifier is run as a subprocess (the same way CI runs it), its
+    // own 13-case selftest is run to prove it still CATCHES each bug shape, and
+    // the concurrency engine is hammered with 8 threads × 1,000 writes while
+    // four reader threads iterate snapshots on the exact line that used to die.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /** Run a python3 command from the repo root; returns {exitCode, output}. */
+    static String[] runPython(String... args) {
+        try {
+            List<String> cmd = new ArrayList<>();
+            cmd.add("python3");
+            for (String a : args) cmd.add(a);
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            byte[] b = new byte[8192];
+            for (int n; (n = p.getInputStream().read(b)) > 0; ) buf.write(b, 0, n);
+            boolean done = p.waitFor(180, java.util.concurrent.TimeUnit.SECONDS);
+            if (!done) { p.destroyForcibly(); return new String[]{"-1", "timeout"}; }
+            return new String[]{String.valueOf(p.exitValue()),
+                new String(buf.toByteArray(), StandardCharsets.UTF_8)};
+        } catch (Exception e) {
+            return new String[]{"-1", "threw " + e};
+        }
+    }
+
+    static String lastNonEmptyLine(String s) {
+        String[] parts = s.split("\n");
+        for (int i = parts.length - 1; i >= 0; i--) if (!parts[i].trim().isEmpty()) return parts[i].trim();
+        return "";
+    }
+
+    static void v331ZeroCrashChecks() throws Exception {
+        String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
+        String webSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
+        String probeSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/FeatureProbe.java"));
+
+        System.out.println("== v3.3.1 crash #1 — the LayoutParams static verifier (gating) ==");
+        String[] gate = runPython("lab/verify_layouts.py");
+        check("v331 crash1: python3 lab/verify_layouts.py exits 0 — every addView/setLayoutParams "
+            + "in src/ is type-correct", "0".equals(gate[0]), lastNonEmptyLine(gate[1]));
+        String[] self = runPython("lab/verify_layouts.py", "--selftest");
+        check("v331 crash1: the verifier's own 13-case selftest still REJECTS every bug shape "
+            + "(so a green run means something)", "0".equals(self[0]), lastNonEmptyLine(self[1]));
+
+        check("v331 crash1: PlayActivity.pillLp is a FrameLayout.LayoutParams (the exact v3.3.0 crash)",
+            playSrc.contains("private FrameLayout.LayoutParams pillLp;")
+                && !playSrc.contains("private LinearLayout.LayoutParams pillLp;"));
+        check("v331 crash1: pillBox is added to the root FrameLayout with FrameLayout.LayoutParams",
+            playSrc.contains("pillLp = new FrameLayout.LayoutParams(")
+                && playSrc.contains("root.addView(pillBox, pillLp);"));
+        check("v331 crash1: the inset pass re-applies that same FrameLayout.LayoutParams",
+            playSrc.contains("pillBox.setLayoutParams(pillLp);"));
+        check("v331 crash1: the ⏪/⏩ ripple mounts on the ROOT FrameLayout (never hudCenter's "
+            + "LinearLayout parent)",
+            playSrc.contains("final FrameLayout parent = rootView;")
+                && !playSrc.contains("(ViewGroup) hudCenter.getParent()"));
+        check("v331 crash1: the chip strip is added to its HorizontalScrollView with "
+            + "FrameLayout.LayoutParams",
+            playSrc.contains("hs.addView(chips, new FrameLayout.LayoutParams(-2, -2));")
+                && !playSrc.contains("hs.addView(chips, new LinearLayout.LayoutParams("));
+        check("v331 crash1: applyVideoSize() never casts getLayoutParams() unchecked",
+            playSrc.contains("surface.getLayoutParams() instanceof FrameLayout.LayoutParams")
+                && !playSrc.contains("FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) surface.getLayoutParams()"));
+        check("v331 crash1: the dead langRowLp() FrameLayout.LayoutParams factory is gone",
+            !playSrc.contains("langRowLp("));
+        check("v331 crash1: every MainActivity page mounts on the FrameLayout host with "
+            + "FrameLayout.LayoutParams",
+            countOf(mainSrc, "pages.addView(") == countOf(mainSrc, "new FrameLayout.LayoutParams(-1, -1)"));
+
+        System.out.println("== v3.3.1 crash #2 — 8 threads × 1,000 writes + concurrent snapshot reads ==");
+        v331ConcurrencyStress(probeSrc, mainSrc);
+
+        System.out.println("== v3.3.1 player, customize, privacy & updater invariants ==");
+        v331PlayerCustomizeChecks();
+    }
+
+    static int countOf(String hay, String needle) {
+        int n = 0, i = 0;
+        while ((i = hay.indexOf(needle, i)) >= 0) { n++; i += needle.length(); }
+        return n;
+    }
+
+    /**
+     * THE CONCURRENCY STRESS TEST. v3.3.0's defect was a live ArrayList shared
+     * between the probe thread (appending) and the UI thread (iterating in
+     * paintProbeCard:2127). Here 8 writers append 1,000 outcomes each while four
+     * readers iterate FeatureProbe.lastResults() — the snapshot API the UI now
+     * uses — and drain Troubleshooter/Diag. Any residual CME surfaces here.
+     */
+    static void v331ConcurrencyStress(String probeSrc, String mainSrc) throws Exception {
+        final int THREADS = 8, WRITES = 1000, EXPECTED = THREADS * WRITES;
+
+        Troubleshooter.reset();
+        Diag.reset();
+
+        // the engine's own live list, reached reflectively so the shipped API stays clean
+        java.lang.reflect.Field lastF = FeatureProbe.class.getDeclaredField("LAST");
+        lastF.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        final java.util.List<FeatureProbe.Outcome> live =
+            (java.util.List<FeatureProbe.Outcome>) lastF.get(null);
+        live.clear();
+
+        final java.util.concurrent.atomic.AtomicReference<Throwable> boom =
+            new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.atomic.AtomicBoolean stop = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final java.util.concurrent.atomic.AtomicInteger snapShrunk =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+        List<Thread> threads = new ArrayList<>();
+
+        // ── the readers: the exact iteration that threw in the field ───────────
+        for (int r = 0; r < 4; r++) {
+            Thread t = new Thread(() -> {
+                try {
+                    while (!stop.get()) {
+                        java.util.List<FeatureProbe.Outcome> snap = FeatureProbe.lastResults();
+                        int n = 0;
+                        for (FeatureProbe.Outcome o : snap) if (o != null) n++;   // paintProbeCard's loop
+                        if (n != snap.size()) snapShrunk.incrementAndGet();
+                        Troubleshooter.timelineLines();                 // synchronized drain
+                        Troubleshooter.probeSection(snap);              // the report section
+                        Diag.dump();                                    // the ring snapshot
+                        reads.incrementAndGet();
+                    }
+                } catch (Throwable e) {
+                    boom.compareAndSet(null, e);
+                }
+            }, "v331-reader-" + r);
+            threads.add(t);
+        }
+
+        // ── the writers: 8 concurrent producers ────────────────────────────────
+        for (int w = 0; w < THREADS; w++) {
+            final int id = w;
+            Thread t = new Thread(() -> {
+                try {
+                    for (int i = 0; i < WRITES; i++) {
+                        FeatureProbe.Outcome o = new FeatureProbe.Outcome((i % 10) + 1, "stress-" + id + "-" + i);
+                        o.pass = (i % 2) == 0;
+                        o.ms = i;
+                        o.detail = "writer " + id;
+                        live.add(o);                                        // the producer side
+                        Troubleshooter.record("APP", "stress " + id + "/" + i);
+                        Diag.i("stress", "w" + id + " i" + i);
+                        if ((i & 63) == 0) FeatureProbe.lastResults();      // snapshot under load
+                    }
+                } catch (Throwable e) {
+                    boom.compareAndSet(null, e);
+                }
+            }, "v331-writer-" + w);
+            threads.add(t);
+        }
+
+        for (Thread t : threads) t.start();
+        // join the writers, then stop the readers
+        for (int i = 4; i < threads.size(); i++) threads.get(i).join(180000);
+        stop.set(true);
+        for (int i = 0; i < 4; i++) threads.get(i).join(30000);
+
+        Throwable err = boom.get();
+        check("v331 crash2: 8 writers × 1,000 writes + 4 concurrent snapshot readers threw NOTHING",
+            err == null, err == null ? "0 exceptions" : err.getClass().getSimpleName() + ": " + err.getMessage());
+        check("v331 crash2: zero ConcurrentModificationException anywhere in the stress window",
+            err == null || !(err instanceof java.util.ConcurrentModificationException),
+            err == null ? "no CME" : err.toString());
+        check("v331 crash2: every one of the 8,000 outcomes survived (no lost/duplicated writes)",
+            live.size() == EXPECTED, live.size() + " of " + EXPECTED);
+        check("v331 crash2: lastResults() returns a full, intact snapshot of the live run",
+            FeatureProbe.lastResults().size() == EXPECTED,
+            FeatureProbe.lastResults().size() + " outcomes");
+        check("v331 crash2: the readers iterated without ever seeing a torn list",
+            reads.get() > 0 && snapShrunk.get() == 0,
+            reads.get() + " snapshot iterations, " + snapShrunk.get() + " torn");
+        check("v331 crash2: lastResults() is IMMUTABLE (a UI thread can never mutate it)",
+            throwsUnsupported(() -> FeatureProbe.lastResults().add(
+                new FeatureProbe.Outcome(1, "x"))));
+        check("v331 crash2: two lastResults() calls are two distinct copies (never the live list)",
+            FeatureProbe.lastResults() != FeatureProbe.lastResults()
+                && FeatureProbe.lastResults() != live);
+        check("v331 crash2: the Troubleshooter timeline absorbed the concurrent records intact",
+            Troubleshooter.size() > 0);
+        check("v331 crash2: the Diag ring absorbed the concurrent records intact",
+            Diag.size() > 0);
+        check("v331 crash2: the report section renders 8,000 outcomes without throwing",
+            Troubleshooter.probeSection(FeatureProbe.lastResults()).contains("verdict: "));
+
+        // ── the double-tap guard: a second runAll can never double-run ─────────
+        java.lang.reflect.Field runF = FeatureProbe.class.getDeclaredField("RUNNING");
+        runF.setAccessible(true);
+        java.util.concurrent.atomic.AtomicBoolean running =
+            (java.util.concurrent.atomic.AtomicBoolean) runF.get(null);
+        boolean guardWorks;
+        try {
+            running.set(true);
+            java.util.List<FeatureProbe.Outcome> second = FeatureProbe.runAll(-1, "", null, false, null);
+            guardWorks = second.size() == EXPECTED;      // the previous snapshot, not a new run
+            check("v331 crash2: isRunning() reports the in-flight guard", FeatureProbe.isRunning());
+        } finally {
+            running.set(false);
+        }
+        check("v331 crash2: a second concurrent runAll() returns the snapshot instead of running again",
+            guardWorks);
+        check("v331 crash2: the guard clears itself (isRunning() false after the run)", !FeatureProbe.isRunning());
+
+        // ── the static side of the fix, in the shipped sources ────────────────
+        check("v331 crash2: FeatureProbe accumulates into a CopyOnWriteArrayList",
+            probeSrc.contains("CopyOnWriteArrayList<Outcome> LAST"));
+        check("v331 crash2: FeatureProbe hands out Collections.unmodifiableList(new ArrayList<>(...))",
+            probeSrc.contains("Collections.unmodifiableList(new ArrayList<>(LAST))"));
+        check("v331 crash2: FeatureProbe guards a double run with an AtomicBoolean",
+            probeSrc.contains("AtomicBoolean RUNNING") && probeSrc.contains("compareAndSet(false, true)"));
+        check("v331 crash2: the listener exposes onProbeSnapshot/onAllDone with immutable snapshots",
+            probeSrc.contains("default void onProbeSnapshot(List<Outcome> snapshot)")
+                && probeSrc.contains("default void onAllDone(List<Outcome> snapshot)"));
+        check("v331 crash2: MainActivity.probeOutcomes is an immutable snapshot field, never a live list",
+            mainSrc.contains("private volatile java.util.List<FeatureProbe.Outcome> probeOutcomes =")
+                && mainSrc.contains("java.util.Collections.emptyList();")
+                && !mainSrc.contains("probeOutcomes = new ArrayList<>()"));
+        check("v331 crash2: MainActivity never mutates the list from the probe thread any more",
+            !mainSrc.contains("list.add(o);"));
+        check("v331 crash2: paintProbeCard is wrapped in try/catch and checks isFinishing/isDestroyed",
+            mainSrc.contains("if (isFinishing() || isDestroyed()) return;")
+                && mainSrc.contains("paintProbeCardInner();")
+                && mainSrc.contains("Troubleshooter.record(\"TROUBLE\", \"probe card paint failed: \""));
+        check("v331 crash2: the WebView sniffer size read goes through the synchronized accessor",
+            stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"))
+                .contains("hit.pillLabel(hitCount())"));
+
+        // leave the engine clean for any later check
+        live.clear();
+        Troubleshooter.reset();
+    }
+
+    /** Run a runnable and report whether it threw UnsupportedOperationException. */
+    static boolean throwsUnsupported(Runnable r) {
+        try { r.run(); return false; }
+        catch (UnsupportedOperationException e) { return true; }
+        catch (Throwable t) { return false; }
+    }
+
+    /** v3.3.1 — the player, the customization surface, privacy and the updater. */
+    static void v331PlayerCustomizeChecks() throws Exception {
+        // ── the player: aspect math + the 403 header engine ───────────────────
+        int[] fit = VideoViewport.compute(1920, 1080, 1f, 1080, 2400, VideoViewport.FIT);
+        int[] fill = VideoViewport.compute(1920, 1080, 1f, 1080, 2400, VideoViewport.FILL);
+        check("v331 player: Fit letterboxes 1920×1080 into a 1080×2400 phone as 1080×608",
+            fit[0] == 1080 && fit[1] == 608, fit[0] + "×" + fit[1]);
+        check("v331 player: Fill crops proportionally (4267×2400, centred)",
+            fill[0] == 4267 && fill[1] == 2400, fill[0] + "×" + fill[1]);
+        check("v331 player: the 4 aspect modes cycle Fit → Fill → 16:9 → Stretch → Fit",
+            VideoViewport.next(VideoViewport.FIT) == VideoViewport.FILL
+                && VideoViewport.next(VideoViewport.STRETCH) == VideoViewport.FIT);
+
+        String url = "https://cdn.example.com/movie/index.m3u8";
+        Map<String, String> first = StreamHttpConfig.normalize(null, null, url);
+        Map<String, String> rec = StreamHttpConfig.recovery(url, first);
+        check("v331 player: the 403 recovery leg adds a desktop Referer + the CDN Origin",
+            rec.get("Referer") != null && "https://cdn.example.com".equals(rec.get("Origin")),
+            StreamHttpConfig.describe(rec));
+        check("v331 player: 401/403 are recoverable, 404/500 are not",
+            StreamHttpConfig.recoverable(403) && StreamHttpConfig.recoverable(401)
+                && !StreamHttpConfig.recoverable(404) && !StreamHttpConfig.recoverable(500));
+        check("v331 player: a blocked (non-browser) UA is never sent",
+            StreamHttpConfig.isBlockedUa("okhttp/4.12") && !StreamHttpConfig.isBlockedUa(StreamHttpConfig.CHROME_UA));
+
+        // ── the Sri Lankan subtitle hunt ──────────────────────────────────────
+        check("v331 player: a .zip subtitle from a Sri Lankan site is recognised",
+            LkSubFinder.isZip("https://www.baiscope.lk/subs/Movie.2024.zip")
+                && LkSubFinder.isSubtitleDownload("https://www.baiscope.lk/subs/Movie.2024.zip"));
+        check("v331 player: the Sinhala ZWJ conjunct survives the query encoder",
+            LkSubFinder.enc("ශ්‍රී ලංකාවේ චිත්‍රපටිය").contains("%E0%B7%81"));
+        check("v331 player: the external hand-off never yields a file:// URL "
+                + "(raw paths and file:// are dropped, the loopback route survives)",
+            LkSubFinder.safeSubLocation("/data/user/0/x/subs/current.srt") == null
+                && LkSubFinder.safeSubLocation("file:///data/user/0/x/subs/current.srt") == null
+                && "http://127.0.0.1:8765/subs/current.srt".equals(
+                    LkSubFinder.safeSubLocation("http://127.0.0.1:8765/subs/current.srt")));
+
+        // ── the free translator's batch codec ─────────────────────────────────
+        List<Cue> cues = new ArrayList<>();
+        for (int i = 0; i < 5; i++) cues.add(new Cue(i, i * 1000L, i * 1000L + 900L, "", "line " + i, null, ""));
+        List<String> batch = FreeSubTranslator.encodeBatch(cues, 0, 5);
+        String reply = String.join("\n", batch);
+        String[] decoded = FreeSubTranslator.decodeBatch(reply, batch.size());
+        check("v331 player: the translator batch round-trips 5 cues intact",
+            batch.size() == 5 && decoded.length == 5 && "line 3".equals(decoded[3].trim()),
+            batch.size() + " encoded / " + decoded.length + " decoded");
+
+        // ── privacy: nothing identifiable may reach the report ────────────────
+        String leaky = "peer 192.168.1.39 · Build.MODEL=24117RN76G · "
+            + "https://cdn.example/a.m3u8?token=secret123 · /storage/emulated/0/Movies/private.mp4";
+        String clean = PrivacyScrubber.scrub(leaky);
+        check("v331 privacy: an IP, a device model, a URL token and a file path are all scrubbed",
+            !PrivacyScrubber.leaked(clean, "192.168.1.39", "24117RN76G", "secret123", "private.mp4"), clean);
+        int canaries = PrivacyScrubber.canaryLeaks().size();
+        String stillLeaking = "";
+        for (String canary : PrivacyScrubber.canaryLeaks()) {
+            if (PrivacyScrubber.leaked(PrivacyScrubber.scrub(canary), canary)) { stillLeaking = canary; break; }
+        }
+        check("v331 privacy: all " + canaries + " canary leak shapes are scrubbed by the ONE gate",
+            stillLeaking.isEmpty(), stillLeaking.isEmpty() ? canaries + "/" + canaries + " clean" : "leaked: " + stillLeaking);
+
+        // ── the updater: the 302 path + the derived asset URLs ────────────────
+        check("v331 updater: a /releases/latest 302 Location resolves to the tag",
+            "v3.3.1".equals(SelfUpdateCore.tagFromLocation(
+                "https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.3.1")));
+        check("v331 updater: the derived APK asset URL is the v3.3.1 release asset",
+            SelfUpdateCore.derivedApkUrl("v3.3.1").endsWith(
+                "/download/v3.3.1/AnantPlay-Sinhala-Player-v3.3.1.apk"));
+        check("v331 updater: the derived SHA256SUMS URL sits beside it",
+            SelfUpdateCore.derivedSumsUrl("v3.3.1").endsWith("/download/v3.3.1/SHA256SUMS.txt"));
+        check("v331 updater: httpsOnly() refuses plain http (no downgrade path)",
+            !SelfUpdateCore.httpsOnly("http://github.com/x/y") && SelfUpdateCore.httpsOnly("https://github.com/x/y"));
+
+        // ── the customization surface: every key survives export → import ─────
+        Map<String, Object> settings = new LinkedHashMap<>();
+        settings.put(AppPrefs.K_THEME_MODE, "amoled");
+        settings.put(AppPrefs.K_DYNAMIC_COLOR, true);
+        settings.put(AppPrefs.K_ACCENT, 5);
+        settings.put(AppPrefs.K_ACCENT_HEX, "#7C3AED");
+        settings.put(AppPrefs.K_UI_LANG, "si");
+        settings.put(AppPrefs.K_DENSITY, "compact");
+        settings.put(AppPrefs.K_CARD_RADIUS, "apple-pill");
+        settings.put(AppPrefs.K_SHOW_WEB_TAB, true);
+        settings.put(AppPrefs.K_SHOW_QUICK_ACTIONS, true);
+        settings.put(AppPrefs.K_DEFAULT_LANG, "si");
+        settings.put(AppPrefs.K_REGISTER, "formal");
+        settings.put(AppPrefs.K_AUTO_FETCH, true);
+        settings.put(AppPrefs.K_CINEMA_POLISH, true);
+        settings.put(AppPrefs.K_FONT_SP, 22);
+        settings.put(AppPrefs.K_FONT_FAMILY, "noto");
+        settings.put(AppPrefs.K_SUB_COLOR, 3);
+        settings.put(AppPrefs.K_SUB_BG, "box");
+        settings.put(AppPrefs.K_SUB_BG_OPACITY, 60);
+        settings.put(AppPrefs.K_SUB_BOLD, true);
+        settings.put(AppPrefs.K_SUB_BOTTOM_PCT, 8);
+        settings.put(AppPrefs.K_SUB_LINE_SPACING, 130);
+        settings.put(AppPrefs.K_SUB_ENGINE, "free");
+        settings.put(AppPrefs.K_AUTO_TRANSLATE_NON_SI, true);
+        settings.put(AppPrefs.K_AUTO_ZIP, true);
+        settings.put(AppPrefs.K_SYNC_STEP_MS, 250);
+        settings.put(AppPrefs.K_SEEK_STEP_MS, 15000);
+        settings.put(AppPrefs.K_GESTURES, true);
+        settings.put(AppPrefs.K_DOUBLE_TAP_SEEK, true);
+        settings.put(AppPrefs.K_AUTO_PIP, true);
+        settings.put(AppPrefs.K_KEEP_SCREEN_ON, true);
+        settings.put(AppPrefs.K_AUTO_RESUME, true);
+        settings.put(AppPrefs.K_HUD_HIDE_MS, 4000);
+        settings.put(AppPrefs.K_PLAY_SPEED, 125);
+        settings.put(AppPrefs.K_ASPECT_MODE, "16:9");
+        settings.put(AppPrefs.K_SWIPE_BRIGHTNESS, true);
+        settings.put(AppPrefs.K_SWIPE_VOLUME, true);
+        settings.put(AppPrefs.K_SWIPE_SEEK, true);
+        settings.put(AppPrefs.K_LOCK_ON_START, true);
+        settings.put(AppPrefs.K_DOH_DIAG, true);
+        settings.put(AppPrefs.K_RECEIVER_NAME, "Living Room");
+        settings.put(AppPrefs.K_RECEIVER_PORT, 8765);
+        settings.put(AppPrefs.K_DLNASTART, true);
+        settings.put(AppPrefs.K_MDNS, true);
+        settings.put(AppPrefs.K_WORKER_URL, "https://worker.example.workers.dev");
+        settings.put(AppPrefs.K_AUTO_UPDATE, true);
+        settings.put(AppPrefs.K_AUTO_OPEN_SNIFFED, true);
+        settings.put(AppPrefs.K_WEB_DESKTOP_UA, true);
+        settings.put(AppPrefs.K_AD_BLOCK, true);
+        settings.put(AppPrefs.K_WEB_LINKS, "Baiscope|https://www.baiscope.lk\nCineLK|https://cinel.k");
+        settings.put(AppPrefs.K_FREE_TRANSLATOR, true);
+        String backup = SettingsBackup.export(AppInfo.VERSION_NAME, 1763800000000L, settings);
+        SettingsBackup.Import imp = SettingsBackup.parseImport(backup);
+        check("v331 customize: all " + AppPrefs.BACKUP_KEYS.size() + " customization keys survive "
+                + "export → import (the v3.3.0 lock/swipe keys used to be silently dropped)",
+            imp.ok && imp.values.size() == settings.size() && imp.rejected == 0,
+            imp.ok ? imp.values.size() + " keys restored, " + imp.rejected + " rejected" : imp.error);
+        boolean spotOk = imp.ok
+            && "amoled".equals(String.valueOf(imp.values.get(AppPrefs.K_THEME_MODE)))
+            && "apple-pill".equals(String.valueOf(imp.values.get(AppPrefs.K_CARD_RADIUS)))
+            && "16:9".equals(String.valueOf(imp.values.get(AppPrefs.K_ASPECT_MODE)))
+            && Boolean.TRUE.equals(imp.values.get(AppPrefs.K_LOCK_ON_START))
+            && Boolean.TRUE.equals(imp.values.get(AppPrefs.K_SWIPE_BRIGHTNESS))
+            && Boolean.TRUE.equals(imp.values.get(AppPrefs.K_SWIPE_VOLUME))
+            && Boolean.TRUE.equals(imp.values.get(AppPrefs.K_SWIPE_SEEK))
+            && AppPrefs.parseLinks(String.valueOf(imp.values.get(AppPrefs.K_WEB_LINKS))).size() == 2;
+        check("v331 customize: the theme, radius, aspect, lock-on-start and all three swipe switches "
+                + "restore exactly as chosen", spotOk);
+        check("v331 customize: the Sinhala UI language + AMOLED theme persist as chosen",
+            "si".equals(String.valueOf(imp.values.get(AppPrefs.K_UI_LANG))));
+        check("v331 customize: a custom accent hex persists (stored normalized to 6 lowercase hex, "
+                + "exactly as ThemeEngine reads it)",
+            "7c3aed".equals(String.valueOf(imp.values.get(AppPrefs.K_ACCENT_HEX)))
+                && AppPrefs.accentHexColor("7c3aed") != 0);
+
+        // ── the live update channel's own manifest ────────────────────────────
+        String latest = readRepoFile("docs/latest.json");
+        check("v331 customize: docs/latest.json announces 3.3.1 / 30301",
+            latest.contains("\"version\":\"3.3.1\"") && latest.contains("\"code\":30301"), latest);
+        check("v331 customize: docs/latest.json points at the v3.3.1 release asset",
+            latest.contains("/download/v3.3.1/AnantPlay-Sinhala-Player-v3.3.1.apk"));
+        check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
+            latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
     }
 
 }

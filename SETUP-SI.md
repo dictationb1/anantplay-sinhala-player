@@ -1,5 +1,23 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.3.0)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.3.1)
 
+> **v3.3.1 අලුත් දේ (Sinhala):**
+>
+> 1. **දෙවරක් crash වූ දෙකම සම්පූර්ණයෙන් නැවැත්තුවා.** (අ) ධාවකයේ
+>    `ClassCastException: LinearLayout$LayoutParams → FrameLayout$LayoutParams`
+>    (`FrameLayout.onMeasure` තුළ) — උපසිරැසි pill තීරුව, chip පේළිය සහ
+>    ⏪/⏩ ripple වැරදි `LayoutParams` වර්ගයෙන් එකතු කළ නිසා. (ආ) 🩺
+>    Troubleshoot එකේ `ConcurrentModificationException` — probe thread එක සහ
+>    UI thread එක එකම ලැයිස්තුවක් එකවර වෙනස් කළ නිසා. දැන් probe එංජිම
+>    වෙනස් කළ නොහැකි snapshot පමණක් ලබා දෙයි.
+> 2. **නව ස්ථිතික පරීක්ෂකය (`lab/verify_layouts.py`).** සියලුම Java ගොනු 46
+>    පරීක්ෂා කර, වැරදි `LayoutParams` එකක් තිබුණොත් build එකම FAIL වේ —
+>    මෙම crash නැවත ඇතිවීම ව්‍යුහාත්මකව කළ නොහැකි ය.
+> 3. **Card corner radius දැන් සැබවින්ම වැඩ කරයි.** Sharp 6dp / Rounded 16dp /
+>    Apple Pill 28dp — තට්ටු කළ විගස UI එක වෙනස් වේ (කලින් සැමවිටම 16dp).
+> 4. **Backup & Restore සම්පූර්ණයි.** v3.3.0 හි lock-on-start සහ swipe
+>    සැකසුම් 3 backup එකෙන් ඉවත් වී ගියා; දැන් සැකසුම් යතුරු 50ම
+>    export → import වලින් නැවත ලැබේ.
+>
 > **v3.3.0 අලුත් දේ (Sinhala):**
 >
 > 1. **පහළ සැරිසැරීමේ තීරුව (Bottom Navigation Bar) නැවත ලැබුණා.** v3.2.0 හි

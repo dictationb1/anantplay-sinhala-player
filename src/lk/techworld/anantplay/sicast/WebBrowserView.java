@@ -512,7 +512,10 @@ public class WebBrowserView extends FrameLayout {
         Diag.i("web", "stream sniffed: [" + hit.kind + "] " + StreamSniffer.hostOf(hit.url)
             + (hit.pageTitle.isEmpty() ? "" : " — \"" + hit.pageTitle + "\""));
         act.runOnUiThread(() -> {
-            pill.setText(hit.pillLabel(hits.size()));
+            // v3.3.1 — read the size through the synchronized accessor: `hits` is a
+            // plain LinkedHashMap written by the sniffer thread, so touching it
+            // directly from the UI thread was an unsynchronised read of live state.
+            pill.setText(hit.pillLabel(hitCount()));
             pillRow.setVisibility(View.VISIBLE);
             maybeAutoOpen(hit);
         });
