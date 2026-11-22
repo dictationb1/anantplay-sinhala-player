@@ -403,26 +403,31 @@ the lab now asserts an exact **50 / 50** round-trip with **0 rejected**:
 
 # 5. GitHub CI & release proof
 
-## 5.1 Pre-merge (this PR)
+## 5.1 The pull request (never a direct push to `main`)
 
 | Item | Value |
 |---|---|
 | Branch | `fix/v3.3.1-zero-crash-and-ui-polish` |
-| PR | into `main` (see the PR link posted with this delivery) |
-| `Cast protocol lab` (gating) | 0 tracked `.zip` · `verify_layouts.py --selftest` 13/13 · `verify_layouts.py` 0 problems · `verify_refs.py` OK · **773/773 PASS, 0 FAIL** |
-| `APK build` | `platforms;android-36` + `build-tools;35.0.1` · `versionCode='30301'` · `versionName='3.3.1'` · `zipalign -c 4` · `apksigner verify` **v2 + v3 PASS** · `AnantPlay-Sinhala-Player-v3.3.1.apk` uploaded |
+| PR | **https://github.com/dictationb1/anantplay-sinhala-player/pull/17** |
+| `Cast protocol lab` (gating) | **PASS** — 0 tracked `.zip` · `verify_layouts.py --selftest` 13/13 · `verify_layouts.py` 0 problems · `verify_refs.py` OK · **773/773 PASS, 0 FAIL** — [job](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45071615090/job/137359596630) |
+| `APK build` | **PASS** — `platforms;android-36` + `build-tools;35.0.1` · `versionCode='30301'` · `versionName='3.3.1'` · `zipalign -c 4` · `apksigner verify` **v2 + v3** · `AnantPlay-Sinhala-Player-v3.3.1.apk` uploaded — [job](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45071615090/job/137359596788) |
 
-## 5.2 Post-merge (filled in immediately after the merge, in a follow-up docs commit)
+## 5.2 Post-merge — both `main` workflows green, release live
 
 | Item | Value |
 |---|---|
-| Merged commit SHA | *(recorded after merge)* |
-| `build-apk.yml` on `main` | *(recorded after merge)* |
-| `release-apk.yml` on `main` | *(recorded after merge)* |
-| Live release | `https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.3.1` — exactly **2 assets**: `AnantPlay-Sinhala-Player-v3.3.1.apk` (`versionCode 30301`) + `SHA256SUMS.txt` (GNU format) |
-| `docs/latest.json` on `main` | auto-rewritten to `3.3.1 / 30301` + the release APK's real SHA-256 by the release job (`[skip ci]`, no loop) |
+| Merged commit SHA | **`e3f9da3bf9c27e1cda9cdd654d0c6d833a2984a3`** (merge of PR #17) |
+| `build-apk.yml` on `main` | **success** — run `45071846224` (55 s) |
+| `release-apk.yml` on `main` | **success** — run `45071846213` (1 m 08 s) |
+| Live release | **https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.3.1** — exactly **2 assets**: `AnantPlay-Sinhala-Player-v3.3.1.apk` (3,429,075 bytes) + `SHA256SUMS.txt` (102 bytes, GNU format) |
+| Release APK badging (re-downloaded and re-checked) | `versionCode='30301' versionName='3.3.1' compileSdkVersion='36'` · `zipalign -c 4` OK |
+| Release APK SHA-256 | **`fa5799c0891d0c2f6086144d08eec9b9d81a1b241c64ed5c19c05a9183b2c50d`** — byte-identical to the value in `SHA256SUMS.txt` and to the release asset digest |
+| `docs/latest.json` on `main` | auto-rewritten to `{"version":"3.3.1","code":30301,"sha256":"fa5799c0…","apkUrl":"…/download/v3.3.1/AnantPlay-Sinhala-Player-v3.3.1.apk"}` by the release job (`[skip ci]`, no workflow loop) |
 
----
+> The local debug-signed proof build (§2.5, `ccf99a2b…`, 3,424,979 bytes) and the release
+> build (`fa5799c0…`, 3,429,075 bytes) differ only by the signing certificate — the release
+> job signs with the permanent `KS_BASE64` keystore so Obtainium in-place updates keep
+> working forever. Both carry `versionCode 30301` / `versionName 3.3.1` / `targetSdk 36`.
 
 # 6. Why this cannot happen again
 
