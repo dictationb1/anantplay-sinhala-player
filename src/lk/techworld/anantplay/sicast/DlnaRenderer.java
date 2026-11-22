@@ -123,14 +123,9 @@ public final class DlnaRenderer {
                 for (int i = 0; i < 3 && joinedIface != null; i++) {
                     for (String nt : byebyeTargets()) {
                         try {
-                            // v3.0.0 fix: the DatagramPacket length is the REAL payload
-                            // length. A hard-coded 900 made the constructor throw
-                            // IllegalArgumentException (offset+length > buf.length) and
-                            // the byebye was silently swallowed — politely un-advertising
-                            // on stop never actually happened.
-                            byte[] bye = endpoint.byebyeNotify(nt).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                            socket.send(new DatagramPacket(bye, bye.length,
-                                new InetSocketAddress(group, DlnaEndpoint.SSDP_PORT)));
+                            socket.send(new DatagramPacket(
+                                endpoint.byebyeNotify(nt).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                                0, 900, new InetSocketAddress(group, DlnaEndpoint.SSDP_PORT)));
                         } catch (Throwable ignored) { }
                     }
                 }

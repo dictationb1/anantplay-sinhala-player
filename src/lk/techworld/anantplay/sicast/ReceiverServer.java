@@ -5,13 +5,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
-import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -81,9 +78,21 @@ public final class ReceiverServer {
     /** v3.0.0 — the DLNA MediaRenderer endpoints (/dlna/*). Null = not mounted
      *  (the lab's plain cast tests run exactly as before). */
     private volatile DlnaEndpoint dlna;
+    /** v3.1.0 — the cached own-address snapshot (Bug 1, Smoking Gun #1): refreshed
+     *  on every successful enumeration and via setLocalSnapshot() from the service's
+     *  network callback. When a fresh HyperOS enumeration fails, the isSelf decision
+     *  falls back to this list instead of refusing a same-device cast. */
+    private volatile List<byte[]> ownSnapshot = new java.util.ArrayList<>();
     /** At most 12 in-flight requests: AnantPlay sends one at a time; a flood is dropped. */
     private static final int MAX_INFLIGHT = 12;
     private final AtomicInteger inFlight = new AtomicInteger();
+
+    /** v3.1.0 — the host pushes its own view of the device's addresses (the
+     *  ConnectivityManager callback that already tracks "wifi:192.168.1.39").
+     *  Union-merged: the snapshot only ever grows within a process lifetime. */
+    public void setLocalSnapshot(List<byte[]> own) {
+        if (own != null) ownSnapshot = LocalNet.union(ownSnapshot, own);
+    }
 
     /** v3.0.0 — mount the DLNA MediaRenderer (ReceiverService calls this at arm). */
     public void setDlna(DlnaEndpoint dlna) { this.dlna = dlna; }
@@ -195,14 +204,22 @@ public final class ReceiverServer {
             String path = u.getPath() == null ? "" : u.getPath();
             route = req.length > 0 ? req[0] + " " + path : "?";
 
-            boolean local = isSelf(sock.getInetAddress());
+            boolean local = isSelf(sock);
             String out;
             String contentType = "application/json";
             int status = 200;
             DlnaEndpoint d = dlna;
             if (!local) {
+                // v3.1.0 — HTTP 403 (was 200+JSON): a code >= 400 is what official
+                // AnantPlay's soap()/describe() treat as a refusal, and the exact
+                // remote IP + reason is logged so a field refusal is diagnosable
+                // from Diagnostics in one glance.
                 verdict = "refused-nonlocal";
+                status = 403;
                 out = "{\"ok\":false,\"why\":\"local-device-only\"}";
+                Diag.w("http", "REFUSED " + route + " from " + LocalNet.describe(sock.getInetAddress())
+                    + " (local endpoint " + LocalNet.describe(sock.getLocalAddress())
+                    + ", known-own " + ownSnapshot.size() + " addr) — not an address of this phone");
             } else if (d != null && path.startsWith("/dlna/")) {
                 // v3.0.0 — the DLNA MediaRenderer surface (desc.xml + AVTransport/RC
                 // SOAP). The LOCATION the client used is rebuilt from the socket's
@@ -288,6 +305,8 @@ public final class ReceiverServer {
         switch (code) {
             case 200: return "OK";
             case 400: return "Bad Request";
+            case 402: return "Payment Required";
+            case 403: return "Forbidden";
             case 404: return "Not Found";
             case 500: return "Internal Server Error";
             case 501: return "Not Implemented";
@@ -309,34 +328,22 @@ public final class ReceiverServer {
         return null;
     }
 
-    /** True when the address belongs to this device (loopback or any interface address). */
-    static boolean isSelf(InetAddress a) {
-        if (a == null) return false;
-        if (a.isLoopbackAddress()) return true;
-        if (a.isAnyLocalAddress()) return true;
-        // An IPv6 socket reports an IPv4 client as ::ffff:a.b.c.d — normalise it, otherwise
-        // a same-device cast over a v6 socket would be refused on some vendor stacks.
-        byte[] raw = a.getAddress();
-        if (raw != null && raw.length == 16) {
-            boolean mapped = true;
-            for (int i = 0; i < 10; i++) if (raw[i] != 0) { mapped = false; break; }
-            if (mapped && (raw[10] & 0xFF) == 0xFF && (raw[11] & 0xFF) == 0xFF) {
-                try {
-                    InetAddress v4 = InetAddress.getByAddress(new byte[]{raw[12], raw[13], raw[14], raw[15]});
-                    if (v4.isLoopbackAddress()) return true;
-                    a = v4;
-                } catch (Exception ignored) { }
-            }
-        }
-        try {
-            for (Enumeration<NetworkInterface> ns = NetworkInterface.getNetworkInterfaces(); ns.hasMoreElements(); ) {
-                NetworkInterface n = ns.nextElement();
-                if (n == null) continue;
-                for (InetAddress i : Collections.list(n.getInetAddresses()))
-                    if (i.equals(a)) return true;
-            }
-        } catch (Exception ignored) { }
-        return false;
+    /** v3.1.0 — THE local-device gate (Bug 1 fix). All rules live in the pure-Java
+     *  LocalNet (lab-proven); this wrapper adds the live-enum + cached-snapshot
+     *  plumbing and keeps the snapshot warm for the next caller:
+     *    1. loopback / any-local (InetAddress semantics);
+     *    2. IPv4-mapped IPv6 normalised to IPv4, byte-wise everywhere;
+     *    3. THE SAME-HOST RULE — remote == the connection's own local endpoint
+     *       (AnantPlay connects to the LOCATION we advertised, from this phone);
+     *    4. byte-wise membership in the live interface enumeration;
+     *    5. byte-wise membership in the cached own-address snapshot (the fallback
+     *       for the HyperOS case where a fresh enumeration returns nothing).
+     *  External LAN strangers (a different phone's IP) match no rule → refused. */
+    boolean isSelf(Socket sock) {
+        List<byte[]> live = LocalNet.enumerateOwn();
+        // keep the snapshot warm: every successful enumeration extends it
+        if (!live.isEmpty()) ownSnapshot = LocalNet.union(ownSnapshot, live);
+        return LocalNet.isSelf(sock.getInetAddress(), sock.getLocalAddress(), live, ownSnapshot);
     }
 
     /** The volatile /status snapshot the player keeps fresh (never blocks the server). */

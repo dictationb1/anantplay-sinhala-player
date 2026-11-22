@@ -12,8 +12,18 @@ cd "$(dirname "$0")/.."
 rm -rf lab/out
 mkdir -p lab/out/classes
 
+echo "── compile the lab-only android stub (SharedPreferences — never shipped, never dexed)"
+javac -encoding UTF-8 -nowarn -d lab/out/classes lab/stubs/android/content/SharedPreferences.java
+
 echo "── compile the pure engines + the lab"
-javac -encoding UTF-8 -nowarn -d lab/out/classes \
+javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes \
+  src/lk/techworld/anantplay/sicast/LocalNet.java \
+  src/lk/techworld/anantplay/sicast/AnnouncerPolicy.java \
+  src/lk/techworld/anantplay/sicast/UpdateNotify.java \
+  src/lk/techworld/anantplay/sicast/CrashLog.java \
+  src/lk/techworld/anantplay/sicast/AppPrefs.java \
+  src/lk/techworld/anantplay/sicast/ThemeEngine.java \
+  src/lk/techworld/anantplay/sicast/SettingsBackup.java \
   src/lk/techworld/anantplay/sicast/Langs.java \
   src/lk/techworld/anantplay/sicast/ReceiverServer.java \
   src/lk/techworld/anantplay/sicast/BridgeApi.java \

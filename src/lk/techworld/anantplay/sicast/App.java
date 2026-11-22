@@ -1,6 +1,7 @@
 package lk.techworld.anantplay.sicast;
 
 import android.app.Application;
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
@@ -22,6 +23,14 @@ public class App extends Application {
     static final String CHANNEL = "si-receiver";
     /** Cast arrivals that need a tap (no overlay permission, media permission, …). */
     static final String CHANNEL_CAST = "si-cast";
+    /** v3.1.0 (Bug 5) — the SILENT update channel: IMPORTANCE_LOW, no sound, no
+     *  vibration, no badge. v3.0.0 posted update banners on CHANNEL_CAST
+     *  (IMPORTANCE_HIGH + heads-up + badge) — the notification spam that visibly
+     *  lagged the phone. Every update notification now goes here, is
+     *  setOnlyAlertOnce(true) + PRIORITY_LOW (android-36 has no Builder.setSilent —
+     *  the LOW channel importance is what makes them silent), and progress posts
+     *  are throttled by UpdateNotify to at most 1 per second. */
+    static final String CHANNEL_UPDATES_SILENT = "si-updates-silent";
 
     private static volatile App inst;
 
@@ -59,7 +68,19 @@ public class App extends Application {
 
         final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
-            Diag.crash("thread " + t.getName(), e);   // ring + file, then the system dialog
+            // v3.1.0 (Bug 2) — THE PERSISTENT CRASH RECORDER: the FULL redacted
+            // report (timestamp, version, device, thread, every cause + frame)
+            // lands atomically in filesDir/last_crash.txt BEFORE the system
+            // dialog, so "keeps stopping" is always explainable afterwards from
+            // Diagnostics → Last Crash Captured (1-tap Copy/Share).
+            try {
+                String report = CrashLog.format(System.currentTimeMillis(), AppInfo.VERSION_NAME,
+                    "sdk " + android.os.Build.VERSION.SDK_INT + " | " + android.os.Build.MANUFACTURER
+                        + " " + android.os.Build.MODEL + " | " + android.os.Build.VERSION.RELEASE,
+                    t.getName(), e);
+                CrashLog.writeAtomically(getFilesDir(), report);
+                Diag.crash("thread " + t.getName(), e);   // ring + file, then the system dialog
+            } catch (Throwable ignored) { }
             if (prev != null) prev.uncaughtException(t, e);
         });
 
@@ -76,6 +97,17 @@ public class App extends Application {
             cast.setDescription(getString(R.string.channel_cast_desc));
             cast.setShowBadge(true);
             nm.createNotificationChannel(cast);
+
+            // v3.1.0 (Bug 5) — the dedicated SILENT update channel: zero sound,
+            // zero vibration, zero badge, LOW importance. A ~3–4 MB app update
+            // must never make a sound, never heads-up, never spam.
+            NotificationChannel silent = new NotificationChannel(CHANNEL_UPDATES_SILENT,
+                "Silent updates · නිහඬ යාවත්කාලීන", NotificationManager.IMPORTANCE_LOW);
+            silent.setDescription("Update progress + ready notices — always silent, throttled, never spam");
+            silent.setSound(null, null);
+            silent.enableVibration(false);
+            silent.setShowBadge(false);
+            nm.createNotificationChannel(silent);
         } catch (Throwable t) {
             Diag.w("app", "channel: " + t);
         }
@@ -103,17 +135,24 @@ public class App extends Application {
         }
     }
 
-    // ── v3.0.0: the self-update notifications (channel: the existing cast channel) ──
+    // ── v3.1.0: the SILENT self-update notifications (channel: si-updates-silent) ──
+    // Bug 5 rules: every builder is setOnlyAlertOnce(true) + PRIORITY_LOW,
+    // the channel is IMPORTANCE_LOW with sound/vibration/badge disabled (that
+    // combination IS the silent mode on API 26+), and progress posts are
+    // throttled by UpdateNotify (at most 1 per second) BEFORE they reach this
+    // method — a download can no longer flood SystemUI.
 
-    /** The live download banner with the percentage (updated on every chunk). */
+    /** The quiet download progress banner (called at most once per second). */
     static void notifyUpdateProgress(Context c, String version, int percent) {
         try {
-            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_CAST)
+            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_UPDATES_SILENT)
                 .setSmallIcon(R.drawable.ic_stat_si)
                 .setContentTitle("AnantPlay Sinhala Player " + version)
-                .setContentText("අලුත් සංස්කරණය v" + version + " ඩවුන්ලෝඩ් වෙමින්… "
-                    + (percent >= 0 ? percent + "%" : "…"))
+                .setContentText("v" + version + " බාගැනෙමින්… " + (percent >= 0 ? percent + "%" : "…")
+                    + " · downloading quietly")
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(Notification.PRIORITY_LOW)
                 .setProgress(100, Math.max(0, percent), percent < 0)
                 .build();
             c.getSystemService(NotificationManager.class).notify(20401, n);
@@ -122,14 +161,20 @@ public class App extends Application {
         }
     }
 
-    /** Download verified, install prompt coming (the OS's own 1-tap dialog). */
+    /** Download verified, install prompt coming (the OS's own 1-tap dialog).
+     *  Carries the quiet Skip-this-version action (v3.1.0, Bug 5). */
     static void notifyUpdateReady(Context c, String version) {
         try {
-            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_CAST)
+            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_UPDATES_SILENT)
                 .setSmallIcon(R.drawable.ic_stat_si)
-                .setContentTitle("AnantPlay Sinhala Player " + version)
-                .setContentText("යාවත්කාලීනය සූදානම් — ස්ථාපනය කිරීමට තට්ටු කරන්න · ready to install (1 tap)")
+                .setContentTitle("Update ready (v" + version + ") — Tap to install")
+                .setContentText("v" + version + " සූදානම් — ස්ථාපනයට තට්ටු කරන්න · verified (SHA-256 ✓), tap to install")
                 .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(Notification.PRIORITY_LOW)
+                .setContentIntent(SelfUpdater.confirmPendingIntent(c))
+                .addAction(new android.app.Notification.Action.Builder(null,
+                    "Skip v" + version + " · මඟහරින්න", SelfUpdater.skipPendingIntent(c, version)).build())
                 .build();
             c.getSystemService(NotificationManager.class).notify(20402, n);
         } catch (Throwable t) {
@@ -137,14 +182,16 @@ public class App extends Application {
         }
     }
 
-    /** The SHA-256 mismatch / failure notice. */
+    /** The SHA-256 mismatch / failure notice (still silent — a failure is never an alarm). */
     static void notifyUpdateFailed(Context c, String version) {
         try {
-            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_CAST)
+            android.app.Notification n = new android.app.Notification.Builder(c, CHANNEL_UPDATES_SILENT)
                 .setSmallIcon(R.drawable.ic_stat_si)
                 .setContentTitle("AnantPlay Sinhala Player " + version)
-                .setContentText("යාවත්කාලීන බාගැනීම අසාර්ථක විය (SHA-256 නොගැලපේ) — පසුව නැවත උත්සාහ කරනු ලැබේ · download failed verification, will retry later")
+                .setContentText("බාගැනීම අසාර්ථක විය (SHA-256 නොගැලපේ) — පසුව නැවත උත්සාහ වේ · download failed verification, will retry later")
                 .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(Notification.PRIORITY_LOW)
                 .build();
             c.getSystemService(NotificationManager.class).notify(20403, n);
         } catch (Throwable t) {

@@ -46,6 +46,8 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
 
     static final String ACTION_STOP = "lk.techworld.anantplay.sicast.STOP";
     static final String ACTION_TEST = "lk.techworld.anantplay.sicast.TEST";
+    /** v3.1.0 — re-arm with fresh prefs (the Cast & Network settings page). */
+    static final String ACTION_APPLY_PREFS = "lk.techworld.anantplay.sicast.APPLY_PREFS";
 
     private static volatile ReceiverService running;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -138,26 +140,47 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
             stopSelf();
             return;
         }
+        // v3.1.0 (Bug 1) — prime the local-address snapshot the moment the server
+        // exists: isSelf() then accepts our own wlan0 IP even if a LATER HyperOS
+        // enumeration transiently fails (the 2026-11-22 refusal scenario).
+        server.setLocalSnapshot(LocalNet.enumerateOwn());
+        // v3.1.0 — the customization prefs: receiver display name + the two
+        // discovery-pillar toggles (Cast & Network settings page).
+        android.content.SharedPreferences prefs = getSharedPreferences("sicast", MODE_PRIVATE);
+        String displayName = AppPrefs.receiverName(prefs);
+        boolean dlnaOn = AppPrefs.dlnaEnabled(prefs);
+        boolean mdnsOn = AppPrefs.mdnsEnabled(prefs);
         // v3.0.0 — THE SECOND CAST PILLAR: the UPnP/DLNA MediaRenderer. AnantPlay's
         // Cast.discover() SSDP-searches for MediaRenderer:1 on every app start and
         // Re-scan, and Cast.any() counts the result exactly like an mDNS TV — so
         // the Cast chip works even while NsdManager hangs (the Android 16 field
         // failure). The endpoint shares the /play /do /status engine; the SSDP
         // responder answers M-SEARCH on UDP 1900. UUID stays stable per install.
-        dlnaEndpoint = new DlnaEndpoint(new DlnaBridge(), dlnaUuid(), "සිංහල Player",
+        // v3.1.0: friendlyName = the user's Custom Receiver Display Name.
+        dlnaEndpoint = new DlnaEndpoint(new DlnaBridge(), dlnaUuid(), displayName,
             "Android/" + Build.VERSION.RELEASE + " UPnP/1.0 AnantPlaySinhalaPlayer/" + AppInfo.VERSION_NAME);
         server.setDlna(dlnaEndpoint);
-        dlnaRenderer = new DlnaRenderer(dlnaEndpoint, () -> {
-            java.net.InetAddress ip = NsdAnnouncer.wifiLanIp();
-            return ip == null ? "" : "http://" + ip.getHostAddress() + ":" + server.port() + "/dlna/desc.xml";
-        });
-        dlnaRenderer.start();
-        nsd = new NsdAnnouncer(this, server.port());
-        nsd.start();
+        if (dlnaOn) {
+            dlnaRenderer = new DlnaRenderer(dlnaEndpoint, () -> {
+                java.net.InetAddress ip = NsdAnnouncer.wifiLanIp();
+                return ip == null ? "" : "http://" + ip.getHostAddress() + ":" + server.port() + "/dlna/desc.xml";
+            });
+            dlnaRenderer.start();
+        } else {
+            Diag.i("service", "DLNA renderer disabled in Settings (Cast & Network)");
+        }
+        if (mdnsOn) {
+            nsd = new NsdAnnouncer(this, server.port());
+            nsd.start();
+        } else {
+            Diag.i("service", "mDNS announcer disabled in Settings (Cast & Network)");
+        }
         heal.removeCallbacks(healTask);
         heal.postDelayed(healTask, 15 * 60 * 1000L);
-        Diag.i("service", "up on port " + server.port() + (nsd.isAnnounced() ? " (announced)" : " (announce pending)")
-            + (dlnaRenderer.isRunning() ? " (dlna up)" : " (dlna degraded)"));
+        Diag.i("service", "up on port " + server.port()
+            + (nsd == null ? "" : nsd.isAnnounced() ? " (announced)" : " (announce pending)")
+            + (dlnaRenderer != null && dlnaRenderer.isRunning() ? " (dlna up)" : " (dlna off)")
+            + " (name \"" + displayName + "\")");
     }
 
     /** A stable per-install UUID for the DLNA UDN (generated once, kept forever). */
@@ -219,6 +242,16 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         if (ACTION_STOP.equals(a)) {
             Diag.i("service", "stop by user");
             stopSelf();
+            return START_NOT_STICKY;
+        }
+        // v3.1.0 — the Cast & Network settings page pokes this after a change
+        // (receiver name / DLNA / mDNS toggles): a clean stop→arm re-reads the
+        // prefs without a full process restart.
+        if (ACTION_APPLY_PREFS.equals(a)) {
+            Diag.i("service", "apply prefs — re-arming");
+            stopSelf();
+            android.os.SystemClock.sleep(200);
+            arm(this, "apply-prefs");
             return START_NOT_STICKY;
         }
         if (ACTION_TEST.equals(a)) {
@@ -399,8 +432,10 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         MdnsResponder rsp = nsd == null ? null : nsd.responder();
         m.put("mdnsResponder", rsp == null ? "down" : rsp.isPortShared() ? "up(5353)" : "degraded(mdnsd-only)");
         m.put("mdnsAnswered", rsp == null ? 0 : rsp.answeredCount());
-        m.put("dlnaRenderer", dlnaRenderer == null ? "down" : dlnaRenderer.isRunning() ? "up(1900)" : "bind-failed");
+        m.put("dlnaRenderer", dlnaRenderer == null ? "disabled (Settings)" : dlnaRenderer.isRunning() ? "up(1900)" : "bind-failed");
         m.put("dlnaSearches", dlnaRenderer == null ? 0 : dlnaRenderer.searchesSeen());
+        m.put("mdnsAnnouncer", nsd == null ? "disabled (Settings)" : "on");
+        m.put("receiverName", AppPrefs.receiverName(getSharedPreferences("sicast", MODE_PRIVATE)));
         m.put("fgsType", "connectedDevice");
         m.put("notifPerm", Miui.notifGranted(this));
         m.put("castPolicy", "local-device-only; http/https + permitted file://");

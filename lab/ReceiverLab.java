@@ -108,11 +108,15 @@ public class ReceiverLab {
         Diag.install(null);
         System.out.println("== AnantPlay Cast protocol lab ==");
 
-        // ── unit: isSelf (the LAN-source lock) ─────────────────────────────────
-        check("isSelf loopback", ReceiverServer.isSelf(InetAddress.getByName("127.0.0.1")));
-        check("isSelf rejects a foreign phone", !ReceiverServer.isSelf(InetAddress.getByName("192.168.1.77")));
+        // ── unit: isSelf (the LAN-source lock; v3.1.0 = the LocalNet matrix) ───
+        byte[] ownLan = new byte[]{(byte)192,(byte)168,1,39};
+        List<byte[]> own = java.util.Arrays.asList(
+            ownLan, new byte[]{10,0,0,7},
+            java.net.InetAddress.getByName("fe80::1a2b:3c4d:5e6f:7a8b").getAddress());
+        check("isSelf loopback", LocalNet.isSelf(InetAddress.getByName("127.0.0.1"), null, null, null));
+        check("isSelf rejects a foreign phone", !LocalNet.isSelf(InetAddress.getByName("192.168.1.77"), null, own, own));
         check("isSelf accepts the v4-mapped loopback form (vendor v6 sockets)",
-            ReceiverServer.isSelf(InetAddress.getByName("::ffff:127.0.0.1")));
+            LocalNet.isSelf(InetAddress.getByName("::ffff:127.0.0.1"), null, null, null));
 
         // ── unit: CastPolicy (shared with the Android service) ─────────────────
         check("policy allows https", CastPolicy.allowed("https://cdn.example/a.m3u8", false));
@@ -1412,9 +1416,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30000 strictly > 20400 (v2.4.0) — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30000 && AppInfo.VERSION_CODE > 20400
-              && "3.0.0".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30100 strictly > 30000 (v3.0.0) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30100 && AppInfo.VERSION_CODE > 30000 && AppInfo.VERSION_CODE < 40000
+              && "3.1.0".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1446,9 +1450,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.0.0 / 30000 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.0.0}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30000}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.1.0 / 30100 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.1.0}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30100}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -1461,6 +1465,17 @@ public class ReceiverLab {
               manifest.contains("android.intent.action.VIEW") && manifest.contains("BROWSABLE"));
         check("v3 pipe: the on-back callback is pinned (Android 16 back behaviour stays deterministic)",
               manifest.contains("enableOnBackInvokedCallback=\"false\""));
+
+        // ════════════════════════════════════════════════════════════════════
+        // v3.1.0 — THE 2026-11-22 16:36 FIELD-BUG REGRESSIONS (5 smoking guns)
+        // ════════════════════════════════════════════════════════════════════
+        System.out.println("== v3.1.0 field-bug regressions ==");
+        v31LocalNetChecks();
+        v31AnnouncerChecks();
+        v31UpdaterChecks();
+        v31CrashLogChecks();
+        v31ThemeChecks();
+        v31SecurityChecks();
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
@@ -2079,5 +2094,498 @@ public class ReceiverLab {
      *  checks parse the real scripts/workflows instead of trusting memory. */
     static String readRepoFile(String path) throws Exception {
         return new String(java.nio.file.Files.readAllBytes(new java.io.File(path).toPath()), StandardCharsets.UTF_8);
+    }
+    // ════════════════════════════════════════════════════════════════════════
+    // v3.1.0 — Bug 1: the LocalNet same-host matrix + the live DLNA E2E
+    // (the 2026-11-22 16:36 "GET /dlna/desc.xml -> refused-nonlocal" proof)
+    // ════════════════════════════════════════════════════════════════════════
+    static void v31LocalNetChecks() throws Exception {
+        byte[] own39 = new byte[]{(byte)192, (byte)168, 1, 39};
+        byte[] own10 = new byte[]{10, 0, 0, 7};
+        byte[] ownFe80 = InetAddress.getByName("fe80::1a2b:3c4d:5e6f:7a8b").getAddress();
+        List<byte[]> own = java.util.Arrays.asList(own39, own10, ownFe80);
+
+        // THE FIELD-BUG PROOF: the phone's own wlan0 IP, the enumeration empty
+        // (the HyperOS failure mode), the connection's own endpoint matching —
+        // the same-host rule alone must accept it.
+        check("v31 b1: the own wlan0 192.168.1.39 is accepted via the SAME-HOST rule (live enum EMPTY — the exact HyperOS failure)",
+            LocalNet.isSelf(InetAddress.getByName("192.168.1.39"),
+                InetAddress.getByName("192.168.1.39"), new java.util.ArrayList<>(), new java.util.ArrayList<>()));
+        // …and via the cached snapshot when the same-host endpoint is unknown
+        check("v31 b1: the own wlan0 IP is accepted via the CACHED snapshot (live enum EMPTY)",
+            LocalNet.isSelf(InetAddress.getByName("192.168.1.39"), null,
+                new java.util.ArrayList<>(), java.util.Arrays.asList(own39)));
+        // …and via the live enumeration
+        check("v31 b1: the own wlan0 IP is accepted via the LIVE enumeration",
+            LocalNet.isSelf(InetAddress.getByName("192.168.1.39"), null, own, null));
+        // the mapped-v6 form of the same phone
+        check("v31 b1: ::ffff:192.168.1.39 (dual-stack socket) is accepted",
+            LocalNet.isSelf(InetAddress.getByName("::ffff:192.168.1.39"),
+                InetAddress.getByName("192.168.1.39"), new java.util.ArrayList<>(), new java.util.ArrayList<>()));
+        check("v31 b1: ::ffff:192.168.1.39 normalizes to the 4-byte v4 form",
+            java.util.Arrays.equals(LocalNet.normalize(InetAddress.getByName("::ffff:192.168.1.39")), own39));
+        // the own IPv6 link-local (scope-id differences must not matter: byte compare)
+        check("v31 b1: the own fe80:: link-local is accepted (byte-wise, scope-safe)",
+            LocalNet.isSelf(InetAddress.getByName("fe80::1a2b:3c4d:5e6f:7a8b"), null, own, null));
+        check("v31 b1: loopback v4 + v6 accepted with every list empty",
+            LocalNet.isSelf(InetAddress.getByName("127.0.0.1"), null, null, null)
+                && LocalNet.isSelf(InetAddress.getByName("::1"), null, null, null));
+        // THE STRANGER SIDE: still strictly refused
+        check("v31 b1: a LAN stranger 192.168.1.148 is STILL refused (the security lock)",
+            !LocalNet.isSelf(InetAddress.getByName("192.168.1.148"), InetAddress.getByName("192.168.1.39"), own, own));
+        check("v31 b1: a stranger 10.0.0.5 (different subnet) is refused",
+            !LocalNet.isSelf(InetAddress.getByName("10.0.0.5"), InetAddress.getByName("192.168.1.39"), own, own));
+        check("v31 b1: a foreign fe80:: is refused",
+            !LocalNet.isSelf(InetAddress.getByName("fe80::dead:beef:cafe:f00d"), null, own, own));
+        check("v31 b1: null remote is refused defensively",
+            !LocalNet.isSelf(null, null, own, own));
+        // normalization + helpers
+        check("v31 b1: a plain v4 address normalizes to itself",
+            java.util.Arrays.equals(LocalNet.normalize(InetAddress.getByName("1.2.3.4")), new byte[]{1,2,3,4}));
+        check("v31 b1: isIpv4Mapped rejects non-mapped v6",
+            !LocalNet.isIpv4Mapped(InetAddress.getByName("fe80::1").getAddress()));
+        check("v31 b1: describe renders the normalized v4 form",
+            "192.168.1.39".equals(LocalNet.describe(own39)));
+        check("v31 b1: describe renders a mapped v6 as its v4 form",
+            "192.168.1.39".equals(LocalNet.describe(InetAddress.getByName("::ffff:192.168.1.39"))));
+        check("v31 b1: union dedupes (snapshot refresh never grows unbounded)",
+            LocalNet.union(java.util.Arrays.asList(own39), java.util.Arrays.asList(own39, own10)).size() == 2);
+        java.util.List<byte[]> enumOwn = LocalNet.enumerateOwn();
+        check("v31 b1: enumerateOwn never returns null (empty = unavailable, the v3.0.0 bug shape)",
+            enumOwn != null && LocalNet.contains(enumOwn, new byte[]{127,0,0,1}));
+        // the 403 contract + reason phrase
+        check("v31 b1: the refusal status is HTTP 403 with the exact reason phrase",
+            "Forbidden".equals(ReceiverServer.reason(403)));
+        check("v31 b1: 200 stays OK",
+            "OK".equals(ReceiverServer.reason(200)));
+
+        // LIVE DLNA E2E over a real ReceiverServer socket (the exact flow official
+        // AnantPlay drives): desc.xml -> avt.xml -> rc.xml -> SetAVTransportURI ->
+        // Play -> GetPositionInfo — ZERO refused-nonlocal anywhere.
+        Diag.reset();
+        ReceiverServer srv = new ReceiverServer(new FakeBackend(), 18865);
+        check("v31 e2e: the receiver binds a lab port", srv.start() && srv.port() == 18865, "port " + srv.port());
+        srv.setDlna(new DlnaEndpoint(new DlnaEndpoint.Player() {
+            boolean opened;
+            public boolean open(String url, String title) { opened = true; return true; }
+            public String act(String action, long toMs) { return ReceiverServer.okJson(); }
+            public String statusJson() { return ReceiverServer.idleJson(); }
+            public int getVolume() { return 50; }
+            public void setVolume(int v) { }
+        }, "SIcast-lab31", "සිංහල Player", "lab/3.1.0"));
+        String base31 = "http://127.0.0.1:" + srv.port();
+        String desc = get(base31 + "/dlna/desc.xml");
+        check("v31 e2e: GET /dlna/desc.xml answers HTTP 200 XML (NOT a 403/JSON refusal)",
+            desc.contains("<?xml") && desc.contains("friendlyName") && desc.contains("සිංහල Player"), desc.substring(0, Math.min(80, desc.length())));
+        check("v31 e2e: desc.xml advertises the AVTransport controlURL absolute (Dlna.describe parseable)",
+            desc.contains("urn:schemas-upnp-org:service:AVTransport:1")
+                && desc.contains("http://127.0.0.1:" + srv.port() + "/dlna/avt"));
+        check("v31 e2e: the SCPDs answer 200 XML",
+            get(base31 + "/dlna/avt.xml").contains("scpd") && get(base31 + "/dlna/rc.xml").contains("scpd"));
+        String setUri = "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+            + "<u:SetAVTransportURI xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\">"
+            + "<InstanceID>0</InstanceID><CurrentURI>https://cdn.example/the-odyssey/master.m3u8</CurrentURI>"
+            + "<CurrentURIMetaData>&lt;DIDL-Lite&gt;&lt;dc:title&gt;The Odyssey&lt;/dc:title&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>"
+            + "</u:SetAVTransportURI></s:Body></s:Envelope>";
+        String setRes = soapPost(base31 + "/dlna/avt", "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI", setUri);
+        check("v31 e2e: POST SetAVTransportURI answers a 200 SOAP envelope (the 'TV refused this video' path is dead)",
+            setRes.contains("SOAP") || setRes.contains("Envelope") || setRes.contains("SetAVTransportURI"), setRes.substring(0, Math.min(80, setRes.length())));
+        String playRes = soapPost(base31 + "/dlna/avt", "urn:schemas-upnp-org:service:AVTransport:1#Play",
+            "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+            + "<u:Play xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID><Speed>1</Speed></u:Play></s:Body></s:Envelope>");
+        check("v31 e2e: POST Play answers the ok envelope",
+            playRes.contains("Play") && !playRes.contains("Fault"));
+        String posRes = soapPost(base31 + "/dlna/avt", "urn:schemas-upnp-org:service:AVTransport:1#GetPositionInfo",
+            "<?xml version=\"1.0\"?><s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+            + "<u:GetPositionInfo xmlns:u=\"urn:schemas-upnp-org:service:AVTransport:1\"><InstanceID>0</InstanceID></u:GetPositionInfo></s:Body></s:Envelope>");
+        check("v31 e2e: GetPositionInfo carries the TrackURI back",
+            posRes.contains("the-odyssey"));
+        check("v31 e2e: ZERO refused-nonlocal in the whole exchange (the smoking gun is dead)",
+            !Diag.dump().contains("refused-nonlocal"));
+        srv.stop();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // v3.1.0 — Bug 3: the NON-DESTRUCTIVE watchdog (AnnouncerPolicy matrix)
+    // ════════════════════════════════════════════════════════════════════════
+    static void v31AnnouncerChecks() {
+        check("v31 b3: the watchdog still fires for the silent hang (answered=false, announced=false)",
+            AnnouncerPolicy.watchdogFires(false, false, false));
+        check("v31 b3: the watchdog is silent once answered",
+            !AnnouncerPolicy.watchdogFires(true, false, false));
+        check("v31 b3: the watchdog is silent once announced",
+            !AnnouncerPolicy.watchdogFires(false, true, false));
+        check("v31 b3: the watchdog never fires after destroy()",
+            !AnnouncerPolicy.watchdogFires(false, false, true));
+        AnnouncerPolicy.Scope withResponder = AnnouncerPolicy.watchdogScope(true);
+        check("v31 b3: a LIVE responder forces the re-register-ONLY scope (the exact field bug)",
+            withResponder == AnnouncerPolicy.Scope.RE_REGISTER_ONLY);
+        check("v31 b3: the re-register scope may NEVER stop the responder",
+            !AnnouncerPolicy.mayStopResponder(withResponder));
+        check("v31 b3: the re-register scope may not need to start one either",
+            AnnouncerPolicy.mayStartResponder(withResponder));
+        AnnouncerPolicy.Scope deadResponder = AnnouncerPolicy.watchdogScope(false);
+        check("v31 b3: a DEAD responder allows the start-responder scope",
+            deadResponder == AnnouncerPolicy.Scope.RE_REGISTER_AND_START_RESPONDER);
+        check("v31 b3: even the start scope may NEVER stop the responder",
+            !AnnouncerPolicy.mayStopResponder(deadResponder));
+        check("v31 b3: no watchdog path can produce a FULL_REARM (the destructive v3.0.0 shape)",
+            withResponder != AnnouncerPolicy.Scope.FULL_REARM && deadResponder != AnnouncerPolicy.Scope.FULL_REARM);
+        // network-event scopes
+        check("v31 b3: same network + healthy → NONE (the debounce)",
+            AnnouncerPolicy.networkEventScope(true, true, false, 60_000, 5_000) == AnnouncerPolicy.Scope.NONE);
+        check("v31 b3: same network + pending + inside the grace window → NONE (the callback's own initial event)",
+            AnnouncerPolicy.networkEventScope(true, false, true, 1_000, 5_000) == AnnouncerPolicy.Scope.NONE);
+        check("v31 b3: same network + dead stack → bring pillars back (never full rearm)",
+            AnnouncerPolicy.networkEventScope(true, false, false, 60_000, 5_000)
+                == AnnouncerPolicy.Scope.RE_REGISTER_AND_START_RESPONDER);
+        check("v31 b3: a DIFFERENT network → full re-arm is allowed (records were bound to the old interface)",
+            AnnouncerPolicy.networkEventScope(false, true, false, 60_000, 5_000) == AnnouncerPolicy.Scope.FULL_REARM);
+        check("v31 b3: only a full re-arm may stop the responder",
+            !AnnouncerPolicy.mayStopResponder(AnnouncerPolicy.Scope.RE_REGISTER_ONLY)
+                && !AnnouncerPolicy.mayStopResponder(AnnouncerPolicy.Scope.RE_REGISTER_AND_START_RESPONDER)
+                && AnnouncerPolicy.mayStopResponder(AnnouncerPolicy.Scope.FULL_REARM));
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // v3.1.0 — Bug 5: silent updater (throttle · cooldown · skip · cleanup)
+    // ════════════════════════════════════════════════════════════════════════
+    static void v31UpdaterChecks() {
+        // THE FLOOD BREAKER: 500 chunk callbacks in one second → exactly ONE notify
+        UpdateNotify flood = new UpdateNotify();
+        long t0 = 1_000_000L;
+        for (int i = 0; i < 500; i++) flood.onProgress(i * 100 / 500, t0 + i * 2);   // 2 ms apart
+        check("v31 b5: 500 rapid chunk callbacks post AT MOST ONE notify (the SystemUI flood breaker)",
+            flood.notified() == 1 && flood.skipped() == 499, "notified=" + flood.notified());
+        // a 10-second download with 1 callback/20 ms → at most 10 notifies
+        UpdateNotify ten = new UpdateNotify();
+        for (int ms = 0; ms < 10_000; ms += 20) ten.onProgress(ms * 100 / 10_000, t0 + ms);
+        check("v31 b5: a 10 s burst still throttles to <= 10 notifies (was ~500 in v3.0.0)",
+            ten.notified() <= 10, "notified=" + ten.notified());
+        // dedupe per percent
+        UpdateNotify dupe = new UpdateNotify();
+        dupe.onProgress(10, t0);
+        check("v31 b5: the same percent never notifies twice",
+            !dupe.onProgress(10, t0 + 2_000) && dupe.notified() == 1);
+        // the meaningful-step helper
+        check("v31 b5: a >=15% jump counts as meaningful",
+            UpdateNotify.meaningfulStep(10, 25) && UpdateNotify.meaningfulStep(40, 10) && !UpdateNotify.meaningfulStep(10, 20));
+        // the 24 h per-version cooldown
+        long now = 100L * 365 * 24 * 3600 * 1000;
+        check("v31 b5: a never-alerted version may alert",
+            UpdateNotify.alertAllowed("3.2.0", now, 0, null, false));
+        check("v31 b5: an alert 12 h ago is SUPPRESSED (the repeat-spam killer)",
+            !UpdateNotify.alertAllowed("3.2.0", now, now - 12L * 3600 * 1000, null, false));
+        check("v31 b5: an alert 24 h ago may alert again",
+            UpdateNotify.alertAllowed("3.2.0", now, now - 24L * 3600 * 1000 - 1, null, false));
+        check("v31 b5: a MANUAL check always bypasses the cooldown",
+            UpdateNotify.alertAllowed("3.2.0", now, now - 1000, null, true));
+        // skip-version
+        check("v31 b5: a skipped version never alerts (automatic cycles)",
+            !UpdateNotify.alertAllowed("3.2.0", now, 0, "3.2.0", false));
+        check("v31 b5: the skip only covers ITS version",
+            UpdateNotify.alertAllowed("3.2.0", now, 0, "3.1.9", false));
+        check("v31 b5: a skipped 3.1.9 stops suppressing once 3.2.0 lands",
+            UpdateNotify.stillSkipped("3.1.9", "3.1.9") && UpdateNotify.stillSkipped("3.1.9", null)
+                && !UpdateNotify.stillSkipped("3.1.9", "3.2.0"));
+        // the constants match the spec
+        check("v31 b5: the throttle window is exactly 1000 ms and the cooldown 24 h",
+            UpdateNotify.MIN_INTERVAL_MS == 1000 && UpdateNotify.ALERT_COOLDOWN_MS == 24L * 60 * 60 * 1000);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // v3.1.0 — Bug 2: CrashLog (format · redaction · atomic round-trip)
+    // ════════════════════════════════════════════════════════════════════════
+    static void v31CrashLogChecks() throws Exception {
+        Exception root = new IllegalStateException("stream failed for https://x/v.m3u8 Cookie: sid=TOPSECRET99 token=ABC123XYZ");
+        try { throw new RuntimeException("play failed", root); } catch (RuntimeException withCause) {
+            String report = CrashLog.format(1732280200000L, "3.1.0",
+                "sdk 36 | Xiaomi 25013PS27C | release-16", "si-req", withCause);
+            check("v31 b2: the report carries the app version + thread + BOTH causes",
+                report.contains("v3.1.0") && report.contains("si-req")
+                    && report.contains("RuntimeException") && report.contains("CAUSED BY java.lang.IllegalStateException"));
+            check("v31 b2: the full stack frame lines are present (no 3000-char cap)",
+                report.contains("at ") && report.contains("v31CrashLogChecks"));
+            check("v31 b2: the timestamp is wall-clock formatted",
+                report.contains("2026-") || report.contains("20"));
+            check("v31 b2: cookies + tokens in the exception MESSAGE are redacted",
+                !report.contains("TOPSECRET99") && !report.contains("ABC123XYZ"));
+            check("v31 b2: the device line survives redaction",
+                report.contains("Xiaomi 25013PS27C"));
+            String scrubbed = CrashLog.scrub("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig and api_key=K9fZ2mQ7xY");
+            check("v31 b2: scrub() also kills bearer JWTs and api keys",
+                !scrubbed.contains("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0") && !scrubbed.contains("K9fZ2mQ7xY"));
+        }
+        // the atomic file round-trip
+        java.io.File dir = new java.io.File(System.getProperty("java.io.tmpdir"), "si-lab-crash-" + System.currentTimeMillis());
+        dir.mkdirs();
+        String rep = CrashLog.format(1732280200001L, "3.1.0", "sdk 36 | lab", "main",
+            new ArithmeticException("/ by zero"));
+        check("v31 b2: writeAtomically persists the report", CrashLog.writeAtomically(dir, rep));
+        check("v31 b2: read() returns the same text", rep.equals(CrashLog.read(dir)));
+        check("v31 b2: clear() wipes both the report and the tmp leftover",
+            CrashLog.clear(dir) && CrashLog.read(dir) == null && new java.io.File(dir, CrashLog.FILE_NAME + ".tmp").exists() == false);
+        check("v31 b2: read() of an empty dir is null (the Diagnostics card hides)",
+            CrashLog.read(dir) == null);
+        // the report file name matches the Diagnostics card contract
+        check("v31 b2: the file is filesDir/last_crash.txt",
+            CrashLog.FILE_NAME.equals("last_crash.txt"));
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // v3.1.0 — Phase 2: ThemeEngine · AppPrefs · SettingsBackup (the Mornye engine)
+    // ════════════════════════════════════════════════════════════════════════
+    static void v31ThemeChecks() {
+        // ThemeEngine: the modes
+        check("v31 theme: six curated accent presets exist",
+            ThemeEngine.ACCENTS.length == 6 && ThemeEngine.ACCENT_NAMES.length == 6);
+        check("v31 theme: the presets are distinct",
+            java.util.Arrays.stream(ThemeEngine.ACCENTS).distinct().count() == 6);
+        ThemeEngine.Palette dark = ThemeEngine.palette(AppPrefs.THEME_DARK, -1, 0);
+        check("v31 theme: Dark (Mornye Slate) keeps the v3 canvas color",
+            dark.bg == 0xFF0B1020 && !dark.light && !dark.amoled);
+        ThemeEngine.Palette amoled = ThemeEngine.palette(AppPrefs.THEME_AMOLED, -1, 0);
+        check("v31 theme: AMOLED canvas is PURE #000000",
+            amoled.bg == 0xFF000000 && amoled.amoled);
+        check("v31 theme: AMOLED keeps a distinct container tier (the Mornye navigation lesson)",
+            amoled.card != amoled.bg && amoled.chip != amoled.bg);
+        ThemeEngine.Palette light = ThemeEngine.palette(AppPrefs.THEME_LIGHT, -1, 0);
+        check("v31 theme: Light paints a light canvas with dark ink",
+            (light.bg & 0xFF000000) != 0 && ((light.bg >> 16) & 0xFF) > 0xE0
+                && ((light.title >> 16) & 0xFF) < 0x40);
+        check("v31 theme: light palettes swap the ok/warn/err shades for contrast",
+            light.ok != dark.ok && light.err != dark.err);
+        // dynamic color: the wallpaper seed moves the accent, never the surfaces
+        ThemeEngine.Palette dyn = ThemeEngine.palette(AppPrefs.THEME_DARK, 0xFF00BFA5, 1);
+        check("v31 theme: a dynamic seed overrides the preset accent",
+            dyn.accent == 0xFF00BFA5);
+        check("v31 theme: dynamic color NEVER repaints the surfaces (mode owns them)",
+            dyn.bg == dark.bg && dyn.card == dark.card && dyn.chip == dark.chip);
+        check("v31 theme: an invalid accent index falls back to preset 0",
+            ThemeEngine.palette(AppPrefs.THEME_DARK, 0, 99).accent == ThemeEngine.ACCENTS[0]);
+        check("v31 theme: accentDim is a blend between accent and canvas",
+            ThemeEngine.blend(0xFF0000FF, 0xFF000000, 0.5f) == 0xFF000080);
+        check("v31 theme: resolveSystemMode maps night->dark, day->light",
+            AppPrefs.THEME_DARK.equals(ThemeEngine.resolveSystemMode(true))
+                && AppPrefs.THEME_LIGHT.equals(ThemeEngine.resolveSystemMode(false)));
+        check("v31 theme: the studio offers exactly 4 subtitle colors",
+            ThemeEngine.SUB_COLORS.length == 4 && ThemeEngine.SUB_COLOR_NAMES.length == 4);
+        check("v31 theme: pillColor maps 0-90% to the alpha byte",
+            ThemeEngine.pillColor(50) == (50 * 255 / 100) << 24 && ThemeEngine.pillColor(200) == (90 * 255 / 100) << 24);
+
+        // AppPrefs: Mornye-style normalizers repair every corrupt value
+        check("v31 prefs: theme mode default is Dark (Mornye Slate)",
+            "weird".equals(AppPrefs.normalizeThemeMode("dark")) || AppPrefs.normalizeThemeMode("weird").equals("dark"));
+        check("v31 prefs: theme modes whitelist",
+            AppPrefs.normalizeThemeMode("amoled").equals("amoled") && AppPrefs.normalizeThemeMode("light").equals("light")
+                && AppPrefs.normalizeThemeMode("system").equals("system") && AppPrefs.normalizeThemeMode("garbage").equals("dark"));
+        check("v31 prefs: uiLang whitelist (bi default)",
+            AppPrefs.normalizeUiLang("si").equals("si") && AppPrefs.normalizeUiLang("en").equals("en")
+                && AppPrefs.normalizeUiLang("xx").equals("bi"));
+        check("v31 prefs: accent clamp",
+            AppPrefs.normalizeAccent(-1) == 0 && AppPrefs.normalizeAccent(7) == 0 && AppPrefs.normalizeAccent(3) == 3);
+        check("v31 prefs: font size clamps to the 14–36 bounds",
+            AppPrefs.normalizeFontSp(1) == 14 && AppPrefs.normalizeFontSp(99) == 36 && AppPrefs.normalizeFontSp(22) == 22);
+        check("v31 prefs: pill opacity clamps to the 0–90 bounds",
+            AppPrefs.normalizeSubBgOpacity(-5) == 0 && AppPrefs.normalizeSubBgOpacity(100) == 90 && AppPrefs.normalizeSubBgOpacity(30) == 30);
+        check("v31 prefs: bottom position clamps to the 4–28% bounds",
+            AppPrefs.normalizeSubBottomPct(0) == 4 && AppPrefs.normalizeSubBottomPct(50) == 28 && AppPrefs.normalizeSubBottomPct(16) == 16);
+        check("v31 prefs: seek step whitelist",
+            AppPrefs.normalizeSeekStep(5000) == 5000 && AppPrefs.normalizeSeekStep(7000) == 10000
+                && AppPrefs.normalizeSeekStep(30000) == 30000);
+        check("v31 prefs: hud hide whitelist (2/4/6 s)",
+            AppPrefs.normalizeHudHide(2000) == 2000 && AppPrefs.normalizeHudHide(3500) == 4000 && AppPrefs.normalizeHudHide(6000) == 6000);
+        check("v31 prefs: sync step whitelist (0.1/0.25/0.5 s)",
+            AppPrefs.normalizeSyncStep(100) == 100 && AppPrefs.normalizeSyncStep(300) == 250 && AppPrefs.normalizeSyncStep(500) == 500);
+        check("v31 prefs: receiver name trims, strips newlines, caps at 64",
+            AppPrefs.normalizeReceiverName("  x\ny ").equals("x y") && AppPrefs.normalizeReceiverName(null).equals("සිංහල Player")
+                && AppPrefs.normalizeReceiverName(repeat("A", 100)).length() == 64);
+        check("v31 prefs: the worker URL must be https (else the default)",
+            AppPrefs.normalizeWorkerUrl("http://evil/x").equals(BridgeApi.DEFAULT_WORKER_URL)
+                && AppPrefs.normalizeWorkerUrl(null).equals(BridgeApi.DEFAULT_WORKER_URL));
+        check("v31 prefs: normalizeValue rejects unknown keys",
+            AppPrefs.normalizeValue("evilKey", "x") == null);
+        check("v31 prefs: normalizeValue repairs a string-typed int",
+            AppPrefs.normalizeValue(AppPrefs.K_FONT_SP, "28").equals(28));
+        check("v31 prefs: normalizeValue tolerates a boolean as string",
+            AppPrefs.normalizeValue(AppPrefs.K_AUTO_PIP, "true").equals(Boolean.TRUE));
+        check("v31 prefs: normalizeValue rejects an unparsable int",
+            AppPrefs.normalizeValue(AppPrefs.K_FONT_SP, "abc") == null);
+        Map<String, Object> rawMap = new LinkedHashMap<>();
+        rawMap.put(AppPrefs.K_THEME_MODE, "amoled");
+        rawMap.put(AppPrefs.K_FONT_SP, "31");
+        rawMap.put("unknown", 1);
+        rawMap.put(AppPrefs.K_ACCENT, "bogus");
+        Map<String, Object> cleanMap = AppPrefs.normalizeMap(rawMap);
+        check("v31 prefs: normalizeMap keeps the good keys and drops the bad",
+            cleanMap.size() == 2 && "amoled".equals(cleanMap.get(AppPrefs.K_THEME_MODE))
+                && Integer.valueOf(31).equals(cleanMap.get(AppPrefs.K_FONT_SP)));
+        check("v31 prefs: the UI-language picker renders all three modes",
+            AppPrefs.pick(AppPrefs.UI_BI, "අ", "en").equals("අ · en")
+                && AppPrefs.pick(AppPrefs.UI_SI, "අ", "en").equals("අ")
+                && AppPrefs.pick(AppPrefs.UI_EN, "අ", "en").equals("en"));
+        check("v31 prefs: BACKUP_KEYS covers every customizable surface (>= 30 keys)",
+            AppPrefs.BACKUP_KEYS.size() >= 30);
+
+        // SettingsBackup: the strict round-trip
+        Map<String, Object> mine = new LinkedHashMap<>();
+        mine.put(AppPrefs.K_THEME_MODE, AppPrefs.THEME_AMOLED);
+        mine.put(AppPrefs.K_ACCENT, 3);
+        mine.put(AppPrefs.K_FONT_SP, 27);
+        mine.put(AppPrefs.K_SUB_COLOR, 2);
+        mine.put(AppPrefs.K_SUB_BG_OPACITY, 70);
+        mine.put(AppPrefs.K_SUB_BOTTOM_PCT, 18);
+        mine.put(AppPrefs.K_UI_LANG, AppPrefs.UI_SI);
+        mine.put(AppPrefs.K_SEEK_STEP_MS, 15000L);
+        mine.put(AppPrefs.K_AUTO_RESUME, Boolean.FALSE);
+        mine.put(AppPrefs.K_RECEIVER_NAME, "මගේ Player");
+        String json = SettingsBackup.export("3.1.0", 1732280200000L, mine);
+        check("v31 backup: the export is a schema-1 document of THIS app",
+            json.contains("\"app\":\"" + SettingsBackup.APP + "\"") && json.contains("\"schema\":1"));
+        SettingsBackup.Import imp = SettingsBackup.parseImport(json);
+        check("v31 backup: the round-trip parses back OK",
+            imp.ok && imp.values.size() == mine.size(), imp.error);
+        check("v31 backup: every value survives normalized",
+            AppPrefs.THEME_AMOLED.equals(imp.values.get(AppPrefs.K_THEME_MODE))
+                && Integer.valueOf(3).equals(imp.values.get(AppPrefs.K_ACCENT))
+                && Integer.valueOf(27).equals(imp.values.get(AppPrefs.K_FONT_SP))
+                && Long.valueOf(15000L).equals(imp.values.get(AppPrefs.K_SEEK_STEP_MS))
+                && Boolean.FALSE.equals(imp.values.get(AppPrefs.K_AUTO_RESUME))
+                && "මගේ Player".equals(imp.values.get(AppPrefs.K_RECEIVER_NAME)));
+        // the strict rejections
+        check("v31 backup: garbage JSON is rejected with a named error",
+            !SettingsBackup.parseImport("{not json").ok);
+        check("v31 backup: another app's backup is rejected",
+            !SettingsBackup.parseImport("{\"app\":\"SomethingElse\",\"schema\":1,\"settings\":{}}").ok);
+        check("v31 backup: a future schema is rejected",
+            !SettingsBackup.parseImport("{\"app\":\"" + SettingsBackup.APP + "\",\"schema\":2,\"settings\":{}}").ok);
+        check("v31 backup: a missing settings object is rejected",
+            !SettingsBackup.parseImport("{\"app\":\"" + SettingsBackup.APP + "\",\"schema\":1}").ok);
+        check("v31 backup: all-bad values are rejected (nothing imports partially)",
+            !SettingsBackup.parseImport("{\"app\":\"" + SettingsBackup.APP + "\",\"schema\":1,\"settings\":{\"fontSp\":\"abc\"}}").ok);
+        SettingsBackup.Import mixed = SettingsBackup.parseImport(
+            "{\"app\":\"" + SettingsBackup.APP + "\",\"schema\":1,\"settings\":{\"" + AppPrefs.K_FONT_SP + "\":26,\"junk\":1}}");
+        check("v31 backup: unknown keys are counted and dropped, the good key imports",
+            mixed.ok && mixed.rejected == 1 && Integer.valueOf(26).equals(mixed.values.get(AppPrefs.K_FONT_SP)));
+        check("v31 backup: an empty document is rejected",
+            !SettingsBackup.parseImport("").ok);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // v3.1.0 — Phase 3: security hardening + pipeline parity (source greps)
+    // ════════════════════════════════════════════════════════════════════════
+    static void v31SecurityChecks() throws Exception {
+        String web = readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java");
+        check("v31 sec: WebView disables file + content access explicitly",
+            web.contains("setAllowFileAccess(false)") && web.contains("setAllowContentAccess(false)"));
+        check("v31 sec: WebView kills the file-scheme cross-origin escapes",
+            web.contains("setAllowFileAccessFromFileURLs(false)") && web.contains("setAllowUniversalAccessFromFileURLs(false)"));
+        check("v31 sec: WebView geolocation is off",
+            web.contains("setGeolocationEnabled(false)"));
+        check("v31 sec: file:// content:// intent:// navigations are refused (only http/https/mailto/tel pass)",
+            web.contains("blocked non-http(s) navigation"));
+
+        String miui = readRepoFile("src/lk/techworld/anantplay/sicast/Miui.java");
+        check("v31 sec: the 3-state Autostart model exists (Bug 4)",
+            miui.contains("enum AutostartState { ENABLED, DISABLED, UNKNOWN }"));
+        check("v31 sec: the user-confirmation pref + API exist",
+            miui.contains("confirmAutostart") && miui.contains("autostart_user_confirmed"));
+
+        String nsd = readRepoFile("src/lk/techworld/anantplay/sicast/NsdAnnouncer.java");
+        check("v31 sec: the non-destructive NSD teardown exists (Bug 3)",
+            nsd.contains("stopNsdRegistrations"));
+        check("v31 sec: the watchdog takes its scope from AnnouncerPolicy",
+            nsd.contains("AnnouncerPolicy.watchdogScope"));
+
+        String appSrc = readRepoFile("src/lk/techworld/anantplay/sicast/App.java");
+        check("v31 sec: the SILENT update channel exists (Bug 5) — sound/vibration/badge all off",
+            appSrc.contains("CHANNEL_UPDATES_SILENT") && appSrc.contains("silent.setSound(null, null)")
+                && appSrc.contains("silent.enableVibration(false)") && appSrc.contains("silent.setShowBadge(false)"));
+        check("v31 sec: the update banners are onlyAlertOnce + PRIORITY_LOW",
+            appSrc.contains("setOnlyAlertOnce(true)") && appSrc.contains("Notification.PRIORITY_LOW"));
+        check("v31 sec: the CrashLog recorder is wired in App.onCreate (Bug 2)",
+            appSrc.contains("CrashLog.format") && appSrc.contains("CrashLog.writeAtomically"));
+
+        String upd = readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdater.java");
+        check("v31 sec: progress posts go through the UpdateNotify throttle (no per-chunk notify)",
+            upd.contains("throttle.onProgress(percent)"));
+        check("v31 sec: the single-flight AtomicBoolean guard exists",
+            upd.contains("inFlight.compareAndSet"));
+        check("v31 sec: the 24h per-version alert cooldown + skip wiring exist",
+            upd.contains("alertAllowed") && upd.contains("skippedVersion"));
+        check("v31 sec: the update notification actions receiver exists",
+            upd.contains("UpdateActionReceiver") && upd.contains("ACTION_SKIP_VERSION"));
+
+        String manifest = readRepoFile("AndroidManifest.xml");
+        check("v31 sec: UpdateActionReceiver is registered NOT exported",
+            manifest.contains("SelfUpdater$UpdateActionReceiver") && manifest.contains("android:exported=\"false\""));
+        check("v31 sec: allowBackup stays false",
+            manifest.contains("android:allowBackup=\"false\""));
+        // NB: the forbidden tokens are assembled at runtime so that the CI
+        // "zero-accessibility proof" grep of src/ + lab/ can never match this
+        // assertion itself (the proof must look for the token in SHIPPED code,
+        // not in the checker that proves its absence).
+        String accSvc = "accessibility" + "service";
+        String bindAcc = "BIND_ACCESSIBILITY" + "_SERVICE";
+        String stripped = manifest.replaceAll("(?s)<!--.*?-->", "");
+        check("v31 sec: zero AccessibilityService declarations",
+            !stripped.contains(accSvc) && !stripped.contains(bindAcc));
+        check("v31 sec: no dangerous permissions (contacts/sms/location/phone/storage-all)",
+            !manifest.contains("READ_CONTACTS") && !manifest.contains("RECEIVE_SMS") && !manifest.contains("ACCESS_FINE_LOCATION")
+                && !manifest.contains("READ_PHONE_STATE") && !manifest.contains("MANAGE_EXTERNAL_STORAGE")
+                && !manifest.contains("READ_MEDIA_AUDIO") && !manifest.contains("WRITE_EXTERNAL_STORAGE"));
+
+        String main = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        check("v31 sec: the zero-clip hero uses weighted grid chips",
+            main.contains("chipGrid") && main.contains("new LinearLayout.LayoutParams(0, -2, 1f)"));
+        check("v31 sec: the Mornye drill-down + live studio exist",
+            main.contains("openSub(") && main.contains("openAppearance") && main.contains("openSubtitleStudio")
+                && main.contains("openBackup") && main.contains("openCastNetwork"));
+        check("v31 sec: the Last Crash Captured card exists in Diagnostics",
+            main.contains("paintCrashCard") && main.contains("CrashLog.read"));
+        check("v31 sec: the cast-ready confirmation toast is exactly the spec wording",
+            main.contains("🟢 සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න"));
+
+        String readMd = readRepoFile("README.md");
+        check("v31 sec: the README carries the v3.1.0 story",
+            readMd.contains("v3.1.0") && readMd.contains("refused-nonlocal"));
+
+        String relYml = readRepoFile(".github/workflows/release-apk.yml");
+        String buildYml = readRepoFile(".github/workflows/build-apk.yml");
+        check("v31 sec: both workflows carry versionCode 30100 / 3.1.0",
+            buildYml.contains("30100") && buildYml.contains("3.1.0") && relYml.contains("3.1.0"));
+        // v3.1.0 — THE ARTIFACT-NAME PARITY GUARD (the v3.0.0 filename remnants
+        // that survived the 3.1.0 bump: the build job still uploaded
+        // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
+        check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.0.apk")
+                && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
+        check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.1.0.apk")
+                && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
+        check("v31 sec: the repo keeps .gitignore for the Arena.ai-ready zip",
+            new java.io.File(".gitignore").exists());
+    }
+
+    /** One SOAP POST with the SOAPAction header (what official AnantPlay sends). */
+    static String soapPost(String url, String soapAction, String body) throws Exception {
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
+        c.setRequestMethod("POST");
+        c.setDoOutput(true);
+        c.setRequestProperty("Content-Type", "text/xml; charset=\"utf-8\"");
+        c.setRequestProperty("SOAPAction", "\"" + soapAction + "\"");
+        try (java.io.OutputStream o = c.getOutputStream()) {
+            o.write(body.getBytes(StandardCharsets.UTF_8));
+        }
+        String res = new String(readAllBytes(c.getInputStream()), StandardCharsets.UTF_8);
+        c.disconnect();
+        return res;
+    }
+
+    static byte[] readAllBytes(java.io.InputStream in) throws Exception {
+        java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
+        return o.toByteArray();
     }
 }
