@@ -289,13 +289,14 @@ apksigner verify --verbose:
 zipalign -c 4 → OK
 ```
 
-The `build-apk.yml` artifact above is **debug-signed** (`KS_BASE64` is only exposed to the
-release workflow); the GitHub Release is signed with the permanent keystore, so its SHA-256 will
-differ and is the one recorded in `docs/latest.json` / `SHA256SUMS.txt`. Installing
-it over a release-signed v3.2.0 fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`; set the four CI
-secrets (`KS_BASE64`, `KS_PASS`, `KS_KEYPASS`, `KS_ALIAS`) and re-run for the permanent key. The
-CI pipeline (`.github/workflows/build-apk.yml`) signs with those secrets and re-verifies the
-badging, zipalign and signature on every push.
+Both workflows (`build-apk.yml` **and** `release-apk.yml`) receive the permanent signing
+secrets, so the artifact above is signed with the **release** keystore — and `build.sh`'s
+pinned ZIP timestamps make it byte-reproducible: the PR run and the post-merge run produced the
+**identical** SHA-256 (`1cc98a48…`), which is the value published in `docs/latest.json` and in
+`SHA256SUMS.txt`. `apksigner verify` (v2 + v3), `zipalign -c 4` and the `aapt2` badging are
+re-verified on every push. A locally built APK without `KS_BASE64` is debug-signed and would fail
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE` over v3.2.0 — set the four secrets (`KS_BASE64`, `KS_PASS`,
+`KS_KEYPASS`, `KS_ALIAS`) before building for users.
 
 ### 5.3 Prior wins kept intact
 
