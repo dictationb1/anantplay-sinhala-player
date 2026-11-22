@@ -1,4 +1,4 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v2.3.0
+# AnantPlay Sinhala Player (SI Cast Receiver) v2.3.1
 
 **The zero-accessibility, zero-fork Sinhala subtitle solution for the 100% official, unmodified
 AnantPlay app** — built for the hardest target: a **Xiaomi HyperOS (Android 14–16)** phone.
@@ -87,7 +87,7 @@ The media3 1.11.1 + guava jars (the exact set AnantPlay ships in its `libs/`, Ap
 ## Verify
 
 ```sh
-./lab/run_lab.sh     # the gating lab — 95 checks, byte-compatible with Cast.java
+./lab/run_lab.sh     # the gating lab — 152 checks, byte-compatible with Cast.java
 ```
 
 The lab drives `ReceiverServer` with the exact requests official AnantPlay's
@@ -151,12 +151,47 @@ src/.../sicast/
   CastPolicy.java            cast-arrival policy (schemes, /do whitelist, seek clamp) — pure Java
   StreamHint.java            Media3 mime defaulting for extensionless HLS/DASH — pure Java
   BridgeApi/Cue/MiniJson/SrtLoader/SubtitleStore   the proven v1 engines (pure Java)
-lab/ReceiverLab.java         the 95-check gating lab (protocol + security + i18n regressions)
+lab/ReceiverLab.java         the 152-check gating lab (protocol + security + i18n regressions)
 lab/BridgeLab.java           live worker E2E (best effort)
 docs/CAST-VERIFICATION.md    every AnantPlay file:line this is built on
 THIRD_PARTY.md               licenses of every bundled jar + the Sinhala font
 SETUP-SI.md                  the Sinhala setup checklist
 ```
+
+## What's new in v2.3.1 (the HyperOS field-log fixes)
+
+- **THE "answered-but-no-answer" PARADOX FIXED** — the v2.3.0 probes decoded mDNS
+  replies as ISO-8859-1 and searched for the Sinhala instance name ("සිංහල" = 15
+  UTF-8 bytes → Latin-1 mojibake → never matches), so every reply that DID arrive was
+  counted as silence while `MdnsResponder` logged "answered a unicast(QU) query" 16+
+  times. Replies are now validated structurally (`MdnsWire.isOurAnswer`: QR bit +
+  record counts + the ASCII service type — charset-independent by construction).
+- **THE 4-PACKET / ~207 ms PROBE STORM FIXED** — the failed match made both probes
+  spin at full speed re-sending. Probes are now bounded (daemon probe: ≤ 4 rounds
+  with a quiet 600 ms receive window and de-duplicated targets; wire probe: ≤ 6
+  sends, stops at the first validated answer) and the responder aggregates its log
+  lines (one per source per second, "…(×N in 1 s)") — no more Diag floods, no idle
+  battery drain.
+- **THE `network up — re-announcing` CHURN RACE FIXED** — `start()` used to run
+  `stop()` (unregistering the network callback) then re-register it, and the
+  immediate `onAvailable` re-armed 500 ms later: an endless down/up cycle that
+  killed a HEALTHY responder ("responder down (answered 12 queries)" in the field
+  log). `start()` is now idempotent (no-op when healthy on the same network), the
+  callback is registered once and released only on service destroy, and
+  `NetPolicy.shouldReArm` ignores repeat events on the same healthy network.
+- **Self-test hardening** — a re-entry guard (one tap = one run; the field log's two
+  simultaneous probe sockets were two taps) and per-layer reporting: the result line
+  now shows `mDNS ok [L1 daemon ✓ · L2 responder ✓ · L3 NSD ✗]` instead of one
+  aggregate, so a red verdict can never hide an answering responder again.
+- **RIGHT-EDGE TEXT CLIPPING FIXED** — the ScrollView and the diagnostics log used
+  overlay scrollbars; HyperOS's fat translucent bar sliced every long line at the
+  same x ("GitHub Relea…"). Both now use inset scrollbars, every full-width card
+  carries explicit MATCH_PARENT layout params, and the player's bottom time labels
+  share the free space (weight) so a 360dp screen can no longer push them off-edge.
+- **Sinhala instance name kept (proven safe)** — RFC 6763 §4.1.1 allows opaque UTF-8
+  instance names (ours is 35 bytes ≤ 63); official AnantPlay resolves and displays
+  it correctly (Cast.java:262-264, strings_player.xml:94). The bug was never the
+  name — it was the Latin-1 decode.
 
 ## What's new in v2.3.0 (router-free cast · noisy-title fix · DoH diagnostics · Obtainium)
 

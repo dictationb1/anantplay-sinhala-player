@@ -87,6 +87,11 @@ public final class NsdAnnouncer {
      *  cannot be shared and mdnsd registration is the only announcer). */
     private MdnsResponder responder;
     private int attempt;
+    /** v2.3.1 — the churn-fix state: what we last armed on (IP + network key), so
+     *  start() can no-op when healthy and onAvailable can ignore repeat events. */
+    private java.net.InetAddress lastArmedIp;
+    private String lastArmedNetKey = "";
+    private long armedAt;
     private final android.os.Handler retry = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable reArm = new Runnable() {
         @Override public void run() { start(); }   // network back up or retry fired
@@ -108,7 +113,31 @@ public final class NsdAnnouncer {
 
     public void start() {
         if (nsd == null) { Diag.w("nsd", "no NsdManager — cast discovery cannot see us"); return; }
-        stop();
+        // v2.3.1 — IDEMPOTENT START (the churn fix). v2.3.0's start() ran stop()
+        // FIRST on every call, and stop() unregistered the network callback; the
+        // immediate re-register fired onAvailable, which posted reArm(500 ms) →
+        // start() again → an endless down/up cycle ("responder down / responder
+        // up / network up — re-announcing" repeating in the 2026-11-22 log) that
+        // churned NsdManager, released/reacquired the multicast lock and killed
+        // a HEALTHY responder mid-probe. Now: when everything is already healthy
+        // on the SAME Wi-Fi address, start() is a no-op; the teardown+rebuild
+        // path runs only for a genuine change (first arm, network change, or a
+        // dead component), and the network callback is registered ONCE and only
+        // ever released by destroy() (ReceiverService.onDestroy).
+        InetAddress nowIp = wifiLanIp();
+        String nowKey = netKey(ctx);
+        boolean healthy = announced
+            && responder != null && responder.isRunning()
+            && nowIp != null && nowIp.equals(lastArmedIp)
+            && NetPolicy.sameKey(lastArmedNetKey, nowKey);
+        if (healthy) {
+            Diag.i("nsd", "already announced on " + nowKey + " — start() is a no-op (v2.3.1 churn fix)");
+            return;
+        }
+        lastArmedIp = nowIp;
+        lastArmedNetKey = nowKey;
+        armedAt = System.currentTimeMillis();
+        stopRegistrations();
         String service = PREFIX + NAME;
         String[] types = {TYPE, OLD_TYPE};
         boolean any = false;
@@ -166,7 +195,10 @@ public final class NsdAnnouncer {
         }
     }
 
-    /** mDNS records live on the interface: re-announce when Wi-Fi comes back. */
+    /** mDNS records live on the interface: re-announce when Wi-Fi comes back.
+     *  v2.3.1: registered ONCE (never torn down by restarts — that was the churn
+     *  loop), and onAvailable is DEBOUNCED through NetPolicy.shouldReArm so a
+     *  repeat event on the SAME network while everything is healthy is ignored. */
     private void watchNetwork() {
         if (netWatch != null) return;
         try {
@@ -174,7 +206,13 @@ public final class NsdAnnouncer {
             if (cm == null) return;
             netWatch = new ConnectivityManager.NetworkCallback() {
                 @Override public void onAvailable(Network n) {
-                    Diag.i("nsd", "network up — re-announcing");
+                    String key = netKey(ctx);
+                    boolean healthy = announced && responder != null && responder.isRunning();
+                    if (!NetPolicy.shouldReArm(lastArmedNetKey, key, healthy, armedAt)) {
+                        Diag.i("nsd", "network up on " + key + " — already announced, no re-arm (debounced)");
+                        return;
+                    }
+                    Diag.i("nsd", "network up on " + key + " — re-announcing");
                     retry.removeCallbacks(reArm);
                     retry.postDelayed(reArm, 500);
                 }
@@ -207,7 +245,10 @@ public final class NsdAnnouncer {
         }
     }
 
-    public void stop() {
+    /** Teardown for a RE-ARM (registrations + responder + lock, but the network
+     *  callback STAYS — re-registering it fires an immediate onAvailable and
+     *  was half of the v2.3.0 churn loop). */
+    void stopRegistrations() {
         for (int i = 0; i < listeners.length; i++) {
             if (listeners[i] != null) {
                 try { nsd.unregisterService(listeners[i]); } catch (Throwable ignored) { }
@@ -225,6 +266,12 @@ public final class NsdAnnouncer {
             mcast = null;
         }
         retry.removeCallbacks(reArm);
+    }
+
+    /** FINAL teardown (ReceiverService.onDestroy): everything, including the
+     *  network callback. */
+    public void stop() {
+        stopRegistrations();
         if (netWatch != null) {
             try { ctx.getSystemService(ConnectivityManager.class).unregisterNetworkCallback(netWatch); } catch (Throwable ignored) { }
             netWatch = null;
@@ -241,41 +288,58 @@ public final class NsdAnnouncer {
         return MdnsWire.queryPacket(type);
     }
 
-    /** v2.3.0 — the DAEMON probe: send the QU question UNICAST to the phone's own
+    /** v2.3.0 — the DAEMON probe: send the QU question UNICAST to the phone's
      *  mDNS endpoints (loopback + our Wi-Fi IP, port 5353). Android's mdnsd listens
      *  on 5353 across all interfaces and answers unicast questions about records it
      *  holds — including OUR NsdManager registration. This is the same daemon
      *  AnantPlay's discovery reads (Cast.discover → NsdManager binder IPC), so an
      *  answer here is the honest proof "AnantPlay can see us" WITHOUT needing the
-     *  router to reflect multicast. A plain unicast socket is correct for this. */
+     *  router to reflect multicast. A plain unicast socket is correct for this.
+     *
+     *  v2.3.1 — TWO FIELD BUGS FIXED (the 2026-11-22 log):
+     *   · the reply was matched against the Sinhala NAME with an ISO-8859-1 decode
+     *     — impossible mojibake math → every real answer counted as silence and
+     *     the loop span re-sending (the ×4/~207 ms bursts). Now validated with
+     *     MdnsWire.isOurAnswer (QR bit + records + the ASCII service type).
+     *   · when wifiLanIp() is null BOTH targets were 127.0.0.1 → duplicate sends.
+     *     Targets are now de-duplicated, sends are capped, and each round WAITS
+     *     its receive window instead of re-sending the instant a reply fails the
+     *     (old, broken) check. */
     static boolean probeDaemon(Context c, long timeoutMs) {
         DatagramSocket sock = null;
         try {
             InetAddress wifi = wifiLanIp();
+            InetAddress loopback = InetAddress.getByName("127.0.0.1");
+            // de-duplicated target list: loopback mdnsd + (when known) the Wi-Fi address
+            java.util.LinkedHashSet<InetAddress> targets = new java.util.LinkedHashSet<>();
+            targets.add(loopback);
+            if (wifi != null) targets.add(wifi);
             sock = new DatagramSocket();
-            sock.setSoTimeout(500);
+            sock.setSoTimeout(600);
             byte[] q = mdnsQueryPacket(TYPE);
             long end = System.currentTimeMillis() + Math.max(1000, timeoutMs);
-            int round = 0;
-            while (System.currentTimeMillis() < end) {
-                // ask BOTH endpoints: loopback mdnsd and the interface's own address
-                for (InetAddress target : new InetAddress[]{
-                        InetAddress.getByName("127.0.0.1"), wifi == null ? InetAddress.getByName("127.0.0.1") : wifi}) {
+            int rounds = 0;
+            while (System.currentTimeMillis() < end && rounds < 4) {
+                for (InetAddress target : targets) {
                     try {
                         sock.send(new DatagramPacket(q, q.length, target, MDNS_PORT));
                     } catch (Throwable ignored) { }
                 }
-                byte[] buf = new byte[9000];
-                DatagramPacket p = new DatagramPacket(buf, buf.length);
-                try {
-                    sock.receive(p);
-                    String text = new String(buf, 0, p.getLength(), java.nio.charset.StandardCharsets.ISO_8859_1);
-                    if (text.contains(NAME)) {
-                        Diag.i("nsdtest", "daemon probe answered by " + p.getAddress().getHostAddress());
-                        return true;
-                    }
-                } catch (java.net.SocketTimeoutException retry) { }
-                if (++round % 4 == 0) Thread.sleep(200);   // a small courtesy pause
+                // WAIT the window: even when a reply arrives instantly and fails
+                // no check re-fires until the next round (no spin storm).
+                long roundEnd = System.currentTimeMillis() + 600;
+                while (System.currentTimeMillis() < roundEnd) {
+                    byte[] buf = new byte[9000];
+                    DatagramPacket p = new DatagramPacket(buf, buf.length);
+                    try {
+                        sock.receive(p);
+                        if (MdnsWire.isOurAnswer(buf, p.getLength(), TYPE, OLD_TYPE)) {
+                            Diag.i("nsdtest", "daemon probe answered by " + p.getAddress().getHostAddress());
+                            return true;
+                        }
+                    } catch (java.net.SocketTimeoutException retry) { break; }
+                }
+                rounds++;
             }
         } catch (Throwable t) {
             Diag.w("nsdtest", "daemon probe: " + t);
@@ -347,8 +411,7 @@ public final class NsdAnnouncer {
                 try {
                     sock.receive(p);
                     r.packetsReceived++;
-                    String text = new String(buf, 0, p.getLength(), java.nio.charset.StandardCharsets.ISO_8859_1);
-                    if (text.contains(NAME)) {
+                    if (MdnsWire.mentionsUtf8(buf, p.getLength(), NAME)) {
                         r.answered = true;
                         r.detail = "mDNS පිළිතුර ලැබුණි (raw probe, group-joined) — ජාලය හරහා අපේ record එක පෙනේ · mDNS answer received on the wire — our record is visible";
                         break;
@@ -393,6 +456,31 @@ public final class NsdAnnouncer {
     }
 
     // ── small static helpers ────────────────────────────────────────────────────
+
+    /** v2.3.1 — a stable identity for the CURRENT default network: the
+     *  transports + the Wi-Fi BSSID/interface when available. Used by
+     *  NetPolicy.sameKey so a repeat onAvailable on the SAME network is
+     *  recognised and ignored (the churn fix). */
+    static String netKey(Context c) {
+        try {
+            ConnectivityManager cm = c.getSystemService(ConnectivityManager.class);
+            Network n = cm.getActiveNetwork();
+            if (n == null) return "none";
+            NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+            if (caps == null) return "unknown";
+            StringBuilder sb = new StringBuilder();
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) sb.append("wifi:");
+            else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) sb.append("cell:");
+            else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) sb.append("eth:");
+            else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) sb.append("vpn:");
+            else sb.append("other:");
+            InetAddress ip = wifiLanIp();
+            sb.append(ip == null ? "noip" : ip.getHostAddress());
+            return sb.toString();
+        } catch (Throwable t) {
+            return "unknown";
+        }
+    }
 
     /** This phone's Wi-Fi IPv4 (null when off Wi-Fi) — used by the Self-test and /info. */
     static InetAddress wifiLanIp() {

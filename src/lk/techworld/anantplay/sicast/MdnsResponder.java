@@ -31,9 +31,7 @@ import java.util.Locale;
  *     14–16; system mdnsd binds with reuse too, and multiple 5353 listeners
  *     coexist; EADDRINUSE or a bind failure is caught and DEGRADES GRACEFULLY:
  *     NsdManager registration stays the announcement, only the extra responder
- *     is skipped). Kernel multicast loopback is ENABLED on the socket
- *     (setLoopbackMode(false) — Java's inverted semantics: FALSE means loopback
- *     ENABLED). It joins 224.0.0.251 on the active interface, holds the
+ *     is skipped). It joins 224.0.0.251 on the active interface, holds the
  *     caller's MulticastLock, and answers:
  *       · PTR?  _anantplay._tcp.local  → PTR <name>.local + SRV + TXT + A/additional
  *       · PTR?  _fmhyplay._tcp.local   → the same records under the legacy type
@@ -87,6 +85,9 @@ public final class MdnsResponder {
     public boolean isPortShared() { return portShared; }
     public long answeredCount() { return answered; }
     public long queriesSeen() { return queriesSeen; }
+    /** The service types this responder answers for (probe validation). */
+    public String serviceType() { return serviceType; }
+    public String legacyType() { return legacyType; }
 
     /** Bind + join + serve. Returns false when 5353 could not be shared (caller
      *  keeps the NsdManager path; only the extra responder is missing). */
@@ -171,6 +172,15 @@ public final class MdnsResponder {
         Diag.i("mdnsrsp", "responder down (answered " + answered + " queries)");
     }
 
+    /** v2.3.1 — log aggregation state: the field log showed 16 identical
+     *  "answered a unicast(QU) query" lines inside 0.4 s (the spinning v2.3.0
+     *  probes re-sent at full speed because their mojibake match never
+     *  succeeded). Even with the probes fixed, a busy network can carry many
+     *  queries per second — the diagnostics ring must never be flooded. */
+    private String lastLogSource = "";
+    private int suppressedSinceLog;
+    private long lastLogAt;
+
     private void serve() {
         byte[] buf = new byte[9000];
         while (running) {
@@ -187,13 +197,31 @@ public final class MdnsResponder {
                         : new InetSocketAddress(InetAddress.getByName(MDNS_GROUP), MDNS_PORT);
                     socket.send(new DatagramPacket(out, out.length, to));
                     answered++;
-                    Diag.i("mdnsrsp", "answered a " + (hasQuBit(in) ? "unicast(QU)" : "multicast")
-                        + " query from " + p.getAddress().getHostAddress() + ":" + p.getPort());
+                    logAnswer(p.getAddress().getHostAddress() + ":" + p.getPort(), hasQuBit(in));
                 }
             } catch (Throwable t) {
                 if (running) Diag.w("mdnsrsp", "serve: " + t);
             }
         }
+    }
+
+    /** One Diag line per source per second at most; repeats collapse into
+     *  "… (×N in 1 s)". Called on the serve thread only. */
+    private void logAnswer(String source, boolean qu) {
+        long now = System.currentTimeMillis();
+        if (source.equals(lastLogSource) && now - lastLogAt < 1000) {
+            suppressedSinceLog++;
+            return;
+        }
+        StringBuilder line = new StringBuilder("answered a ").append(qu ? "unicast(QU)" : "multicast")
+            .append(" query from ").append(source);
+        if (suppressedSinceLog > 0) {
+            line.append(" … (×").append(suppressedSinceLog).append(" in 1 s)");
+            suppressedSinceLog = 0;
+        }
+        Diag.i("mdnsrsp", line.toString());
+        lastLogSource = source;
+        lastLogAt = now;
     }
 
     // ── the query parser (enough RFC-6762/1035 to know a question is ours) ─────
@@ -427,12 +455,30 @@ public final class MdnsResponder {
             // can pick a non-multicast iface such as lo and silently blackhole).
             iface = responder == null ? null : ifaceOf(responder.host);
             if (iface == null) iface = ifaceOf(null);
-            if (iface != null) s.joinGroup(new InetSocketAddress(group, 0), iface);
-            else s.joinGroup(group);
+            if (iface != null) {
+                s.joinGroup(new InetSocketAddress(group, 0), iface);
+                // v2.3.1: pin the SEND egress to the same interface — without this
+                // the kernel's default multicast route can egress loopback on some
+                // builds (the 127.0.0.1 source in the field log), which works but
+                // makes the probe's own queries loop back and doubles the traffic.
+                try { s.setNetworkInterface(iface); } catch (Throwable ignored) { }
+            } else {
+                s.joinGroup(group);
+            }
             s.setSoTimeout(400);
-            byte[] q = MdnsWire.queryPacket(responder == null ? "_anantplay._tcp" : responder.serviceType);
+            String type = responder == null ? "_anantplay._tcp" : responder.serviceType;
+            String legacy = responder == null ? "_fmhyplay._tcp" : responder.legacyType;
+            byte[] q = MdnsWire.queryPacket(type);
+            // v2.3.1 — THE PARADOX FIX: the reply is validated structurally with
+            // MdnsWire.isOurAnswer (QR bit + records + the ASCII service type).
+            // The v2.3.0 check decoded the packet as ISO-8859-1 and searched for
+            // the Sinhala instance name — 15 UTF-8 bytes that turn into Latin-1
+            // mojibake and NEVER match, so every reply that DID arrive was
+            // counted as silence and the loop span at full speed re-sending
+            // (the 4-packet/~207 ms storm in the 2026-11-22 field log).
             long end = System.currentTimeMillis() + Math.max(800, timeoutMs);
-            while (System.currentTimeMillis() < end && !r.answered) {
+            int maxSends = 6;                       // hard cap — a quiet network
+            while (System.currentTimeMillis() < end && !r.answered && r.packetsSent < maxSends) {
                 s.send(new DatagramPacket(q, q.length, group, MDNS_PORT));
                 r.packetsSent++;
                 byte[] buf = new byte[9000];
@@ -440,8 +486,7 @@ public final class MdnsResponder {
                 try {
                     s.receive(p);
                     r.packetsReceived++;
-                    String text = new String(buf, 0, p.getLength(), java.nio.charset.StandardCharsets.ISO_8859_1);
-                    if (responder != null && text.contains(responder.instanceName)) {
+                    if (MdnsWire.isOurAnswer(buf, p.getLength(), type, legacy)) {
                         r.answered = true;
                         r.detail = "mDNS පිළිතුර ලැබුණි (our own responder, kernel loopback — router-free) · "
                             + "mDNS answer received via our own responder — no router reflection involved";
