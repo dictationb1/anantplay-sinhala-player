@@ -54,8 +54,8 @@ done
 [ -n "$JAR" ] || JAR="$SDK/platforms/android-34/android.jar"
 TARGET_SDK=36
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-3.3.0}
-VERSION_CODE=${VERSION_CODE:-30300}
+VERSION_NAME=${VERSION_NAME:-3.3.1}
+VERSION_CODE=${VERSION_CODE:-30301}
 PREV_VERSION_CODE=${PREV_VERSION_CODE:-30200}   # v3.2.0 — the last released build
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
@@ -148,13 +148,18 @@ else
   SIGN_MODE="DEBUG keystore (not for release) — $DBG"
 fi
 
-"$BT/apksigner" sign --ks "$KS_FILE" --ks-pass "pass:$KS_STOREPASS" --key-pass "pass:$KS_KEYPASS" \
+# v3.3.1 — a bounded apksigner heap. apksigner defaults to -Xmx1024M; on a 2 GB
+# container (and any small runner) that reservation collides with the metaspace
+# reservation and dies with "Failed to reserve memory for metaspace" AFTER a
+# successful compile/d8/package — a confusing late failure for a 3 MB APK.
+# -JXmx640m is plenty for signing/verifying and changes nothing on big runners.
+"$BT/apksigner" -JXmx640m sign --ks "$KS_FILE" --ks-pass "pass:$KS_STOREPASS" --key-pass "pass:$KS_KEYPASS" \
   --ks-key-alias "$KS_ALIAS" --min-sdk-version 26 \
   --out "dist/AnantPlay-Sinhala-Player.apk" build/aligned.apk
 
 echo "── verify"
-"$BT/apksigner" verify --verbose --print-certs "dist/AnantPlay-Sinhala-Player.apk" | head -12
-"$BT/apksigner" verify "dist/AnantPlay-Sinhala-Player.apk" || die "apksigner verify FAILED"
+"$BT/apksigner" -JXmx640m verify --verbose --print-certs "dist/AnantPlay-Sinhala-Player.apk" | head -12
+"$BT/apksigner" -JXmx640m verify "dist/AnantPlay-Sinhala-Player.apk" || die "apksigner verify FAILED"
 
 echo "── badging (the shipped version is checked, not assumed)"
 BADGE=$("$BT/aapt2" dump badging "dist/AnantPlay-Sinhala-Player.apk" | head -1)

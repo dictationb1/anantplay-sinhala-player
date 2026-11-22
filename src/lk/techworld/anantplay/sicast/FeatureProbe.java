@@ -66,10 +66,48 @@ public final class FeatureProbe {
         Outcome(int id, String name) { this.id = id; this.name = name; }
     }
 
-    /** The probe listener — live progress for the Troubleshoot tab's UI. */
+    /**
+     * The probe listener — live progress for the Troubleshoot tab's UI.
+     *
+     * <p>v3.3.1 — EVERY callback carries data that is already an immutable
+     * snapshot. {@link #onProbeDone(Outcome)} hands over one finished outcome;
+     * {@link #onProbeSnapshot(java.util.List)} and {@link #onAllDone(java.util.List)}
+     * hand over a {@code Collections.unmodifiableList(new ArrayList<>(...))} copy,
+     * so a listener can iterate it on ANY thread while the run keeps appending —
+     * the exact ConcurrentModificationException that killed v3.3.0's
+     * {@code MainActivity.paintProbeCard:2127} cannot be reproduced.
+     */
     public interface Listener {
         void onProbeStart(int id, String name);
         void onProbeDone(Outcome o);
+        /** v3.3.1 — the immutable snapshot after this outcome landed. */
+        default void onProbeSnapshot(List<Outcome> snapshot) { }
+        /** v3.3.1 — the final immutable snapshot, fired once the run ends. */
+        default void onAllDone(List<Outcome> snapshot) { }
+    }
+
+    // ── v3.3.1 — THREAD-SAFE RUN STATE ───────────────────────────────────────
+    // One run at a time (AtomicBoolean), results accumulated in a
+    // CopyOnWriteArrayList, and every reader gets a fresh immutable snapshot.
+    private static final java.util.concurrent.atomic.AtomicBoolean RUNNING =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static final java.util.concurrent.CopyOnWriteArrayList<Outcome> LAST =
+        new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** True while a run is in flight (the UI's second-tap guard reads this). */
+    public static boolean isRunning() { return RUNNING.get(); }
+
+    /**
+     * v3.3.1 — a FRESH immutable snapshot of the last/current run. Never the live
+     * list: a caller may iterate this on the UI thread while probes are still
+     * being appended, with zero ConcurrentModificationException risk.
+     */
+    public static List<Outcome> lastResults() {
+        return java.util.Collections.unmodifiableList(new ArrayList<>(LAST));
+    }
+
+    private static List<Outcome> snapshot() {
+        return java.util.Collections.unmodifiableList(new ArrayList<>(LAST));
     }
 
     // ── the one-tap master run (background thread; ~15 s total worst case) ────
@@ -86,18 +124,45 @@ public final class FeatureProbe {
      */
     public static List<Outcome> runAll(int receiverPort, String workerUrl, File filesDir,
                                         boolean mdnsRunning, Listener l) {
-        List<Outcome> out = new ArrayList<>();
-        out.add(probe1Loopback(receiverPort, l));
-        out.add(probe2Dlna(receiverPort, l));
-        out.add(probe3Mdns(mdnsRunning, l));
-        out.add(probe4Updater(l));
-        out.add(probe5Worker(workerUrl, l));
-        out.add(probe6ResolveScript(workerUrl, l));
-        out.add(probe7FreeTranslator(filesDir, l));
-        out.add(probe8ZipExtractor(l));
-        out.add(probe9FontAsset(filesDir, l));
-        out.add(probe10BackupCrash(filesDir, l));
-        return out;
+        // v3.3.1 — one run at a time. A double-tap (or a second Activity resume)
+        // can no longer interleave two probe sets into one shared list; the second
+        // caller simply receives the previous run's immutable snapshot.
+        if (!RUNNING.compareAndSet(false, true)) {
+            return lastResults();
+        }
+        try {
+            LAST.clear();
+            List<Outcome> out = new ArrayList<>(10);
+            out.add(land(probe1Loopback(receiverPort, l), l));
+            out.add(land(probe2Dlna(receiverPort, l), l));
+            out.add(land(probe3Mdns(mdnsRunning, l), l));
+            out.add(land(probe4Updater(l), l));
+            out.add(land(probe5Worker(workerUrl, l), l));
+            out.add(land(probe6ResolveScript(workerUrl, l), l));
+            out.add(land(probe7FreeTranslator(filesDir, l), l));
+            out.add(land(probe8ZipExtractor(l), l));
+            out.add(land(probe9FontAsset(filesDir, l), l));
+            out.add(land(probe10BackupCrash(filesDir, l), l));
+            List<Outcome> snap = snapshot();
+            if (l != null) {
+                try { l.onAllDone(snap); } catch (Throwable ignored) { }
+            }
+            return snap;
+        } finally {
+            RUNNING.set(false);
+        }
+    }
+
+    /** v3.3.1 — land one finished outcome in the thread-safe run log and hand the
+     *  listener an immutable snapshot (never the live list). */
+    private static Outcome land(Outcome o, Listener l) {
+        if (o != null) {
+            LAST.add(o);
+            if (l != null) {
+                try { l.onProbeSnapshot(snapshot()); } catch (Throwable ignored) { }
+            }
+        }
+        return o;
     }
 
     static Outcome timed(int id, String name, Listener l, java.util.function.Function<Outcome, Outcome> body) {

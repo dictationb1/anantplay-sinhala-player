@@ -322,6 +322,12 @@ public final class AppPrefs {
                 case K_AUTO_RESUME: case K_DOH_DIAG: case K_DLNASTART: case K_MDNS:
                 case K_AUTO_UPDATE: case K_AUTO_OPEN_SNIFFED: case K_WEB_DESKTOP_UA:
                 case K_AD_BLOCK: case K_FREE_TRANSLATOR:
+                // v3.3.1 — the four v3.3.0 player switches were in BACKUP_KEYS but
+                // MISSING here, so Backup & Restore silently dropped them (a restore
+                // turned the swipe gestures and lock-on-start back off). Every
+                // customization key must round-trip; the lab asserts all 50.
+                case K_SWIPE_BRIGHTNESS: case K_SWIPE_VOLUME: case K_SWIPE_SEEK:
+                case K_LOCK_ON_START:
                     return raw instanceof Boolean ? raw
                         : Boolean.parseBoolean(String.valueOf(raw)) ? Boolean.TRUE : Boolean.FALSE;
                 default: return null;                                 // unknown key → reject
@@ -352,6 +358,11 @@ public final class AppPrefs {
     public static String accentHex(SharedPreferences p) { return normalizeAccentHex(p.getString(K_ACCENT_HEX, "")); }
     public static String uiLang(SharedPreferences p) { return normalizeUiLang(p.getString(K_UI_LANG, UI_BI)); }
     public static boolean spacious(SharedPreferences p) { return DENSITY_SPACIOUS.equals(normalizeDensity(p.getString(K_DENSITY, DENSITY_COMFORTABLE))); }
+    /** v3.3.1 — the Card-corner-radius preference, normalized (sharp|rounded|apple-pill). */
+    public static String cardRadius(SharedPreferences p) {
+        return normalizeCardRadius(p.getString(K_CARD_RADIUS, RADIUS_ROUNDED));
+    }
+
     public static boolean compact(SharedPreferences p) { return DENSITY_COMPACT.equals(normalizeDensity(p.getString(K_DENSITY, DENSITY_COMFORTABLE))); }
     public static boolean showWebTab(SharedPreferences p) { return p.getBoolean(K_SHOW_WEB_TAB, true); }
     public static boolean showQuickActions(SharedPreferences p) { return p.getBoolean(K_SHOW_QUICK_ACTIONS, true); }

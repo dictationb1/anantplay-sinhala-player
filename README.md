@@ -1,4 +1,4 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v3.3.0
+# AnantPlay Sinhala Player (SI Cast Receiver) v3.3.1
 
 > **v3.3.0 — CINEMA PLAYER & NAVIGATION OVERHAUL · HTTP-403 KILLED ·
 > ASPECT-RATIO ENGINE · SRI LANKAN SUBTITLE CAPTURE · 660/660 CI LAB.**
@@ -15,11 +15,33 @@
 > `onVideoSizeChanged`, no aspect math) with a `‹ Back` button sitting on top of
 > the Retry row and 22 sp subtitles; (4) no automatic Sri Lankan subtitle
 > finding. v3.3.0 fixes all four at the source and proves it: **716/716 lab
-> checks PASS** (hosted CI), a live mock-CDN 403 lab, the aspect math (1080×608),
+> checks PASS** (hosted CI, now 773 with the v3.3.1 suites), a live mock-CDN 403 lab, the aspect math (1080×608),
 > the nav-shell invariant, the loopback `/subs/current.srt` route that makes
 > `📺 VLC` work on Android 16 without a `file://` Uri (and without handing a
 > private cache path to another app), and a signed APK whose badging says
 > 3.3.0 / 30300.
+
+> **v3.3.1 — ZERO-CRASH HARDENING · LAYOUTPARAMS STATIC GATE · THREAD-SAFE
+> TROUBLESHOOTER · CARD-RADIUS FIX · 773/773 CI LAB.**
+> Built on two real Android 16 (SDK 36) crashes logged on the user's own phone on
+> 2026-11-23 at 02:03:40 and 02:04:58: (1) **`ClassCastException:
+> LinearLayout$LayoutParams cannot be cast to FrameLayout$LayoutParams` at
+> `FrameLayout.onMeasure(FrameLayout.java:195)`** — the player's subtitle pill
+> column, the HUD chip strip and the ⏪/⏩ double-tap ripple were mounted with the
+> wrong `LayoutParams` class, so the framework's own measure pass killed the
+> process (no `try/catch` of ours can catch a throw inside `View.measure`);
+> (2) **`ConcurrentModificationException` at `MainActivity.paintProbeCard:2127`**
+> — the 10-point troubleshoot shared one live `ArrayList` between the probe
+> thread (appending) and the UI thread (iterating). v3.3.1 fixes both at the
+> source and then makes them **structurally impossible**: a new gating static
+> analyzer (`lab/verify_layouts.py`) types every container/child pair across all
+> 46 Java files and fails the build on any mismatch, the probe engine hands out
+> only immutable snapshots (`CopyOnWriteArrayList` + `unmodifiableList`), and an
+> 8-thread × 1,000-write stress test with four concurrent readers runs on every
+> CI build. Also fixed: the **Card corner radius** setting that changed nothing
+> on screen (the palette always used the default token) and the four v3.3.0
+> player switches (lock-on-start, the three swipe gestures) that
+> **Backup & Restore silently dropped**.
 
 > **v3.2.0 — PLAYACTIVITY CRASH FIX · SELF-UPDATER SPIN-LOOP FIX ·
 > PRIVACY-FIRST DEEP TROUBLESHOOTER · SINHALA ZWJ CONJUNCT FIX ·
