@@ -223,13 +223,13 @@ notifications per ~3.5 MB APK), on `CHANNEL_CAST` = `IMPORTANCE_HIGH` with no `s
 
 ## 9. Verification
 
-`bash lab/run_lab.sh` compiles the pure engines and the lab on a bare JVM and asserts **429
+`bash lab/run_lab.sh` compiles the pure engines and the lab on a bare JVM and asserts **424
 gating checks** (protocol, DLNA E2E, mDNS wire, stream sniffer, updater, security greps, the five
 field-bug regressions of v3.1.0, the Mornye engine, and pipeline parity). Both CI workflows run it
 as a hard gate; a single `FAIL` line turns the run red.
 
 ```sh
-bash lab/run_lab.sh          # 429 checks, 0 failed
+bash lab/run_lab.sh          # 424 checks, 0 failed
 ```
 
 The Android build then proves the artifact: `aapt2 dump badging` must report

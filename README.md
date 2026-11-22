@@ -104,7 +104,7 @@ The media3 1.11.1 + guava jars (the exact set AnantPlay ships in its `libs/`, Ap
 ## Verify
 
 ```sh
-./lab/run_lab.sh     # the gating lab — 429 checks, byte-compatible with Cast.java
+./lab/run_lab.sh     # the gating lab — 424 checks, byte-compatible with Cast.java
 ```
 
 The lab drives `ReceiverServer` with the exact requests official AnantPlay's
@@ -168,7 +168,7 @@ src/.../sicast/
   CastPolicy.java            cast-arrival policy (schemes, /do whitelist, seek clamp) — pure Java
   StreamHint.java            Media3 mime defaulting for extensionless HLS/DASH — pure Java
   BridgeApi/Cue/MiniJson/SrtLoader/SubtitleStore   the proven v1 engines (pure Java)
-lab/ReceiverLab.java         the 429-check gating lab (protocol + security + i18n + v3.1.0 field-bug regressions)
+lab/ReceiverLab.java         the 424-check gating lab (protocol + security + i18n + v3.1.0 field-bug regressions)
 lab/BridgeLab.java           live worker E2E (best effort)
 docs/CAST-VERIFICATION.md    every AnantPlay file:line this is built on
 THIRD_PARTY.md               licenses of every bundled jar + the Sinhala font
