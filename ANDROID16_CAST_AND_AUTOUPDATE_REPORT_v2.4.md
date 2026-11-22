@@ -111,8 +111,8 @@ The pure logic (`SelfUpdateCore`: release parsing via MiniJson, sums parsing, SH
 
 ## 6 · LAB + BUILD PROOF
 
-- **`bash lab/run_lab.sh` → `Lab result: ALL <N> PASSED`** (the previous green run was 152/152; v2.4.0 adds the AOSP-mirror mDNS decoder, the §8.1/coexistence/NetPolicy-grace checks, the `SelfUpdater` mock-GitHub suite **and** the new Android 14–16 PackageInstaller-hardening suite: T1 PendingIntent ×4, T2 BAL ×3, T3 unknown-sources ×3, T4 manifest/JobService/receiver ×4, T5 download safety ×5, SHA256SUMS parity ×3, plus the in-source ordering/threading assertions). The exact count is published by CI as a run annotation on every push.
-- **Build:** `./build.sh` → `dist/AnantPlay-Sinhala-Player-v2.4.0.apk`, `versionCode 20400 > 20301` guard ✓, `aapt2 dump badging` → `versionCode='20400' versionName='2.4.0'` ✓, `zipalign -c 4` ✓, `apksigner verify --verbose` → **v2 ✓ v3 ✓**, SHA-256 `531b2750…6073ad`.
+- **`bash lab/run_lab.sh` → `Lab result: ALL 217 PASSED`** (the previous green run was 152/152; v2.4.0 adds the AOSP-mirror mDNS decoder, the §8.1/coexistence/NetPolicy-grace checks, the `SelfUpdater` mock-GitHub suite **and** the new Android 14–16 PackageInstaller-hardening suite: T1 PendingIntent ×4, T2 BAL ×3, T3 unknown-sources ×3, T4 manifest/JobService/receiver ×4, T5 download safety ×5, SHA256SUMS parity ×3, plus the in-source ordering/threading assertions. CI annotation on `main`: `217/217 PASS, 0 FAIL`.)
+- **Build:** `./build.sh` → `dist/AnantPlay-Sinhala-Player-v2.4.0.apk`, `versionCode 20400 > 20301` guard ✓, `aapt2 dump badging` → `versionCode='20400' versionName='2.4.0'` ✓, `zipalign -c 4` ✓, `apksigner verify --verbose` → **v2 ✓ v3 ✓**, SHA-256 `6ad33c56c7f63b8a02ee73d1c1316b77e1365173c7285a798d0f8d9fed4aa6c4` (3306219 bytes, `main` CI run 45007499279).
 - All v2.2–v2.3.1 wins preserved: 18 languages, Spoken/Formal, Two-Stage Cinema Polish, Option-C cap, `DohResolver`, `TitleCleaner`, `NetPolicy`, HyperOS inset scrollbars, `UpdateChecker`, keystore scripts + secret parity, `release-apk.yml` (first-release safe), `obtainium-config.json`, build-tools 35.0.1, zero Accessibility.
 
 ---
