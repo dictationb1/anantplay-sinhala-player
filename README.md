@@ -104,7 +104,7 @@ The media3 1.11.1 + guava jars (the exact set AnantPlay ships in its `libs/`, Ap
 ## Verify
 
 ```sh
-./lab/run_lab.sh     # the gating lab — 431+ checks, byte-compatible with Cast.java
+./lab/run_lab.sh     # the gating lab — 427 checks, byte-compatible with Cast.java
 ```
 
 The lab drives `ReceiverServer` with the exact requests official AnantPlay's
@@ -168,7 +168,7 @@ src/.../sicast/
   CastPolicy.java            cast-arrival policy (schemes, /do whitelist, seek clamp) — pure Java
   StreamHint.java            Media3 mime defaulting for extensionless HLS/DASH — pure Java
   BridgeApi/Cue/MiniJson/SrtLoader/SubtitleStore   the proven v1 engines (pure Java)
-lab/ReceiverLab.java         the 431+-check gating lab (protocol + security + i18n + v3.1 field-bug regressions)
+lab/ReceiverLab.java         the 427-check gating lab (protocol + security + i18n + v3.1 field-bug regressions)
 lab/BridgeLab.java           live worker E2E (best effort)
 docs/CAST-VERIFICATION.md    every AnantPlay file:line this is built on
 THIRD_PARTY.md               licenses of every bundled jar + the Sinhala font
@@ -185,6 +185,13 @@ SETUP-SI.md                  the Sinhala setup checklist
 > one version — byte for byte. Download:
 > `AnantPlay-Sinhala-Player-v3.1.1.apk` (release-signed with the same permanent
 > keystore as v3.1.0 → your phone updates **in place**, no uninstall).
+>
+> **Reproducible APKs:** `build.sh` pins every ZIP entry to a fixed epoch
+> (`touch -t 198001010000` + `zip -X`) with `TZ=UTC` in both workflows, so the
+> same commit always produces the same SHA-256. Before this, the pre-merge build
+> and the post-merge release build of one commit differed only by ZIP entry
+> mtimes — identical size, different hash. Now `SHA256SUMS.txt` is a permanent,
+> re-verifiable record of exactly the bytes you install.
 
 Built on the 2026-11-22 16:36 Xiaomi Android 16 field log, every defect
 root-caused with file:line proof and covered by new regression checks in

@@ -2578,6 +2578,14 @@ public class ReceiverLab {
         check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
             buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
+        // v3.1.1 — REPRODUCIBILITY GUARD: the pre-merge build and the post-merge
+        // release build of the SAME commit used to differ only by the ZIP entry
+        // mtimes (two different SHA-256s for one commit). build.sh now pins the
+        // epoch, so the pipeline stays byte-reproducible and the lab enforces it.
+        check("v311 pipe: build.sh pins the ZIP entry epoch (reproducible APK bytes)",
+            shippedBuildSh.contains("touch -t 198001010000")
+                && shippedBuildSh.contains("zip -q -X app.apk")
+                && shippedBuildSh.contains("TZ=UTC"));
         check("v31 sec: the repo keeps .gitignore for the Arena.ai-ready zip",
             new java.io.File(".gitignore").exists());
     }

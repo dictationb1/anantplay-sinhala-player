@@ -1,5 +1,10 @@
 name: Release APK (signed, Obtainium-ready)
 
+# v3.1.1 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
+# this keeps the runner clock interpretable (the same commit → the same SHA-256).
+env:
+  TZ: UTC
+
 # v3.x — THE MERGE-TO-RELEASE PIPELINE: every Pull Request merged into main
 # becomes a release automatically. No tag ceremony, no manual step.
 #
