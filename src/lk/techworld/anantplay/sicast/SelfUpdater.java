@@ -88,6 +88,8 @@ public final class SelfUpdater {
      *  per percent (UpdateNotify, lab-proven). v3.0.0 notified on every 64 KB
      *  chunk on an IMPORTANCE_HIGH channel — the spam that lagged the phone. */
     private static final UpdateNotify throttle = new UpdateNotify();
+    /** v3.1.2 — the single-flight skip log's own rate limit (1/s, see checkAndMaybeInstall). */
+    private static volatile long lastSkipLogAt;
 
     private SelfUpdater() { }
 
@@ -170,6 +172,24 @@ public final class SelfUpdater {
 
     // ── the checks ────────────────────────────────────────────────────────────
 
+    /** v3.1.2 — THE SPIN-LOOP KILLER (the 38-lines-in-645 ms field log):
+     *  v3.1.1's only guard was the persisted 60 s "lastCheck" debounce inside
+     *  checkOnLaunch, but schedule() itself was callable from every entry point
+     *  (app start, the install-now action, the settings toggle) with latency 0 —
+     *  every call REPLACES the pending JobInfo, and each replacement makes
+     *  JobScheduler re-deliver CheckJob.onStartJob while a previous run is still
+     *  in flight → "single-flight: another update run is active — skipping"
+     *  logged over and over (38+ Diag lines in 645 ms on the field phone).
+     *  THE FIX, two layers, both in-process and instant:
+     *    1. schedule() debounces: an immediate (delayMs==0) re-schedule within
+     *       SCHEDULE_DEBOUNCE_MS is a NO-OP — one job is handed to JobScheduler
+     *       once per process burst, never 38;
+     *    2. checkAndMaybeInstall's skip log is rate-limited: even if a caller
+     *       somehow still re-fires, the Diag ring sees at most ONE line per
+     *       second instead of a spam storm (Diag stays readable, zero lag). */
+    static final long SCHEDULE_DEBOUNCE_MS = 10 * 1000L;
+    private static volatile long lastScheduleAt;
+
     /** Called from App.onCreate: fire the background check at most once per
      *  60 s (the app-open debounce). Non-blocking, never throws. */
     public static void checkOnLaunch(final Context c) {
@@ -182,9 +202,19 @@ public final class SelfUpdater {
         }
     }
 
-    /** One-shot ASAP job (network permitting). */
+    /** One-shot ASAP job (network permitting).
+     *  v3.1.2: the in-process debounce makes an immediate re-schedule a NO-OP —
+     *  JobScheduler is handed the job ONCE per burst (see SCHEDULE_DEBOUNCE_MS). */
     public static void schedule(Context c, long delayMs) {
         try {
+            // the spin-loop breaker: a zero-delay re-schedule inside the debounce
+            // window is silently ignored (the first job is already pending/firing)
+            if (delayMs <= 0) {
+                long last = lastScheduleAt;
+                long now = System.currentTimeMillis();
+                if (last > 0 && now - last < SCHEDULE_DEBOUNCE_MS) return;
+                lastScheduleAt = now;
+            }
             JobScheduler js = c.getSystemService(JobScheduler.class);
             if (js == null) return;
             JobInfo.Builder b = new JobInfo.Builder(JOB_ID,
@@ -235,14 +265,23 @@ public final class SelfUpdater {
      * Returns a human-readable result (also logged). */
     public static String checkAndMaybeInstall(final Context c, final boolean manualCheck) {
         if (!inFlight.compareAndSet(false, true)) {
-            Diag.i("selfupd", "single-flight: another update run is active — skipping");
+            // v3.1.2 — the rate-limited skip (the 38x field spam): at most ONE
+            // skip line per second ever reaches the Diag ring, whatever the
+            // caller storm looks like.
+            long now = System.currentTimeMillis();
+            long last = lastSkipLogAt;
+            if (last == 0 || now - last >= 1000L) {
+                lastSkipLogAt = now;
+                Diag.i("selfupd", "single-flight: another update run is active — skipping");
+            }
             return "in-flight";
         }
         try {
             SelfUpdateCore.Release rel = SelfUpdateCore.fetchRelease(API_LATEST);
-            if (rel == null) return "no release";
+            if (rel == null) { Troubleshooter.record("UPDATER", "check: no release info (offline?)"); return "no release"; }
             if (!UpdateChecker.isNewer(rel.version, AppInfo.VERSION_NAME)) {
                 Diag.i("selfupd", "up to date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
+                Troubleshooter.record("UPDATER", "check: up-to-date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
                 return "up-to-date";
             }
             // v3.1.0 — the skip choice: never alert about a skipped version again

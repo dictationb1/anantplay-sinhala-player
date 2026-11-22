@@ -72,9 +72,14 @@ public final class Diag {
     /**
      * Scrub secrets out of one log line. Idempotent and cheap enough to run on every
      * line (the ring is small and logging is not in a hot loop).
+     * v3.1.2 — the LAST GATE: every line now ALSO passes through PrivacyScrubber
+     * (IPs/MACs/EUI-64 → placeholders, phone models → <phone-model>, storage
+     * paths → <local-media>) after the secret pass. A caller that accidentally
+     * logs hardware or network identifiers is anonymised HERE, at the sink.
      */
     public static String redact(String msg) {
         String out = redactFull(msg);
+        out = PrivacyScrubber.scrub(out);
         return out.length() > MAX_LINE ? out.substring(0, MAX_LINE) + "…" : out;
     }
 
