@@ -1,4 +1,4 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v2.3.1
+# AnantPlay Sinhala Player (SI Cast Receiver) v2.4.0
 
 **The zero-accessibility, zero-fork Sinhala subtitle solution for the 100% official, unmodified
 AnantPlay app** — built for the hardest target: a **Xiaomi HyperOS (Android 14–16)** phone.
@@ -87,7 +87,7 @@ The media3 1.11.1 + guava jars (the exact set AnantPlay ships in its `libs/`, Ap
 ## Verify
 
 ```sh
-./lab/run_lab.sh     # the gating lab — 152 checks, byte-compatible with Cast.java
+./lab/run_lab.sh     # the gating lab — 95 checks, byte-compatible with Cast.java
 ```
 
 The lab drives `ReceiverServer` with the exact requests official AnantPlay's
@@ -133,6 +133,7 @@ the APK on JDK 17 + **Android SDK 34 + build-tools 35.0.1** with **zero Gradle**
    opens the player on one tap (nothing crashes, nothing is silently dropped).
 
 Sinhala setup guide: **SETUP-SI.md** · Full architecture + audit trail: **docs/CAST-VERIFICATION.md**
+· Android 16 cast + self-updater audit: **[ANDROID16_CAST_AND_AUTOUPDATE_REPORT_v2.4.md](ANDROID16_CAST_AND_AUTOUPDATE_REPORT_v2.4.md)**
 
 ## Repo layout
 
@@ -151,12 +152,51 @@ src/.../sicast/
   CastPolicy.java            cast-arrival policy (schemes, /do whitelist, seek clamp) — pure Java
   StreamHint.java            Media3 mime defaulting for extensionless HLS/DASH — pure Java
   BridgeApi/Cue/MiniJson/SrtLoader/SubtitleStore   the proven v1 engines (pure Java)
-lab/ReceiverLab.java         the 152-check gating lab (protocol + security + i18n regressions)
+lab/ReceiverLab.java         the gating lab (protocol + security + Android 16 + i18n)
 lab/BridgeLab.java           live worker E2E (best effort)
 docs/CAST-VERIFICATION.md    every AnantPlay file:line this is built on
+ANDROID16_CAST_AND_AUTOUPDATE_REPORT_v2.4.md   the Android 16 mDNS + self-updater audit
 THIRD_PARTY.md               licenses of every bundled jar + the Sinhala font
 SETUP-SI.md                  the Sinhala setup checklist
 ```
+
+## What's new in v2.4.0 (the Android 16 cast-discovery fix + self-updater)
+
+- **THE `"announced": false` / NO-CAST-ICON ANDROID 16 BUG — ROOT-CAUSED AND FIXED.**
+  Two independent defects, both proven from AOSP `MdnsAdvertiser`/`MdnsResponseDecoder`:
+  1. **Our own responder sabotaged NsdManager's registration.** It answered RFC 6762 §8.1
+     conflict probes (QTYPE=ANY on the instance name) for the SAME name the system
+     advertiser was probing → every answer counted as a name CONFLICT → the advertiser
+     renamed and re-probed forever → `onServiceRegistered` never fired (`"announced":
+     false` for 35 s, and the Cast chip in official AnantPlay — hidden whenever
+     `Cast.any()` is false — never appeared). v2.4.0: the responder NEVER answers ANY
+     questions (probes are not queries), uses a DISTINCT instance name
+     ("AnantPlay Sinhala Player" vs the daemon's "AnantPlay on සිංහල Player"), and
+     starts only AFTER the registration settles (registration-first coexistence).
+  2. **The A record never attached.** The SRV target was the bare instance name while
+     the A owner was the full service name — Android's decoder attaches an address only
+     when `A.owner == SRV.target`, so `isComplete()` stayed false and every answer was
+     ignored. v2.4.0: SRV target = `<host>.local` (RFC 6763 §4.3), A owner = the SAME
+     name, cache-flush 0x8001 on SRV/TXT/A (RFC 6762 §10.2), PTR TTL 4500, TXT carries
+     the `fn` friendly name. The lab's AOSP-mirror decoder proves `isComplete() == true`.
+  3. **The startup teardown race** (the 0.559 responder restart): `registerDefaultNetwork
+     Callback`'s IMMEDIATE `onAvailable` fired while the registration was still pending
+     and `healthy=false` triggered a re-arm that killed it. `NetPolicy` now has a 5 s
+     ARM_GRACE window while a registration is pending.
+- **Self-test L1 truth** — the daemon probe now requires the DAEMON's name in the answer
+  (our responder's distinct name can no longer produce a false `L1 ✓`), and the result
+  line shows `⚠ daemon-announce pending` when the real NsdManager registration has not
+  settled.
+- **BUILT-IN GITHUB SELF-UPDATER (`SelfUpdater.java`)** — checks
+  `api.github.com/…/releases/latest` on every app launch (15 min rate limit) and every
+  6 h via JobScheduler; downloads the APK asset, VERIFIES ITS SHA-256 against the same
+  release's `SHA256SUMS.txt` (tampered/corrupted downloads are refused), and hands it
+  to `PackageInstaller` → Android's own 1-tap "Update" prompt → in-place update with
+  the same permanent keystore (zero uninstall, all data preserved). Works alongside
+  Obtainium (same GitHub Releases, same signature). Honest limit: non-root Android 16
+  never allows silent installs — the single OS confirmation tap stays.
+- **Cast guide card** in the app (bilingual) explaining EXACTLY where the Cast chip
+  appears inside AnantPlay and what to tap.
 
 ## What's new in v2.3.1 (the HyperOS field-log fixes)
 

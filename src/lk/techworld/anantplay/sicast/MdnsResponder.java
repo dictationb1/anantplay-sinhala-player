@@ -61,9 +61,17 @@ public final class MdnsResponder {
 
     private final String serviceType;     // "_anantplay._tcp"
     private final String legacyType;      // "_fmhyplay._tcp" (or "" to disable)
-    private final String instanceName;    // e.g. "AnantPlay on සිංහල Player"
+    private final String instanceName;    // e.g. "AnantPlay Sinhala Player" (v2.4.0: DIFFERENT from the NsdManager name!)
     private final int port;               // the receiver's TCP port
     private final InetAddress host;       // the interface address to advertise
+    /** v2.4.0 — the SRV target host (<hostName>.local.). RFC 6763 §4.3 requires a
+     *  proper host name, and Android's MdnsResponseDecoder (Loop 3,
+     *  MdnsResponseDecoder.java:248-255) attaches an A record to a service ONLY
+     *  when the A owner name equals the SRV target. v2.3.x put the bare instance
+     *  name as SRV target and the full service name as A owner — the two never
+     *  matched, the address never attached, isComplete() stayed false and official
+     *  AnantPlay ignored every answer (the 2026-11-22 13:16 Android 16 log). */
+    private final String hostName;        // e.g. "Sinhala-Player-a1b2"
 
     private MulticastSocket socket;
     private Thread worker;
@@ -78,7 +86,20 @@ public final class MdnsResponder {
         this.instanceName = instanceName;
         this.port = port;
         this.host = host;
+        this.hostName = makeHostName();
     }
+
+    /** v2.4.0 — a stable, unique, DNS-label-safe host name derived from the
+     *  advertised IP (deterministic: same IP → same host name, so the lab proves
+     *  the exact bytes). ASCII-only, ≤ 63 bytes, no dots — a legal single label. */
+    private String makeHostName() {
+        String ip = host == null ? "0.0.0.0" : host.getHostAddress();
+        int h = Math.abs(ip.hashCode());
+        return String.format(Locale.ROOT, "Sinhala-Player-%04x", h & 0xFFFF);
+    }
+
+    /** The advertised SRV target ("<hostName>.local"). */
+    public String hostLabel() { return hostName; }
 
     public boolean isRunning() { return running; }
     /** True when we actually share UDP 5353 (false = mdnsd refused / EADDRINUSE — degraded). */
@@ -97,18 +118,10 @@ public final class MdnsResponder {
             socket = new MulticastSocket(null);
             socket.setReuseAddress(true);          // coexist with mdnsd's 5353
             socket.bind(new InetSocketAddress(MDNS_PORT));
-            // Java's inverted semantics: setLoopbackMode(false) ENABLES kernel multicast loopback
-            socket.setLoopbackMode(false);
             portShared = true;
         } catch (Throwable t) {
-            // EADDRINUSE / BindException (a vendor build that refuses to share 5353) or a
-            // SecurityException: degrade gracefully, never crash
-            String why = t instanceof java.net.BindException
-                ? "bind refused (BindException / EADDRINUSE: " + t.getMessage() + ")"
-                : t instanceof SecurityException
-                    ? "platform blocked the socket (SecurityException: " + t.getMessage() + ")"
-                    : String.valueOf(t);
-            Diag.w("mdnsrsp", "cannot share UDP 5353 (" + why + ") — NsdManager registration stays the only announcer");
+            // EADDRINUSE or a vendor block: degrade gracefully, never crash
+            Diag.w("mdnsrsp", "cannot share UDP 5353 (" + t + ") — NsdManager registration stays the only announcer");
             try { if (socket != null) socket.close(); } catch (Throwable ignored) { }
             socket = null;
             portShared = false;
@@ -247,7 +260,22 @@ public final class MdnsResponder {
     }
 
     /** The answer payload when this query asks about our service (else null).
-     *  Parses every question; matches PTR? <type>.local, and SRV/ANY? <instance>.local. */
+     *
+     *  v2.4.0 — THE SABOTAGE FIX (the 2026-11-22 13:16 Android 16 log, "announced":
+     *  false for 35 s): v2.3.x also answered QTYPE=255 (ANY) questions on
+     *  <instance>.<type>.local — but that is EXACTLY the shape of an RFC 6762 §8.1
+     *  PROBE (MdnsProber.java:78-95 builds MdnsAnyRecord questions; the proposed
+     *  records ride in AUTHORITY). Our answers carrying a same-named SRV record
+     *  always counted as CONFLICT in MdnsRecordRepository.getConflictingServices
+     *  (MdnsRecordRepository.java:1196, 1263-1290 — IDENTICAL needs equal rdata;
+     *  ours differs), so Android 14–16's MdnsAdvertiser renamed the NsdManager
+     *  registration over and over and NEVER fired onServiceRegistered. Now:
+     *   · ANY questions are NEVER answered (correct: a probe is not a query);
+     *   · the responder's instance name differs from the NsdManager name, so even
+     *     a future bug in the filter cannot collide with the daemon's probes.
+     *  Matches: PTR on <type>.local (browse); SRV/TXT on <instance>.<type>.local;
+     *  A/AAAA on <hostName>.local (the SRV target — RFC 6763 §4.3, so a resolver's
+     *  address follow-up is answered too). */
     byte[] answerIfForUs(byte[] q) {
         try {
             if (q == null || q.length < 12) return null;
@@ -268,14 +296,20 @@ public final class MdnsResponder {
                 if (name == null) continue;
                 String full = joinName(name);
                 String lower = full.toLowerCase(Locale.ROOT);
-                if (qtype == 12 || qtype == 255) {            // PTR or ANY
+                if (qtype == 255) continue;                   // §8.1 probe / ANY: NEVER answer (v2.4.0)
+                if (qtype == 12) {                            // PTR: browse for the service type
                     String want1 = (serviceType + ".local").toLowerCase(Locale.ROOT);
                     String want2 = legacyType.isEmpty() ? "" : (legacyType + ".local").toLowerCase(Locale.ROOT);
                     if (lower.equals(want1) || lower.equals(want2)) ours = true;
                 }
-                if (qtype == 33 || qtype == 255 || qtype == 16) {   // SRV / ANY / TXT
+                if (qtype == 33 || qtype == 16) {              // SRV / TXT on the instance
                     String inst = (instanceName + "." + serviceType + ".local").toLowerCase(Locale.ROOT);
-                    if (lower.equals(inst)) ours = true;
+                    String instLegacy = legacyType.isEmpty() ? "" : (instanceName + "." + legacyType + ".local").toLowerCase(Locale.ROOT);
+                    if (lower.equals(inst) || lower.equals(instLegacy)) ours = true;
+                }
+                if (qtype == 1 || qtype == 28) {               // A / AAAA on the SRV target host
+                    String h = (hostName + ".local").toLowerCase(Locale.ROOT);
+                    if (lower.equals(h)) ours = true;
                 }
             }
             return ours ? responsePacket(q) : null;
@@ -323,7 +357,17 @@ public final class MdnsResponder {
     // ── the response builder (deterministic — the lab proves these exact bytes) ──
 
     /** The full authoritative answer for OUR service, echoing the query's id:
-     *  answers: PTR instance.service.local ; additional: SRV, TXT, A. */
+     *  answers: PTR instance.service.local ; additional: SRV, TXT, A.
+     *
+     *  v2.4.0 — THE ATTACH FIX: the SRV target is now <hostName>.local (RFC 6763
+     *  §4.3) and the A record's owner name is THE SAME <hostName>.local, so
+     *  Android's MdnsResponseDecoder Loop 3 (findResponseWithHostName matches
+     *  inetRecord.getName() == serviceRecord.getServiceHost(),
+     *  MdnsResponseDecoder.java:248-255) attaches the address, isComplete()
+     *  (MdnsResponse.java:336-341: SRV && TXT && ≥1 inet) becomes true and
+     *  onServiceFound fires (MdnsServiceTypeClient.java:646-651). Cache-flush
+     *  0x8001 on the unique SRV/TXT/A records (RFC 6762 §10.2), plain 0x0001 on
+     *  the shared PTR. */
     byte[] responsePacket(byte[] query) {
         int id = query == null || query.length < 2 ? 0 : ((query[0] & 0xFF) << 8) | (query[1] & 0xFF);
         ByteArrayOutputStream b = new ByteArrayOutputStream(512);
@@ -333,18 +377,18 @@ public final class MdnsResponder {
         b.write(0); b.write(1);                 // ANCOUNT 1
         b.write(0); b.write(0);                 // NSCOUNT 0
         b.write(0); b.write(3);                 // ARCOUNT 3 (SRV + TXT + A)
-        // ── answer: PTR <instance>.<service>.local ──
+        // ── answer: PTR <instance>.<service>.local (shared record: NO cache-flush) ──
         writeName(b, instanceName, serviceType, "local");
         b.write(0); b.write(12);                // TYPE PTR
-        b.write(0); b.write(1);                 // CLASS IN
-        writeU32(b, 120);                       // TTL 120 s (small: a transient phone)
+        b.write(0); b.write(1);                 // CLASS IN (no cache-flush: shared)
+        writeU32(b, 4500);                      // TTL 4500 s — the standard DNS-SD browse TTL
         byte[] ptr = ptrRdata();
         writeU16(b, ptr.length);
         b.write(ptr, 0, ptr.length);
-        // ── additional 1: SRV ──
+        // ── additional 1: SRV on <instance>.<service>.local, target <hostName>.local ──
         writeName(b, instanceName, serviceType, "local");
         b.write(0); b.write(33);                // TYPE SRV
-        b.write(0); b.write(1);
+        b.write(0x80); b.write(0x01);           // CLASS IN + cache-flush (unique record)
         writeU32(b, 120);
         byte[] srv = srvRdata();
         writeU16(b, srv.length);
@@ -352,15 +396,15 @@ public final class MdnsResponder {
         // ── additional 2: TXT ──
         writeName(b, instanceName, serviceType, "local");
         b.write(0); b.write(16);                // TYPE TXT
-        b.write(0); b.write(1);
+        b.write(0x80); b.write(0x01);           // CLASS IN + cache-flush
         writeU32(b, 120);
         byte[] txt = txtRdata();
         writeU16(b, txt.length);
         b.write(txt, 0, txt.length);
-        // ── additional 3: A (our interface address) ──
-        writeName(b, instanceName, serviceType, "local");   // A on the same name (SRV target == instance)
+        // ── additional 3: A on <hostName>.local — THE SAME NAME AS THE SRV TARGET ──
+        writeName(b, hostName, "local");
         b.write(0); b.write(1);                 // TYPE A
-        b.write(0); b.write(1);
+        b.write(0x80); b.write(0x01);           // CLASS IN + cache-flush
         writeU32(b, 120);
         byte[] a = host == null ? new byte[4] : host.getAddress();
         if (a == null || a.length != 4) a = new byte[4];
@@ -377,24 +421,28 @@ public final class MdnsResponder {
         return b.toByteArray();
     }
 
-    /** SRV rdata: 0 0 port <instance labels + root>. */
+    /** SRV rdata: 0 0 port <hostName>.local (a proper RFC 6763 §4.3 target). */
     private byte[] srvRdata() {
         ByteArrayOutputStream b = new ByteArrayOutputStream(96);
         writeU16(b, 0);                          // priority
         writeU16(b, 0);                          // weight
         writeU16(b, port);                       // the receiver's TCP port
-        writeLabels(b, instanceName);            // target = the instance name itself
-        b.write(0);
+        writeLabels(b, hostName);                // target = <hostName>
+        writeLabels(b, "local");                 // .local
+        b.write(0);                              // root
         return b.toByteArray();
     }
 
-    /** TXT rdata: one "app=sicast" string (a TXT record must hold ≥1 string). */
+    /** TXT rdata: "app=sicast" + the display name AnantPlay shows for TVs (the
+     *  `fn` attribute Chromecast uses for the friendly name). */
     private byte[] txtRdata() {
-        String s = "app=sicast";
-        byte[] str = s.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
-        ByteArrayOutputStream b = new ByteArrayOutputStream(24);
-        b.write(str.length);
-        b.write(str, 0, str.length);
+        ByteArrayOutputStream b = new ByteArrayOutputStream(96);
+        for (String s : new String[]{"app=sicast", "fn=" + instanceName}) {
+            byte[] str = s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            if (str.length > 255) continue;
+            b.write(str.length);
+            b.write(str, 0, str.length);
+        }
         return b.toByteArray();
     }
 

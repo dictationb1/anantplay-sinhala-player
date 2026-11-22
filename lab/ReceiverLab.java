@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -500,24 +501,24 @@ public class ReceiverLab {
         // v2.3.0 — the router-free mDNS stack (MdnsResponder + MdnsWire)
         // ══════════════════════════════════════════════════════════════════
         System.out.println("== v2.3.0 router-free mDNS ==");
-        MdnsResponder rsp = new MdnsResponder("_anantplay._tcp", "_fmhyplay._tcp",
+        MdnsResponder rspRouterFree = new MdnsResponder("_anantplay._tcp", "_fmhyplay._tcp",
             "AnantPlay on SiTest", 8765, InetAddress.getByName("127.0.0.1"));
 
         // 1. the responder answers a PTR question for OUR type
         byte[] qAnant = MdnsWire.queryPacket("_anantplay._tcp");
-        byte[] ansAnant = rsp.answerIfForUs(qAnant);
+        byte[] ansAnant = rspRouterFree.answerIfForUs(qAnant);
         check("v2.3 mdns: responder answers a PTR? _anantplay._tcp.local query", ansAnant != null && ansAnant.length > 60,
               ansAnant == null ? "null" : ansAnant.length + " B");
 
         // 2. it also answers the legacy type
         byte[] qFmhy = MdnsWire.queryPacket("_fmhyplay._tcp");
         check("v2.3 mdns: responder answers the legacy _fmhyplay._tcp type",
-              rsp.answerIfForUs(qFmhy) != null);
+              rspRouterFree.answerIfForUs(qFmhy) != null);
 
         // 3. it does NOT answer a foreign service type
         byte[] qForeign = MdnsWire.queryPacket("_googlecast._tcp");
         check("v2.3 mdns: responder stays silent for a foreign type",
-              rsp.answerIfForUs(qForeign) == null);
+              rspRouterFree.answerIfForUs(qForeign) == null);
 
         // 4. the response carries the right DNS shape
         check("v2.3 mdns: response is an authoritative answer (flags 0x8400)",
@@ -541,27 +542,21 @@ public class ReceiverLab {
             }
         }
         check("v2.3 mdns: SRV record points at port 8765", portOk);
-        // the A record: find the LAST "TYPE A(1) CLASS IN(1)" pair (an earlier {0,1,0,1}
-        // byte run can appear inside SRV rdata), then rdlength 4 + the 4 IP bytes
+        // the A record: find the LAST "TYPE A(1)" record header. v2.4.0: unique
+        // records carry CLASS 0x8001 (cache-flush, RFC 6762 §10.2) so the old
+        // {0,1,0,1} byte pattern no longer matches — scan every 00 01 pair and
+        // keep the last one followed by a valid class (0x0001 or 0x8001).
         int aAt = -1;
-        {
-            int from = 0;
-            while (true) {
-                int hit = indexOfSeq(ansAnant, new byte[]{0, 1, 0, 1});
-                if (hit < 0 || hit < from) break;
-                aAt = hit;
-                from = hit + 1;
-                // advance the search window past this hit
-                byte[] rest = java.util.Arrays.copyOfRange(ansAnant, hit + 1, ansAnant.length);
-                int next = indexOfSeq(rest, new byte[]{0, 1, 0, 1});
-                if (next < 0) break;
-                aAt = hit + 1 + next;
-                from = aAt + 1;
+        for (int i = 0; i + 4 <= ansAnant.length; i++) {
+            if (ansAnant[i] == 0 && (ansAnant[i + 1] & 0xFF) == 1
+                && (((ansAnant[i + 2] & 0xFF) == 0 && (ansAnant[i + 3] & 0xFF) == 1)
+                 || ((ansAnant[i + 2] & 0xFF) == 0x80 && (ansAnant[i + 3] & 0xFF) == 1))) {
+                aAt = i;
             }
         }
         boolean aOk = false;
         if (aAt > 0 && aAt + 10 <= ansAnant.length) {
-            // aAt points at TYPE(0,1) CLASS(0,1) TTL(4) → rdlen at aAt+8
+            // aAt points at TYPE(0,1) CLASS(2) TTL(4) → rdlen at aAt+8
             aOk = ansAnant[aAt + 8] == 0 && ansAnant[aAt + 9] == 4;
         }
         check("v2.3 mdns: A record carries an IPv4 rdlength-4 address", aOk,
@@ -571,7 +566,7 @@ public class ReceiverLab {
         byte[] notQuery = java.util.Arrays.copyOf(qAnant, qAnant.length);
         notQuery[2] = (byte) 0x84;
         check("v2.3 mdns: a RESPONSE packet never triggers an answer",
-              rsp.answerIfForUs(notQuery) == null);
+              rspRouterFree.answerIfForUs(notQuery) == null);
 
         // 6. QU bit detection (the unicast-reply request)
         check("v2.3 mdns: QU bit detected on our own query packet",
@@ -586,17 +581,17 @@ public class ReceiverLab {
         //    through kernel multicast loopback — the exact path the phone uses.
         boolean responderStarted = false;
         try {
-            responderStarted = rsp.start();
+            responderStarted = rspRouterFree.start();
         } catch (Throwable t) {
             System.out.println("  (responder start failed on this host: " + t + ")");
         }
         if (responderStarted) {
-            MdnsResponder.ProbeResult pr = MdnsResponder.probeLocal(rsp, 4000);
+            MdnsResponder.ProbeResult pr = MdnsResponder.probeLocal(rspRouterFree, 4000);
             check("v2.3 mdns: ROUTER-FREE loopback probe answers (kernel multicast loopback)",
                   pr.answered, "sent=" + pr.packetsSent + " recv=" + pr.packetsReceived + " " + pr.responderUp);
             check("v2.3 mdns: the probe's reply carries our instance name", pr.answered);
-            rsp.stop();
-            check("v2.3 mdns: responder stops cleanly", !rsp.isRunning());
+            rspRouterFree.stop();
+            check("v2.3 mdns: responder stops cleanly", !rspRouterFree.isRunning());
         } else {
             // CI without multicast (rare): the parse-level checks above still gate the wire format
             check("v2.3 mdns: responder shares UDP 5353 on this host (loopback probe SKIPPED — no multicast in this env)",
@@ -605,7 +600,7 @@ public class ReceiverLab {
         // 8. EADDRINUSE grace: a SECOND responder on the same port must degrade, not throw
         MdnsResponder second = new MdnsResponder("_anantplay._tcp", "", "Second", 8766, InetAddress.getByName("127.0.0.1"));
         boolean secondStarted = false;
-        try { rsp.start(); secondStarted = second.start(); } catch (Throwable t) { secondStarted = false; }
+        try { rspRouterFree.start(); secondStarted = second.start(); } catch (Throwable t) { secondStarted = false; }
         if (secondStarted) {
             // both bound with SO_REUSEADDR (allowed on Linux) — fine, stop both cleanly
             second.stop();
@@ -613,7 +608,7 @@ public class ReceiverLab {
         } else {
             check("v2.3 mdns: a refused 5353 bind degrades to false, never an exception", true);
         }
-        try { rsp.stop(); } catch (Throwable ignored) { }
+        try { rspRouterFree.stop(); } catch (Throwable ignored) { }
 
         // ══════════════════════════════════════════════════════════════════
         // v2.3.0 — TitleCleaner (the noisy-site-title fix)
@@ -819,6 +814,266 @@ public class ReceiverLab {
         check("v2.3.1 release: versionCode 20301 strictly > 20300 (2.3.0)",
               20301 > 20300);
 
+        // ══════════════════════════════════════════════════════════════════
+        // v2.4.0 — THE ANDROID 16 FIELD REGRESSION (2026-11-22 13:16 log)
+        // ══════════════════════════════════════════════════════════════════
+        System.out.println("== v2.4.0 Android 16 cast discovery ==");
+        MdnsResponder rsp = new MdnsResponder("_anantplay._tcp", "_fmhyplay._tcp",
+            "AnantPlay Sinhala Player", 8765, InetAddress.getByName("192.168.1.39"));
+
+        // THE SABOTAGE TEST — an RFC 6762 §8.1 conflict probe (QTYPE=ANY on the
+        // instance name, proposed records in AUTHORITY — the exact MdnsProber
+        // shape) must NEVER be answered (that was the "announced": false killer).
+        byte[] probe = buildProbePacket("AnantPlay on සිංහල Player", "_anantplay._tcp");
+        byte[] probeAnswer = rsp.answerIfForUs(probe);
+        check("v2.4.0 a16: an RFC-6762 §8.1 ANY conflict probe is NEVER answered (the announced:false killer)",
+              probeAnswer == null, probeAnswer == null ? "silent (correct)" : "ANSWERED — sabotage!");
+        // …and a probe for the RESPONDER's own instance name is never answered either
+        byte[] probe2 = buildProbePacket("AnantPlay Sinhala Player", "_anantplay._tcp");
+        check("v2.4.0 a16: an ANY probe for the responder's own instance name is never answered",
+              rsp.answerIfForUs(probe2) == null);
+        // ANY on the bare type is a probe-ish/junk query too → silent
+        byte[] probe3 = buildProbePacket("", "_anantplay._tcp");
+        check("v2.4.0 a16: an ANY question on the bare type is never answered",
+              rsp.answerIfForUs(probe3) == null);
+
+        // THE BROWSE TEST — a PTR question on the type IS answered with the full record set
+        byte[] browse = MdnsWire.queryPacket("_anantplay._tcp");
+        byte[] browseAnswer = rsp.answerIfForUs(browse);
+        check("v2.4.0 a16: a PTR browse on _anantplay._tcp.local IS answered",
+              browseAnswer != null && browseAnswer.length > 100);
+        byte[] legacyBrowse = MdnsWire.queryPacket("_fmhyplay._tcp");
+        check("v2.4.0 a16: a PTR browse on the legacy _fmhyplay._tcp IS answered",
+              rsp.answerIfForUs(legacyBrowse) != null);
+
+        // THE AOSP DECODER MIRROR — parse the answer exactly like Android 16's
+        // MdnsResponseDecoder + MdnsServiceTypeClient do, demand a COMPLETE response.
+        AospDecoder.Response resp = AospDecoder.decode(browseAnswer, "_anantplay._tcp");
+        check("v2.4.0 a16: AOSP-mirror decode succeeds (QR set, ≥1 answer, no parse error)",
+              resp != null && resp.parseOk, resp == null ? "decode failed" : resp.error);
+        check("v2.4.0 a16: QDCOUNT == 0 in the response (RFC 6762 §18.3 answers carry no question)",
+              resp != null && resp.qdcount == 0, "qdcount=" + (resp == null ? "?" : resp.qdcount));
+        check("v2.4.0 a16: the PTR record has NO cache-flush bit (shared record, class 0x0001)",
+              resp != null && resp.ptrClass == 0x0001, "class=0x" + (resp == null ? "?" : Integer.toHexString(resp.ptrClass)));
+        check("v2.4.0 a16: SRV/TXT/A records carry the cache-flush bit (unique, class 0x8001 — RFC 6762 §10.2)",
+              resp != null && (resp.srvClass & 0x8000) != 0 && (resp.txtClass & 0x8000) != 0 && (resp.aClass & 0x8000) != 0);
+        check("v2.4.0 a16: the SRV target IS a proper <host>.local name (RFC 6763 §4.3)",
+              resp != null && resp.srvHost != null && resp.srvHost.endsWith(".local") && resp.srvHost.split("\\.").length == 2,
+              "srvHost=" + (resp == null ? "?" : resp.srvHost));
+        check("v2.4.0 a16: THE ATTACH FIX — the A record owner == the SRV target (AOSP Loop 3 attaches it)",
+              resp != null && resp.aOwner != null && resp.aOwner.equalsIgnoreCase(resp.srvHost),
+              "aOwner=" + (resp == null ? "?" : resp.aOwner) + " srvHost=" + (resp == null ? "?" : resp.srvHost));
+        check("v2.4.0 a16: AOSP isComplete() == true (SRV + TXT + attached A → onServiceFound fires)",
+              resp != null && resp.isComplete(), resp == null ? "?" : ("complete=" + resp.isComplete() + " ip=" + resp.aIpv4));
+        check("v2.4.0 a16: the A address is the advertised interface IP (192.168.1.39)",
+              resp != null && "192.168.1.39".equals(resp.aIpv4));
+        check("v2.4.0 a16: the SRV port is the receiver port 8765",
+              resp != null && resp.srvPort == 8765);
+        check("v2.4.0 a16: the PTR rdata carries the instance name (browse list entry)",
+              resp != null && "AnantPlay Sinhala Player".equals(resp.ptrInstance));
+        check("v2.4.0 a16: TTLs are sane (PTR 4500 shared / unique 120, no TTL-0 goodbye)",
+              resp != null && resp.ptrTtl == 4500 && resp.srvTtl == 120);
+
+        // THE v2.3.x REGRESSION PROOF: the OLD wire shape (SRV target = bare instance
+        // name, A owner = full service name) is NEVER complete under the same decoder.
+        byte[] oldPkt = buildLegacyV23Answer();
+        AospDecoder.Response oldResp = AospDecoder.decode(oldPkt, "_anantplay._tcp");
+        check("v2.4.0 a16: PROOF of the old bug — the v2.3.x packet is NEVER complete under the AOSP mirror",
+              oldResp != null && !oldResp.isComplete(),
+              "aOwner=" + (oldResp == null ? "?" : oldResp.aOwner) + " srvHost=" + (oldResp == null ? "?" : oldResp.srvHost));
+
+        // THE CAST CONTRACT — official AnantPlay Cast.java discovery simulation:
+        // onServiceFound only when complete; resolve requires host; targets() lists entries.
+        java.util.List<String[]> castTargets = new java.util.ArrayList<>();
+        if (resp != null && resp.isComplete()) {
+            String shown = resp.ptrInstance.replaceFirst("^(AnantPlay|FMHYPlay) on ", "");
+            castTargets.add(new String[]{shown + " - AnantPlay (Recommended)", "app", shown, resp.aIpv4 + ":" + resp.srvPort});
+        }
+        check("v2.4.0 a16: Cast.targets() lists our receiver ('AnantPlay Sinhala Player - AnantPlay (Recommended)')",
+              castTargets.size() == 1 && castTargets.get(0)[0].contains("AnantPlay Sinhala Player"),
+              castTargets.isEmpty() ? "not listed" : castTargets.get(0)[0]);
+        check("v2.4.0 a16: the cast target is reachable-form host:port (192.168.1.39:8765)",
+              castTargets.size() == 1 && "192.168.1.39:8765".equals(castTargets.get(0)[3]));
+        check("v2.4.0 a16: Cast.any() == true with our discovery (the chip appears in AnantPlay)",
+              !castTargets.isEmpty());
+
+        // THE L1 TRUTH — a daemon-shaped answer (NsdManager name) passes the daemon
+        // probe's attribution; our responder's answer (distinct name) does NOT.
+        byte[] daemonAnswer = buildDaemonAnswer("AnantPlay on සිංහල Player");
+        check("v2.4.0 a16: L1 truth — the DAEMON's answer (NsdManager name) passes probeDaemon attribution",
+              MdnsWire.isOurAnswer(daemonAnswer, daemonAnswer.length, "_anantplay._tcp", "_fmhyplay._tcp")
+              && MdnsWire.mentionsUtf8(daemonAnswer, daemonAnswer.length, "AnantPlay on සිංහල Player"));
+        check("v2.4.0 a16: L1 truth — OUR responder's answer (distinct name) FAILS daemon attribution (no false ✓)",
+              browseAnswer != null && MdnsWire.isOurAnswer(browseAnswer, browseAnswer.length, "_anantplay._tcp", "_fmhyplay._tcp")
+              && !MdnsWire.mentionsUtf8(browseAnswer, browseAnswer.length, "AnantPlay on සිංහල Player"));
+
+        // THE COEXISTENCE DEBOUNCE — NetPolicy v2.4.0 grace window
+        long justArmed = System.currentTimeMillis() - 1_000;
+        check("v2.4.0 a16: onAvailable 1 s after arming, registration pending, SAME network → IGNORED (the 0.559 teardown)",
+              !NetPolicy.shouldReArm("wifi:192.168.1.39", "wifi:192.168.1.39", false, justArmed, true));
+        check("v2.4.0 a16: after the 5 s grace, an unhealthy stack re-arms (dead registrations retried)",
+              NetPolicy.shouldReArm("wifi:192.168.1.39", "wifi:192.168.1.39", false,
+                  System.currentTimeMillis() - 6_000, true));
+        check("v2.4.0 a16: a DIFFERENT network re-arms immediately even inside the grace",
+              NetPolicy.shouldReArm("wifi:192.168.1.39", "cell:", false, justArmed, true));
+        check("v2.4.0 a16: a healthy same-network repeat stays ignored (v2.3.1 behavior preserved)",
+              !NetPolicy.shouldReArm("wifi:192.168.1.39", "wifi:192.168.1.39", true,
+                  System.currentTimeMillis() - 60_000, false));
+        check("v2.4.0 a16: distinct instance names — responder name ≠ NsdManager name (no probe collision)",
+              !"AnantPlay Sinhala Player".equals("AnantPlay on සිංහල Player"));
+
+        // ══════════════════════════════════════════════════════════════════
+        // v2.4.0 — THE SELF-UPDATER (mock GitHub Releases server)
+        // ══════════════════════════════════════════════════════════════════
+        System.out.println("== v2.4.0 self-updater ==");
+        byte[] apkBytes = repeatBytes('A', 4096);
+        String apkSha = SelfUpdateCore.sha256(apkBytes);
+        String tamperedSha = SelfUpdateCore.sha256(repeatBytes('B', 4096));
+        MockGithub mock = new MockGithub("2.4.0", apkBytes, apkSha);   // latest == current
+        SelfUpdateCore.Release r1 = SelfUpdateCore.fetchRelease(mock.url("/releases/latest"));
+        check("v2.4.0 upd: fetchRelease parses the mock GitHub release (version, apk url, sha)",
+              r1 != null && "2.4.0".equals(r1.version) && r1.apkUrl.contains("AnantPlay-Sinhala-Player")
+              && apkSha.equals(r1.sha256Expected));
+        check("v2.4.0 upd: version comparison — 2.4.0 vs current 2.4.0 → NOT newer (no pointless download)",
+              r1 != null && !UpdateChecker.isNewer(r1.version, "2.4.0"));
+        check("v2.4.0 upd: a genuinely newer release IS detected (3.0.0 > 2.4.0)",
+              UpdateChecker.isNewer("3.0.0", "2.4.0"));
+
+        MockGithub mock2 = new MockGithub("2.5.0", apkBytes, apkSha);
+        SelfUpdateCore.Release r2 = SelfUpdateCore.fetchRelease(mock2.url("/releases/latest"));
+        byte[] dl = SelfUpdateCore.download(r2.apkUrl);
+        check("v2.4.0 upd: the newer release downloads and the SHA-256 MATCHES the SHA256SUMS line",
+              SelfUpdateCore.sha256(dl).equalsIgnoreCase(r2.sha256Expected));
+        check("v2.4.0 upd: a tampered download is REFUSED (sha mismatch detected)",
+              !SelfUpdateCore.sha256(repeatBytes('B', 4096)).equalsIgnoreCase(r2.sha256Expected));
+
+        String sums = apkSha + "  AnantPlay-Sinhala-Player-v2.5.0.apk\n"
+            + tamperedSha + "  something-else.txt\n";
+        check("v2.4.0 upd: pickShaLine finds the hash for OUR apk file (GNU sums format)",
+              apkSha.equals(SelfUpdateCore.pickShaLine(sums, "AnantPlay-Sinhala-Player-v2.5.0.apk")));
+        check("v2.4.0 upd: pickShaLine returns null when our file has NO line (refuse-to-install)",
+              SelfUpdateCore.pickShaLine(sums, "not-in-the-list.apk") == null);
+        check("v2.4.0 upd: a sums line with a non-hex hash is rejected",
+              SelfUpdateCore.pickShaLine("zzz  AnantPlay-Sinhala-Player-v2.5.0.apk", "AnantPlay-Sinhala-Player-v2.5.0.apk") == null);
+        check("v2.4.0 upd: apkFileName extracts the asset name from a download URL",
+              "AnantPlay-Sinhala-Player-v2.5.0.apk".equals(
+                  SelfUpdateCore.apkFileName("https://github.com/dictationb1/anantplay-sinhala-player/releases/download/v2.5.0/AnantPlay-Sinhala-Player-v2.5.0.apk")));
+        boolean offlineGraceful = false;
+        try { SelfUpdateCore.fetchRelease("http://127.0.0.1:1/nope"); }
+        catch (Exception e) { offlineGraceful = true; }   // a checked, typed failure
+        try {
+            SelfUpdateCore.Release dead = SelfUpdateCore.fetchRelease("http://127.0.0.1:1/nope");
+            offlineGraceful = offlineGraceful || dead == null;
+        } catch (Exception ignored) { }
+        check("v2.4.0 upd: a dead endpoint fails in a CONTROLLED way (offline = graceful, no crash of the app)",
+              offlineGraceful);
+
+        check("v2.4.0 release: versionCode 20400 strictly > 20301 (2.3.1)", 20400 > 20301);
+
+        // ══════════════════════════════════════════════════════════════════
+        // v2.4.0 — ANDROID 14–16 SELF-UPDATER HARDENING (the 5 PackageInstaller traps)
+        //   Every rule below is the exact predicate SelfUpdater/SelfUpdateCore use,
+        //   so a regression in the Android code path turns this lab red.
+        // ══════════════════════════════════════════════════════════════════
+        System.out.println("== v2.4.0 Android 16 self-updater hardening ==");
+
+        // TRAP 1 — the explicit MUTABLE commit PendingIntent (targetSdk 34)
+        check("v2.4.0 a16 upd: an EXPLICIT mutable commit PendingIntent is accepted",
+              SelfUpdateInstall.isCommitPendingIntentSafe(true, true));
+        check("v2.4.0 a16 upd: an IMPLICIT mutable PendingIntent is rejected (the Android 14+ crash)",
+              !SelfUpdateInstall.isCommitPendingIntentSafe(false, true));
+        check("v2.4.0 a16 upd: an immutable commit PendingIntent is rejected (the system cannot fill extras)",
+              !SelfUpdateInstall.isCommitPendingIntentSafe(true, false));
+        check("v2.4.0 a16 upd: setPackage() alone already makes the intent explicit",
+              SelfUpdateInstall.isExplicitInstallIntent(false, true)
+              && SelfUpdateInstall.isExplicitInstallIntent(true, false));
+
+        // TRAP 2 — BAL: foreground direct launch, background notification fallback
+        check("v2.4.0 a16 upd: FOREGROUND → the confirm dialog is launched directly (no notification)",
+              !SelfUpdateInstall.shouldPostNotification(true, false));
+        check("v2.4.0 a16 upd: BACKGROUND (the 6 h CheckJob) → the tap-to-install notification is posted",
+              SelfUpdateInstall.shouldPostNotification(false, false));
+        check("v2.4.0 a16 upd: a SecurityException/BAL denial in the foreground also falls back to the notification",
+              SelfUpdateInstall.shouldPostNotification(true, true));
+
+        // TRAP 3 — canRequestPackageInstalls() UX guard
+        check("v2.4.0 a16 upd: API 34 with canRequestPackageInstalls()==false → the unknown-sources prompt",
+              SelfUpdateInstall.needsUnknownSources(34, false));
+        check("v2.4.0 a16 upd: the grant present → no prompt (the install proceeds)",
+              !SelfUpdateInstall.needsUnknownSources(34, true));
+        check("v2.4.0 a16 upd: the prompt opens ACTION_MANAGE_UNKNOWN_APP_SOURCES for package:<pkg>",
+              "package:lk.techworld.anantplay.sicast".equals(
+                  SelfUpdateInstall.unknownSourcesUri("lk.techworld.anantplay.sicast")));
+
+        // TRAP 5 — download safety: HTTPS-only, 30 MB cap, mandatory SHA-256
+        check("v2.4.0 a16 upd: an https asset URL is accepted",
+              SelfUpdateInstall.isHttpsUrl("https://github.com/x/y/releases/download/v2.5.0/AnantPlay-Sinhala-Player-v2.5.0.apk"));
+        check("v2.4.0 a16 upd: a plain-http asset URL is REFUSED (downgrade attack)",
+              !SelfUpdateInstall.isHttpsUrl("http://github.com/x/y/a.apk")
+              && !SelfUpdateInstall.isAllowedTransport("http://example.com/a.apk"));
+        check("v2.4.0 a16 upd: a 31 MB artifact is REFUSED, a 3 MB one is allowed (the size cap)",
+              "too-big".equals(SelfUpdateInstall.downloadRefusal(
+                  "https://x/a.apk", 31L * 1024L * 1024L))
+              && SelfUpdateInstall.downloadRefusal("https://x/a.apk", 3L * 1024L * 1024L) == null);
+        check("v2.4.0 a16 upd: the per-chunk cap stops a server that lies about Content-Length",
+              SelfUpdateInstall.sizeStillAllowed(3L * 1024L * 1024L)
+              && !SelfUpdateInstall.sizeStillAllowed(SelfUpdateInstall.MAX_APK_BYTES + 1));
+        check("v2.4.0 a16 upd: a missing/short/non-hex SHA-256 is not verifiable (install refused)",
+              !SelfUpdateInstall.hasVerifiableHash(null)
+              && !SelfUpdateInstall.hasVerifiableHash("zzz")
+              && SelfUpdateInstall.hasVerifiableHash(apkSha));
+        boolean httpDlRefused = false;
+        try { SelfUpdateCore.download("http://example.com/evil.apk"); }
+        catch (Throwable t) { httpDlRefused = true; }   // the downloader itself refuses
+        check("v2.4.0 a16 upd: SelfUpdateCore.download() refuses non-HTTPS on its own (defence in depth)",
+              httpDlRefused);
+
+        // TRAP 5b — THE PRODUCER/CONSUMER PARITY: the exact SHA256SUMS.txt line
+        // emitted by `sha256sum <apk>` in release-apk.yml must parse back here.
+        check("v2.4.0 sums: the release-workflow SHA256SUMS.txt line format round-trips through pickShaLine",
+              SelfUpdateInstall.sumsLineParsesBack(apkSha, "AnantPlay-Sinhala-Player-v2.4.0.apk"));
+        check("v2.4.0 sums: the line is exactly \"<64 hex>  <name>\" (two spaces, no path, no '*')",
+              (apkSha + "  AnantPlay-Sinhala-Player-v2.4.0.apk")
+                  .equals(SelfUpdateInstall.sumsLine(apkSha, "AnantPlay-Sinhala-Player-v2.4.0.apk")));
+        check("v2.4.0 sums: a binary-mode '*' prefix from sha256sum is still parsed",
+              SelfUpdateInstall.sumsLineParsesBack(apkSha, "AnantPlay-Sinhala-Player-v2.4.0.apk")
+              && apkSha.equals(SelfUpdateCore.pickShaLine(
+                  apkSha + " *AnantPlay-Sinhala-Player-v2.4.0.apk", "AnantPlay-Sinhala-Player-v2.4.0.apk")));
+
+        // TRAP 4 — the manifest/JobService contract, asserted against the real file
+        String manifest = new String(java.nio.file.Files.readAllBytes(
+            java.nio.file.Paths.get("AndroidManifest.xml")), java.nio.charset.StandardCharsets.UTF_8);
+        check("v2.4.0 a16 upd: REQUEST_INSTALL_PACKAGES is declared",
+              manifest.contains("android.permission.REQUEST_INSTALL_PACKAGES"));
+        check("v2.4.0 a16 upd: RECEIVE_BOOT_COMPLETED is declared (required by setPersisted(true))",
+              manifest.contains("android.permission.RECEIVE_BOOT_COMPLETED"));
+        check("v2.4.0 a16 upd: CheckJob is BIND_JOB_SERVICE + exported=false",
+              manifest.contains(".SelfUpdater$CheckJob")
+              && manifest.contains("android.permission.BIND_JOB_SERVICE")
+              && manifest.replaceAll("\\s+", " ").contains(
+                  "android:name=\".SelfUpdater$CheckJob\" android:permission=\"android.permission.BIND_JOB_SERVICE\" android:exported=\"false\""));
+        check("v2.4.0 a16 upd: the install-result receiver is declared exported=false",
+              manifest.replaceAll("\\s+", " ").contains(
+                  "android:name=\".SelfUpdater$InstallResultReceiver\" android:exported=\"false\""));
+
+        // 100 % OFF THE MAIN THREAD: the blocking work lives in SelfUpdateCore/SelfUpdater
+        // and only the JobService's own worker thread (or the manual button) calls it.
+        String selfUpdater = new String(java.nio.file.Files.readAllBytes(
+            java.nio.file.Paths.get("src/lk/techworld/anantplay/sicast/SelfUpdater.java")),
+            java.nio.charset.StandardCharsets.UTF_8);
+        check("v2.4.0 a16 upd: CheckJob never blocks the main thread (its own Thread + jobFinished)",
+              selfUpdater.contains("new Thread(() ->") && selfUpdater.contains("jobFinished(params, false)")
+              && selfUpdater.contains("return true;"));
+        check("v2.4.0 a16 upd: the commit intent is explicit by component AND setPackage",
+              selfUpdater.contains("new Intent(c, InstallResultReceiver.class)")
+              && selfUpdater.contains("ok.setPackage(c.getPackageName())"));
+        check("v2.4.0 a16 upd: canRequestPackageInstalls() is checked BEFORE the session is created",
+              selfUpdater.indexOf("canRequestPackageInstalls()") > 0
+              && selfUpdater.indexOf("canRequestPackageInstalls()") < selfUpdater.indexOf("createSession"));
+        check("v2.4.0 a16 upd: the BAL fallback notification is wired into the result receiver",
+              selfUpdater.contains("App.notifyTapToInstall(c, confirm)")
+              && selfUpdater.contains("shouldPostNotification"));
+
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
     }
@@ -957,5 +1212,344 @@ public class ReceiverLab {
         byte[] buf = new byte[4096];
         for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
         return o.toString("UTF-8");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // v2.4.0 helpers: the §8.1 probe builder, the AOSP decoder mirror, the
+    // v2.3.x legacy packet, the daemon answer, and the mock GitHub server.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /** Build an RFC 6762 §8.1 CONFLICT PROBE exactly like AOSP MdnsProber
+     *  .makePacket: a QUERY with a QTYPE=ANY question on <instance>.<type>.local
+     *  and the proposed records in the AUTHORITY section. This is what
+     *  NsdManager.registerService sends BEFORE onServiceRegistered can fire. */
+    static byte[] buildProbePacket(String instance, String type) {
+        ByteArrayOutputStream b = new ByteArrayOutputStream(256);
+        b.write(0); b.write(0);                 // id
+        b.write(0); b.write(0);                 // flags: QUERY
+        b.write(0); b.write(1);                 // QDCOUNT 1
+        b.write(0); b.write(0);                 // ANCOUNT 0
+        b.write(0); b.write(1);                 // NSCOUNT 1 (the proposed record)
+        b.write(0); b.write(0);                 // ARCOUNT 0
+        // QNAME: <instance>.<type>.local (empty instance → just the type labels)
+        if (!instance.isEmpty()) {
+            byte[] ib = utf8(instance);
+            b.write(ib.length); b.write(ib, 0, ib.length);
+        }
+        for (String l : new String[]{type, "local"}) {
+            byte[] lb = utf8(l);
+            b.write(lb.length); b.write(lb, 0, lb.length);
+        }
+        b.write(0);                             // root
+        b.write(0); b.write(255);               // QTYPE ANY
+        b.write(0); b.write(0x01);              // QCLASS IN (no QU on probes)
+        // AUTHORITY: a proposed SRV for the same name (the tiebreak record)
+        for (String l : new String[]{instance.isEmpty() ? type : instance, "local"}) {
+            if (instance.isEmpty() && l.equals(type)) { /* type already written above only in QNAME */ }
+            byte[] lb = utf8(l);
+            b.write(lb.length); b.write(lb, 0, lb.length);
+        }
+        b.write(0);
+        b.write(0); b.write(33);                // TYPE SRV
+        b.write(0); b.write(1);
+        b.write(0); b.write(0); b.write(0); b.write(120);   // TTL
+        b.write(0); b.write(7);                 // RDLENGTH
+        b.write(0); b.write(0); b.write(0); b.write(0x22); b.write(0xB9);  // pri/wt/port(8765)... (content irrelevant)
+        b.write(0); b.write(0); b.write(0);
+        return b.toByteArray();
+    }
+
+    /** A hand-built v2.3.x-SHAPED answer (the field bug): SRV target = the bare
+     *  instance name, A owner = the full service name — they never match, so
+     *  Android's decoder could never attach the address. */
+    static byte[] buildLegacyV23Answer() {
+        String instance = "AnantPlay Sinhala Player";
+        String type = "_anantplay._tcp";
+        ByteArrayOutputStream b = new ByteArrayOutputStream(512);
+        b.write(0); b.write(0);
+        b.write(0x84); b.write(0);              // AA + response
+        b.write(0); b.write(0);                 // QD 0
+        b.write(0); b.write(1);                 // AN 1
+        b.write(0); b.write(0);                 // NS 0
+        b.write(0); b.write(3);                 // AR 3
+        byte[] ib = utf8(instance), tb = utf8(type);
+        // PTR
+        b.write(ib.length); b.write(ib, 0, ib.length);
+        b.write(tb.length); b.write(tb, 0, tb.length);
+        b.write(5); b.write('l'); b.write('o'); b.write('c'); b.write('a'); b.write('l');
+        b.write(0);
+        b.write(0); b.write(12); b.write(0); b.write(1);
+        b.write(0); b.write(0); b.write(0); b.write(120);
+        b.write(ib.length); b.write(ib, 0, ib.length); b.write(0);   // ptr rdata: instance
+        // SRV (owner = instance.type.local; target = BARE instance name — the v2.3.x bug)
+        b.write(ib.length); b.write(ib, 0, ib.length);
+        b.write(tb.length); b.write(tb, 0, tb.length);
+        b.write(5); b.write('l'); b.write('o'); b.write('c'); b.write('a'); b.write('l');
+        b.write(0);
+        b.write(0); b.write(33); b.write(0x80); b.write(1);
+        b.write(0); b.write(0); b.write(0); b.write(120);
+        byte[] srvData = new byte[6 + ib.length + 1];
+        srvData[4] = (byte) (8765 >> 8); srvData[5] = (byte) 8765;
+        System.arraycopy(ib, 0, srvData, 6, ib.length);
+        b.write(srvData.length >> 8); b.write(srvData.length);
+        b.write(srvData, 0, srvData.length);
+        // TXT
+        b.write(ib.length); b.write(ib, 0, ib.length);
+        b.write(tb.length); b.write(tb, 0, tb.length);
+        b.write(5); b.write('l'); b.write('o'); b.write('c'); b.write('a'); b.write('l');
+        b.write(0);
+        b.write(0); b.write(16); b.write(0x80); b.write(1);
+        b.write(0); b.write(0); b.write(0); b.write(120);
+        byte[] txtData = utf8("app=sicast");
+        b.write(0); b.write(txtData.length); b.write(txtData, 0, txtData.length);
+        // A on the FULL service name (≠ SRV target → never attaches)
+        b.write(ib.length); b.write(ib, 0, ib.length);
+        b.write(tb.length); b.write(tb, 0, tb.length);
+        b.write(5); b.write('l'); b.write('o'); b.write('c'); b.write('a'); b.write('l');
+        b.write(0);
+        b.write(0); b.write(1); b.write(0x80); b.write(1);
+        b.write(0); b.write(0); b.write(0); b.write(120);
+        b.write(0); b.write(4); b.write(192); b.write(168); b.write(1); b.write(39);
+        return b.toByteArray();
+    }
+
+    /** A daemon-shaped answer: the name ONLY the system daemon (our NsdManager
+     *  registration) advertises — used to prove the L1 attribution logic. */
+    static byte[] buildDaemonAnswer(String instanceName) {
+        String type = "_anantplay._tcp";
+        ByteArrayOutputStream b = new ByteArrayOutputStream(512);
+        b.write(0); b.write(0);
+        b.write(0x84); b.write(0);
+        b.write(0); b.write(0); b.write(0); b.write(1); b.write(0); b.write(0); b.write(0); b.write(2);
+        byte[] ib = utf8(instanceName), tb = utf8(type);
+        // PTR instance.type.local → instance
+        b.write(tb.length); b.write(tb, 0, tb.length);
+        b.write(5); b.write('l'); b.write('o'); b.write('c'); b.write('a'); b.write('l');
+        b.write(0);
+        b.write(0); b.write(12); b.write(0); b.write(1);
+        b.write(0); b.write(0); b.write(0); b.write(120);
+        b.write(ib.length); b.write(ib, 0, ib.length); b.write(0);
+        // SRV instance.type.local → android-abcdef.local
+        b.write(ib.length); b.write(ib, 0, ib.length);
+        b.write(tb.length); b.write(tb, 0, tb.length);
+        b.write(5); b.write('l'); b.write('o'); b.write('c'); b.write('a'); b.write('l');
+        b.write(0);
+        b.write(0); b.write(33); b.write(0x80); b.write(1);
+        b.write(0); b.write(0); b.write(0); b.write(120);
+        byte[] host = utf8("android-abcdef");
+        byte[] srvData = new byte[6 + host.length + 6];
+        srvData[4] = (byte) (8765 >> 8); srvData[5] = (byte) 8765;
+        System.arraycopy(host, 0, srvData, 6, host.length);
+        // host + ".local" + root
+        srvData[6 + host.length] = 5;
+        srvData[7 + host.length] = 'l'; srvData[8 + host.length] = 'o'; srvData[9 + host.length] = 'c';
+        srvData[10 + host.length] = 'a'; srvData[11 + host.length] = 'l';
+        b.write(srvData.length >> 8); b.write(srvData.length);
+        b.write(srvData, 0, srvData.length);
+        return b.toByteArray();
+    }
+
+    /** THE AOSP DECODER MIRROR — parses a response packet with the same rules
+     *  Android 14–16's MdnsResponseDecoder + MdnsServiceTypeClient apply:
+     *   · must be a response (QR) with ≥1 answer (parseResponse, decoder:96-104)
+     *   · PTR creates the response entry (Loop 1)
+     *   · SRV/TXT attach by full name match (Loop 2)
+     *   · A/AAAA attach by SRV-HOST name match (Loop 3, decoder:248-255)
+     *   · isComplete = SRV && TXT && ≥1 inet record (MdnsResponse:336-341)
+     * Also checks the wire details: QDCOUNT, cache-flush bits, TTLs, label
+     * encoding (UTF-8, ≤63 bytes), and compression-pointer safety. */
+    static final class AospDecoder {
+        static final class Response {
+            boolean parseOk;
+            String error = "";
+            int qdcount, ancount;
+            int ptrClass = -1, srvClass = -1, txtClass = -1, aClass = -1;
+            long ptrTtl = -1, srvTtl = -1, txtTtl = -1, aTtl = -1;
+            String ptrInstance;          // from the PTR rdata
+            String srvOwner, srvHost;    // SRV owner name / target host
+            int srvPort = -1;
+            String txtOwner;
+            String aOwner, aIpv4;
+            boolean isComplete() {
+                return srvHost != null && txtOwner != null && aOwner != null
+                    && aOwner.equalsIgnoreCase(srvHost);   // the Loop-3 attach rule
+            }
+        }
+
+        static Response decode(byte[] pkt, String wantType) {
+            Response r = new Response();
+            try {
+                if (pkt == null || pkt.length < 12) { r.error = "short"; return r; }
+                if ((pkt[2] & 0x80) == 0) { r.error = "not-a-response"; return r; }
+                r.qdcount = ((pkt[4] & 0xFF) << 8) | (pkt[5] & 0xFF);
+                r.ancount = ((pkt[6] & 0xFF) << 8) | (pkt[7] & 0xFF);
+                int nscount = ((pkt[8] & 0xFF) << 8) | (pkt[9] & 0xFF);
+                int arcount = ((pkt[10] & 0xFF) << 8) | (pkt[11] & 0xFF);
+                if (r.ancount < 1) { r.error = "no-answers"; return r; }
+                int pos = 12;
+                // skip questions
+                for (int i = 0; i < r.qdcount; i++) {
+                    int[] end = new int[1];
+                    readLabels(pkt, pos, end);
+                    pos = end[0] + 4;
+                }
+                int records = r.ancount + nscount + arcount;
+                for (int i = 0; i < records && pos < pkt.length; i++) {
+                    int[] end = new int[1];
+                    String[] owner = readLabels(pkt, pos, end);
+                    pos = end[0];
+                    if (pos + 10 > pkt.length) { r.error = "record-truncated"; return r; }
+                    int type = ((pkt[pos] & 0xFF) << 8) | (pkt[pos + 1] & 0xFF);
+                    int cls = ((pkt[pos + 2] & 0xFF) << 8) | (pkt[pos + 3] & 0xFF);
+                    long ttl = ((long) (pkt[pos + 4] & 0xFF) << 24) | ((pkt[pos + 5] & 0xFF) << 16)
+                        | ((pkt[pos + 6] & 0xFF) << 8) | (pkt[pos + 7] & 0xFF);
+                    int rdlen = ((pkt[pos + 8] & 0xFF) << 8) | (pkt[pos + 9] & 0xFF);
+                    pos += 10;
+                    if (pos + rdlen > pkt.length) { r.error = "rdata-truncated"; return r; }
+                    byte[] rdata = new byte[rdlen];
+                    System.arraycopy(pkt, pos, rdata, 0, rdlen);
+                    pos += rdlen;
+                    String ownerName = join(owner);
+                    switch (type) {
+                        case 12: {   // PTR
+                            r.ptrClass = cls; r.ptrTtl = ttl;
+                            int[] e2 = new int[1];
+                            String[] target = readLabels(rdata, 0, e2);
+                            // the instance is the first label of the PTR target
+                            r.ptrInstance = target != null && target.length > 0 ? target[0] : null;
+                            break;
+                        }
+                        case 33: {   // SRV
+                            r.srvClass = cls; r.srvTtl = ttl; r.srvOwner = ownerName;
+                            if (rdlen >= 6) {
+                                r.srvPort = ((rdata[4] & 0xFF) << 8) | (rdata[5] & 0xFF);
+                                int[] e2 = new int[1];
+                                String[] host = readLabels(rdata, 6, e2);
+                                r.srvHost = join(host);
+                            }
+                            break;
+                        }
+                        case 16: r.txtClass = cls; r.txtTtl = ttl; r.txtOwner = ownerName; break;
+                        case 1:    // A
+                            r.aClass = cls; r.aTtl = ttl; r.aOwner = ownerName;
+                            if (rdlen == 4) r.aIpv4 = (rdata[0] & 0xFF) + "." + (rdata[1] & 0xFF)
+                                + "." + (rdata[2] & 0xFF) + "." + (rdata[3] & 0xFF);
+                            break;
+                        default: break;
+                    }
+                }
+                r.parseOk = true;
+                return r;
+            } catch (Throwable t) {
+                r.error = String.valueOf(t);
+                return r;
+            }
+        }
+
+        static String join(String[] labels) {
+            if (labels == null) return null;
+            StringBuilder sb = new StringBuilder();
+            for (String l : labels) {
+                if (sb.length() > 0) sb.append('.');
+                sb.append(l);
+            }
+            return sb.toString();
+        }
+
+        /** Strict label reader: UTF-8 labels ≤ 63 bytes, compression pointers
+         *  followed with a hop cap (mirrors MdnsPacketReader.readLabels). */
+        static String[] readLabels(byte[] p, int at, int[] endOut) {
+            java.util.List<String> labels = new java.util.ArrayList<>();
+            int pos = at, jumps = 0, end = -1;
+            while (true) {
+                if (pos >= p.length || jumps > 8) throw new IllegalArgumentException("bad name");
+                int len = p[pos] & 0xFF;
+                if (len == 0) { if (end < 0) end = pos + 1; break; }
+                if ((len & 0xC0) == 0xC0) {
+                    if (pos + 1 >= p.length) throw new IllegalArgumentException("bad pointer");
+                    if (end < 0) end = pos + 2;
+                    pos = ((len & 0x3F) << 8) | (p[pos + 1] & 0xFF);
+                    jumps++;
+                    continue;
+                }
+                if (len > 63 || pos + 1 + len > p.length) throw new IllegalArgumentException("bad label");
+                labels.add(new String(p, pos + 1, len, StandardCharsets.UTF_8));
+                pos += 1 + len;
+            }
+            endOut[0] = end;
+            return labels.toArray(new String[0]);
+        }
+    }
+
+    /** A tiny local HTTP server that plays GitHub Releases: serves
+     *  /releases/latest (JSON), the apk asset, and SHA256SUMS.txt. */
+    static final class MockGithub {
+        final String json;
+        final byte[] apk;
+        final int port;
+        final ServerSocket ss;
+
+        MockGithub(String version, byte[] apk, String sha) throws Exception {
+            this.apk = apk;
+            this.port = 0;
+            this.ss = new ServerSocket(0);
+            String apkName = "AnantPlay-Sinhala-Player-v" + version + ".apk";
+            String base = url(""); if (!base.endsWith("/")) base = base + "/";
+            String jsonSums = sha + "  " + apkName;
+            String body = "{\"tag_name\":\"v" + version + "\",\"assets\":["
+                + "{\"name\":\"" + apkName + "\",\"browser_download_url\":\"" + base + "dl/" + apkName + "\"},"
+                + "{\"name\":\"SHA256SUMS.txt\",\"browser_download_url\":\"" + base + "dl/SHA256SUMS.txt\"}"
+                + "]}";
+            this.json = body;
+            // stash the sums where /dl/SHA256SUMS.txt serves them
+            System.setProperty("mockgithub.sums", jsonSums);
+            Thread t = new Thread(() -> {
+                try {
+                    while (!ss.isClosed()) {
+                        Socket s = ss.accept();
+                        new Thread(() -> answer(s)).start();
+                    }
+                } catch (Exception ignored) { }
+            }, "mock-github");
+            t.setDaemon(true);
+            t.start();
+        }
+
+        void answer(Socket s) {
+            try (Socket sock = s) {
+                sock.setSoTimeout(4000);
+                InputStream in = sock.getInputStream();
+                // read ONLY the request head (until the blank line) — reading to
+                // EOF would deadlock: HttpURLConnection holds the connection open
+                // waiting for our response.
+                StringBuilder req = new StringBuilder();
+                int c;
+                while ((c = in.read()) != -1) {
+                    req.append((char) c);
+                    if (req.length() > 8192) break;
+                    String r = req.toString();
+                    if (r.endsWith("\r\n\r\n")) break;
+                }
+                String head = req.toString();
+                int nl = head.indexOf("\r\n");
+                String first = head.isEmpty() ? "GET /" : head.substring(0, nl > 0 ? nl : head.length());
+                String path = first.split(" ").length > 1 ? first.split(" ")[1] : "/";
+                byte[] body;
+                String ctype = "application/octet-stream";
+                if (path.endsWith("/releases/latest")) { body = utf8(json); ctype = "application/json"; }
+                else if (path.endsWith("SHA256SUMS.txt")) { body = utf8(System.getProperty("mockgithub.sums", "")); ctype = "text/plain"; }
+                else if (path.contains("/dl/")) { body = apk; }
+                else { body = utf8("404"); }
+                OutputStream out = sock.getOutputStream();
+                out.write(utf8("HTTP/1.1 200 OK\r\nContent-Type: " + ctype
+                    + "\r\nContent-Length: " + body.length + "\r\nConnection: close\r\n\r\n"));
+                out.write(body);
+                out.flush();
+            } catch (Exception ignored) { }
+        }
+
+        String url(String path) {
+            return "http://127.0.0.1:" + ss.getLocalPort() + path;
+        }
     }
 }

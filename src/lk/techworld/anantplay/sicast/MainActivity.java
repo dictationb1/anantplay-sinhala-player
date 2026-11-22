@@ -261,6 +261,16 @@ public class MainActivity extends Activity {
         root.addView(anant, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         root.addView(cap("Open AnantPlay · AnantPlay විවෘත කරන්න — එහි player එකේ Cast බොත්තම ඔබන්න."));
 
+        // ── v2.4.0: the exact Cast-icon guide (the Android 16 field question) ──
+        root.addView(head("Where is the Cast button? · Cast බොත්තම කොහෙද?", 16));
+        root.addView(cap("AnantPlay player එකේ පහළ chip පේළියේ (quality / Subs / servers අසල) \"⌐▷ Cast\" chip "
+            + "එක පෙනේ — එය TV එකක් හමු වූ විටම පෙන්වයි. එය නොපෙනේ නම් = AnantPlay එකට අපේ receiver "
+            + "එක තවම නොපෙනේ (Self-test එක run කරන්න). Chip එක ඔබා \"සිංහල Player - AnantPlay (Recommended)\" "
+            + "තෝරන්න — වීඩියෝව මෙතැනින් විවෘත වේ. · The Cast chip appears in AnantPlay's player chip row "
+            + "(next to quality/Subs/servers) as soon as ANY receiver is discoverable — it is hidden "
+            + "while nothing is found. Tap it, pick \"සිංහල Player - AnantPlay (Recommended)\", and the "
+            + "video opens here with Sinhala subtitles."));
+
         // ── v2.3.0: the GitHub update checker (the Obtainium loop, in-app) ──
         Button update = btn("⬆ Check for updates (GitHub)", false);
         update.setOnClickListener(v -> checkForUpdates());
@@ -528,7 +538,7 @@ public class MainActivity extends Activity {
                     if (ip == null) ip = java.net.InetAddress.getByName("127.0.0.1");
                     int rport = ReceiverService.port();
                     responder = new MdnsResponder(NsdAnnouncer.TYPE, NsdAnnouncer.OLD_TYPE,
-                        NsdAnnouncer.PREFIX + NsdAnnouncer.NAME, rport > 0 ? rport : ReceiverServer.PREFERRED_PORT, ip);
+                        NsdAnnouncer.RESPONDER_NAME, rport > 0 ? rport : ReceiverServer.PREFERRED_PORT, ip);
                     if (responder.start()) tempResponder = true;
                     else responder = null;
                 } catch (Throwable t) {
@@ -549,6 +559,11 @@ public class MainActivity extends Activity {
 
             boolean mDnsOk = daemonOk || wireOk || legacy;
             NsdAnnouncerTest.result = mDnsOk;
+            // v2.4.0 — the REGISTRATION truth, shown as its own signal: "announced"
+            // is the real NsdManager onServiceRegistered state. The Android 16 log
+            // had it false for 35 s while L1/L2 were green-ish — that divergence is
+            // exactly the sabotage signature and must never be hidden again.
+            boolean regOk = ReceiverService.isUp() && ReceiverService.isAnnounced();
             if (mDnsOk) {
                 // v2.3.1: show EVERY layer's state (L1 daemon · L2 responder · L3 NSD),
                 // never a bare aggregate — the field paradox was a red FAILED while
@@ -556,7 +571,8 @@ public class MainActivity extends Activity {
                 report.append("mDNS ok [")
                     .append(daemonOk ? "L1 daemon ✓" : "L1 daemon ✗").append(" · ")
                     .append(wireOk ? "L2 responder ✓" : "L2 responder ✗").append(" · ")
-                    .append(legacy ? "L3 NSD ✓" : "L3 NSD ✗").append("], ");
+                    .append(legacy ? "L3 NSD ✓" : "L3 NSD ✗")
+                    .append(regOk ? "" : " ⚠ daemon-announce pending").append("], ");
             } else {
                 pass[0] = false;
                 report.append("mDNS FAILED (no-answer), ");

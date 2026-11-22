@@ -34,18 +34,38 @@ final class NetPolicy {
         return last.equals(now);
     }
 
+    /** Events closer than this to the last arm are ignored while a registration
+     *  is still pending — registerDefaultNetworkCallback fires onAvailable
+     *  IMMEDIATELY (the 2026-11-22 13:16 Android 16 log: armed at 0.003, "network
+     *  up — re-announcing" at 0.050 because announced was still false, teardown at
+     *  0.559 killed the pending registration mid-probe). The first registration
+     *  must be allowed to finish. */
+    static final long ARM_GRACE_MS = 5_000;
+
     /** The one decision: should onAvailable cause a re-arm?
      *  healthy = announced && responder running (the caller computes it).
      *
-     *  Order matters: an UNHEALTHY stack re-arms immediately even if we armed
-     *  only moments ago (a dead responder must be rebuilt, never ignored) —
-     *  the replay guard applies ONLY to the healthy/same-network case, where a
-     *  repeat onAvailable carries no new information at all. */
+     *  v2.4.0: the grace window — an onAvailable on the SAME network inside
+     *  ARM_GRACE_MS of arming, while the registration is still pending, is the
+     *  callback's own immediate initial event, NOT a network change: ignore it.
+     *  (The v2.3.1 policy treated "not yet announced" as unhealthy and tore the
+     *  pending registration down 500 ms after arming — the 0.559 restart in the
+     *  Android 16 log.) An UNHEALTHY stack still re-arms once the grace window
+     *  has passed, so a genuinely dead registration is retried. */
     static boolean shouldReArm(String lastKey, String nowKey, boolean healthy, long armedAtMs) {
+        return shouldReArm(lastKey, nowKey, healthy, armedAtMs, false);
+    }
+
+    static boolean shouldReArm(String lastKey, String nowKey, boolean healthy, long armedAtMs,
+                               boolean registrationPending) {
         // never armed (or armed before this policy existed) → arm
         if (armedAtMs <= 0) return true;
         // a different network (Wi-Fi ↔ mobile ↔ another AP) → arm
         if (!sameKey(lastKey, nowKey)) return true;
+        // v2.4.0: same network, inside the grace window, registration still in
+        // flight → this is the callback's immediate initial event: ignore it
+        if (registrationPending
+            && System.currentTimeMillis() - armedAtMs < ARM_GRACE_MS) return false;
         // same network but something died (announced=false / responder down) → arm
         if (!healthy) return true;
         // same network, healthy: a repeat onAvailable carries no new information —

@@ -70,11 +70,26 @@ public final class NsdAnnouncer {
     static final String OLD_TYPE = "_fmhyplay._tcp";
     static final String PREFIX = "AnantPlay on ";
     static final String NAME = "සිංහල Player";
+    /** v2.4.0 — the RESPONDER's instance name, deliberately DIFFERENT from the
+     *  NsdManager registration name ("AnantPlay on සිංහල Player"). The 2026-11-22
+     *  13:16 Android 16 log proved the v2.3.x coexistence fatal: our responder
+     *  answered RFC 6762 §8.1 ANY-probes on the SAME instance name the daemon's
+     *  MdnsAdvertiser was probing, every answer registered as a CONFLICT
+     *  (MdnsRecordRepository.getConflictingServices — IDENTICAL needs equal rdata,
+     *  ours always differed), the advertiser renamed and re-probed forever, and
+     *  onServiceRegistered never fired ("announced": false for 35 s). Distinct
+     *  names = the daemon owns its name unchallenged, our responder owns a second
+     *  entry; official AnantPlay lists BOTH (its tvs map is keyed by shown name). */
+    static final String RESPONDER_NAME = "AnantPlay Sinhala Player";
     /** The mDNS multicast group + port (RFC 6762) — the wire the probe speaks. */
     static final String MDNS_GROUP = "224.0.0.251";
     static final int MDNS_PORT = 5353;
     /** How long the raw probe waits for a reflected answer (ms). */
     static final int PROBE_TIMEOUT_MS = 4000;
+    /** v2.4.0 — how long start() waits for onServiceRegistered/onRegistrationFailed
+     *  before starting the responder anyway (registration may be impossible, e.g.
+     *  no daemon; the responder is then the only announcer). */
+    static final long REGISTRATION_SETTLE_MS = 2500;
 
     private final Context ctx;
     private final int port;
@@ -87,6 +102,11 @@ public final class NsdAnnouncer {
      *  cannot be shared and mdnsd registration is the only announcer). */
     private MdnsResponder responder;
     private int attempt;
+    /** v2.4.0 — registration-first coexistence state: the responder starts only
+     *  after the NsdManager registration settles (or the settle timeout passes),
+     *  so it can never answer the daemon's §8.1 probes for a pending name. */
+    private volatile boolean registrationSettled;
+    private volatile boolean registrationPending;
     /** v2.3.1 — the churn-fix state: what we last armed on (IP + network key), so
      *  start() can no-op when healthy and onAvailable can ignore repeat events. */
     private java.net.InetAddress lastArmedIp;
@@ -141,6 +161,8 @@ public final class NsdAnnouncer {
         String service = PREFIX + NAME;
         String[] types = {TYPE, OLD_TYPE};
         boolean any = false;
+        registrationSettled = false;
+        registrationPending = true;
         for (int i = 0; i < types.length; i++) {
             try {
                 NsdServiceInfo info = new NsdServiceInfo();
@@ -154,13 +176,18 @@ public final class NsdAnnouncer {
                         registered[slot] = true;
                         announced = true;
                         attempt = 0;
+                        registrationSettled = true;
                         Diag.i("nsd", "announced " + t + " as \"" + s.getServiceName() + "\" :" + port);
+                        maybeStartResponder();
                     }
                     @Override public void onRegistrationFailed(NsdServiceInfo s, int e) {
                         registered[slot] = false;
                         announced = registered[0] || registered[1];
-                        Diag.w("nsd", "announce " + t + " failed " + e + " — retrying");
+                        registrationSettled = announced;   // one type failing is fine if the other made it
+                        Diag.w("nsd", "announce " + t + " failed, error " + e + " ("
+                            + failureText(e) + ") — retrying");
                         if (++attempt < 20) retry.postDelayed(reArm, 2000 + attempt * 1000);
+                        maybeStartResponder();
                     }
                     @Override public void onServiceUnregistered(NsdServiceInfo s) { }
                     @Override public void onUnregistrationFailed(NsdServiceInfo s, int e) { }
@@ -171,10 +198,39 @@ public final class NsdAnnouncer {
                 Diag.w("nsd", "register " + types[i] + ": " + t);
             }
         }
+        if (!any) registrationSettled = true;   // no registration possible → responder is the announcer
         watchNetwork();
         acquireMulticastLock();
-        startResponder();
+        // v2.4.0 — REGISTRATION-FIRST: the responder starts only after the daemon's
+        // §8.1 probing settles (either callback, or the 2.5 s settle timeout). This
+        // is the coexistence fix: our responder can never answer (and thereby
+        // sabotage) MdnsAdvertiser's conflict probes for the pending registration.
+        if (registrationSettled) startResponder();
+        else retry.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (!registrationSettled) {
+                    registrationSettled = true;
+                    Diag.i("nsd", "registration settle timeout — starting responder anyway (v2.4.0)");
+                    startResponder();
+                }
+            }
+        }, REGISTRATION_SETTLE_MS);
         if (!any) Diag.e("nsd", "no registration possible");
+    }
+
+    /** v2.4.0 — start the responder once it is SAFE (registration settled). */
+    private void maybeStartResponder() {
+        if (registrationSettled) startResponder();
+    }
+
+    /** NsdManager failure codes → human-readable (log diagnosis on Android 16). */
+    static String failureText(int e) {
+        switch (e) {
+            case 1: return "FAILURE_INTERNAL_ERROR";
+            case 2: return "FAILURE_INTERNAL_ERROR (legacy daemon)";
+            case 3: return "FAILURE_MAX_LIMIT";
+            default: return "error " + e;
+        }
     }
 
     /** v2.3.0 — start our own RFC-6762 responder on 5353 (SO_REUSEADDR alongside
@@ -187,7 +243,7 @@ public final class NsdAnnouncer {
         try {
             java.net.InetAddress ip = wifiLanIp();
             if (ip == null) ip = java.net.InetAddress.getByName("127.0.0.1");
-            responder = new MdnsResponder(TYPE, OLD_TYPE, PREFIX + NAME, port, ip);
+            responder = new MdnsResponder(TYPE, OLD_TYPE, RESPONDER_NAME, port, ip);
             responder.start();
         } catch (Throwable t) {
             Diag.w("mdnsrsp", "start: " + t);
@@ -208,7 +264,7 @@ public final class NsdAnnouncer {
                 @Override public void onAvailable(Network n) {
                     String key = netKey(ctx);
                     boolean healthy = announced && responder != null && responder.isRunning();
-                    if (!NetPolicy.shouldReArm(lastArmedNetKey, key, healthy, armedAt)) {
+                    if (!NetPolicy.shouldReArm(lastArmedNetKey, key, healthy, armedAt, registrationPending)) {
                         Diag.i("nsd", "network up on " + key + " — already announced, no re-arm (debounced)");
                         return;
                     }
@@ -305,6 +361,14 @@ public final class NsdAnnouncer {
      *     Targets are now de-duplicated, sends are capped, and each round WAITS
      *     its receive window instead of re-sending the instant a reply fails the
      *     (old, broken) check. */
+    /** v2.4.0 — THE L1 TRUTH FIX. The 2026-11-22 13:16 Android 16 log showed
+     *  "L1 daemon ✓" while our OWN responder (sharing 5353 via SO_REUSEADDR) had
+     *  answered the probe — a false positive. Now the daemon probe requires the
+     *  answer to carry the NSDMANAGER registration name ("AnantPlay on සිංහල
+     *  Player", only the daemon advertises it); our responder uses the distinct
+     *  RESPONDER_NAME ("AnantPlay Sinhala Player") and can no longer satisfy it.
+     *  Attribution is now provable: isOurAnswer validates structure, the extra
+     *  check requires the daemon's name bytes specifically. */
     static boolean probeDaemon(Context c, long timeoutMs) {
         DatagramSocket sock = null;
         try {
@@ -333,7 +397,11 @@ public final class NsdAnnouncer {
                     DatagramPacket p = new DatagramPacket(buf, buf.length);
                     try {
                         sock.receive(p);
-                        if (MdnsWire.isOurAnswer(buf, p.getLength(), TYPE, OLD_TYPE)) {
+                        // structure first (QR + records + our ASCII service type)…
+                        if (MdnsWire.isOurAnswer(buf, p.getLength(), TYPE, OLD_TYPE)
+                            // …then ATTRIBUTION: the answer must mention the name ONLY
+                            // the system daemon advertises (the NsdManager registration).
+                            && MdnsWire.mentionsUtf8(buf, p.getLength(), PREFIX + NAME)) {
                             Diag.i("nsdtest", "daemon probe answered by " + p.getAddress().getHostAddress());
                             return true;
                         }
@@ -411,7 +479,8 @@ public final class NsdAnnouncer {
                 try {
                     sock.receive(p);
                     r.packetsReceived++;
-                    if (MdnsWire.mentionsUtf8(buf, p.getLength(), NAME)) {
+                    String text = new String(buf, 0, p.getLength(), java.nio.charset.StandardCharsets.ISO_8859_1);
+                    if (text.contains(NAME)) {
                         r.answered = true;
                         r.detail = "mDNS පිළිතුර ලැබුණි (raw probe, group-joined) — ජාලය හරහා අපේ record එක පෙනේ · mDNS answer received on the wire — our record is visible";
                         break;

@@ -180,7 +180,7 @@ The app's **"⬆ Check for updates (GitHub)"** button calls `releases/latest`, c
 | Build | aapt2 + javac (JDK 17) + d8 8.6.2 clean |
 | Signature | apksigner: **v2 ✓ v3 ✓**, `Verifies` — both the debug key and the full release-keystore path (test keystore, `CN=AnantPlay Sinhala Player Release`) were exercised |
 | Version | versionCode **20300** > 20200 ✓, versionName **2.3.0** ✓ |
-| ZIP | clean package — **`.github/workflows/build-apk.yml` + `.github/workflows/release-apk.yml` + `.gitignore` all present** (unzip -l verified), **0 `../` zip-slip paths** (later deleted from git + disk per the zero-zip mandate) |
+| ZIP | 80 files, **`.github/workflows/build-apk.yml` + `.github/workflows/release-apk.yml` + `.gitignore` all present** (unzip -l verified), **0 `../` zip-slip paths** |
 
 ---
 
@@ -188,7 +188,7 @@ The app's **"⬆ Check for updates (GitHub)"** button calls `releases/latest`, c
 
 | File | What it is |
 |------|------------|
-| (zip) | The complete v2.3.0 upgrade — all sources, `.github/workflows/` (build + release), `.gitignore`, `scripts/create-release-keystore.{sh,ps1}`, `docs/obtainium-config.json`, README/SETUP-SI updated — extracted over the repo and **deleted from git + disk per the zero-zip mandate (0 `.zip` files remain tracked)** |
+| `repo3-anantplay-sinhala-player-v2.3.zip` | The complete v2.3.0 upgrade — all sources, `.github/workflows/` (build + release), `.gitignore`, `scripts/create-release-keystore.{sh,ps1}`, `docs/obtainium-config.json`, README/SETUP-SI updated |
 | `AnantPlay-Sinhala-Player-v2.3.0.apk` | The freshly compiled, zipaligned, **apksigner-verified** APK (versionCode 20300). Signed with a local debug key — install it freely; when your permanent keystore exists, GitHub releases replace it with the release-signed lineage |
 | `ROUTER_FREE_CAST_AND_OBTAINIUM_REPORT.md` / `.pdf` | This report |
 

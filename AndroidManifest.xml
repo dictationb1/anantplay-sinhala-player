@@ -26,6 +26,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- v2.4.0: the built-in GitHub self-updater's download → PackageInstaller flow.
+         The install itself is the OS's own 1-tap "Update" dialog (non-root Android
+         never allows silent installs — by design). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <!-- one-time system toggle: lets the receiver take the screen when a cast arrives.
          NOT required for casting itself — without it the cast arrives as a tap-to-open
          high-priority notification (see ReceiverService.onPlay). -->
@@ -79,6 +83,14 @@
              nothing outside this app can bind or start it with an Intent. -->
         <service android:name=".ReceiverService" android:exported="false"
             android:foregroundServiceType="connectedDevice"/>
+
+        <!-- v2.4.0: the built-in GitHub self-updater (check on launch + every 6 h) -->
+        <service android:name=".SelfUpdater$CheckJob"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false"/>
+
+        <!-- v2.4.0: the PackageInstaller result receiver -->
+        <receiver android:name=".SelfUpdater$InstallResultReceiver" android:exported="false"/>
 
         <service android:name=".CastTileService" android:exported="true"
             android:icon="@mipmap/ic_launcher"

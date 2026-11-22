@@ -121,7 +121,7 @@ Build proof: `aapt2 dump badging` → `versionCode='20301' versionName='2.3.1'` 
 
 | File | What it is |
 |---|---|
-| (zip) | The complete v2.3.1 upgrade — all sources, `.github/workflows/` (build + release), `.gitignore`, keystore scripts, obtainium config, updated README/SETUP-SI, and this report — extracted over the repo and **deleted from git + disk per the zero-zip mandate (0 `.zip` files remain tracked)** |
+| `repo3-anantplay-sinhala-player-v2.3.1.zip` | The complete v2.3.1 upgrade — all sources, `.github/workflows/` (build + release), `.gitignore`, keystore scripts, obtainium config, updated README/SETUP-SI, and this report |
 | `AnantPlay-Sinhala-Player-v2.3.1.apk` | Freshly compiled, zipaligned, apksigner-verified (v2+v3). Debug-signed locally — your permanent keystore (via `scripts/create-release-keystore.*` + the 4 GitHub Secrets) signs all GitHub Releases, keeping Obtainium updates in place forever |
 | `FORENSIC_FIX_REPORT_v2.3.1.md` | This report |
 

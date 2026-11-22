@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 # ============================================================================
 # create-release-keystore.ps1 — the ONE-TIME permanent signing keystore maker
 # (Windows PowerShell edition)
@@ -47,11 +47,7 @@ if (-not $Keytool) {
                      "C:\Program Files\Java\jdk-17*\bin\keytool.exe",
                      "C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe")) {
         $found = Get-Item $p -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($found) {
-            # PS 5.1 + 7 safe: normalize to the plain full path string
-            $Keytool = $found.FullName
-            break
-        }
+        if ($found) { $Keytool = $found; break }
     }
 }
 if (-not $Keytool) {
@@ -66,7 +62,7 @@ Write-Host "-- generating $Validity-day RSA-2048 keystore (this is your PERMANEN
 if ($LASTEXITCODE -ne 0) { Write-Host "!! keytool failed" -ForegroundColor Red; exit 1 }
 
 Write-Host "-- reading the keystore back as base64 (KS_BASE64)"
-$Bytes  = [System.IO.File]::ReadAllBytes((Resolve-Path $Keystore).ProviderPath)
+$Bytes  = [System.IO.File]::ReadAllBytes((Resolve-Path $Keystore))
 $Base64 = [System.Convert]::ToBase64String($Bytes)
 
 # export KS_BASE64 to the clipboard when possible (nice-to-have, not required)
@@ -104,8 +100,7 @@ $Base64
                  uninstall/reinstall once.
 ========================================================================
 "@
-[System.IO.File]::WriteAllText("github-secrets.txt", $Secrets,
-    (New-Object System.Text.UTF8Encoding $false))
+$Secrets | Out-File -Encoding utf8 "github-secrets.txt"
 
 Write-Host ""
 Write-Host "== DONE ==" -ForegroundColor Green
