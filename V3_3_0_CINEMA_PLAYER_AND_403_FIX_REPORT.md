@@ -2,8 +2,8 @@
 
 **Version:** 3.3.0 · **versionCode:** 30300 · **targetSdk:** 36 (Android 16) · **minSdk:** 26
 **APK:** `AnantPlay-Sinhala-Player-v3.3.0.apk` — 3,424,979 bytes (3.34 MB), v2+v3 signed, zipalign-verified
-**SHA-256:** `6ed040297e782132dd306a21d0dcec82076fb2ff8a4fe97763c51fdfcd48d512`
-**Lab:** 701 checks PASS / 0 FAIL + bytecode reference verifier OK
+**SHA-256 (hosted CI build, debug-signed):** `1cc98a485e0e2c18cfecc04e3975a008ade09ebf555995694142ee7c7bcfa7c7`
+**Lab:** 716/716 checks PASS / 0 FAIL + bytecode reference verifier OK (hosted GitHub Actions)
 **Strictly v3.x** — no v4, no libVLC `.so`, no Flutter, no ad SDK, no AccessibilityService.
 
 This report proves, at `file:line` level, the cause and the fix of the four catastrophic
@@ -253,12 +253,12 @@ Flow, end to end:
 
 ## 5. Verification evidence
 
-### 5.1 The lab — 701 checks, 0 FAIL
+### 5.1 The lab — 716/716 checks, 0 FAIL (hosted CI)
 
 ```
 ── compile the pure engines + the lab
 ── run the cast-protocol lab (GATING)
-Lab proof: 701 checks passed (0 failed)
+Lab proof: 716 checks passed (0 failed)
 bytecode verifier: OK — 196 distinct referenced types, all resolvable (lab classes + JDK + android.*)
 ```
 
@@ -269,7 +269,7 @@ New v3.3.0 sections (all gating):
 | `v330 layout:` | 21 | the shell shape (0dp/weight 1, `shell.addView(bottomBar, …)`), the top-bar 1-tap 🩺/⚙️, inset padding, the 3-zone HUD, the padded subtitle layer, the deleted v3.2.0 defects, `onVideoSizeChanged`, rotate/lock, the error card |
 | `v330 http403:` | 24 | the live mock CDN (403 for the stub UA / Media3 UA / missing Origin; 200 for normalized **and** recovered headers), nested cast shapes, hop-by-hop dropping, name-only logging, `recoverable()`, `isBlockedUa()`, the `ResolvingDataSource` + recovery wiring |
 | `v330 aspect:` | 12 | 1080×608 · 4267×2400 · 1920×1080 · stretch · 16:9 · anamorphic par · unknown size · NaN par · mode round-trip · chip cycle · `coversScreen` · the 18 sp default |
-| `v330 subzip:` | 21 | link classification, the SL site order, encoded search URLs, `preferredEntry`, a real archive extraction with ZWJ preserved, Sinhala/Latin routing, the external-player extras, the WebView capture wiring, the caps |
+| `v330 subzip:` | 35 | link classification, the SL site order, encoded search URLs, `preferredEntry`, a real archive extraction with ZWJ preserved, Sinhala/Latin routing, the external-player extras, the WebView capture wiring, the caps |
 | `v330 parity:` | 10 | 3.3.0 / 30300 in manifest, AppInfo, build.sh, docs/latest.json, README, SETUP-SI, both workflows; no 4.x; the report ships |
 
 Also fixed: the v3.2.0 `v320 free: the disk cache round-trips` check was **network-dependent** and
@@ -281,15 +281,17 @@ hit with `requests == 0` — deterministic, and a stronger assertion than before
 ```
 package: name='lk.techworld.anantplay.sicast' versionCode='30300' versionName='3.3.0'
          compileSdkVersion='36' platformBuildVersionName='16' platformBuildVersionCode='36'
-size   : 3,424,979 bytes (3344 KiB)
-sha256 : 6ed040297e782132dd306a21d0dcec82076fb2ff8a4fe97763c51fdfcd48d512
+size   : 3,424,979 bytes (3344 KiB)   ← hosted build-apk.yml artifact
+sha256 : 1cc98a485e0e2c18cfecc04e3975a008ade09ebf555995694142ee7c7bcfa7c7
 apksigner verify --verbose:
   Verified using v2 scheme (APK Signature Scheme v2): true
   Verified using v3 scheme (APK Signature Scheme v3): true
 zipalign -c 4 → OK
 ```
 
-The APK is **debug-signed** by `build.sh` (no `KS_BASE64` secret in this environment). Installing
+The `build-apk.yml` artifact above is **debug-signed** (`KS_BASE64` is only exposed to the
+release workflow); the GitHub Release is signed with the permanent keystore, so its SHA-256 will
+differ and is the one recorded in `docs/latest.json` / `SHA256SUMS.txt`. Installing
 it over a release-signed v3.2.0 fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`; set the four CI
 secrets (`KS_BASE64`, `KS_PASS`, `KS_KEYPASS`, `KS_ALIAS`) and re-run for the permanent key. The
 CI pipeline (`.github/workflows/build-apk.yml`) signs with those secrets and re-verifies the
@@ -401,3 +403,17 @@ remove `User-Agent` from the property map and use `setUserAgent()`, set
 `ResolvingDataSource` per-host `CookieManager`, and retry 401/403/451 exactly once behind
 `triedHeaderRecovery`. `allowBackup="false"`, no AdvertisingId/Firebase/telemetry, no
 `AccessibilityService`, `PrivacyScrubber` Zero-PII.
+
+### 8.6 Hosted CI proof (PR #15, branch `arena/c81ae7c4-anantplay-sinhala-player`)
+
+| Job | Result |
+|---|---|
+| `Cast protocol lab (gating)` | ✅ **716/716 PASS, 0 FAIL** (`Lab result: ALL 716 PASSED`), bytecode verifier OK, tracked `.zip` files: **0**, AccessibilityService references: **0** |
+| `APK (JDK 17 + SDK 36 + build-tools 35.0.1, signed + verified)` | ✅ `AnantPlay-Sinhala-Player-v3.3.0.apk` — **3,424,979 bytes**, sha256 `1cc98a485e0e2c18cfecc04e3975a008ade09ebf555995694142ee7c7bcfa7c7`, `versionCode='30300'` / `versionName='3.3.0'`, `apksigner verify` PASS, `zipalign -c 4` PASS |
+
+The 14 new checks in this audit run over a real socket: `/subs/current.srt` answers 404 when no
+subtitle is armed, 200 + `text/plain; charset=utf-8` + `Cache-Control: no-store` with the exact
+UTF-8 byte length once it is, keeps the Sinhala ZWJ conjunct `ශ්‍රී` intact, yields the loopback
+URL `http://127.0.0.1:<port>/subs/current.srt`, returns to 404 when the cues are cleared, and
+returns **no URL at all** when the receiver is stopped — plus the source-level proof that
+`PlayActivity` contains no `Uri.fromFile(` and no `getCacheDir()`.
