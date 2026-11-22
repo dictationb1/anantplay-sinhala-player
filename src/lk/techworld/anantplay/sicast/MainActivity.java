@@ -83,6 +83,8 @@ public class MainActivity extends Activity {
      *  sub-pages merged into Customize. The Web tab is hideable (Appearance). */
     private static final int TAB_HOME = 0, TAB_WEB = 1, TAB_SETTINGS = 2, TAB_DIAG = 3, TAB_TROUBLE = 4;
     private FrameLayout pages;
+    /** v3.3.0 — the fixed top app bar (Settings + Troubleshoot always 1 tap away). */
+    private LinearLayout topBar;
     private final List<TextView> tabIcons = new ArrayList<>();
     private final List<TextView> tabLabels = new ArrayList<>();
     private View homePage, settingsPage, diagPage, webPage, troublePage;
@@ -135,6 +137,9 @@ public class MainActivity extends Activity {
         }
         if (getIntent().getBooleanExtra("needMedia", false)) requestMediaPermission();
         if (getIntent().getBooleanExtra("runTest", false)) { selectTab(TAB_TROUBLE); runFullTroubleshoot(); }
+        // v3.3.0 — the Cinema Player's 🇱🇰 mini web-picker hands a search URL over here:
+        // the Web tab opens on it and its .zip/.srt downloads are captured live.
+        openWebFromIntent(getIntent());
         // the live update banner: SelfUpdater's UI listener drives it (silent +
         // throttled since v3.1.0 — the banner is the ONLY visible update noise)
         SelfUpdater.setUiListener(new SelfUpdater.UiListener() {
@@ -203,6 +208,7 @@ public class MainActivity extends Activity {
         super.onResume();
         refresh();
         main.postDelayed(this::refresh, 1200);   // let the receiver/nsd state settle
+        main.postDelayed(this::measureShell, 260);   // v3.3.0: prove the nav shell every resume
         if (browser != null) browser.onResumeWeb();
     }
 
@@ -231,33 +237,111 @@ public class MainActivity extends Activity {
 
     private int currentTab = TAB_HOME;
 
+    /**
+     * v3.3.0 — THE UNBREAKABLE NAVIGATION SHELL.
+     *
+     * <p>THE BUG THIS KILLS (v3.2.0 screenshot 1 — the entire bottom navigation bar
+     * GONE, Settings/Customize/Troubleshoot unreachable):
+     *
+     * <p>v3.2.0 built a {@code FrameLayout root}, added {@code pages} to it with
+     * MATCH_PARENT/MATCH_PARENT, built {@code bottomBar} — and then <b>never called
+     * {@code root.addView(bottomBar)}</b>. The bar was constructed, populated with four
+     * tabs, wired to {@code selectTab()}… and left parentless, so it was never
+     * measured or drawn. The only trace of it was {@code pages.setPadding(...,
+     * bottom + dp(58))}: 58 dp of reserved empty space at the bottom of the content,
+     * which is exactly the "pure empty dark background" under
+     * "AnantPlay සිංහල Player v3.2.0…" in the screenshot.
+     *
+     * <p>The fix is structural, not cosmetic: a {@code LinearLayout(VERTICAL)} shell of
+     * three children —
+     * <pre>
+     *   topBar    MATCH_PARENT × WRAP_CONTENT   (title + version pill · 🩺 · ⚙️)
+     *   pages     MATCH_PARENT × 0, weight 1.0f (the content host)
+     *   bottomBar MATCH_PARENT × WRAP_CONTENT   (🏠 · 🌐 · 🎨 · 🩺)
+     * </pre>
+     * With the content at height 0 + weight 1 the bottom bar is guaranteed to be laid
+     * out INSIDE the window on every screen and every inset: pushing it off-screen is
+     * arithmetically impossible, because the content can only ever take what is left.
+     * The regression lab asserts this exact shape ({@code v330 layout:}).
+     */
     private View buildUi() {
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(P.bg);
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setBackgroundColor(P.bg);
 
+        // ══ A. THE FIXED TOP APP BAR ═══════════════════════════════════════════
+        // Settings and Troubleshoot live HERE as icon buttons, so even a device
+        // whose bottom bar a manufacturer's skin eats can never lock the user out.
+        topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        topBar.setMinimumHeight(dp(56));
+        topBar.setBackgroundColor(P.card2);
+
+        LinearLayout brand = new LinearLayout(this);
+        brand.setOrientation(LinearLayout.VERTICAL);
+        TextView appTitle = new TextView(this);
+        appTitle.setText(t("ඇනන්ට්ප්ලේ සිංහල", "AnantPlay Sinhala"));
+        appTitle.setTextColor(P.text);
+        appTitle.setTextSize(16f);
+        appTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        appTitle.setMaxLines(1);
+        appTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        brand.addView(appTitle, new LinearLayout.LayoutParams(-2, -2));
+
+        TextView versionPill = new TextView(this);
+        versionPill.setText("v" + AppInfo.VERSION_NAME);
+        versionPill.setTextColor(P.accent);
+        versionPill.setTextSize(9.5f);
+        versionPill.setTypeface(Typeface.DEFAULT_BOLD);
+        versionPill.setPadding(dp(7), dp(2), dp(7), dp(2));
+        GradientDrawable vp = new GradientDrawable();
+        vp.setColor(P.chip);
+        vp.setCornerRadius(dp(8));
+        versionPill.setBackground(vp);
+        LinearLayout.LayoutParams vplp = new LinearLayout.LayoutParams(-2, -2);
+        vplp.topMargin = dp(2);
+        brand.addView(versionPill, vplp);
+
+        LinearLayout.LayoutParams brandLp = new LinearLayout.LayoutParams(0, -2, 1f);
+        brandLp.leftMargin = dp(14);
+        topBar.addView(brand, brandLp);
+
+        View troubleBtn = topBarIcon("🩺", v -> selectTab(TAB_TROUBLE));
+        topBar.addView(troubleBtn, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        View settingsBtn = topBarIcon("⚙️", v -> selectTab(TAB_SETTINGS));
+        LinearLayout.LayoutParams sblp = new LinearLayout.LayoutParams(dp(42), dp(42));
+        sblp.rightMargin = dp(8);
+        sblp.leftMargin = dp(2);
+        topBar.addView(settingsBtn, sblp);
+        shell.addView(topBar, new LinearLayout.LayoutParams(-1, -2));
+
+        // ══ B. THE CONTENT HOST — height 0, weight 1: it can NEVER push the bar ══
         pages = new FrameLayout(this);
-        root.addView(pages, new FrameLayout.LayoutParams(-1, -1));
+        LinearLayout.LayoutParams contentLp = new LinearLayout.LayoutParams(-1, 0, 1f);
+        shell.addView(pages, contentLp);
 
+        // ══ C. THE FIXED BOTTOM NAVIGATION BAR ═════════════════════════════════
         bottomBar = new LinearLayout(this);
         bottomBar.setOrientation(LinearLayout.HORIZONTAL);
+        bottomBar.setMinimumHeight(dp(64));
+        bottomBar.setGravity(Gravity.CENTER_VERTICAL);
         bottomBar.setBackgroundColor(P.card2);
-        // v3.2.0 — the 5-tab Mornye/Apple bar: the pill-indicator styling comes
-        // from the card radius token; the Web tab is still toggleable.
         boolean web = AppPrefs.showWebTab(prefs);
         String[][] tabs = web ? new String[][]{
             {"🏠", t("මුල", "Home")},
             {"🌐", t("බ්‍රව්සර්", "Web")},
             {"🎨", t("අභිරුචි", "Customize")},
-            {"🩺", t("දෝෂ නිර්ණය", "Troubleshoot")},
+            {"🩺", t("දෝෂ", "Troubleshoot")},
         } : new String[][]{
             {"🏠", t("මුල", "Home")},
             {"🎨", t("අභිරුචි", "Customize")},
-            {"🩺", t("දෝෂ නිර්ණය", "Troubleshoot")},
+            {"🩺", t("දෝෂ", "Troubleshoot")},
         };
         int[] tabIds = tabIdsInOrder();
         tabIcons.clear();
         tabLabels.clear();
-        for (int i = 0; i < tabIds.length; i++) {
+        for (int i = 0; i < tabIds.length && i < tabs.length; i++) {
             final int idx = tabIds[i];
             LinearLayout tab = new LinearLayout(this);
             tab.setOrientation(LinearLayout.VERTICAL);
@@ -265,12 +349,14 @@ public class MainActivity extends Activity {
             tab.setPadding(0, dp(7), 0, dp(7));
             TextView icon = new TextView(this);
             icon.setText(tabs[i][0]);
-            icon.setTextSize(19f);
+            icon.setTextSize(18f);
             icon.setGravity(Gravity.CENTER);
             TextView label = new TextView(this);
             label.setText(tabs[i][1]);
             label.setTextSize(9.5f);
             label.setGravity(Gravity.CENTER);
+            label.setMaxLines(1);
+            label.setEllipsize(android.text.TextUtils.TruncateAt.END);
             tab.addView(icon, new LinearLayout.LayoutParams(-1, -2));
             tab.addView(label, new LinearLayout.LayoutParams(-1, -2));
             tab.setOnClickListener(v -> selectTab(idx));
@@ -278,7 +364,9 @@ public class MainActivity extends Activity {
             tabLabels.add(label);
             bottomBar.addView(tab, new LinearLayout.LayoutParams(0, -2, 1f));
         }
+        shell.addView(bottomBar, new LinearLayout.LayoutParams(-1, -2));
 
+        // ══ the pages (built once, toggled by selectTab) ═══════════════════════
         homePage = buildHomeTab();
         settingsPage = buildSettingsTab();
         troublePage = buildTroubleTab();
@@ -286,21 +374,81 @@ public class MainActivity extends Activity {
         pages.addView(settingsPage, new FrameLayout.LayoutParams(-1, -1));
         pages.addView(troublePage, new FrameLayout.LayoutParams(-1, -1));
 
-        // Android 16 edge-to-edge (targetSdk 35+ enforces it): pad the content
-        // by the REAL insets — status bar above, gesture bar below, never a
-        // clipped title or a half-swallowed button on HyperOS.
-        root.setOnApplyWindowInsetsListener((v, insets) -> {
-            int top = insets.getSystemWindowInsetTop();
-            int bottom = insets.getSystemWindowInsetBottom();
-            int left = insets.getSystemWindowInsetLeft();
-            int right = insets.getSystemWindowInsetRight();
-            pages.setPadding(left, top, right, bottom + dp(58));
-            bottomBar.setPadding(left, 0, right, bottom);
+        // ══ the insets: measured, applied to the BARS (never to the content) ═══
+        shell.setOnApplyWindowInsetsListener((v, insets) -> {
+            android.graphics.Insets top = insets.getInsets(
+                android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.displayCutout());
+            android.graphics.Insets bottom = insets.getInsets(
+                android.view.WindowInsets.Type.navigationBars() | android.view.WindowInsets.Type.displayCutout());
+            int left = Math.max(top.left, bottom.left), right = Math.max(top.right, bottom.right);
+            topBar.setPadding(left, top.top + dp(4), right, dp(4));
+            bottomBar.setPadding(left, dp(6), right, bottom.bottom + dp(6));
+            pages.setPadding(left, 0, right, 0);
             return insets;
         });
 
         selectTab(TAB_HOME);
-        return root;
+        return shell;
+    }
+
+    /** v3.3.0 — the LAST measured navigation-shell verdict (read by FeatureProbe #10). */
+    private static volatile boolean shellOk = false;
+
+    static boolean shellInvariantOk() { return shellOk; }
+
+    /**
+     * The runtime proof of the fix: the bottom bar is a real child of the shell, it is
+     * shown, it sits at or below the content host, and its bottom edge is inside the
+     * window. v3.2.0 would fail every one of these (the bar had no parent at all).
+     */
+    private void measureShell() {
+        try {
+            View shell = bottomBar == null ? null : (View) bottomBar.getParent();
+            boolean ok = shell != null && pages != null && bottomBar.isShown()
+                && pages.getHeight() > 0 && bottomBar.getHeight() > 0
+                && bottomBar.getTop() >= pages.getBottom() - 1
+                && bottomBar.getBottom() <= shell.getHeight();
+            shellOk = ok;
+            FeatureProbe.shellOk = ok;   // probe #10 reads this
+            Troubleshooter.record("LAYOUT", "nav shell " + (ok ? "OK" : "VIOLATED")
+                + " · content " + (pages == null ? -1 : pages.getHeight()) + "px · bar top "
+                + (bottomBar == null ? -1 : bottomBar.getTop()) + " · bar h "
+                + (bottomBar == null ? -1 : bottomBar.getHeight()));
+        } catch (Throwable t) {
+            shellOk = false;
+            FeatureProbe.shellOk = false;
+        }
+    }
+
+    /** A top-bar icon button (🩺 / ⚙️): always visible, always 1 tap. */
+    private View topBarIcon(String glyph, View.OnClickListener click) {
+        TextView t = new TextView(this);
+        t.setText(glyph);
+        t.setTextSize(17f);
+        t.setGravity(Gravity.CENTER);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(P.chip);
+        g.setCornerRadius(dp(12));
+        t.setBackground(g);
+        t.setOnClickListener(click);
+        return t;
+    }
+
+    /** v3.3.0 — open the Web tab on a URL handed over by the Cinema Player. */
+    private void openWebFromIntent(Intent i) {
+        if (i == null) return;
+        String u = i.getStringExtra("webUrl");
+        if (u == null && !i.getBooleanExtra("openWeb", false)) return;
+        if (!AppPrefs.showWebTab(prefs)) return;      // the tab is hidden: stay on Home
+        selectTab(TAB_WEB);
+        if (u != null && browser != null) browser.load(u);
+    }
+
+    @Override
+    protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        setIntent(i);
+        openWebFromIntent(i);
     }
 
     private int[] tabIdsInOrder() {

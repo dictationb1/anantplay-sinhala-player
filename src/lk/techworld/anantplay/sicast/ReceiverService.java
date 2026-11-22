@@ -50,6 +50,10 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     static final String ACTION_APPLY_PREFS = "lk.techworld.anantplay.sicast.APPLY_PREFS";
 
     private static volatile ReceiverService running;
+    /** v3.3.0 audit — the Sinhala .srt the loopback /subs/current.srt route serves to
+     *  external players (VLC/MX/mpv). Kept here, NOT in an Activity, so a rotation or
+     *  a finished PlayActivity can never leak an Activity through the service. */
+    private static volatile String subsSrt;
     private final Handler main = new Handler(Looper.getMainLooper());
     private ReceiverServer server;
     private NsdAnnouncer nsd;
@@ -61,6 +65,24 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
 
     public static boolean isUp() { return running != null; }
     public static int port() { ReceiverService s = running; return s == null ? -1 : (s.server == null ? -1 : s.server.port()); }
+
+    /**
+     * v3.3.0 audit — publish (or clear) the active Sinhala .srt for external players.
+     * Thread-safe and idempotent: the value is kept statically so a later re-arm of the
+     * server (self-heal, preference change, process restart of the service) restores the
+     * route without PlayActivity doing anything.
+     */
+    static void setSubsSrt(String srt) {
+        subsSrt = (srt == null || srt.trim().isEmpty()) ? null : srt;
+        ReceiverService s = running;
+        if (s != null && s.server != null) s.server.setSubsSrt(subsSrt);
+    }
+
+    /** The URL an external player can read, or null when the receiver is not running. */
+    static String subsUrl() {
+        ReceiverService s = running;
+        return s == null || s.server == null ? null : s.server.subsUrl();
+    }
     /** v2.3.0 — the live announcer's own 5353 responder (null when the service or the responder is down). */
     public static MdnsResponder liveResponder() {
         ReceiverService s = running;
@@ -144,6 +166,8 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         // exists: isSelf() then accepts our own wlan0 IP even if a LATER HyperOS
         // enumeration transiently fails (the 2026-11-22 refusal scenario).
         server.setLocalSnapshot(LocalNet.enumerateOwn());
+        // v3.3.0 audit — restore the external-player subtitle route across re-arms.
+        server.setSubsSrt(subsSrt);
         // v3.1.0 — the customization prefs: receiver display name + the two
         // discovery-pillar toggles (Cast & Network settings page).
         android.content.SharedPreferences prefs = getSharedPreferences("sicast", MODE_PRIVATE);

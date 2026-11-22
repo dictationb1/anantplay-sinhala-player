@@ -301,7 +301,9 @@ public final class FreeSubTranslator {
 
     // ── the disk cache (plain SRT, timestamp-preserving) ─────────────────────
 
-    private static List<Cue> readCachedSrt(File f) {
+    /** Package-private since v3.3.0 so the regression lab can prove the round-trip
+     *  OFFLINE (a network-dependent cache test failed on every air-gapped runner). */
+    static List<Cue> readCachedSrt(File f) {
         try {
             if (!f.exists() || f.length() == 0 || f.length() > 5 * 1024 * 1024) return null;
             ByteArrayOutputStream o = new ByteArrayOutputStream();
@@ -315,7 +317,8 @@ public final class FreeSubTranslator {
         }
     }
 
-    private static void writeCachedSrt(File f, List<Cue> cues) {
+    /** Package-private since v3.3.0 (see readCachedSrt). */
+    static void writeCachedSrt(File f, List<Cue> cues) {
         try {
             File tmp = new File(f.getPath() + ".tmp");
             try (OutputStream o = new FileOutputStream(tmp)) {

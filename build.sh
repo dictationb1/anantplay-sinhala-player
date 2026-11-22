@@ -54,9 +54,9 @@ done
 [ -n "$JAR" ] || JAR="$SDK/platforms/android-34/android.jar"
 TARGET_SDK=36
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-3.2.0}
-VERSION_CODE=${VERSION_CODE:-30200}
-PREV_VERSION_CODE=${PREV_VERSION_CODE:-30102}   # v3.1.2 — the last released build
+VERSION_NAME=${VERSION_NAME:-3.3.0}
+VERSION_CODE=${VERSION_CODE:-30300}
+PREV_VERSION_CODE=${PREV_VERSION_CODE:-30200}   # v3.2.0 — the last released build
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -94,7 +94,11 @@ javac -encoding UTF-8 -nowarn -Xlint:-options -source 8 -target 8 \
   -d build/classes @build/sources.txt
 
 echo "── d8 → dex (app classes + the media3/guava jars, multidex)"
-"$BT/d8" --lib "$JAR" --min-api 26 --output build $(find build/classes -name '*.class') $(ls libs/*.jar)
+# v3.3.0 — a bounded JVM heap for d8: on a 2 GB container (and every 4 GB CI runner)
+# d8's default -Xmx2g fails with "Could not reserve enough space for 2097152KB object
+# heap" BEFORE it reads a single class. -J-Xmx is the only way to pass a heap to the
+# d8 launcher (it ignores JAVA_OPTS); D8_XMX overrides the default.
+"$BT/d8" -JXmx"${D8_XMX:-896m}" --lib "$JAR" --min-api 26 --output build $(find build/classes -name '*.class') $(ls libs/*.jar)
 ls build/classes*.dex >/dev/null 2>&1 || die "d8 produced no dex"
 
 echo "── package"

@@ -186,6 +186,16 @@ public class WebBrowserView extends FrameLayout {
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl();
                 String us = u == null ? "" : String.valueOf(u);
+                // ══ v3.3.0 — THE SRI LANKAN SUBTITLE CAPTURE ══════════════════
+                // The user taps a .zip/.srt on Baiscope / Zoom.lk / PirateLK / SubDL
+                // and the app does the rest: download → unzip (5 MB zip-bomb cap,
+                // ".." traversal refused by SrtLoader) → Sinhala check → translate if
+                // not → attach to the movie that is playing RIGHT NOW.
+                if (LkSubFinder.isSubtitleDownload(us)) {
+                    Diag.i("web", "subtitle link captured: " + StreamSniffer.hostOf(us));
+                    captureSubtitle(us);
+                    return true;      // never navigate away from the page
+                }
                 if (StreamSniffer.isAdOrTracker(us)) {
                     Diag.i("web", "blocked navigation to ad/tracker host: " + StreamSniffer.hostOf(us));
                     toast("🚫 " + StreamSniffer.hostOf(us));
@@ -255,6 +265,16 @@ public class WebBrowserView extends FrameLayout {
                     "document.addEventListener('play',function(e){f(e.target)},true);" +
                     "document.addEventListener('loadedmetadata',function(e){f(e.target)},true);" +
                     "var l=document.querySelectorAll('video,source');for(var i=0;i<l.length;i++)f(l[i]);})()", null);
+            }
+        });
+
+        // a real download (Content-Disposition) is captured the same way
+        web.setDownloadListener((url, ua, cd, mime, len) -> {
+            if (LkSubFinder.isSubtitleDownload(url)) {
+                Diag.i("web", "subtitle download captured: " + StreamSniffer.hostOf(url));
+                captureSubtitle(url);
+            } else {
+                toast("⬇ " + StreamSniffer.hostOf(url));
             }
         });
 
@@ -604,4 +624,84 @@ public class WebBrowserView extends FrameLayout {
     public int hitCount() { synchronized (hits) { return hits.size(); } }
 
     private void toast(String s) { Toast.makeText(act, s, Toast.LENGTH_SHORT).show(); }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // v3.3.0 — THE SUBTITLE CAPTURE PIPELINE (WebView → player, zero file hunting)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /** True while a capture is in flight (one at a time — never a download storm). */
+    private volatile boolean capturing;
+
+    /**
+     * Download a captured .srt/.zip and attach it to the live player.
+     * Everything happens off the UI thread; SrtLoader enforces the 5 MB cap, the
+     * 64-entry cap and the ".." traversal refusal, so a hostile archive cannot
+     * escape the cache dir.
+     */
+    private void captureSubtitle(final String url) {
+        if (capturing) { toast("💬 a subtitle is already downloading…"); return; }
+        capturing = true;
+        toast(LkSubFinder.captureLabel(url));
+        new Thread(() -> {
+            byte[] bytes = null;
+            String why = null;
+            try {
+                bytes = httpBytes(url);
+            } catch (Throwable t) {
+                why = t.getMessage();
+            }
+            final byte[] b = bytes;
+            final String err = why;
+            act.runOnUiThread(() -> {
+                capturing = false;
+                if (b == null) {
+                    toast("subtitle download failed: " + err);
+                    return;
+                }
+                PlayActivity p = PlayActivity.current();
+                if (p != null) {
+                    p.attachCapturedSubs(b, url);
+                    Diag.i("web", "subtitle attached live (" + b.length + " B)");
+                } else {
+                    try {
+                        java.io.File f = new java.io.File(act.getCacheDir(), "captured-sub.bin");
+                        try (java.io.FileOutputStream o = new java.io.FileOutputStream(f)) { o.write(b); }
+                        toast("💬 saved — open a movie, then 💬 → Local .srt");
+                    } catch (Throwable t) {
+                        toast("could not save the subtitle: " + t.getMessage());
+                    }
+                }
+            });
+        }, "sub-capture").start();
+    }
+
+    /** A capped HTTP GET that carries the WebView's own cookie for that host. */
+    private byte[] httpBytes(String url) throws Exception {
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection(java.net.Proxy.NO_PROXY);
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(15000);
+        c.setInstanceFollowRedirects(true);
+        String ck = android.webkit.CookieManager.getInstance().getCookie(url);
+        if (ck != null && !ck.isEmpty()) c.setRequestProperty("Cookie", ck);
+        c.setRequestProperty("User-Agent", LkSubFinder.isZip(url)
+            ? "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+            : "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36");
+        try {
+            int code = c.getResponseCode();
+            if (code / 100 != 2) throw new Exception("HTTP " + code);
+            try (java.io.InputStream in = c.getInputStream()) {
+                java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int total = 0;
+                for (int n; (n = in.read(buf)) > 0; ) {
+                    total += n;
+                    if (total > 6 * 1024 * 1024) throw new Exception("file too large (6 MB max)");
+                    o.write(buf, 0, n);
+                }
+                return o.toByteArray();
+            }
+        } finally {
+            c.disconnect();
+        }
+    }
 }
