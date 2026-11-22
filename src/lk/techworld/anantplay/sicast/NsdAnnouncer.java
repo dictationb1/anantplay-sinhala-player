@@ -83,6 +83,9 @@ public final class NsdAnnouncer {
     private final boolean[] registered = new boolean[2];
     private volatile boolean announced;
     private android.net.wifi.WifiManager.MulticastLock mcast;
+    /** v2.3.0 — our own 5353 responder (kernel-loopback answerer; null when the port
+     *  cannot be shared and mdnsd registration is the only announcer). */
+    private MdnsResponder responder;
     private int attempt;
     private final android.os.Handler retry = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable reArm = new Runnable() {
@@ -99,6 +102,9 @@ public final class NsdAnnouncer {
     }
 
     public boolean isAnnounced() { return announced; }
+
+    /** v2.3.0 — our own responder (may be null/down when 5353 cannot be shared). */
+    public MdnsResponder responder() { return responder; }
 
     public void start() {
         if (nsd == null) { Diag.w("nsd", "no NsdManager — cast discovery cannot see us"); return; }
@@ -138,7 +144,26 @@ public final class NsdAnnouncer {
         }
         watchNetwork();
         acquireMulticastLock();
+        startResponder();
         if (!any) Diag.e("nsd", "no registration possible");
+    }
+
+    /** v2.3.0 — start our own RFC-6762 responder on 5353 (SO_REUSEADDR alongside
+     *  mdnsd). Answers PTR/SRV/TXT/A for our service with unicast replies, and —
+     *  equally important — gives the self-test a router-free kernel-loopback path.
+     *  A bind failure (EADDRINUSE on a locked-down build) degrades to
+     *  NsdManager-only announcing: logged, never fatal. */
+    private void startResponder() {
+        if (responder != null && responder.isRunning()) return;
+        try {
+            java.net.InetAddress ip = wifiLanIp();
+            if (ip == null) ip = java.net.InetAddress.getByName("127.0.0.1");
+            responder = new MdnsResponder(TYPE, OLD_TYPE, PREFIX + NAME, port, ip);
+            responder.start();
+        } catch (Throwable t) {
+            Diag.w("mdnsrsp", "start: " + t);
+            responder = null;
+        }
     }
 
     /** mDNS records live on the interface: re-announce when Wi-Fi comes back. */
@@ -191,6 +216,10 @@ public final class NsdAnnouncer {
             registered[i] = false;
         }
         announced = false;
+        if (responder != null) {
+            try { responder.stop(); } catch (Throwable ignored) { }
+            responder = null;
+        }
         if (mcast != null) {
             try { if (mcast.isHeld()) mcast.release(); } catch (Throwable ignored) { }
             mcast = null;
@@ -202,7 +231,7 @@ public final class NsdAnnouncer {
         }
     }
 
-    // ── the raw mDNS probe (the self-test's layer 1) ───────────────────────────
+    // ── the mDNS probes (the self-test's discovery layers) ─────────────────────
 
     /** One mDNS question packet: PTR? <type>.local — the same query AnantPlay's
      *  NsdManager discovery sends, hand-built so no OEM daemon sits between us
@@ -212,18 +241,61 @@ public final class NsdAnnouncer {
         return MdnsWire.queryPacket(type);
     }
 
-    /** The self-probe: send the PTR query for BOTH service types on the Wi-Fi
-     *  interface and wait for an answer containing OUR service name. Returns a
-     *  structured result the Self-test turns into a bilingual diagnosis.
-     *
-     *  layer details:
-     *   · the socket is a plain unicast UDP socket bound to the Wi-Fi interface's
-     *     own address (mDNS queries may be unicast to 224.0.0.251:5353 — RFC 6762
-     *     §5.1 allows one-shot questions from any port; the QU bit asks for a
-     *     unicast reply back to our socket, which is what routers reflect best);
-     *   · a MulticastLock is held for the whole probe (the v1 bug: Wi-Fi
-     *     power-save filters multicast/broadcast receives without it);
-     *   · every failure mode returns a distinct reason code — never a bare false. */
+    /** v2.3.0 — the DAEMON probe: send the QU question UNICAST to the phone's own
+     *  mDNS endpoints (loopback + our Wi-Fi IP, port 5353). Android's mdnsd listens
+     *  on 5353 across all interfaces and answers unicast questions about records it
+     *  holds — including OUR NsdManager registration. This is the same daemon
+     *  AnantPlay's discovery reads (Cast.discover → NsdManager binder IPC), so an
+     *  answer here is the honest proof "AnantPlay can see us" WITHOUT needing the
+     *  router to reflect multicast. A plain unicast socket is correct for this. */
+    static boolean probeDaemon(Context c, long timeoutMs) {
+        DatagramSocket sock = null;
+        try {
+            InetAddress wifi = wifiLanIp();
+            sock = new DatagramSocket();
+            sock.setSoTimeout(500);
+            byte[] q = mdnsQueryPacket(TYPE);
+            long end = System.currentTimeMillis() + Math.max(1000, timeoutMs);
+            int round = 0;
+            while (System.currentTimeMillis() < end) {
+                // ask BOTH endpoints: loopback mdnsd and the interface's own address
+                for (InetAddress target : new InetAddress[]{
+                        InetAddress.getByName("127.0.0.1"), wifi == null ? InetAddress.getByName("127.0.0.1") : wifi}) {
+                    try {
+                        sock.send(new DatagramPacket(q, q.length, target, MDNS_PORT));
+                    } catch (Throwable ignored) { }
+                }
+                byte[] buf = new byte[9000];
+                DatagramPacket p = new DatagramPacket(buf, buf.length);
+                try {
+                    sock.receive(p);
+                    String text = new String(buf, 0, p.getLength(), java.nio.charset.StandardCharsets.ISO_8859_1);
+                    if (text.contains(NAME)) {
+                        Diag.i("nsdtest", "daemon probe answered by " + p.getAddress().getHostAddress());
+                        return true;
+                    }
+                } catch (java.net.SocketTimeoutException retry) { }
+                if (++round % 4 == 0) Thread.sleep(200);   // a small courtesy pause
+            }
+        } catch (Throwable t) {
+            Diag.w("nsdtest", "daemon probe: " + t);
+        } finally {
+            if (sock != null) { try { sock.close(); } catch (Throwable ignored) { } }
+        }
+        return false;
+    }
+
+    /** v2.3.0 — the WIRE probe against OUR OWN responder (MdnsResponder.probeLocal):
+     *  both sockets joined to 224.0.0.251, the question and its answer travel through
+     *  the phone's kernel multicast loopback — 100% router-independent. Replaces the
+     *  v2.2.0 raw ephemeral probe whose fate depended on the router reflecting
+     *  multicast (the "no-answer" false negative on the old-router phone). */
+    static MdnsResponder.ProbeResult probeWire(MdnsResponder responder, long timeoutMs) {
+        return MdnsResponder.probeLocal(responder, timeoutMs);
+    }
+
+    /** The self-probe v2.2.0 shape, kept for /info and diagnostics: reports whether
+     *  the OLD raw path now sees answers (it will, when our responder is up). */
     static ProbeResult probeSelf(Context c, long timeoutMs) {
         ProbeResult r = new ProbeResult();
         r.sentType = TYPE;
@@ -239,12 +311,11 @@ public final class NsdAnnouncer {
             return r;
         }
         if (vpnActive(c)) {
-            // Not fatal: many VPNs pass multicast. We note it and still probe.
             r.vpnActive = true;
             r.detail = "VPN සක්‍රියයි (AdGuard app?) — multicast බ්ලොක් විය හැක · VPN active (AdGuard app?) — may block multicast";
         }
         android.net.wifi.WifiManager.MulticastLock lock = null;
-        DatagramSocket sock = null;
+        MulticastSocket sock = null;
         try {
             android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager)
                 c.getApplicationContext().getSystemService(android.content.Context.WIFI_SERVICE);
@@ -254,14 +325,20 @@ public final class NsdAnnouncer {
                 lock.acquire();
                 r.multicastLockHeld = true;
             }
-            sock = new DatagramSocket(new InetSocketAddress(wifi, 0));
+            sock = new MulticastSocket(null);
+            sock.setReuseAddress(true);
+            sock.bind(new InetSocketAddress(wifi, 0));
+            // v2.3.0: JOIN the group + enable kernel loopback — the v2.2.0 probe
+            // (a plain unicast socket) could not hear multicast answers at all.
+            java.net.InetAddress group = java.net.InetAddress.getByName(MDNS_GROUP);
+            sock.joinGroup(group);
+            sock.setLoopbackMode(false);   // Java: false = loopback ENABLED (the inverted API)
             sock.setSoTimeout(400);
             byte[] q = mdnsQueryPacket(TYPE);
-            SocketAddress group = new InetSocketAddress(InetAddress.getByName(MDNS_GROUP), MDNS_PORT);
             boolean sent = false;
             for (int round = 0; round < Math.max(1, timeoutMs / 400) && !r.answered; round++) {
                 if (!sent || round % 5 == 0) {   // re-send every ~2 s (mDNS is lossy)
-                    sock.send(new DatagramPacket(q, q.length, group));
+                    sock.send(new DatagramPacket(q, q.length, group, MDNS_PORT));
                     sent = true;
                     r.packetsSent++;
                 }
@@ -273,7 +350,7 @@ public final class NsdAnnouncer {
                     String text = new String(buf, 0, p.getLength(), java.nio.charset.StandardCharsets.ISO_8859_1);
                     if (text.contains(NAME)) {
                         r.answered = true;
-                        r.detail = "mDNS පිළිතුර ලැබුණි (raw probe) — ජාලය හරහා අපේ record එක පෙනේ · mDNS answer received on the wire — our record is visible";
+                        r.detail = "mDNS පිළිතුර ලැබුණි (raw probe, group-joined) — ජාලය හරහා අපේ record එක පෙනේ · mDNS answer received on the wire — our record is visible";
                         break;
                     }
                 } catch (java.net.SocketTimeoutException ignored) { }
@@ -285,7 +362,8 @@ public final class NsdAnnouncer {
                 if (r.reason == ProbeResult.FILTERED) {
                     r.detail = "mDNS ප්‍රතිචාර ලැබුණේ නමුත් අපේ නම නැත — mDNS බලපත්‍රය/නම ගැටලුවක් · mDNS answered but not with our name";
                 } else {
-                    r.detail = "mDNS ප්‍රතිචාර නැත — රවුටරය multicast බ්ලොක් කරයි (AP isolation?) හෝ VPN (AdGuard app) බ්ලොක් කරයි · no mDNS answer — the router blocks multicast (AP isolation?) or a VPN (AdGuard app) does";
+                    r.detail = "mDNS ප්‍රතිචාර නැත — නමුත් v2.3.0 cast එක තවමත් ක්‍රියා කරයි (AnantPlay එක mdnsd daemon හරහා අපව සොයයි — රවුටරය multicast බ්ලොක් කළත්) · "
+                        + "no raw-wire answer — casting STILL WORKS: AnantPlay discovers us through the system mDNS daemon, no router multicast needed";
                 }
             }
         } catch (Throwable t) {

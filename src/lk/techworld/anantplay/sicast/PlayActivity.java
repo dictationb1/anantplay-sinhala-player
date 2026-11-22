@@ -399,7 +399,9 @@ public class PlayActivity extends Activity {
                 }
                 @Override public void onPlayerError(PlaybackException e) {
                     Diag.e("player", "error: " + e.getErrorCodeName());
+                    final long pos = player == null ? 0 : player.getCurrentPosition();
                     showError(e.getErrorCodeName() + (e.getCause() == null ? "" : " · " + e.getCause().getMessage()));
+                    diagnoseStreamFailure(e, pos);   // v2.3.0: DoH ISP-block check + retry advice
                     updateSnapshot();
                 }
                 @Override public void onCues(CueGroup g) {
@@ -487,19 +489,19 @@ public class PlayActivity extends Activity {
                     applyCues(cached, "cached");
                     return;
                 }
-                setState("fetching", BridgeApi.searchingText());
+                setState("fetching", BridgeApi.searchingText(), myGen);
                 // ── 1. cast-supplied subs first (v2.1): instant, no IMDb needed ──
                 if (castSubs != null && !castSubs.isEmpty()) {
                     for (String subUrl : castSubs) {
                         if (myGen != fetchGen) return;
                         if (subUrl == null || !(subUrl.startsWith("http://") || subUrl.startsWith("https://"))) continue;
                         try {
-                            setState("fetching", "cast subtitle ලබාගනිමින්… · fetching the cast's own subtitle…");
+                            setState("fetching", "cast subtitle ලබාගනිමින්… · fetching the cast's own subtitle…", myGen);
                             byte[] raw = httpGet(subUrl, null);
                             String text = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
                             List<Cue> enCues = SrtLoader.load(raw, "cast.srt");
                             if (enCues.size() < 8) continue;   // not a real track
-                            setState("fetching", "cast subtitle පරිවර්තනය වෙමින්… · translating the cast's subtitle…");
+                            setState("fetching", "cast subtitle පරිවර්තනය වෙමින්… · translating the cast's subtitle…", myGen);
                             Map<String, Object> job = api.subsDirect(text, title, activeLang, registerOverride);
                             String token = tokenOf(job);
                             if (pollToDone(token, myGen)) {
@@ -520,9 +522,28 @@ public class PlayActivity extends Activity {
                 // ── 2. the worker job (human Sinhala → multi-provider AI) ──
                 String id = imdb;
                 if (id == null || id.isEmpty()) {
-                    Map<String, Object> r = api.resolve(title, series, season, episode);
+                    // v2.3.0: NOISY-TITLE CLEANING before Cinemeta (Phase 2, Killer #2).
+                    // Arbitrary sites send page titles like "Watch The Odyssey 2026 Full
+                    // Movie Free HD - OnlyFlix" — the raw string makes /api/resolve fail
+                    // or mismatch. The cleaned form feeds resolve + the cache key; the
+                    // HUD keeps showing the original. Season/episode extracted here fix
+                    // series lookups where the cast payload had none.
+                    TitleCleaner.Clean cleaned = TitleCleaner.clean(title);
+                    String lookupTitle = cleaned.title;
+                    if (cleaned.season != null && season == 0) season = cleaned.season;
+                    if (cleaned.episode != null && episode == 0) episode = cleaned.episode;
+                    if (cleaned.changed) {
+                        Diag.i("subs", "title cleaned for lookup: \"" + title + "\" → \"" + lookupTitle + "\""
+                            + (cleaned.year != null ? " (" + cleaned.year + ")" : ""));
+                    }
+                    Map<String, Object> r = api.resolve(lookupTitle, series, season, episode);
+                    if (r == null && cleaned.changed) {
+                        // the cleaned form failed → one honest retry with the raw title
+                        Diag.w("subs", "cleaned title did not resolve — retrying with the raw title");
+                        r = api.resolve(title, series, season, episode);
+                    }
                     if (r == null) {
-                        setState("not-found", "Cinemeta couldn't match \"" + title + "\" — try the title override");
+                        setState("not-found", "Cinemeta couldn't match \"" + title + "\" — try the title override", myGen);
                         fallbackEnglishTrack();
                         return;
                     }
@@ -533,13 +554,13 @@ public class PlayActivity extends Activity {
                     String status = String.valueOf(job.get("status"));
                     if ("needs-key".equals(status)) {
                         setState("needs-key", "සිංහල උපසිරැසි නැහැ — Worker එකේ provider key එකක් set කරන්න "
-                            + "(AZURE_TRANSLATOR_KEY / GOOGLE_V3_KEY / GEMINI_API_KEY) · no translation provider configured on the worker");
+                            + "(AZURE_TRANSLATOR_KEY / GOOGLE_V3_KEY / GEMINI_API_KEY) · no translation provider configured on the worker", myGen);
                         fallbackEnglishTrack();
                         return;
                     }
                     if ("not-found".equals(status)) {
                         setState("not-found", "මෙම තේමාවට උපසිරැසි හමු නොවීය — local .srt loader එක බාවිතා කරන්න · "
-                            + "no subtitles found — use the local .srt loader");
+                            + "no subtitles found — use the local .srt loader", myGen);
                         fallbackEnglishTrack();
                         return;
                     }
@@ -575,24 +596,24 @@ public class PlayActivity extends Activity {
                         }
                         continue;   // token went cold — re-ensure the job on a warm isolate
                     }
-                    setState("error", "worker status: " + status);
+                    setState("error", "worker status: " + status, myGen);
                     fallbackEnglishTrack();
                     return;
                 }
-                setState("error", "subtitles did not become ready — try Refetch");
+                setState("error", "subtitles did not become ready — try Refetch", myGen);
                 fallbackEnglishTrack();
             } catch (BridgeApi.HttpException he) {
                 // 429 (quota) / 5xx / 401 — said out loud in the status bar, logged
                 Diag.e("subs", "worker HTTP " + he.status + ": " + BridgeApi.brief(he.body, 300));
-                setState("error", BridgeApi.explain(he.status) + " · " + BridgeApi.brief(he.body, 90));
+                setState("error", BridgeApi.explain(he.status) + " · " + BridgeApi.brief(he.body, 90), myGen);
                 fallbackEnglishTrack();
             } catch (java.io.IOException io) {
                 Diag.w("subs", "network: " + io);
-                setState("error", BridgeApi.explain(io));
+                setState("error", BridgeApi.explain(io), myGen);
                 fallbackEnglishTrack();
             } catch (Exception ex) {
                 Diag.e("subs", "fetch: " + ex);
-                setState("error", BridgeApi.explain(ex));
+                setState("error", BridgeApi.explain(ex), myGen);
                 fallbackEnglishTrack();
             } finally {
                 fetching = false;
@@ -619,12 +640,12 @@ public class PlayActivity extends Activity {
                     Map<String, Object> p = null;
                     try { p = Cue.statusOf(body); } catch (Exception ignored) { }
                     if (p != null && "translating".equals(p.get("status"))) {
-                        setState("fetching", BridgeApi.progressText(p));
+                        setState("fetching", BridgeApi.progressText(p), myGen);
                         SystemClock.sleep(4000);
                         continue;
                     }
                     if (p != null && "error".equals(p.get("status"))) {
-                        setState("error", "worker job error: " + BridgeApi.brief(String.valueOf(p.get("error")), 120));
+                        setState("error", "worker job error: " + BridgeApi.brief(String.valueOf(p.get("error")), 120), myGen);
                         return false;
                     }
                 }
@@ -634,13 +655,13 @@ public class PlayActivity extends Activity {
                 if (he.status == 404) return false;      // isolate miss → caller re-ensures
                 if (he.status == 429) {
                     Diag.w("subs", "worker 429 (quota) at poll " + poll + " — backing off 15 s");
-                    setState("fetching", BridgeApi.explain(429));
+                    setState("fetching", BridgeApi.explain(429), myGen);
                     SystemClock.sleep(15000);
                     continue;
                 }
                 if (he.status == 410 || he.status >= 500) {
                     Diag.e("subs", "worker HTTP " + he.status + ": " + BridgeApi.brief(he.body, 300));
-                    setState("error", BridgeApi.explain(he.status) + " · " + BridgeApi.brief(he.body, 90));
+                    setState("error", BridgeApi.explain(he.status) + " · " + BridgeApi.brief(he.body, 90), myGen);
                     return false;
                 }
                 SystemClock.sleep(4000);
@@ -812,6 +833,14 @@ public class PlayActivity extends Activity {
     private void startTicker() { main.post(ticker); }
 
     private void setState(String s, String detail) {
+        setState(s, detail, -1);
+    }
+
+    /** v2.3.0: gen-guarded setState — a STALE fetch thread (the user switched
+     *  language / re-cast mid-poll) can no longer flip the status pill after the
+     *  fact. gen < 0 = unconditional (lifecycle/UI-originated states). */
+    private void setState(String s, String detail, int gen) {
+        if (gen >= 0 && gen != fetchGen) return;   // a stale thread stays quiet
         state = s;
         stateDetail = detail == null ? "" : detail;
         main.post(this::showStatus);
@@ -987,6 +1016,9 @@ public class PlayActivity extends Activity {
         eb.setColor(0xE6220F1F);
         eb.setCornerRadius(dp(12));
         errorBox.setBackground(eb);
+        // v2.3.0: the error box is the RETRY button — one tap rebuilds the player
+        // at the last known position (fresh DataSource, same cast payload).
+        errorBox.setOnClickListener(v -> retryPlayback());
         root.addView(errorBox, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
 
         hud = buildHud();
@@ -1461,6 +1493,75 @@ public class PlayActivity extends Activity {
         errorBox.setText("▶ Playback error\n\n" + msg + "\n\nBack returns to AnantPlay; the cast stays connected.");
         errorBox.setVisibility(View.VISIBLE);
         setState("error", msg);
+    }
+
+    // ── v2.3.0: stream-failure diagnostics (the WARP/ISP-block honest answer) ──
+
+    /** Last known good position, for the retry button. */
+    private volatile long retryAtMs = 0;
+
+    /**
+     * When playback fails, check whether the stream HOST is ISP-blocked: compare the
+     * system resolver against DoH (Cloudflare 1.1.1.1 / AdGuard). AnantPlay would have
+     * played this same URL through its phone-side WARP proxy (PlayerActivity.java:1079
+     * + Warp.proxyFor) — we cannot ship WARP, so we give the honest diagnosis and a
+     * one-tap retry that re-resolves through DoH-clean DNS where possible.
+     * Runs on a background thread; updates the error box on the main thread.
+     */
+    private void diagnoseStreamFailure(PlaybackException e, long posMs) {
+        retryAtMs = Math.max(0, posMs);
+        final String host = hostOf(url);
+        if (host == null || host.isEmpty()) return;
+        final int code = e == null ? -1 : e.errorCode;
+        // Only network-ish failures are worth a DNS diagnosis (403/404 = server-side)
+        boolean networkish = code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+            || code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+            || code == PlaybackException.ERROR_CODE_IO_UNSPECIFIED
+            || code == PlaybackException.ERROR_CODE_TIMEOUT;
+        if (!networkish) return;
+        new Thread(() -> {
+            try {
+                DohResolver.Verdict v = DohResolver.blocked(host);
+                Diag.i("doh", "verdict for " + host + ": suspect=" + v.suspect
+                    + " system=[" + v.systemIps + "] doh=[" + v.dohIps + "]");
+                if (v.suspect) {
+                    main.post(() -> {
+                        if (isFinishing() || finished) return;
+                        showError(errorBox.getText().toString()
+                            + "\n\n⚠ " + v.summaryBilingual);
+                    });
+                }
+            } catch (Throwable t) {
+                Diag.w("doh", "diagnose: " + t);
+            }
+        }, "si-doh").start();
+    }
+
+    /** The one-tap retry: rebuild the player at the last known position (fresh
+     *  DataSource, same URL/headers — survives expired HLS tokens when the CDN
+     *  re-issues them, and picks up any DoH-clean route). */
+    private void retryPlayback() {
+        errorBox.setVisibility(View.GONE);
+        if (player != null) {
+            try { retryAtMs = Math.max(retryAtMs, player.getCurrentPosition()); } catch (Throwable ignored) { }
+            try { player.release(); } catch (Throwable ignored) { }
+            player = null;
+        }
+        long at = retryAtMs;
+        startAt = at;                    // resume where it died
+        flash("↻ retrying from " + ReceiverServer.clock(at));
+        startPlayback();
+    }
+
+    /** The host part of the playing URL (null-safe, no throw). */
+    static String hostOf(String u) {
+        if (u == null) return null;
+        try {
+            java.net.URL parsed = new java.net.URL(u);
+            return parsed.getHost();
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     // ── the local .srt/.zip picker (SAF — our OWN activity, zero accessibility) ──

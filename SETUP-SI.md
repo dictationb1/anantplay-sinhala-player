@@ -1,4 +1,4 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v2.2.0)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v2.3.0)
 
 > **අලුත්ම ක්‍රමය: Accessibility අවසරයක් අවශ්‍ය නැත.** AnantPlay හි **Cast** බොත්තමෙන් චිත්‍රපටිය
 > **මෙම app එකටම** එවනවා — සිංහල උපසිරැසි සහිතව. AnantPlay නිල app එක තවමත් 100% නොවෙනස්ව තිබේ.
@@ -107,3 +107,51 @@ Settings → Network → **DNS filtering → “Filter DNS only”** හෝ app 
 ලබාගනී.
 
 — සියලු විස්තර (English): `docs/CAST-VERIFICATION.md` · `README.md`
+
+
+---
+
+## 9 · Obtainium + GitHub Releases — සදාකාලික in-place යාවත්කාලීන (v2.3.0)
+
+### පියවර 1 — ස්ථිර signing key එක හදන්න (එක් වරක් පමණි!)
+
+ඔබේ PC එකේ මෙය ධාවනය කරන්න (Linux/macOS: `sh scripts/create-release-keystore.sh` ·
+Windows: `pwsh -File scripts\create-release-keystore.ps1`). එය `release-keystore.jks` +
+`github-secrets.txt` සාදයි. **දෙකම ආරක්ෂිතව backup කරගන්න** (password manager + තවත් disk එකක්).
+
+### පියවර 2 — GitHub Secrets 4ක් set කරන්න (එක් වරක් පමණි!)
+
+GitHub → dictationb1/anantplay-sinhala-player → **Settings → Secrets and variables →
+Actions → New repository secret** — `github-secrets.txt` එකේ අගයන් 4:
+
+| Secret | අගය |
+|---|---|
+| `KS_BASE64` | secrets ගොනුවේ දිග base64 පේළිය (සම්පූර්ණයෙන්) |
+| `KS_PASS` | ජනනය වූ මුරපදය |
+| `KS_KEYPASS` | එම මුරපදයම |
+| `KS_ALIAS` | `sicast` |
+
+### පියවර 3 — Release එකක් publish කරන්න
+
+- **ස්වයංක්‍රීය:** `git tag v2.3.0 && git push origin v2.3.0` — `release-apk.yml`
+  එක Lab 100% PASS බව පරීක්ෂා කර, APK එක sign කර `apksigner` එකෙන් verify කර,
+  `SHA256SUMS.txt` සමඟ Release එකක් සාදයි.
+- **අතින් 1-click:** GitHub → Actions → **Release APK** → Run workflow → version එක
+  ලියන්න (උදා: `2.3.0`).
+
+### පියවර 4 — Obtainium එකට දමන්න (දුරකථනයේ, 3 tap!)
+
+1. Obtainium install කරන්න (F-Droid/KVTB).
+2. **+ Add App** → `https://github.com/dictationb1/anantplay-sinhala-player` paste කරන්න
+   → Add (default settings එක ම ඇති — Release එකේ `.apk` file එකක් පමණක් ඇති නිසා
+   තේරීමක් අවශ්‍ය නැත). හෝ `docs/obtainium-config.json` import කරන්න.
+3. Install → ඉන්පසු සෑම release එකක්ම Obtainium එකම දර්ශනය කරයි → **Update** ඔබන්න.
+
+**ඇයි uninstall කරන්න අවශ්‍ය නැත්තේ?** සෑම release එකක්ම එකම `KS_BASE64` key එකෙන්
+sign වන නිසා Android එක එය "same app" ලෙස හඳුනාගෙන data/data එක තබාගෙන update කරයි —
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE` කිසිදා නැත. Key එක වෙනස් වුණොත් පමණක් uninstall අවශ්‍ය වේ.
+
+### දුරකථනයේදීම update check
+
+ඇප් එක තුළ **"⬆ Check for updates (GitHub)"** බොත්තම — අලුත් release එකක් ඇත්නම්
+Release පිටුව විවෘත වේ (Obtainium එකේදී එය ස්වයංක්‍රීයවම සිදු වේ).

@@ -5,13 +5,25 @@
 # Needs: an Android SDK (platform 34 + build-tools 34.x/35.x) and a JDK 17+.
 #   ANDROID_HOME=/path/to/sdk ./build.sh
 #
-# Output: dist/AnantPlay-Sinhala-Player.apk (signed + apksigner-verified, installable).
+# Output: dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk (signed + apksigner-verified,
+#         installable) and dist/AnantPlay-Sinhala-Player.apk (same bytes, stable name).
 #
 # Signing, in priority order (the build NEVER fails for a missing keystore):
 #   1. release keystore from env (CI GitHub Secrets):
 #        KS_BASE64 (base64 .keystore/.p12), KS_PASS, KS_KEYPASS (default: KS_PASS), KS_ALIAS
+#      → the PERMANENT key: every release signed identically = Obtainium in-place
+#        updates work forever (INSTALL_FAILED_UPDATE_INCOMPATIBLE can never happen).
 #   2. a stable debug keystore reused across local builds (~/.android/sicast-debug.keystore)
 #   3. an ephemeral debug key generated for this run — clearly marked as such.
+#
+# v2.3.0 hardening (the release pipeline):
+#   · VERSION_NAME/VERSION_CODE may be overridden by env for release runs, but the
+#     aapt2 badging of the OUTPUT is ALWAYS verified to carry exactly these values
+#     (an accidental stale version can never ship).
+#   · A strictly-increasing versionCode is enforced against PREV_VERSION_CODE
+#     (default 20200 = v2.2.0) so an app-store/Obtainium downgrade is impossible.
+#   · When no release keystore is configured, the CI summary gets a loud
+#     "DEBUG-SIGNED" warning instead of a silently broken update path.
 set -e
 SDK=${ANDROID_HOME:-$HOME/Android/Sdk}
 cd "$(dirname "$0")"
@@ -33,8 +45,9 @@ BT=""
 done
 JAR=$SDK/platforms/android-34/android.jar
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=2.2.0
-VERSION_CODE=20200
+VERSION_NAME=${VERSION_NAME:-2.3.0}
+VERSION_CODE=${VERSION_CODE:-20300}
+PREV_VERSION_CODE=${PREV_VERSION_CODE:-20200}   # v2.2.0 — the last released build
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -46,6 +59,14 @@ ls libs/media3-exoplayer-*.jar >/dev/null 2>&1 || die "libs/ missing — media3 
 command -v javac >/dev/null 2>&1 || die "javac not on PATH (need JDK 17+)"
 command -v keytool >/dev/null 2>&1 || die "keytool not on PATH (need JDK 17+)"
 command -v zip >/dev/null 2>&1 || die "zip not on PATH (apt-get install zip)"
+
+# the version guard: strictly increasing versionCode (Obtainium/the OS refuse downgrades)
+case "$VERSION_CODE" in
+  ''|*[!0-9]*) die "VERSION_CODE must be a number (got '$VERSION_CODE')" ;;
+esac
+[ "$VERSION_CODE" -gt "$PREV_VERSION_CODE" ] \
+  || die "versionCode $VERSION_CODE is NOT greater than the previous release ($PREV_VERSION_CODE) — bump it (e.g. v2.4.0 → 20400)"
+echo "── version: $VERSION_NAME (versionCode $VERSION_CODE, previous $PREV_VERSION_CODE)"
 
 rm -rf build dist
 mkdir -p build/classes dist
@@ -116,16 +137,34 @@ echo "── verify"
 "$BT/apksigner" verify --verbose --print-certs "dist/AnantPlay-Sinhala-Player.apk" | head -12
 "$BT/apksigner" verify "dist/AnantPlay-Sinhala-Player.apk" || die "apksigner verify FAILED"
 
-echo "── badging"
-"$BT/aapt2" dump badging "dist/AnantPlay-Sinhala-Player.apk" | head -6
+echo "── badging (the shipped version is checked, not assumed)"
+BADGE=$("$BT/aapt2" dump badging "dist/AnantPlay-Sinhala-Player.apk" | head -1)
+echo "   $BADGE"
+echo "$BADGE" | grep -q "versionCode='$VERSION_CODE'" || die "badging versionCode mismatch — expected $VERSION_CODE"
+echo "$BADGE" | grep -q "versionName='$VERSION_NAME'" || die "badging versionName mismatch — expected $VERSION_NAME"
 
-SIZE=$(wc -c < "dist/AnantPlay-Sinhala-Player.apk")
+# the versioned artifact name (Obtainium wants exactly ONE unambiguous .apk per release)
+cp "dist/AnantPlay-Sinhala-Player.apk" "dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk"
+
+SIZE=$(wc -c < "dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk")
 if command -v sha256sum >/dev/null 2>&1; then
-  SHA=$(sha256sum "dist/AnantPlay-Sinhala-Player.apk" | cut -d' ' -f1)
+  SHA=$(sha256sum "dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk" | cut -d' ' -f1)
 else
-  SHA=$(shasum -a 256 "dist/AnantPlay-Sinhala-Player.apk" | cut -d' ' -f1)
+  SHA=$(shasum -a 256 "dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk" | cut -d' ' -f1)
 fi
-echo "── done: dist/AnantPlay-Sinhala-Player.apk"
+echo "── done: dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk"
 echo "   signed with : $SIGN_MODE"
 echo "   size        : $SIZE bytes ($((SIZE / 1024)) KiB)"
 echo "   sha256      : $SHA"
+# the CI-summary warning the audit demanded: never let a debug-signed build pass silently
+if [ -z "${KS_BASE64:-}" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  {
+    echo "### ⚠️ DEBUG-SIGNED — set KS_BASE64 for permanent Obtainium in-place updates"
+    echo ""
+    echo "This build was signed with an ephemeral/local DEBUG key. Installing it over a"
+    echo "release-signed build will fail with INSTALL_FAILED_UPDATE_INCOMPATIBLE."
+    echo "Run \`scripts/create-release-keystore.sh\` (or .ps1) once, set the 4 secrets"
+    echo "(KS_BASE64, KS_PASS, KS_KEYPASS, KS_ALIAS), then re-run — every future release"
+    echo "then updates in place forever."
+  } >> "$GITHUB_STEP_SUMMARY"
+fi

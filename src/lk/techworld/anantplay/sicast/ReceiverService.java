@@ -55,6 +55,33 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
 
     public static boolean isUp() { return running != null; }
     public static int port() { ReceiverService s = running; return s == null ? -1 : (s.server == null ? -1 : s.server.port()); }
+    /** v2.3.0 — the live announcer's own 5353 responder (null when the service or the responder is down). */
+    public static MdnsResponder liveResponder() {
+        ReceiverService s = running;
+        return s == null || s.nsd == null ? null : s.nsd.responder();
+    }
+    /** v2.3.0 — a defensive self-heal: re-check the server + announcement and re-arm
+     *  both when a HyperOS powerkeeper pass left them half-dead. Runs every 15 min. */
+    private final Handler heal = new Handler(Looper.getMainLooper());
+    private final Runnable healTask = new Runnable() {
+        @Override public void run() {
+            try {
+                boolean serverOk = server != null && server.isRunning();
+                boolean announceOk = nsd != null && (nsd.isAnnounced() || (nsd.responder() != null && nsd.responder().isRunning()));
+                if (!serverOk || !announceOk) {
+                    Diag.w("service", "self-heal: re-arming (server=" + serverOk + " announce=" + announceOk + ")");
+                    stopSelf();
+                    android.os.SystemClock.sleep(300);
+                    arm(ReceiverService.this, "self-heal");
+                    return;
+                }
+                heal.postDelayed(this, 15 * 60 * 1000L);
+            } catch (Throwable t) {
+                Diag.w("service", "self-heal: " + t);
+                heal.postDelayed(this, 15 * 60 * 1000L);
+            }
+        }
+    };
 
     /** Best-effort arm from any entry point (app start, boot, tile). */
     static void arm(Context c, String why) {
@@ -90,6 +117,8 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         }
         nsd = new NsdAnnouncer(this, server.port());
         nsd.start();
+        heal.removeCallbacks(healTask);
+        heal.postDelayed(healTask, 15 * 60 * 1000L);
         Diag.i("service", "up on port " + server.port() + (nsd.isAnnounced() ? " (announced)" : " (announce pending)"));
     }
 
@@ -168,6 +197,7 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     @Override
     public void onDestroy() {
         running = null;
+        heal.removeCallbacks(healTask);
         if (nsd != null) nsd.stop();
         if (server != null) server.stop();
         try { stopForeground(true); } catch (Throwable ignored) { }   // no ghost notification
@@ -289,6 +319,9 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     public Map<String, Object> info() {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("announced", nsd != null && nsd.isAnnounced());
+        MdnsResponder rsp = nsd == null ? null : nsd.responder();
+        m.put("mdnsResponder", rsp == null ? "down" : rsp.isPortShared() ? "up(5353)" : "degraded(mdnsd-only)");
+        m.put("mdnsAnswered", rsp == null ? 0 : rsp.answeredCount());
         m.put("fgsType", "connectedDevice");
         m.put("notifPerm", Miui.notifGranted(this));
         m.put("castPolicy", "local-device-only; http/https + permitted file://");

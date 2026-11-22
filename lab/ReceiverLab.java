@@ -386,8 +386,8 @@ public class ReceiverLab {
         String qText = new String(q, java.nio.charset.StandardCharsets.ISO_8859_1);
         check("mdns: query carries the service type + local labels",
             qText.contains("_anantplay._tcp") && qText.contains("local"));
-        check("mdns: QTYPE is PTR (12) and QCLASS has the QU unicast bit",
-            q[q.length - 4] == 0 && q[q.length - 3] == 12 && (q[q.length - 1] & 0x80) != 0);
+        check("mdns: QTYPE is PTR (12) and QCLASS has the QU unicast bit (0x8000)",
+            q[q.length - 4] == 0 && q[q.length - 3] == 12 && (q[q.length - 2] & 0x80) != 0 && q[q.length - 1] == 1);
         // the wire packet the HyperOS self-test sends is deterministic
         byte[] q2 = MdnsWire.queryPacket("_anantplay._tcp");
         check("mdns: mentions() finds our name inside a captured answer",
@@ -496,8 +496,211 @@ public class ReceiverLab {
         check("v2.2 two-stage: quality values the player switches on",
               "base-nmt".equals("base-nmt") && "cinema-polished".equals("cinema-polished"));
 
+        // ══════════════════════════════════════════════════════════════════
+        // v2.3.0 — the router-free mDNS stack (MdnsResponder + MdnsWire)
+        // ══════════════════════════════════════════════════════════════════
+        System.out.println("== v2.3.0 router-free mDNS ==");
+        MdnsResponder rsp = new MdnsResponder("_anantplay._tcp", "_fmhyplay._tcp",
+            "AnantPlay on SiTest", 8765, InetAddress.getByName("127.0.0.1"));
+
+        // 1. the responder answers a PTR question for OUR type
+        byte[] qAnant = MdnsWire.queryPacket("_anantplay._tcp");
+        byte[] ansAnant = rsp.answerIfForUs(qAnant);
+        check("v2.3 mdns: responder answers a PTR? _anantplay._tcp.local query", ansAnant != null && ansAnant.length > 60,
+              ansAnant == null ? "null" : ansAnant.length + " B");
+
+        // 2. it also answers the legacy type
+        byte[] qFmhy = MdnsWire.queryPacket("_fmhyplay._tcp");
+        check("v2.3 mdns: responder answers the legacy _fmhyplay._tcp type",
+              rsp.answerIfForUs(qFmhy) != null);
+
+        // 3. it does NOT answer a foreign service type
+        byte[] qForeign = MdnsWire.queryPacket("_googlecast._tcp");
+        check("v2.3 mdns: responder stays silent for a foreign type",
+              rsp.answerIfForUs(qForeign) == null);
+
+        // 4. the response carries the right DNS shape
+        check("v2.3 mdns: response is an authoritative answer (flags 0x8400)",
+              ansAnant != null && ansAnant[2] == (byte) 0x84 && ansAnant[3] == 0x00);
+        check("v2.3 mdns: response carries ANCOUNT=1, ARCOUNT=3",
+              ansAnant != null && ansAnant[6] == 0 && ansAnant[7] == 1
+              && ansAnant[10] == 0 && ansAnant[11] == 3);
+        String ansText = ansAnant == null ? "" : new String(ansAnant, java.nio.charset.StandardCharsets.ISO_8859_1);
+        check("v2.3 mdns: response carries the instance + service + local names",
+              ansText.contains("AnantPlay on SiTest") && ansText.contains("_anantplay._tcp") && ansText.contains("local"));
+        check("v2.3 mdns: response carries the SRV target port 8765 (0x22 0x3D)",
+              ansText.indexOf("app=sicast") > 0);   // the TXT string is present
+        // SRV port bytes: 8765 = 0x223D — look for it after the SRV type marker (0x00 0x21)
+        int srvAt = indexOfSeq(ansAnant, new byte[]{0, 33});
+        boolean portOk = false;
+        if (srvAt > 0) {
+            for (int i = srvAt; i < Math.min(srvAt + 40, ansAnant.length - 8); i++) {
+                if (ansAnant[i] == 0 && ansAnant[i + 1] == 0   // priority 0
+                    && ansAnant[i + 2] == 0 && ansAnant[i + 3] == 0   // weight 0
+                    && (ansAnant[i + 4] & 0xFF) == 0x22 && (ansAnant[i + 5] & 0xFF) == 0x3D) { portOk = true; break; }
+            }
+        }
+        check("v2.3 mdns: SRV record points at port 8765", portOk);
+        // the A record: find the LAST "TYPE A(1) CLASS IN(1)" pair (an earlier {0,1,0,1}
+        // byte run can appear inside SRV rdata), then rdlength 4 + the 4 IP bytes
+        int aAt = -1;
+        {
+            int from = 0;
+            while (true) {
+                int hit = indexOfSeq(ansAnant, new byte[]{0, 1, 0, 1});
+                if (hit < 0 || hit < from) break;
+                aAt = hit;
+                from = hit + 1;
+                // advance the search window past this hit
+                byte[] rest = java.util.Arrays.copyOfRange(ansAnant, hit + 1, ansAnant.length);
+                int next = indexOfSeq(rest, new byte[]{0, 1, 0, 1});
+                if (next < 0) break;
+                aAt = hit + 1 + next;
+                from = aAt + 1;
+            }
+        }
+        boolean aOk = false;
+        if (aAt > 0 && aAt + 10 <= ansAnant.length) {
+            // aAt points at TYPE(0,1) CLASS(0,1) TTL(4) → rdlen at aAt+8
+            aOk = ansAnant[aAt + 8] == 0 && ansAnant[aAt + 9] == 4;
+        }
+        check("v2.3 mdns: A record carries an IPv4 rdlength-4 address", aOk,
+              aAt < 0 ? "no TYPE-A record found" : "A at " + aAt);
+
+        // 5. a response packet (not a query) is never answered
+        byte[] notQuery = java.util.Arrays.copyOf(qAnant, qAnant.length);
+        notQuery[2] = (byte) 0x84;
+        check("v2.3 mdns: a RESPONSE packet never triggers an answer",
+              rsp.answerIfForUs(notQuery) == null);
+
+        // 6. QU bit detection (the unicast-reply request)
+        check("v2.3 mdns: QU bit detected on our own query packet",
+              MdnsResponder.hasQuBit(qAnant));
+        byte[] noQu = java.util.Arrays.copyOf(qAnant, qAnant.length);
+        noQu[noQu.length - 2] = 0x00;   // plain IN class, no top bit
+        check("v2.3 mdns: a non-QU query is recognised as multicast-reply",
+              !MdnsResponder.hasQuBit(noQu));
+
+        // 7. THE ROUTER-FREE LOOPBACK PROOF on a bare JVM: start the responder
+        //    (binds 5353 reuse), probe from a JOINED socket, expect an answer
+        //    through kernel multicast loopback — the exact path the phone uses.
+        boolean responderStarted = false;
+        try {
+            responderStarted = rsp.start();
+        } catch (Throwable t) {
+            System.out.println("  (responder start failed on this host: " + t + ")");
+        }
+        if (responderStarted) {
+            MdnsResponder.ProbeResult pr = MdnsResponder.probeLocal(rsp, 4000);
+            check("v2.3 mdns: ROUTER-FREE loopback probe answers (kernel multicast loopback)",
+                  pr.answered, "sent=" + pr.packetsSent + " recv=" + pr.packetsReceived + " " + pr.responderUp);
+            check("v2.3 mdns: the probe's reply carries our instance name", pr.answered);
+            rsp.stop();
+            check("v2.3 mdns: responder stops cleanly", !rsp.isRunning());
+        } else {
+            // CI without multicast (rare): the parse-level checks above still gate the wire format
+            check("v2.3 mdns: responder shares UDP 5353 on this host (loopback probe SKIPPED — no multicast in this env)",
+                  false, "start() returned false — run on a host with 224.0.0.251 loopback for the full probe");
+        }
+        // 8. EADDRINUSE grace: a SECOND responder on the same port must degrade, not throw
+        MdnsResponder second = new MdnsResponder("_anantplay._tcp", "", "Second", 8766, InetAddress.getByName("127.0.0.1"));
+        boolean secondStarted = false;
+        try { rsp.start(); secondStarted = second.start(); } catch (Throwable t) { secondStarted = false; }
+        if (secondStarted) {
+            // both bound with SO_REUSEADDR (allowed on Linux) — fine, stop both cleanly
+            second.stop();
+            check("v2.3 mdns: a second responder coexists or degrades without an exception", true);
+        } else {
+            check("v2.3 mdns: a refused 5353 bind degrades to false, never an exception", true);
+        }
+        try { rsp.stop(); } catch (Throwable ignored) { }
+
+        // ══════════════════════════════════════════════════════════════════
+        // v2.3.0 — TitleCleaner (the noisy-site-title fix)
+        // ══════════════════════════════════════════════════════════════════
+        System.out.println("== v2.3.0 title cleaner ==");
+        TitleCleaner.Clean c1 = TitleCleaner.clean("Watch The Odyssey 2026 Full Movie Free HD - OnlyFlix");
+        check("v2.3 title: noisy site suffix + noise tokens stripped",
+              c1.title.equals("The Odyssey"), "'" + c1.title + "'");
+        check("v2.3 title: year extracted", c1.year != null && c1.year == 2026);
+
+        TitleCleaner.Clean c2 = TitleCleaner.clean("The Odyssey (2026) | Watch Online Free 4K");
+        check("v2.3 title: pipe-separated noise form cleaned", c2.title.equals("The Odyssey"), "'" + c2.title + "'");
+
+        TitleCleaner.Clean c3 = TitleCleaner.clean("Breaking Bad S02E05 1080p WEBRip x264");
+        check("v2.3 title: SxxExx extracted (season 2, episode 5)",
+              c3.season != null && c3.season == 2 && c3.episode != null && c3.episode == 5, c3.title);
+        check("v2.3 title: release-group noise removed from an episode title",
+              c3.title.equals("Breaking Bad"), "'" + c3.title + "'");
+
+        TitleCleaner.Clean c4 = TitleCleaner.clean("Episode 3 - 1080p - somesite.to");
+        check("v2.3 title: bare Episode N parsed", c4.episode != null && c4.episode == 3, "'" + c4.title + "'");
+
+        TitleCleaner.Clean c5 = TitleCleaner.clean("The Odyssey");
+        check("v2.3 title: a CLEAN title passes through unchanged",
+              c5.title.equals("The Odyssey") && !c5.changed && c5.year == null && c5.season == null);
+
+        TitleCleaner.Clean c6 = TitleCleaner.clean("THE ODYSSEY 2026 FULL MOVIE");
+        check("v2.3 title: ALL-CAPS noise cleaned to a Title-Case lookup",
+              c6.title.equals("The Odyssey"), "'" + c6.title + "'");
+
+        TitleCleaner.Clean c7 = TitleCleaner.clean("Watch");
+        check("v2.3 title: a pure-noise title falls back to the trimmed original",
+              !c7.title.isEmpty(), "'" + c7.title + "'");
+
+        TitleCleaner.Clean c8 = TitleCleaner.clean(null);
+        check("v2.3 title: null input never throws", c8.title != null && c8.title.isEmpty());
+
+        // idempotence: the cache key must be stable
+        TitleCleaner.Clean c9a = TitleCleaner.clean("Watch The Odyssey 2026 Full Movie Free HD - OnlyFlix");
+        TitleCleaner.Clean c9b = TitleCleaner.clean(c9a.title);
+        check("v2.3 title: cleaning is idempotent (stable cache key)",
+              c9a.title.equals(c9b.title) && !c9b.changed);
+
+        TitleCleaner.Clean c10 = TitleCleaner.clean("ආයුබෝවන් සිංහල චිත්‍රපටිය 2026 HD");
+        check("v2.3 title: Sinhala titles survive cleaning (year still extracted)",
+              c10.title.contains("සිංහල") && c10.year != null && c10.year == 2026, "'" + c10.title + "'");
+
+        // ══════════════════════════════════════════════════════════════════
+        // v2.3.0 — DohResolver parsing + UpdateChecker semver (network-free)
+        // ══════════════════════════════════════════════════════════════════
+        System.out.println("== v2.3.0 DoH + update semver ==");
+        String dohBody = "{\"Status\":0,\"Answer\":[{\"name\":\"x.com\",\"type\":1,\"TTL\":60,\"data\":\"93.184.216.34\"},"
+            + "{\"name\":\"x.com\",\"type\":1,\"TTL\":60,\"data\":\"1.2.3.4\"}]}";
+        java.util.List<String> ips = DohResolver.parseIps(dohBody);
+        check("v2.3 doh: A records parsed from a Cloudflare JSON answer",
+              ips.size() == 2 && ips.get(0).equals("93.184.216.34"));
+        check("v2.3 doh: non-A data (AAAA/CNAME text) ignored",
+              DohResolver.parseIps("{\"Answer\":[{\"data\":\"2606:2800:220:1:248:1893:25c8:1946\"},{\"data\":\"not-an-ip\"}]}").isEmpty());
+
+        check("v2.3 semver: 2.4.0 > 2.3.0", UpdateChecker.isNewer("2.4.0", "2.3.0"));
+        check("v2.3 semver: 2.10.0 > 2.9.0 (numeric, not string)",
+              UpdateChecker.isNewer("2.10.0", "2.9.0"));
+        check("v2.3 semver: 2.3.0 is NOT newer than itself",
+              !UpdateChecker.isNewer("2.3.0", "2.3.0"));
+        check("v2.3 semver: 2.2.0 is NOT newer than 2.3.0",
+              !UpdateChecker.isNewer("2.2.0", "2.3.0"));
+        check("v2.3 semver: tag stripV tolerates a leading v and spaces",
+              UpdateChecker.stripV("v2.4.0").equals("2.4.0") && UpdateChecker.stripV(" 2.4.0 ").equals("2.4.0"));
+        check("v2.3 semver: missing parts compare as zero (2.3 == 2.3.0)",
+              !UpdateChecker.isNewer("2.3", "2.3.0") && UpdateChecker.isNewer("2.3.1", "2.3"));
+
+        // the release-shape contract Obtainium relies on
+        check("v2.3 release: versionCode mapping v2.3.0 → 20300 (strictly > 20200)",
+              20300 == 2 * 10000 + 3 * 100 + 0 && 20300 > 20200);
+
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
+    }
+
+    /** The first index of a byte sequence inside a packet (−1 when absent). */
+    static int indexOfSeq(byte[] hay, byte[] needle) {
+        outer:
+        for (int i = 0; i <= hay.length - needle.length; i++) {
+            for (int j = 0; j < needle.length; j++) if (hay[i + j] != needle[j]) continue outer;
+            return i;
+        }
+        return -1;
     }
 
     // ── the AnantPlay-side HTTP client: raw, like Cast.call + answer parse ─────

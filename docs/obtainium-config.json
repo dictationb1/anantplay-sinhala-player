@@ -1,0 +1,28 @@
+{
+  "_comment": "Obtainium importable profile — AnantPlay Sinhala Player. In Obtainium: Apps → + (Add app) → Import/Export → paste this file, or add the repo URL https://github.com/dictationb1/anantplay-sinhala-player with the settings below (default Git-Hub preset already works: the release carries exactly ONE .apk asset + SHA256SUMS.txt).",
+  "apps": [
+    {
+      "id": 314159,
+      "name": "AnantPlay Sinhala Player",
+      "url": "https://github.com/dictationb1/anantplay-sinhala-player",
+      "author": "dictationb1",
+      "additionalSettings": {
+        "includePrereleases": false,
+        "fallbackToOlderReleases": true,
+        "filterReleaseTitlesByRegEx": "",
+        "filterReleaseNotesByRegEx": "",
+        "verifyApkHash": false,
+        "autoApkFilterByArch": true,
+        "choosePgoSigstoreInAssetName": false,
+        "trackOnly": false,
+        "versionDetection": "releaseTag",
+        "stripVFromVersion": true,
+        "matchMd5SumToRegex": "",
+        "autoSelectHighestVersionCode": true,
+        "exemptFromBackgroundUpdates": false,
+        "skipUpdateNotifications": false,
+        "about": "AnantPlay CAST RECEIVER with native Sinhala subtitles — zero fork, zero accessibility. Official AnantPlay (me.champdev.weblock) stays untouched."
+      }
+    }
+  ]
+}

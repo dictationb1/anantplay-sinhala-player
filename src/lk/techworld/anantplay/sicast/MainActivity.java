@@ -253,6 +253,22 @@ public class MainActivity extends Activity {
         root.addView(anant);
         root.addView(cap("Open AnantPlay · AnantPlay විවෘත කරන්න — එහි player එකේ Cast බොත්තම ඔබන්න."));
 
+        // ── v2.3.0: the GitHub update checker (the Obtainium loop, in-app) ──
+        Button update = btn("⬆ Check for updates (GitHub)", false);
+        update.setOnClickListener(v -> checkForUpdates());
+        root.addView(update);
+        root.addView(cap("Check for updates · යාවත්කාලීන පරීක්ෂාව — GitHub Release එකක් ඇත්නම් විවෘත කර පෙන්වයි "
+            + "(Obtainium එකෙන් ස්වයංක්‍රීයවද ලැබේ). · Opens the latest GitHub Release when one is newer "
+            + "than this build (Obtainium updates automatically too)."));
+
+        // ── v2.3.0: the zero-mDNS fallback card (Mobile Data / hostile routers) ──
+        root.addView(head("No-Wi-Fi fallback · Wi-Fi නැති විට", 16));
+        root.addView(cap("• Mobile Data එකේ හෝ රවුටරය Cast බ්ලොක් කළත්: AnantPlay එකේ වීඩියෝවේ Share ⋮ → "
+            + "\"Copy link\" ගෙන පහළ \"Play URL\" කොටුවට paste කරන්න — සිංහල උපසිරැසි සමඟ මෙතැනින්ම විවෘත වේ. "
+            + "· On Mobile Data or a router that blocks casting: in AnantPlay use Share ⋮ → \"Copy link\" "
+            + "on the video, then paste it into the \"Play URL\" box below — it opens here with Sinhala subs. "
+            + "The cast receiver and the bridge both work on any network."));
+
         selfTestLine = new TextView(this);
         selfTestLine.setTextColor(COL_ACCENT);
         selfTestLine.setTextSize(13);
@@ -465,34 +481,66 @@ public class MainActivity extends Activity {
                 }
             }
 
-            // 2a. THE RAW mDNS PROBE — the layer-1 proof that survives OEM same-uid
-            //     discovery filters (the HyperOS failure the user saw).
-            NsdAnnouncer.ProbeResult probe = NsdAnnouncer.probeSelf(MainActivity.this, NsdAnnouncer.PROBE_TIMEOUT_MS);
-            Diag.i("selftest", "mdns probe: answered=" + probe.answered + " reason=" + probe.reason
-                + " sent=" + probe.packetsSent + " recv=" + probe.packetsReceived
-                + " vpn=" + probe.vpnActive + " lock=" + probe.multicastLockHeld
-                + " detail=" + probe.detail);
+            // 2. mDNS — v2.3.0 THREE honest layers, router-independent by design:
+            //    L1 the DAEMON probe: a unicast QU question to the phone's own mdnsd
+            //       (loopback + Wi-Fi IP). An answer proves the record is in the SAME
+            //       daemon AnantPlay's NsdManager discovery reads — the real cast path.
+            //    L2 the WIRE probe against OUR OWN responder (MdnsResponder): both
+            //       sockets joined to 224.0.0.251, question + answer travel through
+            //       the kernel's multicast loopback — 100% inside this phone, the old
+            //       router's multicast filtering is irrelevant.
+            //    L3 legacy NsdManager discoverServices (bonus: some OEM stacks allow
+            //       same-uid discovery). PASS = L1 or L2 or L3.
+            boolean daemonOk = NsdAnnouncer.probeDaemon(MainActivity.this, 2500);
+            Diag.i("selftest", "mdns daemon probe (mdnsd unicast): " + daemonOk);
 
-            // 2b. legacy NsdManager discovery — a bonus when the OEM stack allows it
-            boolean legacy = NsdAnnouncerTest.discoverSelf(MainActivity.this, 3000);
+            // the live service's responder when it is up (what other apps actually
+            // see); a TEMPORARY responder when the service is cold — the self-test
+            // must stay runnable from a fresh app open either way.
+            MdnsResponder responder = ReceiverService.liveResponder();
+            boolean tempResponder = false;
+            if (responder == null || !responder.isRunning()) {
+                try {
+                    java.net.InetAddress ip = NsdAnnouncer.wifiLanIp();
+                    if (ip == null) ip = java.net.InetAddress.getByName("127.0.0.1");
+                    int rport = ReceiverService.port();
+                    responder = new MdnsResponder(NsdAnnouncer.TYPE, NsdAnnouncer.OLD_TYPE,
+                        NsdAnnouncer.PREFIX + NsdAnnouncer.NAME, rport > 0 ? rport : ReceiverServer.PREFERRED_PORT, ip);
+                    if (responder.start()) tempResponder = true;
+                    else responder = null;
+                } catch (Throwable t) {
+                    Diag.w("selftest", "temp responder: " + t);
+                    responder = null;
+                }
+            }
+            MdnsResponder.ProbeResult wire = MdnsResponder.probeLocal(responder, 2500);
+            boolean wireOk = wire.answered;
+            Diag.i("selftest", "mdns wire probe (own responder, kernel loopback): answered=" + wire.answered
+                + " responder=" + wire.responderUp + " sent=" + wire.packetsSent + " recv=" + wire.packetsReceived
+                + (wire.detail.isEmpty() ? "" : " — " + wire.detail));
+            if (tempResponder && responder != null) { try { responder.stop(); } catch (Throwable ignored) { } }
+
+            // 2c. legacy NsdManager discovery — a bonus when the OEM stack allows it
+            boolean legacy = NsdAnnouncerTest.discoverSelf(MainActivity.this, 2000);
             Diag.i("selftest", "mdns legacy discovery: " + legacy);
 
-            boolean mDnsOk = probe.answered || legacy;
+            boolean mDnsOk = daemonOk || wireOk || legacy;
             NsdAnnouncerTest.result = mDnsOk;
             if (mDnsOk) {
-                report.append("mDNS ").append(probe.answered ? "probe ok" : "discovery ok").append(", ");
+                report.append("mDNS ").append(daemonOk ? "daemon ok" : wireOk ? "wire ok" : "discovery ok").append(", ");
             } else {
                 pass[0] = false;
-                report.append("mDNS FAILED (").append(probe.reason).append("), ");
+                report.append("mDNS FAILED (no-answer), ");
                 // THE WHY: a per-cause bilingual instruction line, appended to the report
-                if (NsdAnnouncer.ProbeResult.WIFI_OFF.equals(probe.reason)) {
+                if (!NsdAnnouncer.onWifiLikeNetwork(MainActivity.this)) {
                     report.append("[Wi-Fi ක්‍රියාත්මක නැත — Wi-Fi on කර නැවත උත්සාහ කරන්න · Turn Wi-Fi on and retry] ");
-                } else if (probe.vpnActive) {
+                } else if (NsdAnnouncer.vpnActive(MainActivity.this)) {
                     report.append("[VPN (AdGuard app?) multicast බ්ලොක් කරයි — AdGuard → Settings → Network → මෙම ඇප් එකෙන් Route through AdGuard OFF කරන්න · "
                         + "A VPN (the AdGuard app?) is blocking multicast — AdGuard → Settings → Network → turn OFF Route-through-AdGuard for this app] ");
                 } else {
-                    report.append("[රවුටරය multicast බ්ලොක් කරයි (AP isolation) — රවුටර් සැකසුම් පරීක්ෂා කරන්න · "
-                        + "the router filters multicast (AP isolation?) — check the router's AP-isolation/multicast settings] ");
+                    report.append("[mdnsd පිළිතුරු නැත — නමුත් AnantPlay Cast තවමත් වැඩ කරයි: AnantPlay එක අපව mdnsd daemon හරහා සොයයි. "
+                        + "AnantPlay එකේම Cast බොත්තමෙන් පරීක්ෂා කරන්න · the daemon did not answer — but AnantPlay casting still works: "
+                        + "it discovers via the system mDNS daemon. Test from AnantPlay's own Cast button] ");
                 }
             }
 
@@ -530,6 +578,47 @@ public class MainActivity extends Activity {
         byte[] buf = new byte[4096];
         for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
         return o.toByteArray();
+    }
+
+    // ── v2.3.0: the in-app GitHub update check (renders UpdateChecker.Result) ──
+
+    private void checkForUpdates() {
+        toast("…");
+        new Thread(() -> {
+            UpdateChecker.Result r = UpdateChecker.check();
+            main.post(() -> {
+                if (r.offline) {
+                    android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(this)
+                        .setTitle("Update check · යාවත්කාලීන පරීක්ෂාව")
+                        .setMessage((r.error == null || r.error.isEmpty() ? "unknown" : r.error)
+                            + "\n\nනැවත උත්සාහ කරන්න · please retry")
+                        .setPositiveButton(android.R.string.ok, null);
+                    try { d.show(); } catch (Throwable ignored) { }
+                    return;
+                }
+                if (!r.newer) {
+                    toast("✓ අලුත්ම — v" + AppInfo.VERSION_NAME + " is the latest release");
+                    return;
+                }
+                String msg = "🆕 v" + r.latest + " ඇතුළත් · a new release is available\n\n"
+                    + (r.notes.isEmpty() ? "" : r.notes + "\n\n")
+                    + "Download: AnantPlay-Sinhala-Player-v" + r.latest + ".apk\n"
+                    + "Obtainium: app එක update කරන්නේ එකෙන්ම විවෘත වේ · Obtainium updates it in place.";
+                android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(this)
+                    .setTitle("Update available · යාවත්කාලීන")
+                    .setMessage(msg)
+                    .setPositiveButton("Open release", (dd, w) -> {
+                        try {
+                            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(r.releaseUrl.isEmpty() ? UpdateChecker.REPO_URL + "/releases/latest" : r.releaseUrl)));
+                        } catch (Throwable t) {
+                            toast("browser එකක් නැත — " + UpdateChecker.REPO_URL);
+                        }
+                    })
+                    .setNegativeButton(android.R.string.cancel, null);
+                try { d.show(); } catch (Throwable ignored) { }
+            });
+        }, "si-update").start();
     }
 
     // ── small helpers ──────────────────────────────────────────────────────────
