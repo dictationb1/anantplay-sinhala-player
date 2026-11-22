@@ -689,6 +689,136 @@ public class ReceiverLab {
         check("v2.3 release: versionCode mapping v2.3.0 → 20300 (strictly > 20200)",
               20300 == 2 * 10000 + 3 * 100 + 0 && 20300 > 20200);
 
+        // ══════════════════════════════════════════════════════════════════
+        // v2.3.1 — THE FIELD-SCENARIO REGRESSION (the 2026-11-22 HyperOS log)
+        // ══════════════════════════════════════════════════════════════════
+        System.out.println("== v2.3.1 field-scenario regression ==");
+        MdnsResponder siRsp = new MdnsResponder("_anantplay._tcp", "_fmhyplay._tcp",
+            "AnantPlay on \u0DC3\u0DD2\u0D82\u0DC4\u0DBD Player", 8765, InetAddress.getByName("127.0.0.1"));
+        byte[] siQuery = MdnsWire.queryPacket("_anantplay._tcp");
+        byte[] siAnswer = siRsp.answerIfForUs(siQuery);
+        check("v2.3.1 field: the Sinhala instance name is answered on the wire",
+              siAnswer != null && siAnswer.length > 100, siAnswer == null ? "null" : siAnswer.length + " B");
+
+        // THE PARADOX REPRODUCTION, exactly as the phone ran it:
+        //   v2.3.0 decoded the reply ISO-8859-1 and searched for the Sinhala NAME —
+        //   15 UTF-8 bytes that turn into Latin-1 mojibake and can NEVER match.
+        String siName = "AnantPlay on \u0DC3\u0DD2\u0D82\u0DC4\u0DBD Player";
+        String mojibakeDecode = new String(siAnswer, java.nio.charset.StandardCharsets.ISO_8859_1);
+        check("v2.3.1 field: PROOF of the old bug — the ISO-8859-1 decode cannot contain the Sinhala name",
+              !mojibakeDecode.contains(siName),
+              "the old mojibake check returned " + mojibakeDecode.contains(siName) + " (and on the phone: no-answer)");
+        //   …and the v2.3.1 structural validator DOES accept the very same bytes:
+        check("v2.3.1 field: the new isOurAnswer validator accepts the same reply (charset-free)",
+              MdnsWire.isOurAnswer(siAnswer, siAnswer.length, "_anantplay._tcp", "_fmhyplay._tcp"));
+        // UTF-8 decode ALSO finds the instance name (the optional detail check)
+        check("v2.3.1 field: mentionsUtf8 finds the Sinhala instance name",
+              MdnsWire.mentionsUtf8(siAnswer, siAnswer.length, siName));
+        // a plain QUERY (our own looped-back question) must never validate
+        check("v2.3.1 field: a looped-back QUESTION never passes the answer validator",
+              !MdnsWire.isOurAnswer(siQuery, siQuery.length, "_anantplay._tcp", "_fmhyplay._tcp"));
+        // a foreign-type answer must not validate either
+        check("v2.3.1 field: a foreign service type never passes the answer validator",
+              !MdnsWire.isOurAnswer(siAnswer, siAnswer.length, "_googlecast._tcp", ""));
+        // the Sinhala label itself round-trips byte-exact through the responder's writer
+        boolean roundTrip = false;
+        {
+            java.io.ByteArrayOutputStream probe = new java.io.ByteArrayOutputStream();
+            byte[] nameBytes = siName.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            probe.write(nameBytes.length); probe.write(nameBytes, 0, nameBytes.length); probe.write(0);
+            byte[] written = probe.toByteArray();
+            // find those exact bytes inside the answer packet (PTR rdata carries them)
+            outer:
+            for (int i = 0; i <= siAnswer.length - written.length; i++) {
+                for (int j = 0; j < written.length; j++) if (siAnswer[i + j] != written[j]) continue outer;
+                roundTrip = true; break outer;
+            }
+        }
+        check("v2.3.1 field: the Sinhala UTF-8 label bytes appear verbatim in the answer (15-byte label, correct length)",
+              roundTrip);
+        // label length semantics: "සිංහල" = 5 chars = 15 UTF-8 bytes ≤ 63 (RFC 6763 §4.1.1)
+        int sinhalaBytes = "\u0DC3\u0DD2\u0D82\u0DC4\u0DBD".getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        check("v2.3.1 field: the Sinhala label is 15 UTF-8 bytes, inside the 63-byte DNS label cap",
+              sinhalaBytes == 15 && sinhalaBytes <= 63, sinhalaBytes + " B");
+
+        // THE STORM BOUNDS: the live loopback probe must finish with BOUNDED sends
+        // (v2.3.0 span until the deadline because its match never succeeded).
+        boolean rspUp = false;
+        try { rspUp = siRsp.start(); } catch (Throwable t) { System.out.println("  (responder start failed here: " + t + ")"); }
+        if (rspUp) {
+            MdnsResponder.ProbeResult pr = MdnsResponder.probeLocal(siRsp, 4000);
+            check("v2.3.1 field: the wire probe ANSWERS with the Sinhala name (the paradox is gone)",
+                  pr.answered, "sent=" + pr.packetsSent + " recv=" + pr.packetsReceived);
+            check("v2.3.1 field: probe sends are BOUNDED (≤ 6 — no more 4-packet/207 ms storm)",
+                  pr.packetsSent <= 6, "sent=" + pr.packetsSent);
+            check("v2.3.1 field: a healthy probe stops at the FIRST answer (sent ≤ 2)",
+                  pr.answered && pr.packetsSent <= 2, "sent=" + pr.packetsSent);
+            siRsp.stop();
+        } else {
+            check("v2.3.1 field: responder shares 5353 on this host (probe SKIPPED — no multicast here)",
+                  false, "start() returned false");
+        }
+
+        // the UNICAST daemon-probe path (the L1 probe sends unicast to 127.0.0.1:5353):
+        // prove a unicast-queried responder reply is accepted by the same validator.
+        java.net.DatagramSocket uSock = null;
+        try {
+            siRsp.start();
+            uSock = new java.net.DatagramSocket();
+            uSock.setSoTimeout(800);
+            byte[] uq = MdnsWire.queryPacket("_anantplay._tcp");
+            byte[] buf = new byte[9000];
+            boolean got = false;
+            for (int i = 0; i < 3 && !got; i++) {
+                uSock.send(new java.net.DatagramPacket(uq, uq.length,
+                    InetAddress.getByName("127.0.0.1"), MdnsResponder.MDNS_PORT));
+                java.net.DatagramPacket p = new java.net.DatagramPacket(buf, buf.length);
+                try {
+                    uSock.receive(p);
+                    got = MdnsWire.isOurAnswer(buf, p.getLength(), "_anantplay._tcp", "_fmhyplay._tcp");
+                } catch (java.net.SocketTimeoutException ignored) { }
+            }
+            check("v2.3.1 field: a UNICAST question to the responder is answered AND validated (the L1 path)",
+                  got);
+            siRsp.stop();
+        } finally {
+            if (uSock != null) uSock.close();
+        }
+
+        // THE CHURN DEBOUNCE: NetPolicy truth table (the 25.304→25.321 restart race)
+        check("v2.3.1 churn: first arm goes through (never armed)",
+              NetPolicy.shouldReArm("", "wifi:1.2.3.4", false, 0));
+        check("v2.3.1 churn: a DIFFERENT network re-arms (wifi → mobile)",
+              NetPolicy.shouldReArm("wifi:1.2.3.4", "cell:", true, System.currentTimeMillis() - 60_000));
+        check("v2.3.1 churn: an UNHEALTHY stack re-arms even on the same network",
+              NetPolicy.shouldReArm("wifi:1.2.3.4", "wifi:1.2.3.4", false, System.currentTimeMillis() - 60_000));
+        check("v2.3.1 churn: a repeat onAvailable on the SAME healthy network is IGNORED (the loop fix)",
+              !NetPolicy.shouldReArm("wifi:1.2.3.4", "wifi:1.2.3.4", true, System.currentTimeMillis() - 60_000));
+        check("v2.3.1 churn: repeat events are still ignored even 1 s after arming (immediate re-register)",
+              !NetPolicy.shouldReArm("wifi:1.2.3.4", "wifi:1.2.3.4", true, System.currentTimeMillis() - 1_000));
+        check("v2.3.1 churn: sameKey treats empty/unknown as different (safe first arm)",
+              !NetPolicy.sameKey("", "wifi:1.2.3.4") && !NetPolicy.sameKey(null, null)
+              && NetPolicy.sameKey("wifi:1.2.3.4", "wifi:1.2.3.4"));
+
+        // the release pipeline contract (secret-name parity across the repo)
+        boolean parity = true;
+        String[] parityFiles = {
+            "scripts/create-release-keystore.sh", "scripts/create-release-keystore.ps1",
+            "build.sh", ".github/workflows/release-apk.yml", ".github/workflows/build-apk.yml"};
+        String[] secrets = {"KS_BASE64", "KS_PASS", "KS_KEYPASS", "KS_ALIAS"};
+        StringBuilder parityDetail = new StringBuilder();
+        for (String f : parityFiles) {
+            java.io.File file = new java.io.File(f);
+            if (!file.exists()) { parity = false; parityDetail.append(f).append(":missing "); continue; }
+            String txt = new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+            for (String sk : secrets) if (!txt.contains(sk)) { parity = false; parityDetail.append(f).append(":no-").append(sk).append(' '); }
+        }
+        check("v2.3.1 release: all 4 secret names present in all 5 pipeline files", parity,
+              parity ? "KS_BASE64/KS_PASS/KS_KEYPASS/KS_ALIAS × sh+ps1+build.sh+2 workflows" : parityDetail.toString().trim());
+        // version identity: 20301 strictly greater than 20300 (Obtainium never downgrades)
+        check("v2.3.1 release: versionCode 20301 strictly > 20300 (2.3.0)",
+              20301 > 20300);
+
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
     }

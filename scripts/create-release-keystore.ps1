@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # ============================================================================
 # create-release-keystore.ps1 — the ONE-TIME permanent signing keystore maker
 # (Windows PowerShell edition)

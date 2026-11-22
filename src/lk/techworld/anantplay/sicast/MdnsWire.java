@@ -55,4 +55,60 @@ final class MdnsWire {
         String text = new String(payload, 0, n, java.nio.charset.StandardCharsets.ISO_8859_1);
         return text.contains(name);
     }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // v2.3.1 — THE CHARSET-SAFE ANSWER VALIDATOR (the paradox fix)
+    //
+    // THE FIELD BUG (Xiaomi HyperOS, 2026-11-22 11:15): the responder logged
+    // "answered a unicast(QU) query from 127.0.0.1:…" 16+ times while the
+    // Self-test reported "mDNS FAILED (no-answer)". The replies ARRIVED — the
+    // probes decoded them as ISO-8859-1 and searched for the Sinhala instance
+    // name "සිංහල Player" (15 UTF-8 bytes for "සිංහල"). Those bytes decoded
+    // as Latin-1 are "à·ƒà·â€¦" mojibake that .contains() can never match, so
+    // every genuinely-received reply was counted as silence and the probe span
+    // at full speed re-sending (the 4-packet/~207 ms storm in the log).
+    //
+    // THE FIX: validate STRUCTURALLY and only against ASCII, never against the
+    // instance name's charset:
+    //   · the packet must be a RESPONSE (the QR bit set — our own query has it
+    //     clear, so a looped-back question can never false-positive);
+    //   · it must carry at least one record (AN+NS+AR > 0);
+    //   · the pure-ASCII service type ("_anantplay._tcp") must appear in the
+    //     packet — for OUR OWN responder's reply that is always true, and an
+    //     ISO-8859-1 decode is safe because ASCII is invariant in Latin-1.
+    // mentionsUtf8() remains for the OPTIONAL instance-name detail check and
+    // decodes UTF-8 correctly.
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /** True when `pkt` is an mDNS RESPONSE carrying records for our service
+     *  type — charset-independent by construction (ASCII-only matching).
+     *  `type` is the primary service type ("_anantplay._tcp"); `legacyType`
+     *  may be "" (not checked). */
+    static boolean isOurAnswer(byte[] pkt, int len, String type, String legacyType) {
+        if (pkt == null || len < 12 || pkt.length < 12) return false;
+        if ((pkt[2] & 0x80) == 0) return false;                 // not a response
+        int records = (((pkt[6] & 0xFF) << 8) | (pkt[7] & 0xFF))               // AN
+                    | (((pkt[8] & 0xFF) << 8) | (pkt[9] & 0xFF))               // NS
+                    | (((pkt[10] & 0xFF) << 8) | (pkt[11] & 0xFF));            // AR
+        if (records == 0) return false;                          // nothing to read
+        String want = type == null ? "" : type.trim().toLowerCase(Locale.ROOT);
+        if (want.isEmpty()) return false;
+        int n = Math.min(len, pkt.length);
+        // ASCII is invariant in ISO-8859-1 → this decode can never mojibake
+        String text = new String(pkt, 0, n, java.nio.charset.StandardCharsets.ISO_8859_1);
+        if (!text.contains(want)) {
+            String legacy = legacyType == null ? "" : legacyType.trim().toLowerCase(Locale.ROOT);
+            if (legacy.isEmpty() || !text.contains(legacy)) return false;
+        }
+        return true;
+    }
+
+    /** UTF-8-correct name search inside a captured packet (the instance-name
+     *  check the old mojibake code tried to do). */
+    static boolean mentionsUtf8(byte[] payload, int len, String name) {
+        if (payload == null || name == null) return false;
+        int n = Math.min(len, payload.length);
+        String text = new String(payload, 0, n, java.nio.charset.StandardCharsets.UTF_8);
+        return text.contains(name);
+    }
 }

@@ -1,8 +1,8 @@
 name: Release APK (signed, Obtainium-ready)
 
-# THE RELEASE PIPELINE (v2.3.0):
-#   Trigger A — push a semantic tag:  git tag v2.3.0 && git push origin v2.3.0
-#   Trigger B — 1-click manual: the "Run workflow" button takes a version (e.g. 2.3.0);
+# THE RELEASE PIPELINE (v2.3.1):
+#   Trigger A — push a semantic tag:  git tag v2.3.1 && git push origin v2.3.1
+#   Trigger B — 1-click manual: the "Run workflow" button takes a version (e.g. 2.3.1);
 #               the workflow verifies the Lab passes, builds + signs with the PERMANENT
 #               keystore (GitHub Secrets), verifies the signature, writes SHA256SUMS.txt,
 #               creates the tag (when dispatched), and publishes a GitHub Release whose
@@ -21,9 +21,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g. 2.3.0 — no leading v)'
+        description: 'Version to release (e.g. 2.3.1 — no leading v)'
         required: true
-        default: '2.3.0'
+        default: '2.3.1'
 
 concurrency:
   group: release-${{ github.ref }}

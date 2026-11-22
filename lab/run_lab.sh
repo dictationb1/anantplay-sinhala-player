@@ -26,6 +26,7 @@ javac -encoding UTF-8 -nowarn -d lab/out/classes \
   src/lk/techworld/anantplay/sicast/Diag.java \
   src/lk/techworld/anantplay/sicast/MdnsWire.java \
   src/lk/techworld/anantplay/sicast/MdnsResponder.java \
+  src/lk/techworld/anantplay/sicast/NetPolicy.java \
   src/lk/techworld/anantplay/sicast/TitleCleaner.java \
   src/lk/techworld/anantplay/sicast/DohResolver.java \
   src/lk/techworld/anantplay/sicast/UpdateChecker.java \

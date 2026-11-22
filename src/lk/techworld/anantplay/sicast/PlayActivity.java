@@ -1086,7 +1086,10 @@ public class PlayActivity extends Activity {
         timeNow = new TextView(this);
         timeNow.setTextColor(Color.WHITE);
         timeNow.setTextSize(13);
-        row.addView(timeNow, new LinearLayout.LayoutParams(-2, -2));
+        // v2.3.1: both time labels share the free space (weight) — on a narrow
+        // 360dp Xiaomi screen the fixed icon buttons alone take 228dp, so
+        // non-weighted labels could push the row past the right edge.
+        row.addView(timeNow, new LinearLayout.LayoutParams(0, -2, 0.5f));
         View minus = icon("−10", 14, v -> skip(-10000));
         row.addView(minus, new LinearLayout.LayoutParams(dp(58), dp(44)));
         playPause = icon("⏸", 20, v -> toggle());
@@ -1097,10 +1100,10 @@ public class PlayActivity extends Activity {
         timeTotal.setTextColor(0xFFAAAAAA);
         timeTotal.setTextSize(13);
         timeTotal.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(timeTotal, new LinearLayout.LayoutParams(-2, -2, 1f));
+        row.addView(timeTotal, new LinearLayout.LayoutParams(0, -2, 0.5f));
         View subs = icon("සිං", 14, v -> togglePanel());
         row.addView(subs, new LinearLayout.LayoutParams(dp(58), dp(44)));
-        bottom.addView(row);
+        bottom.addView(row, new LinearLayout.LayoutParams(-1, -2));
         box.addView(bottom);
         return box;
     }

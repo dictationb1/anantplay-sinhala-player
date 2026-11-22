@@ -1,4 +1,4 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v2.3.0)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v2.3.1)
 
 > **අලුත්ම ක්‍රමය: Accessibility අවසරයක් අවශ්‍ය නැත.** AnantPlay හි **Cast** බොත්තමෙන් චිත්‍රපටිය
 > **මෙම app එකටම** එවනවා — සිංහල උපසිරැසි සහිතව. AnantPlay නිල app එක තවමත් 100% නොවෙනස්ව තිබේ.
@@ -8,7 +8,7 @@
 
 ## 1 · App එක install කරන්න
 
-`AnantPlay-Sinhala-Player-v2.2.0.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
+`AnantPlay-Sinhala-Player-v2.3.1.apk` install කරලා **විවෘත කරන්න** (එය "AnantPlay සිංහල Player" ලෙස පෙනේ).
 "Start receiver" බොත්තම ඔබන්න — ඉහළම දැනුම්දීම් තීරුවේ **"අ — Sinhala Player cast ready"**
 දැනුම්දීම පැමිණේ (එය receiver එක ක්‍රියාත්මක බවට සලකුණයි).
 
@@ -39,7 +39,10 @@ App එක ඇතුළලේ **"Display over other apps"** පේළියේ �
 ## 4 · ස්වයං පරීක්ෂණය (දුරකථනයම මතදී)
 
 **🧪 Self-test** බොත්තම ඔබන්න — එය loopback HTTP → same-device mDNS discovery → bridge යන
-සම්පූර්ණ දාමයම ඔබේ දුරකථනයේ පරීක්ෂා කරනවා. තුනම ✅ නම් **සියල්ල සූදානම්**.
+සම්පූර්ණ දාමයම ඔබේ දුරකථනයේ පරීක්ෂා කරනවා. ප්‍රතිඵලය ස්ථර අනුව පෙන්වයි —
+උදා: `mDNS ok [L1 daemon ✓ · L2 responder ✓ · L3 NSD ✗]` — එහි L1 = mdnsd daemon (loopback + Wi-Fi),
+L2 = අපේම 5353 responder (kernel loopback), L3 = NsdManager discovery (bonus). සියල්ල ✅ නම්
+**සියල්ල සූදානම්**; L1 හෝ L2 ✅ නම් cast එක ක්‍රියා කරන බව ඔප්පු වේ (L3 ❌ වුවත්).
 (Wi-Fi ON වී තිබිය යුතුය — same-device cast සඳහා අවශ්‍යයි; internet අවශ්‍ය නැත, router එකක්
 සම්බන්ධ වී සිටීම ප්‍රමාණවත්.)
 
@@ -111,7 +114,7 @@ Settings → Network → **DNS filtering → “Filter DNS only”** හෝ app 
 
 ---
 
-## 9 · Obtainium + GitHub Releases — සදාකාලික in-place යාවත්කාලීන (v2.3.0)
+## 9 · Obtainium + GitHub Releases — සදාකාලික in-place යාවත්කාලීන (v2.3.1)
 
 ### පියවර 1 — ස්ථිර signing key එක හදන්න (එක් වරක් පමණි!)
 
@@ -133,11 +136,11 @@ Actions → New repository secret** — `github-secrets.txt` එකේ අගය
 
 ### පියවර 3 — Release එකක් publish කරන්න
 
-- **ස්වයංක්‍රීය:** `git tag v2.3.0 && git push origin v2.3.0` — `release-apk.yml`
+- **ස්වයංක්‍රීය:** `git tag v2.3.1 && git push origin v2.3.1` — `release-apk.yml`
   එක Lab 100% PASS බව පරීක්ෂා කර, APK එක sign කර `apksigner` එකෙන් verify කර,
   `SHA256SUMS.txt` සමඟ Release එකක් සාදයි.
 - **අතින් 1-click:** GitHub → Actions → **Release APK** → Run workflow → version එක
-  ලියන්න (උදා: `2.3.0`).
+  ලියන්න (උදා: `2.3.1`).
 
 ### පියවර 4 — Obtainium එකට දමන්න (දුරකථනයේ, 3 tap!)
 

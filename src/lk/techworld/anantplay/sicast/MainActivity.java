@@ -129,11 +129,19 @@ public class MainActivity extends Activity {
 
     private View buildUi() {
         ScrollView scroll = new ScrollView(this);
+        // v2.3.1 — THE RIGHT-EDGE CLIPPING FIX: the default scrollbar style is
+        // INSIDE_OVERLAY, and on HyperOS/MIUI the scrollbar is a fat translucent
+        // band drawn OVER the content — the screenshot showed every long line of
+        // the update card sliced at the same x ("GitHub Relea", "…whe",
+        // "…automatical"). INSIDE_INSET reserves layout space for the bar instead
+        // of letting it cover text, and right padding gives text a clear gutter.
+        scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
+        scroll.setVerticalFadingEdgeEnabled(false);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(22), dp(18), dp(24));
         root.setBackgroundColor(0xFF0B1020);
-        scroll.addView(root);
+        scroll.addView(root, new ViewGroup.LayoutParams(-1, -2));
         // THE GESTURE-BAR FIX: pad the scroll content by the real bottom insets so
         // the last button is never half-swallowed by Xiaomi's navigation bar.
         scroll.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -146,7 +154,7 @@ public class MainActivity extends Activity {
         scroll.setFitsSystemWindows(false);
 
         TextView h = head("AnantPlay · සිංහල Player", 21);
-        root.addView(h);
+        root.addView(h, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         root.addView(cap("THE ZERO-ACCESSIBILITY PATH: this app is an AnantPlay CAST RECEIVER. "
             + "Official AnantPlay stays untouched — inside its player tap the Cast button and pick "
             + "\"සිංහල Player - AnantPlay (Recommended)\". The movie then plays HERE with native, "
@@ -158,7 +166,7 @@ public class MainActivity extends Activity {
         root.addView(head("Cast status · Cast තත්ත්වය", 16));
         checkList = new LinearLayout(this);
         checkList.setOrientation(LinearLayout.VERTICAL);
-        root.addView(checkList);
+        root.addView(checkList, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
 
         check(getString(R.string.chk_service), () -> ReceiverService.isUp()
                 ? "✓ සක්‍රියයි · port " + ReceiverService.port() : "✗ නොක්‍රියයි",
@@ -185,7 +193,7 @@ public class MainActivity extends Activity {
         if (!Miui.isXiaomi()) root.addView(cap("Not a Xiaomi device — the battery and overlay toggles still apply."));
         LinearLayout pm = new LinearLayout(this);
         pm.setOrientation(LinearLayout.VERTICAL);
-        root.addView(pm);
+        root.addView(pm, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
 
         final int iAuto = permRow(pm,
             "1. Autostart · ස්වයංක්‍රීය ආරම්භය",
@@ -238,25 +246,25 @@ public class MainActivity extends Activity {
         Button test = btn(getString(R.string.btn_selftest), false);
         test.setOnClickListener(v -> runSelfTest());
         row.addView(test, new LinearLayout.LayoutParams(0, -2, 1f));
-        root.addView(row);
+        root.addView(row, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         root.addView(cap("Self-test: loopback HTTP → mDNS (raw probe + discovery) → the Cloudflare bridge. "
             + "· තත්පර 10ක් පමණ ගත වේ — නොසඟවා ප්‍රතිඵලය පෙන්වයි."));
 
         Button player = btn(getString(R.string.btn_testplayer), true);
         player.setOnClickListener(v -> startActivity(new Intent(this, PlayActivity.class)
             .putExtra("test", true).putExtra("title", "Sinhala Player Test")));
-        root.addView(player);
+        root.addView(player, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         root.addView(cap("Test player · පරීක්ෂණ වීඩියෝව — Sinhala rendering + cast protocol ඔබේම දුරකථනයේ පරීක්ෂා කරයි."));
 
         Button anant = btn(getString(R.string.btn_openanant), false);
         anant.setOnClickListener(v -> Miui.openAnantPlay(this));
-        root.addView(anant);
+        root.addView(anant, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         root.addView(cap("Open AnantPlay · AnantPlay විවෘත කරන්න — එහි player එකේ Cast බොත්තම ඔබන්න."));
 
         // ── v2.3.0: the GitHub update checker (the Obtainium loop, in-app) ──
         Button update = btn("⬆ Check for updates (GitHub)", false);
         update.setOnClickListener(v -> checkForUpdates());
-        root.addView(update);
+        root.addView(update, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         root.addView(cap("Check for updates · යාවත්කාලීන පරීක්ෂාව — GitHub Release එකක් ඇත්නම් විවෘත කර පෙන්වයි "
             + "(Obtainium එකෙන් ස්වයංක්‍රීයවද ලැබේ). · Opens the latest GitHub Release when one is newer "
             + "than this build (Obtainium updates automatically too)."));
@@ -274,7 +282,7 @@ public class MainActivity extends Activity {
         selfTestLine.setTextSize(13);
         selfTestLine.setPadding(0, dp(6), 0, dp(4));
         selfTestLine.setText(getString(R.string.selftest_idle));
-        root.addView(selfTestLine);
+        root.addView(selfTestLine, new LinearLayout.LayoutParams(-1, -2));
 
         // ── manual URL + settings (v2.1: helpers under every setting) ──
         root.addView(head("Worker & manual play · Worker සැකසුම්", 16));
@@ -287,7 +295,7 @@ public class MainActivity extends Activity {
         url.setHintTextColor(COL_DESC);
         url.setBackground(rounded(0xFF0E1526));
         url.setPadding(dp(10), dp(8), dp(10), dp(8));
-        root.addView(url);
+        root.addView(url, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         LinearLayout srow = new LinearLayout(this);
         srow.setOrientation(LinearLayout.HORIZONTAL);
         Button save = btn(getString(R.string.btn_save), false);
@@ -303,7 +311,7 @@ public class MainActivity extends Activity {
             auto.setText(getString(R.string.btn_autofetch, on));
         });
         srow.addView(auto, new LinearLayout.LayoutParams(0, -2, 1f));
-        root.addView(srow);
+        root.addView(srow, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         root.addView(cap("Auto-fetch subs · ස්වයංක්‍රීය උපසිරැසි ලබාගැනීම — ON නම් video එක විවෘත වූ විගස "
             + "සිංහල උපසිරැසි සොයා/පරිවර්තනය කර පෙන්වයි. OFF නම් player එකේ \"සිං\" බොත්තමෙන් අතින් ලබාගන්න. "
             + "· ON: Sinhala subs are fetched/translated automatically as soon as a video opens. OFF: fetch them yourself from the player's \"සිං\" panel."));
@@ -329,7 +337,7 @@ public class MainActivity extends Activity {
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
         });
-        root.addView(langBtn);
+        root.addView(langBtn, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
 
         final EditText play = new EditText(this);
         play.setHint("paste any stream URL to play here (m3u8/mpd/mp4)");
@@ -346,7 +354,7 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(this, PlayActivity.class).putExtra("url", u));
             else toast("http(s) URL only");
         });
-        root.addView(playBtn);
+        root.addView(playBtn, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
 
         // ── diagnostics ──
         root.addView(head("Diagnostics · Crash log", 16));
@@ -357,13 +365,16 @@ public class MainActivity extends Activity {
             cm.setPrimaryClip(android.content.ClipData.newPlainText("diag", Diag.dump()));
             toast("copied ✓");
         });
-        root.addView(copy);
+        root.addView(copy, new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         logView = new TextView(this);
         logView.setTypeface(Typeface.MONOSPACE);
         logView.setTextSize(10.5f);
         logView.setTextColor(0xFF8FA5C8);
         logView.setTextIsSelectable(true);
         logView.setMovementMethod(new ScrollingMovementMethod());
+        // v2.3.1: inset scrollbar here too — the overlay band covered the log's
+        // right edge exactly like the update card's clipped text.
+        logView.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
         GradientDrawable lg = rounded(0xFF0E1526);
         logView.setBackground(lg);
         logView.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -385,17 +396,18 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(0, dp(8), 0, dp(8));
+        row.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         TextView t = new TextView(this);
         t.setText(title);
         t.setTextColor(COL_TITLE);
         t.setTextSize(15);
-        row.addView(t);
+        row.addView(t, new LinearLayout.LayoutParams(-1, -2));
         TextView d = new TextView(this);
         d.setTextColor(COL_DESC);
         d.setTextSize(12.5f);
         d.setPadding(dp(4), dp(2), 0, 0);
-        row.addView(d);
-        checkList.addView(row);
+        row.addView(d, new LinearLayout.LayoutParams(-1, -2));
+        checkList.addView(row, new LinearLayout.LayoutParams(-1, -2));
         rowIcons.add(t);
         rowTexts.add(d);
     }
@@ -413,18 +425,19 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(2), dp(7), dp(2), dp(7));
+        row.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));   // v2.3.1: explicit width
         TextView t = new TextView(this);
         t.setText(title);                       // ← THE FIX: the title is actually set
         t.setTextColor(COL_TITLE);
         t.setTextSize(14.5f);
         t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        row.addView(t);
+        row.addView(t, new LinearLayout.LayoutParams(-1, -2));
         TextView n = new TextView(this);
         n.setText(note);
         n.setTextColor(COL_DESC);
         n.setTextSize(11.5f);
         n.setPadding(dp(4), dp(1), 0, dp(4));
-        row.addView(n);
+        row.addView(n, new LinearLayout.LayoutParams(-1, -2));
         rowIcons.add(t);
         rowTexts.add(n);
         LinearLayout btns = new LinearLayout(this);
@@ -453,13 +466,23 @@ public class MainActivity extends Activity {
                  : "✗ not seen — run the Self-test for the exact reason (Wi-Fi / router / VPN)";
     }
 
+    /** v2.3.1 — the re-entry guard: v2.3.0 let every tap of the Self-test button
+     *  spawn ANOTHER probe thread (more sockets, more storm — the field log's
+     *  two simultaneous probe ports 41138 + 43882 were exactly this). */
+    private final java.util.concurrent.atomic.AtomicBoolean selfTestRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     private void runSelfTest() {
+        if (!selfTestRunning.compareAndSet(false, true)) {
+            toast("Self-test already running — දැනට ක්‍රියාත්මකයි");
+            return;
+        }
         selfTestLine.setText("running…");
         Diag.i("selftest", "start");
         final StringBuilder report = new StringBuilder();
         final boolean[] pass = {true};
 
         new Thread(() -> {
+            try {
             // 1. loopback HTTP against our own receiver (the /play path AnantPlay uses)
             int port = ReceiverService.port();
             if (port < 0) { pass[0] = false; report.append("receiver not running. "); }
@@ -527,7 +550,13 @@ public class MainActivity extends Activity {
             boolean mDnsOk = daemonOk || wireOk || legacy;
             NsdAnnouncerTest.result = mDnsOk;
             if (mDnsOk) {
-                report.append("mDNS ").append(daemonOk ? "daemon ok" : wireOk ? "wire ok" : "discovery ok").append(", ");
+                // v2.3.1: show EVERY layer's state (L1 daemon · L2 responder · L3 NSD),
+                // never a bare aggregate — the field paradox was a red FAILED while
+                // the responder was actively answering, and nobody could tell why.
+                report.append("mDNS ok [")
+                    .append(daemonOk ? "L1 daemon ✓" : "L1 daemon ✗").append(" · ")
+                    .append(wireOk ? "L2 responder ✓" : "L2 responder ✗").append(" · ")
+                    .append(legacy ? "L3 NSD ✓" : "L3 NSD ✗").append("], ");
             } else {
                 pass[0] = false;
                 report.append("mDNS FAILED (no-answer), ");
@@ -570,6 +599,11 @@ public class MainActivity extends Activity {
                 selfTestLine.setTextColor(p ? COL_OK : COL_ERR);
                 refresh();
             });
+            } finally {
+                // v2.3.1: ALWAYS release the re-entry guard — even on an unexpected
+                // exception the next tap must be able to run the Self-test again.
+                selfTestRunning.set(false);
+            }
         }, "si-selftest").start();
     }
 
@@ -630,6 +664,7 @@ public class MainActivity extends Activity {
         v.setTextSize(sp);
         v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         v.setPadding(0, dp(14), 0, dp(4));
+        v.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));
         return v;
     }
 
@@ -640,6 +675,9 @@ public class MainActivity extends Activity {
         v.setTextSize(12.5f);
         v.setLineSpacing(dp(2), 1f);
         v.setPadding(0, dp(2), 0, dp(6));
+        // v2.3.1: explicit MATCH_PARENT — never rely on generated defaults, so no
+        // OEM layout pass can shrink a card narrower than the parent.
+        v.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));
         return v;
     }
 
