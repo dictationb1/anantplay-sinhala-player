@@ -262,11 +262,14 @@ New v3.4.2 suites (all inside `ReceiverLab`):
   **3,024,788 bytes (2,953 KiB)**, `zipalign -c 4` OK, `apksigner verify` v2+v3 PASS.
   SHA-256 (this debug-signed local artifact):
   `f07096d5831dfa9ceeed14a6b7ea0e7a32dd930d3079bf0db6b4b1aceeb2879a`
-* **Release artifact:** the hosted `release-apk.yml` run re-signs the same commit with
-  the permanent release keystore and publishes
+* **Release artifact (LIVE):**
   `https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.4.2`
-  with `AnantPlay-Sinhala-Player-v3.4.2.apk` + `SHA256SUMS.txt`; the authoritative
-  release hash is the one in `SHA256SUMS.txt` and in `docs/latest.json`.
+  — `AnantPlay-Sinhala-Player-v3.4.2.apk` (**3,024,788 bytes**, release-signed,
+  `SHA-256 33c1fd3303749e4bcb64cabda62f44ea43e2b0bfaf93284121a0aeb7e3c35c95`)
+  plus `SHA256SUMS.txt`. The hosted build produced **byte-identical size** to the
+  local audit build, which is the reproducible-ZIP work from v3.4.1 still holding.
+* **CI/CD:** PR #21 hosted CI green (Cast protocol lab + APK build), squash-merged
+  into `main`; post-merge `build-apk.yml` **and** `release-apk.yml` both green.
 * `docs/latest.json` now announces `3.4.2 / 30402` pointing at the `v3.4.2` asset.
 * `dist/` and `build/` are git-ignored: **0 `.apk` and 0 `.zip` are tracked.**
 
