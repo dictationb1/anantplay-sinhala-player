@@ -71,7 +71,8 @@ public class WebBrowserView extends FrameLayout {
     private LinearLayout omnibar;
     private LinearLayout suggestBox;
     private ProgressBar progress;
-    private TextView pill, autoChip;
+    private TextView pill;
+    private ImageView autoChip;
     private LinearLayout pillRow;
     /** The latest hits, newest first, deduped by URL (the pill shows the newest). */
     private final LinkedHashMap<String, StreamSniffer.Hit> hits = new LinkedHashMap<String, StreamSniffer.Hit>() {
@@ -135,7 +136,7 @@ public class WebBrowserView extends FrameLayout {
         urlBox.setTextSize(13f);
         urlBox.setTextColor(0xFFE2E8F0);
         urlBox.setHintTextColor(0xFF94A3B8);
-        urlBox.setHint("URL හෝ සෙවුම · url or search");
+        urlBox.setHint(Chrome.pick("URL or search · URL හෝ සෙවුම"));
         urlBox.setBackground(rounded(0xFF101A30));
         urlBox.setPadding(dp(10), dp(8), dp(10), dp(8));
         urlBox.setSingleLine(true);
@@ -173,7 +174,7 @@ public class WebBrowserView extends FrameLayout {
         shieldIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
         shieldBtn.addView(shieldIcon, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         shieldBadge = new TextView(act);
-        shieldBadge.setTextSize(8f);
+        shieldBadge.setTextSize(10.5f);
         shieldBadge.setTypeface(Typeface.DEFAULT_BOLD);
         shieldBadge.setTextColor(0xFF04170B);
         GradientDrawable sbg = new GradientDrawable();
@@ -438,16 +439,20 @@ public class WebBrowserView extends FrameLayout {
         pill.setOnClickListener(v -> playLatest());
         pillRow.addView(pill, new LinearLayout.LayoutParams(-2, -2));
 
-        autoChip = new TextView(act);
-        autoChip.setTextSize(11.5f);
-        autoChip.setPadding(dp(10), dp(6), dp(10), dp(6));
+        autoChip = new ImageView(act);
+        autoChip.setScaleType(ImageView.ScaleType.CENTER);
+        autoChip.setPadding(dp(12), dp(12), dp(12), dp(12));
+        autoChip.setBackground(rounded(0xFF101A30));
+        autoChip.setMinimumWidth(dp(44));
+        autoChip.setMinimumHeight(dp(44));
+        autoChip.setFocusable(true);
         autoChip.setOnClickListener(v -> {
             boolean on = !prefs.getBoolean("autoOpenSniffed", false);
             prefs.edit().putBoolean("autoOpenSniffed", on).apply();
             paintAutoChip();
-            toast(on ? "Auto-Open ON — video එක හමු වූ විගස player එක ඇරේ" : "Auto-Open OFF");
+            toast(on ? "Automatic stream open enabled" : "Automatic stream open disabled");
         });
-        pillRow.addView(autoChip, new LinearLayout.LayoutParams(-2, -2));
+        pillRow.addView(autoChip, new LinearLayout.LayoutParams(dp(44), dp(44)));
         paintAutoChip();
 
         if (omnibarBottom) {
@@ -508,10 +513,11 @@ public class WebBrowserView extends FrameLayout {
 
     private void paintAutoChip() {
         boolean on = prefs.getBoolean("autoOpenSniffed", false);
-        autoChip.setText("Auto " + (on ? "ON" : "OFF"));
-        UiIcons.setCompound(autoChip, R.drawable.ic_refresh,
-            on ? 0xFF22C55E : 0xFF94A3B8, 12, Gravity.START);
-        autoChip.setTextColor(on ? 0xFF22C55E : 0xFF94A3B8);
+        int tint = on ? 0xFF22C55E : 0xFF94A3B8;
+        autoChip.setImageDrawable(UiIcons.tinted(act, R.drawable.ic_refresh, tint, 20));
+        autoChip.setSelected(on);
+        autoChip.setContentDescription("Automatic stream open, " + (on ? "on" : "off"));
+        autoChip.setTooltipText("Automatic stream open: " + (on ? "on" : "off"));
     }
 
     /** v3.4.0 - a browser bar button: tinted vector, no glyph. */
@@ -949,11 +955,13 @@ public class WebBrowserView extends FrameLayout {
     private void pasteFromClipboard() {
         try {
             ClipboardManager cm = (ClipboardManager) act.getSystemService(Context.CLIPBOARD_SERVICE);
-            if (cm == null || !cm.hasPrimaryClip()) { toast("clipboard හිස් · clipboard empty"); return; }
+            if (cm == null || !cm.hasPrimaryClip()) {
+                toast(Chrome.pick("Clipboard empty · clipboard හිස්")); return;
+            }
             CharSequence t = cm.getPrimaryClip().getItemAt(0).coerceToText(act);
             String s = t == null ? "" : t.toString().trim();
             if (s.startsWith("http://") || s.startsWith("https://")) load(s);
-            else toast("clipboard එකේ URL එකක් නැත · no URL on the clipboard");
+            else toast(Chrome.pick("No URL on the clipboard · clipboard එකේ URL එකක් නැත"));
         } catch (Throwable t) {
             Diag.w("web", "clipboard: " + t);
         }
@@ -966,12 +974,14 @@ public class WebBrowserView extends FrameLayout {
         if (list.contains("\n" + url + "|") || list.startsWith(url + "|")) { toast("already bookmarked"); return; }
         list = (list.isEmpty() ? "" : list + "\n") + url + "|" + name.replace('\n', ' ');
         prefs.edit().putString("webBookmarks", list).apply();
-        toast("★ " + name);
+        toast("Saved: " + name);
     }
 
     private void showBookmarks() {
         String list = prefs.getString("webBookmarks", "");
-        if (list.isEmpty()) { toast("bookmarks නැත · none yet (⋮ → Add bookmark)"); return; }
+        if (list.isEmpty()) {
+            toast(Chrome.pick("No bookmarks yet · bookmarks නැත (⋮ → Add bookmark)")); return;
+        }
         final String[] entries = list.split("\n");
         String[] labels = new String[entries.length];
         for (int i = 0; i < entries.length; i++) {
@@ -1045,7 +1055,7 @@ public class WebBrowserView extends FrameLayout {
             Diag.i("web", "opened in Cinema Player: [" + hit.kind + "] " + hit.url);
         } catch (Throwable t) {
             Diag.w("web", "player launch: " + t);
-            toast("player එක විවෘත කළ නොහැක");
+            toast(Chrome.pick("Could not open the player · player එක විවෘත කළ නොහැක"));
         }
     }
 

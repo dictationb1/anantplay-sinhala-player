@@ -3,6 +3,7 @@ package lk.techworld.anantplay.sicast;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.app.job.JobInfo;
@@ -22,19 +23,18 @@ import java.io.OutputStream;
 
 /* v3.0.0 — THE SEAMLESS APP-OPEN AUTO-UPDATER (zero external dependencies).
  *
- * v3.2.0 — THE ZERO-RATE-LIMIT + ZERO-SPIN-LOOP UPDATER (Smoking Gun #1, the
- * 200-calls-in-148-s field log). THREE structural changes, all lab-proven:
+ * v3.2.0 — THE ZERO-RATE-LIMIT + ZERO-SPIN-LOOP UPDATER. The release lookup
+ * uses only the web redirect and raw latest.json routes; automatic checks are
+ * throttled, single-flight, and run off the launch thread:
  *
- *   1. THE RESOLVER NEVER TOUCHES api.github.com on the happy path —
- *      SelfUpdateCore.fetchReleaseAny() fires github.com/releases/latest's
- *      observable 302 (web CDN, NO quota) first, docs/latest.json on
- *      raw.githubusercontent.com second, and the rate-limited REST API ONLY as
- *      the last resort. The "60/ hr lockout → null release → re-check"
- *      death spiral is dead at the source.
+ *   1. THE RESOLVER NEVER CALLS the GitHub REST API —
+ *      SelfUpdateCore.fetchReleaseAny() checks github.com/releases/latest's
+ *      observable 302 first, then docs/latest.json on raw.githubusercontent.com.
  *
  *   2. THE 15-MINUTE FAILURE BACKOFF — a failed/offline check persists
  *      `lastFailedCheck` and EVERY automatic re-check inside 15 minutes is a
- *      hard no-op (manual checks bypass). Even if JobScheduler re-delivers a
+ *      hard no-op (manual checks bypass). Successful checks have a 5-minute
+ *      cooldown. Even if JobScheduler re-delivers a
  *      job storm, the network sees ONE attempt per 15 minutes, never 200 per
  *      2.5 minutes. `lastCheck` is persisted BEFORE the network call (not only
  *      on success): the "attempt happened" fact survives crashes and
@@ -54,16 +54,14 @@ import java.io.OutputStream;
  *     CHECK (app-open + 4 h persisted job) → DOWNLOAD (silent, throttled,
  *     live progress) → VERIFY (https-only, 30 MB cap, strict SHA-256 vs
  *     SHA256SUMS.txt — a tampered APK is refused and deleted) → INSTALL (the
- *     OS's 1-tap prompt, BAL-safe notification fallback) → CLEANUP (the temp
- *     .apk is deleted the moment the session takes it over; the startup sweep
- *     removes anything older). Obtainium compatibility is unchanged. */
+  *     OS's 1-tap prompt, BAL-safe notification fallback) → CLEANUP (stale
+  *     files are removed, while a verified APK remains until install permission
+  *     is granted and the user returns). Obtainium compatibility is unchanged. */
 public final class SelfUpdater {
 
     static final String REPO = SelfUpdateCore.REPO;
-    /** v3.2.0 — the REST endpoint is now TIER 3 (last resort only). */
-    static final String API_LATEST = SelfUpdateCore.restLatestUrl();
-    /** v3.0.0 — the app-open debounce: a check runs at most once per 60 s. */
-    static final long MIN_CHECK_INTERVAL_MS = 60 * 1000L;
+    /** The app-open success cooldown: automatic checks run at most every 5 min. */
+    static final long MIN_CHECK_INTERVAL_MS = 5 * 60 * 1000L;
     /** v3.2.0 — THE FAILURE BACKOFF: after a failed/offline check, automatic
      *  re-checks are locked out for 15 minutes (the anti-hammer contract).
      *  A manual "Check now" always bypasses it — the user asked. */
@@ -90,11 +88,25 @@ public final class SelfUpdater {
      *  race on the same temp file and double-notify. */
     private static final java.util.concurrent.atomic.AtomicBoolean inFlight =
         new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static final java.util.concurrent.atomic.AtomicBoolean launchQueued =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static final java.util.concurrent.atomic.AtomicBoolean installQueued =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static final java.util.concurrent.ExecutorService checkExecutor =
+        java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "si-updater");
+            t.setDaemon(true);
+            return t;
+        });
     /** v3.1.0 (Bug 5) — the progress THROTTLE: ≤ 1 notify() per second, deduped
      *  per percent (UpdateNotify, lab-proven). */
     private static final UpdateNotify throttle = new UpdateNotify();
     /** v3.1.2 — the single-flight skip log's own rate limit (1/s). */
     private static volatile long lastSkipLogAt;
+    private static final String PENDING_VERSION = "pendingInstallVersion";
+    private static final String PENDING_SHA256 = "pendingInstallSha256";
+    private static final String PENDING_FILE = "pendingInstallFile";
+    private static final String PENDING_AWAITING_PERMISSION = "pendingInstallAwaitingPermission";
 
     private SelfUpdater() { }
 
@@ -105,8 +117,9 @@ public final class SelfUpdater {
 
     /** The "Update ready — Tap to install" notification's content intent. */
     static PendingIntent confirmPendingIntent(Context c) {
-        Intent i = new Intent(c, UpdateActionReceiver.class).setAction(ACTION_INSTALL_NOW);
-        return PendingIntent.getBroadcast(c, 20410, i,
+        Intent i = new Intent(c, MainActivity.class).setAction(ACTION_INSTALL_NOW)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        return PendingIntent.getActivity(c, 20410, i,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
@@ -135,7 +148,10 @@ public final class SelfUpdater {
                     cancelBanners(c);
                 } else if (ACTION_INSTALL_NOW.equals(a)) {
                     cancelBanners(c);
-                    schedule(c, 0L);   // an immediate best-effort job; the user asked
+                    Intent open = new Intent(c, MainActivity.class).setAction(ACTION_INSTALL_NOW)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    c.startActivity(open);
                 }
             } catch (Throwable t) {
                 Diag.w("selfupd", "action receiver: " + t);
@@ -160,18 +176,78 @@ public final class SelfUpdater {
         return d;
     }
 
-    /** v3.0.0 — delete EVERY leftover .apk in cacheDir/updates (App.onCreate +
-     *  after every session handoff): storage space is always 100% cleared. */
+    private static void clearPendingMetadata(Context c) {
+        c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE).edit()
+            .remove(PENDING_VERSION).remove(PENDING_SHA256).remove(PENDING_FILE)
+            .remove(PENDING_AWAITING_PERMISSION).apply();
+    }
+
+    /** Returns only a name-checked file beneath cacheDir/updates. */
+    private static File pendingFile(Context c) {
+        android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+        String version = sp.getString(PENDING_VERSION, "");
+        String hash = sp.getString(PENDING_SHA256, "");
+        String name = sp.getString(PENDING_FILE, "");
+        if (version == null || !version.matches("[0-9]+\\.[0-9]+\\.[0-9]+")
+                || hash == null || !hash.matches("(?i)[0-9a-f]{64}")
+                || !SelfUpdateCore.apkAssetName(version).equals(name)) {
+            clearPendingMetadata(c);
+            return null;
+        }
+        File dir = updatesDir(c);
+        File f = new File(dir, name);
+        if (!f.isFile() || f.length() <= 0 || !f.getParentFile().equals(dir)) {
+            clearPendingMetadata(c);
+            return null;
+        }
+        return f;
+    }
+
+    private static void savePendingUpdate(Context c, File apk, String version, String sha256) {
+        if (apk == null || version == null || !version.matches("[0-9]+\\.[0-9]+\\.[0-9]+")
+                || sha256 == null || !sha256.matches("(?i)[0-9a-f]{64}")
+                || !SelfUpdateCore.apkAssetName(version).equals(apk.getName())
+                || !apk.getParentFile().equals(updatesDir(c))) {
+            throw new IllegalArgumentException("invalid pending APK metadata");
+        }
+        c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE).edit()
+            .putString(PENDING_VERSION, version)
+            .putString(PENDING_SHA256, sha256.toLowerCase(java.util.Locale.ROOT))
+            .putString(PENDING_FILE, apk.getName())
+            .putBoolean(PENDING_AWAITING_PERMISSION, false)
+            .apply();
+    }
+
+    static boolean hasPendingUpdate(Context c) {
+        return pendingFile(c) != null;
+    }
+
+    static String pendingVersion(Context c) {
+        return hasPendingUpdate(c)
+            ? c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE).getString(PENDING_VERSION, "")
+            : "";
+    }
+
+    /** Remove stale downloads while preserving a verified APK waiting for the
+     *  user to enable install permission and return to the app. */
     static long sweepUpdates(Context c) {
-        long freed;
         try {
-            freed = SelfUpdateCore.deleteAll(updatesDir(c));
+            File dir = updatesDir(c);
+            File pending = pendingFile(c);
+            if (pending == null) return SelfUpdateCore.deleteAll(dir);
+            long freed = 0;
+            File[] files = dir.listFiles();
+            if (files != null) for (File f : files) {
+                if (f.equals(pending)) continue;
+                long size = f.length();
+                if (f.delete()) freed += size;
+            }
+            if (freed > 0) Diag.i("selfupd", "startup sweep freed " + (freed / 1024) + " KiB of stale files");
+            return freed;
         } catch (Throwable t) {
             Diag.w("selfupd", "sweep: " + t);
             return 0;
         }
-        if (freed > 0) Diag.i("selfupd", "startup sweep freed " + (freed / 1024) + " KiB of leftover update files");
-        return freed;
     }
 
     // ── the checks ────────────────────────────────────────────────────────────
@@ -184,7 +260,7 @@ public final class SelfUpdater {
     /**
      * v3.2.0 — THE BACKOFF GATE (delegates to the pure SelfUpdateCore
      * contract — the lab proves every branch + the exact field storm):
-     *   · the 60 s app-open debounce (lastCheck — persisted BEFORE the
+     *   · the 5-minute app-open success cooldown (lastCheck — persisted BEFORE the
      *     network attempt, so it holds even when the attempt crashed);
      *   · the 15-minute FAILURE backoff (lastFailedCheck);
      *   · the 4-hour periodic cadence is JobScheduler's own — but a periodic
@@ -195,23 +271,140 @@ public final class SelfUpdater {
         return SelfUpdateCore.checkAllowed(nowMs, lastCheck, lastFailedCheck, manual);
     }
 
-    /** Called from App.onCreate: fire the background check at most once per
-     *  60 s (the app-open debounce) AND never inside the 15-minute failure
-     *  backoff. `lastCheck` is written BEFORE the job is handed over — the
-     *  "an attempt is running" fact survives a crash mid-check (the v3.1.x
-     *  bug: it was persisted only after a SUCCESSFUL schedule, so a failed
-     *  round kept the gate open forever). Non-blocking, never throws. */
+    /** Called by MainActivity after the live UI listener is ready. The check
+     *  runs immediately on a daemon worker; JobScheduler is only the periodic
+     *  fallback. The attempt timestamp is written inside the worker directly
+     *  before networking, avoiding a deferred-job race with the cooldown gate. */
     public static void checkOnLaunch(final Context c) {
         try {
-            android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+            android.content.Context app = c.getApplicationContext();
+            if (!app.getSharedPreferences("sicast", Context.MODE_PRIVATE)
+                    .getBoolean(AppPrefs.K_AUTO_UPDATE, true)) return;
+            if (pendingFile(app) != null) {
+                fire("Update ready — tap Install Update");
+                return;
+            }
+            android.content.SharedPreferences sp = app.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
             long now = System.currentTimeMillis();
             long last = sp.getLong("lastCheck", 0);
             long lastFail = sp.getLong("lastFailedCheck", 0);
             if (!checkAllowed(now, last, lastFail, false)) return;
-            sp.edit().putLong("lastCheck", now).apply();       // PERSISTED BEFORE the network call
-            schedule(c, 0L);
+            if (!launchQueued.compareAndSet(false, true)) return;
+            fire("Checking…");
+            checkExecutor.execute(() -> {
+                try { checkAndMaybeInstall(app, false, false); }
+                finally { launchQueued.set(false); }
+            });
         } catch (Throwable t) {
             Diag.w("selfupd", "launch check: " + t);
+            launchQueued.set(false);
+        }
+    }
+
+    /** Manual checks bypass cooldowns and use the same REST-free release resolver. */
+    public static void checkNow(Context c) {
+        Context app = c.getApplicationContext();
+        fire("Checking…");
+        checkExecutor.execute(() -> checkAndMaybeInstall(app, true, false));
+    }
+
+    /** A deliberate Update Now action also bypasses the Auto-update preference. */
+    public static void updateNow(Context c) {
+        Context app = c.getApplicationContext();
+        fire("Checking…");
+        checkExecutor.execute(() -> checkAndMaybeInstall(app, true, true));
+    }
+
+    /** User-tap install entry: permission settings open only after this action. */
+    static String installPendingUpdate(Context c, boolean promptIfNeeded) {
+        File apk = pendingFile(c);
+        if (apk == null) {
+            fire("No verified update is ready");
+            return "no pending update";
+        }
+        String version = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE)
+            .getString(PENDING_VERSION, "");
+        if (!canRequestInstalls(c)) {
+            fire("Install permission needed — tap to allow");
+            if (!promptIfNeeded) return "needs install permission";
+            c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE).edit()
+                .putBoolean(PENDING_AWAITING_PERMISSION, true).apply();
+            try {
+                Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + c.getPackageName()));
+                if (!(c instanceof Activity)) settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                c.startActivity(settings);
+            } catch (Throwable t) {
+                Diag.w("selfupd", "open install permission: " + t);
+                fire("Could not open install permission settings");
+                return "permission settings unavailable";
+            }
+            return "opened install permission settings";
+        }
+        c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE).edit()
+            .putBoolean(PENDING_AWAITING_PERMISSION, false).apply();
+        if (!installQueued.compareAndSet(false, true)) return "install already in progress";
+        final Context app = c.getApplicationContext();
+        final File verifiedFile = apk;
+        fire("Verifying update v" + version + " — opening Android installer");
+        try {
+            checkExecutor.execute(() -> {
+                try { verifyAndInstallPending(app, verifiedFile, version); }
+                finally { installQueued.set(false); }
+            });
+        } catch (Throwable t) {
+            installQueued.set(false);
+            Diag.w("selfupd", "queue installer handoff: " + t);
+            fire("Could not start installer — tap Install Update to retry");
+            return "could not queue installer";
+        }
+        return "installing " + version;
+    }
+
+    /** Called on Activity resume after the user returns from install permission settings. */
+    public static void resumePendingInstall(Context c) {
+        try {
+            android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+            if (sp.getBoolean(PENDING_AWAITING_PERMISSION, false) && canRequestInstalls(c)) {
+                sp.edit().putBoolean(PENDING_AWAITING_PERMISSION, false).apply();
+                installPendingUpdate(c, false);
+            }
+        } catch (Throwable t) {
+            Diag.w("selfupd", "resume pending install: " + t);
+        }
+    }
+
+    private static boolean canRequestInstalls(Context c) {
+        try { return c.getPackageManager().canRequestPackageInstalls(); }
+        catch (Throwable t) { return false; }
+    }
+
+    private static void verifyAndInstallPending(Context c, File apk, String version) {
+        android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+        String expected = sp.getString(PENDING_SHA256, "");
+        try {
+            if (!apk.isFile() || expected == null || !expected.matches("(?i)[0-9a-f]{64}")) {
+                throw new SecurityException("pending update metadata is incomplete");
+            }
+            String actual = SelfUpdateCore.sha256(apk);
+            if (!expected.equalsIgnoreCase(actual)) {
+                throw new SecurityException("pending APK SHA-256 no longer matches");
+            }
+            install(c, apk);
+            apk.delete();
+            clearPendingMetadata(c);
+            sweepUpdates(c);
+            fire("v" + version + Chrome.pick(" සූදානම් — 1-tap ස්ථාපනය · ready to install (1 tap)"));
+        } catch (Throwable t) {
+            Diag.w("selfupd", "pending install verification/handoff: " + t);
+            if (apk.exists() && expected != null && !expected.isEmpty()) {
+                // Keep only a retryable file when its recorded hash still matches.
+                try {
+                    if (!expected.equalsIgnoreCase(SelfUpdateCore.sha256(apk))) apk.delete();
+                } catch (Throwable ignored) { apk.delete(); }
+            }
+            if (!apk.exists()) clearPendingMetadata(c);
+            fire("Install failed — tap Install Update to retry");
         }
     }
 
@@ -267,19 +460,13 @@ public final class SelfUpdater {
         return checkAndMaybeInstall(c, false);
     }
 
-    /**
-     * One update attempt. v3.2.0 changes:
-     *   · THE RESOLVER — SelfUpdateCore.fetchReleaseAny() (tier 1 web redirect
-     *     → tier 2 raw.json → tier 3 REST last resort): ZERO api.github.com
-     *     calls on the happy path, so the 60/hr lockout can never again feed
-     *     the "no release info" loop;
-     *   · THE BACKOFF — a null/offline result persists `lastFailedCheck` NOW,
-     *     so every automatic re-check inside 15 minutes is a no-op even if
-     *     something re-delivers a job (manual checks bypass);
-     *   · single-flight + skip-version + 24 h per-version alert cooldown +
-     *     throttled progress (all inherited from v3.1.0/v3.1.2, lab-proven).
-     * Returns a human-readable result (also logged). */
+    /** One update attempt. `manualCheck` bypasses both cooldowns; `forceDownload`
+     *  lets the explicit Update Now button work with Auto-update disabled. */
     public static String checkAndMaybeInstall(final Context c, final boolean manualCheck) {
+        return checkAndMaybeInstall(c, manualCheck, false);
+    }
+
+    static String checkAndMaybeInstall(final Context c, final boolean manualCheck, final boolean forceDownload) {
         if (!inFlight.compareAndSet(false, true)) {
             // v3.1.2 — the rate-limited skip: at most ONE skip line per second.
             long now = System.currentTimeMillis();
@@ -290,8 +477,12 @@ public final class SelfUpdater {
             }
             return "in-flight";
         }
-        // v3.2.0 — the automatic backoff gate, enforced INSIDE the run too:
-        // a re-delivered job that slipped past schedule() still dies here.
+        // A verified pending package is never re-downloaded or overwritten.
+        if (pendingFile(c) != null) {
+            inFlight.set(false);
+            fire("Update ready — tap Install Update");
+            return "ready";
+        }
         android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
         if (!manualCheck) {
             long now = System.currentTimeMillis();
@@ -302,28 +493,31 @@ public final class SelfUpdater {
             sp.edit().putLong("lastCheck", now).apply();       // persisted BEFORE the network call
         }
         try {
+            fire("Checking…");
             SelfUpdateCore.Release rel = SelfUpdateCore.fetchReleaseAny();
             if (rel == null) {
-                // v3.2.0 — the failure is PERSISTED: 15 minutes of guaranteed
-                // network silence follow, whatever re-delivers a job (the exact
-                // anti-250-ms-loop contract, lab-proven).
+                // Persist the failure so neither launch nor periodic jobs can
+                // turn an offline phone into a rapid retry loop.
                 sp.edit().putLong("lastFailedCheck", System.currentTimeMillis()).apply();
-                Diag.w("selfupd", "check failed on every tier (web-redirect/raw-json/rest) — 15-min backoff engaged");
-                Troubleshooter.record("UPDATER", "check: no release info (all 3 tiers failed) — 15-min backoff engaged");
+                Diag.w("selfupd", "check failed on both HTTPS routes — 15-min backoff engaged");
+                Troubleshooter.record("UPDATER", "check: no release info (both routes failed) — 15-min backoff engaged");
+                fire("Update check failed — retrying after the 15-minute cooldown");
                 return "no release";
             }
             Diag.i("selfupd", "release resolved via tier: " + rel.tier + " → v" + rel.version);
             Troubleshooter.record("UPDATER", "release v" + rel.version + " resolved via " + rel.tier
-                + " (api.github.com " + (SelfUpdateCore.TIER_REST_API.equals(rel.tier) ? "tier-3 last resort" : "NOT touched") + ")");
+                + " (GitHub REST API calls: 0)");
             if (!UpdateChecker.isNewer(rel.version, AppInfo.VERSION_NAME)) {
                 Diag.i("selfupd", "up to date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
                 Troubleshooter.record("UPDATER", "check: up-to-date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
+                fire("Up to date (v" + AppInfo.VERSION_NAME + ")");
                 return "up-to-date";
             }
             // v3.1.0 — the skip choice: never alert about a skipped version again
             String skippedVersion = sp.getString("skippedVersion", null);
             if (UpdateNotify.stillSkipped(skippedVersion, rel.version)) {
                 Diag.i("selfupd", "v" + rel.version + " skipped by the user — staying quiet");
+                fire("Skipped v" + rel.version);
                 return "skipped";
             }
             // v3.1.0 — the 24 h per-version alert cooldown (manual checks bypass)
@@ -333,15 +527,19 @@ public final class SelfUpdater {
                     skippedVersion, manualCheck)) {
                 Diag.i("selfupd", "v" + rel.version + " alerted "
                     + ((System.currentTimeMillis() - lastAlert) / 3600000L) + " h ago — cooldown, staying quiet");
+                fire("Update alert is cooling down");
                 return "cooldown";
             }
             sp.edit().putLong(alertKey, System.currentTimeMillis()).apply();
 
-            // Auto-Update is ON by default (Settings → Updates → the toggle)
-            if (!c.getSharedPreferences("sicast", Context.MODE_PRIVATE).getBoolean("autoUpdate", true)) {
-                Diag.i("selfupd", "new release " + rel.version + " but Auto-Update is OFF — notifying only");
-                App.notifyUpdateReady(c, rel.version);
-                fire(Chrome.pick("අලුත් සංස්කරණයක් ඇත · v") + rel.version + " available — Settings → Updates → Check now");
+            UiListener u = ui;
+            if (u != null) { try { u.onUpdateAvailable(rel.version); } catch (Throwable ignored) { } }
+            fire("Update available: v" + AppInfo.VERSION_NAME + " → v" + rel.version);
+
+            boolean autoUpdate = c.getSharedPreferences("sicast", Context.MODE_PRIVATE)
+                .getBoolean(AppPrefs.K_AUTO_UPDATE, true);
+            if (!autoUpdate && !forceDownload) {
+                Diag.i("selfupd", "new release " + rel.version + " but Auto-update is OFF — waiting for Update Now");
                 return "available " + rel.version;
             }
             // the pre-download gates: https-only, declared size within the cap
@@ -353,19 +551,23 @@ public final class SelfUpdater {
                 Diag.e("selfupd", "release apk is " + rel.apkSize + " B — over the 30 MB cap, refusing");
                 return "too-large";
             }
-            if (rel.sha256Expected == null) {
+            if (rel.sha256Expected == null || !rel.sha256Expected.matches("(?i)[0-9a-f]{64}")) {
                 // a release without a SHA256SUMS line for the apk: refuse (security)
                 Diag.w("selfupd", "no SHA-256 line for " + SelfUpdateCore.apkFileName(rel.apkUrl) + " — refusing");
                 App.notifyUpdateFailed(c, rel.version);
+                fire("Update refused: no valid SHA-256");
                 return "no-sha";
             }
             Diag.i("selfupd", "new release " + rel.version + " > " + AppInfo.VERSION_NAME + " — downloading (silent, throttled)");
-            UiListener u = ui;
-            if (u != null) { try { u.onUpdateAvailable(rel.version); } catch (Throwable ignored) { } }
+            fire("Downloading v" + rel.version + " — 0%");
 
             // ── download → cacheDir/updates/<name>.apk with THROTTLED progress ──
             sweepUpdates(c);   // never two temp files at once
             final File apk = new File(updatesDir(c), SelfUpdateCore.apkFileName(rel.apkUrl));
+            UiListener initialProgress = ui;
+            if (initialProgress != null) {
+                try { initialProgress.onDownloadProgress(0); } catch (Throwable ignored) { }
+            }
             App.notifyUpdateProgress(c, rel.version, 0);
             SelfUpdateCore.downloadToFile(rel.apkUrl, apk, (bytes, total, percent) -> {
                 if (throttle.onProgress(percent)) {
@@ -385,23 +587,16 @@ public final class SelfUpdater {
                 fire(Chrome.pick("බාගැනීම අසාර්ථක (SHA-256 නොගැලපේ) · download failed verification"));
                 return "sha-mismatch";
             }
-            Diag.i("selfupd", "sha256 verified (" + sha + ") — handing off to PackageInstaller");
-
-            // ── the Install-Unknown-Apps gate: a 1-tap jump when missing ──
-            if (!c.getPackageManager().canRequestPackageInstalls()) {
-                Diag.w("selfupd", "canRequestPackageInstalls=false — posting the 1-tap permission prompt");
-                notifyInstallPermission(c, rel.version);
-                fire(Chrome.pick("ස්ථාපන අවසරය අවශ්‍යයි — දැනුම්දීම ඔබන්න · install permission needed — tap the notification"));
-                return "needs-install-permission";
-            }
-
-            // ── install: stream the file into the session, then DELETE it ──
+            Diag.i("selfupd", "sha256 verified (" + sha + ") — saving verified update for installer handoff");
+            savePendingUpdate(c, apk, rel.version, sha);
             App.notifyUpdateReady(c, rel.version);
-            install(c, apk);
-            apk.delete();              // the handoff is complete — storage cleared NOW
-            sweepUpdates(c);           // and nothing else lingers either
-            fire("v" + rel.version + Chrome.pick(" සූදානම් — 1-tap ස්ථාපනය · ready to install (1 tap)"));
-            return "installing " + rel.version;
+            fire("Update ready: v" + rel.version + " — tap Install Update");
+            if (canRequestInstalls(c)) {
+                installPendingUpdate(c, false);
+                return "installing " + rel.version;
+            }
+            // Permission is requested only after the user taps Install Update.
+            return "ready " + rel.version;
         } catch (Throwable t) {
             // v3.2.0 — a thrown failure arms the SAME 15-minute backoff
             try {
@@ -499,29 +694,6 @@ public final class SelfUpdater {
             c.getSystemService(android.app.NotificationManager.class).notify(20405, n);
         } catch (Throwable t) {
             Diag.w("selfupd", "confirm notification: " + t);
-        }
-    }
-
-    /** The 1-tap "Install unknown apps" prompt: a notification carrying the
-     *  exact settings deep-link (v3.1.0: silent channel). */
-    static void notifyInstallPermission(Context c, String version) {
-        try {
-            Intent open = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:" + c.getPackageName()));
-            PendingIntent pi = PendingIntent.getActivity(c, 20406, open,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            Notification n = new Notification.Builder(c, App.CHANNEL_UPDATES_SILENT)
-                .setSmallIcon(R.drawable.ic_stat_si)
-                .setContentTitle("v" + version + " — install permission needed")
-                .setContentText("1-tap: \"Unknown sources\" මෙම ඇප් එකට ON කරන්න · allow installs from this app")
-                .setContentIntent(pi)
-                .setAutoCancel(true)
-                .setOnlyAlertOnce(true)
-                .setPriority(Notification.PRIORITY_LOW)
-                .build();
-            c.getSystemService(android.app.NotificationManager.class).notify(20406, n);
-        } catch (Throwable t) {
-            Diag.w("selfupd", "install-permission notification: " + t);
         }
     }
 

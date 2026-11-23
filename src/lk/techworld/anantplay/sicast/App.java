@@ -146,22 +146,12 @@ public class App extends Application {
             Diag.w("app", "auto-arm: " + t);   // e.g. background FGS restrictions; MainActivity arms it
         }
 
-        // v3.0.0 — the built-in GitHub self-update: an app-open check (60 s
-        // debounce, fires the MOMENT the app opens) + the standing 4 h periodic
-        // schedule, plus the storage sweep: no leftover .apk from a previous
-        // update run ever survives an app start.
-        // v3.2.0 — THE ZERO-RATE-LIMIT + ZERO-LOOP UPDATER ARMING:
-        //   · the check itself resolves via github.com/releases/latest's 302
-        //     (web CDN — ZERO api.github.com quota burn on the happy path);
-        //   · lastCheck is persisted BEFORE the network attempt, and a FAILED
-        //     check arms a 15-minute backoff, so the 250 ms re-fire storm the
-        //     field log captured (200+ calls in 148 s, GitHub 403 lockout) is
-        //     structurally impossible;
-        //   · the periodic schedule is armed HERE ONLY — never from inside the
-        //     job (the v3.1.x in-job re-arm was the re-fire loop itself).
+        // The update cache is swept without deleting a verified APK waiting for
+        // the user to return from install-permission settings. MainActivity starts
+        // the immediate daemon-thread check after its in-app update UI is attached.
+        // The 4-hour JobScheduler check remains the background/reboot fallback.
         try {
             SelfUpdater.sweepUpdates(this);
-            SelfUpdater.checkOnLaunch(this);
             SelfUpdater.schedulePeriodic(this);
         } catch (Throwable t) {
             Diag.w("app", "self-update schedule: " + t);

@@ -99,9 +99,14 @@ public class MainActivity extends Activity {
     private View subPage;
 
     // home widgets
-    private TextView heroPill, updateBanner;
+    private TextView heroPill, updateStatus;
+    private LinearLayout updateCard;
+    private Button updateAction;
     private android.widget.ProgressBar updateBar;
-    private LinearLayout setupCard, guideCard, guideBody;
+    private TextView quickUpdateStatus;
+    private Button quickUpdateAction;
+    private volatile String updateTargetVersion = "";
+    private LinearLayout setupCard;
     /** v3.4.3 — the one-line Home repair banner (only after onboarding is complete). */
     private TextView repairBanner;
     /** v3.4.3 — the Quick-Settings live subtitle preview (updated by its slider). */
@@ -192,15 +197,27 @@ public class MainActivity extends Activity {
         // throttled since v3.1.0 — the banner is the ONLY visible update noise)
         SelfUpdater.setUiListener(new SelfUpdater.UiListener() {
             @Override public void onUpdateAvailable(String version) {
-                main.post(() -> showUpdateBanner("v" + version + Chrome.pick(" — නිහඬව බාගැනෙමින්… · downloading quietly…"), 0));
+                updateTargetVersion = version == null ? "" : version;
+                main.post(() -> showUpdateBanner("Update available: v" + AppInfo.VERSION_NAME
+                    + " → v" + updateTargetVersion, -2));
             }
             @Override public void onDownloadProgress(int percent) {
-                main.post(() -> showUpdateBanner(null, percent));
+                main.post(() -> showUpdateBanner("Downloading v" + updateTargetVersion
+                    + " — " + percent + "%", percent));
             }
             @Override public void onUpdateState(String bilingual) {
                 main.post(() -> showUpdateBanner(bilingual, -2));
             }
         });
+        if (SelfUpdater.hasPendingUpdate(this)) {
+            updateTargetVersion = SelfUpdater.pendingVersion(this);
+            showUpdateBanner("Update ready: v" + updateTargetVersion + " — tap Install Update", -2);
+        } else if (prefs.getBoolean(AppPrefs.K_AUTO_UPDATE, true)) {
+            SelfUpdater.checkOnLaunch(this);
+        }
+        if (SelfUpdater.ACTION_INSTALL_NOW.equals(getIntent().getAction())) {
+            SelfUpdater.installPendingUpdate(this, true);
+        }
     }
 
     /** Resolve the ThemeEngine palette for the current prefs (+ wallpaper seed
@@ -241,7 +258,8 @@ public class MainActivity extends Activity {
         Diag.i("perm", "request " + req + " (" + (perms != null && perms.length > 0 ? perms[0] : "?")
             + ") → " + (granted == PackageManager.PERMISSION_GRANTED ? "GRANTED" : "denied"));
         if (req == 8 && granted == PackageManager.PERMISSION_GRANTED) {
-            toast("වීඩියෝ අවසරය ලැබුණි — AnantPlay එකෙන් නැවත Cast කරන්න");
+            toast(t("වීඩියෝ අවසරය ලැබුණි — AnantPlay එකෙන් නැවත Cast කරන්න",
+                "Video access granted — cast from AnantPlay again"));
         }
         refresh();
     }
@@ -267,12 +285,23 @@ public class MainActivity extends Activity {
         main.postDelayed(this::refresh, 1200);   // let the receiver/nsd state settle
         main.postDelayed(this::measureShell, 260);   // v3.3.0: prove the nav shell every resume
         if (browser != null) browser.onResumeWeb();
+        SelfUpdater.resumePendingInstall(this);
+        if (SelfUpdater.hasPendingUpdate(this)) {
+            updateTargetVersion = SelfUpdater.pendingVersion(this);
+            showUpdateBanner("Update ready: v" + updateTargetVersion + " — tap Install Update", -2);
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         if (browser != null) browser.onPauseWeb();
+    }
+
+    @Override
+    protected void onDestroy() {
+        SelfUpdater.setUiListener(null);
+        super.onDestroy();
     }
 
     @Override
@@ -338,7 +367,7 @@ public class MainActivity extends Activity {
         LinearLayout brand = new LinearLayout(this);
         brand.setOrientation(LinearLayout.VERTICAL);
         TextView appTitle = new TextView(this);
-        appTitle.setText(t("ඇනන්ට්ප්ලේ සිංහල", "AnantPlay Sinhala"));
+        appTitle.setText("AnantPlay Player");
         appTitle.setTextColor(P.text);
         appTitle.setTextSize(16f);
         appTitle.setTypeface(Typeface.DEFAULT_BOLD);
@@ -349,7 +378,7 @@ public class MainActivity extends Activity {
         TextView versionPill = new TextView(this);
         versionPill.setText("v" + AppInfo.VERSION_NAME);
         versionPill.setTextColor(P.accent);
-        versionPill.setTextSize(9.5f);
+        versionPill.setTextSize(10.5f);
         versionPill.setTypeface(Typeface.DEFAULT_BOLD);
         versionPill.setPadding(dp(7), dp(2), dp(7), dp(2));
         GradientDrawable vp = new GradientDrawable();
@@ -586,6 +615,9 @@ public class MainActivity extends Activity {
         super.onNewIntent(i);
         setIntent(i);
         openWebFromIntent(i);
+        if (i != null && SelfUpdater.ACTION_INSTALL_NOW.equals(i.getAction())) {
+            SelfUpdater.installPendingUpdate(this, true);
+        }
     }
 
     private int[] tabIdsInOrder() {
@@ -822,25 +854,16 @@ public class MainActivity extends Activity {
         try {
             if (android.provider.Settings.canDrawOverlays(this)) return null;   // already instant
         } catch (Throwable t) { return null; }
-        LinearLayout box = card(P.accentSoft);
+        LinearLayout box = row();
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(0, dp(4), 0, dp(4));
         TextView head = new TextView(this);
-        head.setText(t("Cast කළ විට ඉබේ විවෘත කරන්න",
-            "Auto-Open Player on Cast"));
-        head.setTextColor(P.title);
-        head.setTextSize(14f);
-        head.setTypeface(Typeface.DEFAULT_BOLD);
-        UiIcons.setCompound(head, R.drawable.ic_cast, P.accent, 16, Gravity.START);
-        box.addView(head, widen(0, 2));
-        TextView body = new TextView(this);
-        body.setText(t("\"Display over other apps\" එක වරක් දෙන්න — ඊට පසු Cast කළ සැණින් player විවෘත වේ.",
-            "Allow \"Display over other apps\" once, and every cast opens the player"
-            + " by itself — no notification to tap."));
-        body.setTextColor(P.desc);
-        body.setTextSize(11.5f);
-        body.setLineSpacing(dp(2), 1f);
-        box.addView(body, widen(0, 8));
-        Button enable = btnPrimary(t("දැන් සක්‍රිය කරන්න", "Enable now"));
-        UiIcons.setCompound(enable, R.drawable.ic_check_circle, 0xFF0A0A14, 16, Gravity.START);
+        head.setText(t("Cast කළ විට ඉබේ විවෘත කරන්න", "Auto-open on Cast"));
+        head.setTextColor(P.text);
+        UiTokens.body(head);
+        UiIcons.setCompound(head, R.drawable.ic_cast, P.accent, 18, Gravity.START);
+        box.addView(head, new LinearLayout.LayoutParams(0, -2, 1f));
+        Button enable = smallBtn(t("සක්‍රිය කරන්න", "Enable"));
         enable.setOnClickListener(v -> {
             try {
                 startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -849,7 +872,7 @@ public class MainActivity extends Activity {
                 Miui.openAppDetails(this);
             }
         });
-        box.addView(enable, widen(0, 0));
+        box.addView(enable, new LinearLayout.LayoutParams(-2, dp(44)));
         return box;
     }
 
@@ -860,23 +883,38 @@ public class MainActivity extends Activity {
         LinearLayout root = column();
         scroll.addView(root, new ViewGroup.LayoutParams(-1, -2));
 
-        // ── the quiet update banner (only visible while an update flows) ──
-        updateBanner = new TextView(this);
-        updateBanner.setTextColor(P.accentDim);
-        updateBanner.setTextSize(12.5f);
-        updateBanner.setPadding(dp(12), dp(9), dp(12), dp(9));
-        GradientDrawable ub = rounded(P.chip, dp(12));
-        ub.setStroke(dp(1), P.accent);
-        updateBanner.setBackground(ub);
-        updateBanner.setVisibility(View.GONE);
-        UiIcons.setCompound(updateBanner, R.drawable.ic_update, P.accentDim, 14, Gravity.START);
-        updateBanner.setOnClickListener(v -> checkForUpdates());
-        root.addView(updateBanner, widen());
+        // ── immediate in-app update card, before the receiver hero ──
+        updateCard = card(P.accentSoft);
+        updateCard.setVisibility(View.GONE);
+        LinearLayout updateHeading = row();
+        updateHeading.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView updateIcon = new ImageView(this);
+        updateIcon.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_update, P.accent, 20));
+        updateIcon.setContentDescription(t("යාවත්කාලීන", "App update"));
+        updateHeading.addView(updateIcon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        TextView updateLabel = new TextView(this);
+        updateLabel.setText(t("යාවත්කාලීන", "App update"));
+        updateLabel.setTextColor(P.title);
+        updateLabel.setTextSize(14f);
+        updateLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams updateLabelLp = new LinearLayout.LayoutParams(0, -2, 1f);
+        updateLabelLp.leftMargin = dp(10);
+        updateHeading.addView(updateLabel, updateLabelLp);
+        updateCard.addView(updateHeading, widen(0, dp(4)));
+        updateStatus = new TextView(this);
+        updateStatus.setTextColor(P.text);
+        updateStatus.setTextSize(12.5f);
+        updateStatus.setLineSpacing(dp(2), 1f);
+        updateCard.addView(updateStatus, widen(0, dp(2)));
         updateBar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         updateBar.setMax(100);
         updateBar.setVisibility(View.GONE);
         updateBar.getProgressDrawable().setColorFilter(P.accent, android.graphics.PorterDuff.Mode.SRC_IN);
-        root.addView(updateBar, widen());
+        updateCard.addView(updateBar, widen(0, 0));
+        updateAction = btnPrimary(t("යාවත්කාලීන කරන්න", "Update Now"));
+        updateAction.setOnClickListener(v -> onUpdateAction());
+        updateCard.addView(updateAction, widen(0, 0));
+        root.addView(updateCard, widen());
 
         // ── HERO: the receiver status card ──
         // ══ v3.4.1 — THE FIRST-TIME 3-STEP QUICK START (defect #5.2) ══════════
@@ -928,7 +966,7 @@ public class MainActivity extends Activity {
         hero.addView(heroPill, new LinearLayout.LayoutParams(-2, -2));
         TextView heroSub = new TextView(this);
         heroSub.setText(t("AnantPlay එකේ Cast බොත්තමෙන් \"සිංහල Player\" තෝරන්න",
-            "pick \"සිංහල Player\" in AnantPlay's Cast menu"));
+            "Choose \"AnantPlay Sinhala Player\" in AnantPlay's Cast menu"));
         heroSub.setTextColor(P.desc);
         heroSub.setTextSize(11.5f);
         heroSub.setPadding(0, dp(4), 0, 0);
@@ -963,6 +1001,8 @@ public class MainActivity extends Activity {
         chipGrid.addView(r1, widen(0, 0));
         chipGrid.addView(chipSubs, widen(0, 0));
         hero.addView(chipGrid, widen());
+        View overlayHint = autoOpenBanner();
+        if (overlayHint != null) hero.addView(overlayHint, widen(0, 0));
         root.addView(hero, widen());
 
         refreshers.add(() -> {
@@ -970,7 +1010,7 @@ public class MainActivity extends Activity {
             boolean castable = ReceiverService.castDiscoverable();
             boolean announced = ReceiverService.isAnnounced();
             heroPill.setText(up
-                ? (announced || castable ? t("සිංහල Player සූදානම්", "Sinhala Player ready")
+                ? (announced || castable ? t("සිංහල Player සූදානම්", "AnantPlay Player ready")
                                          : t("සූදානම් — announce වෙමින්…", "arming announcement…"))
                 : t("ක්‍රියාත්මක නැත", "Off"));
             statusDot(heroPill, up ? (announced || castable ? P.ok : P.warn) : P.desc);
@@ -993,17 +1033,14 @@ public class MainActivity extends Activity {
         View cw = continueWatchingCard();
         if (cw != null) root.addView(cw, widen());
 
-        // ── v3.4.2 — the 1-tap "Auto-Open on Cast" setup banner ──
-        View overlayBanner = autoOpenBanner();
-        if (overlayBanner != null) root.addView(overlayBanner, widen());
-
         // ── the 2×2 quick-action grid ──
         root.addView(sectionTitle(t("ඉක්මන් ක්‍රියා", "Quick actions")));
         LinearLayout g1 = row();
         g1.addView(actionBtn(R.drawable.ic_play, t("AnantPlay විවෘත කරන්න", "Open AnantPlay"), v -> {
             Miui.openAnantPlay(this);
             // v3.1.0 — the ONE smart non-intrusive cast confirmation (zero nagging)
-            toast("සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න");
+            toast(t("සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න",
+                "Ready to cast — choose AnantPlay Sinhala Player from AnantPlay's Cast menu"));
         }), new LinearLayout.LayoutParams(0, -2, 1f));
         if (AppPrefs.showWebTab(prefs)) {
             g1.addView(actionBtn(R.drawable.ic_nav_web, t("බ්‍රව්සරයෙන් බලන්න", "Watch in WebView"), v -> selectTab(TAB_WEB)),
@@ -1036,47 +1073,12 @@ public class MainActivity extends Activity {
             new LinearLayout.LayoutParams(0, -2, 1f));
         root.addView(g2, widen());
 
-        // ── the collapsible 3-step cast guide (visual, NOT a wall of text) ──
-        guideCard = card(P.card);
-        LinearLayout guideHead = row();
-        guideHead.setGravity(Gravity.CENTER_VERTICAL);
-        TextView guideTitle = new TextView(this);
-        guideTitle.setText(t("භාවිත කරන ආකාරය", "How to use"));
-        UiIcons.setCompound(guideTitle, R.drawable.ic_info, P.accentDim, 14, Gravity.START);
-        guideTitle.setTextColor(P.title);
-        guideTitle.setTextSize(14.5f);
-        guideTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        guideHead.addView(guideTitle, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView guideToggle = new TextView(this);
-        guideToggle.setText("▾");
-        guideToggle.setTextColor(P.desc);
-        guideToggle.setTextSize(16f);
-        guideToggle.setPadding(dp(10), 0, dp(6), 0);
-        guideHead.addView(guideToggle, new LinearLayout.LayoutParams(-2, -2));
-        guideCard.addView(guideHead, widen());
-        guideBody = column();
-        guideBody.addView(guideStep("1", t("Receiver ON කරන්න", "Turn the receiver ON"),
-            t("Home එකේ Start receiver — boot වූ විටත් ස්වයංක්‍රීයවම ඇරෙනවා.",
-              "Start receiver on Home — it arms itself on boot too.")));
-        guideBody.addView(guideStep("2", t("AnantPlay එකේ Cast ඔබන්න", "Tap Cast in AnantPlay"),
-            t("Player එකේ Cast chip → \"සිංහල Player\" තෝරන්න. (නැත්නම්: ඕනෑම link එකක් Share කරන්න හෝ බ්‍රව්සරය භාවිතා කරන්න.)",
-              "Pick \"සිංහල Player\" in the Cast chip. (Or: share any link, or use the browser tab.)")));
-        guideBody.addView(guideStep("3", t("උපසිරැසි ස්වයංක්‍රීයයි", "Subtitles load automatically"),
-            t("\"සිං\" බොත්තමෙන් භාෂා 18ක් හෝ Spoken/Formal මාරු කරන්න.",
-              "The \"සිං\" button switches 18 languages or Spoken/Formal register.")));
-        guideBody.setVisibility(View.GONE);
-        guideCard.addView(guideBody, widen());
-        guideHead.setOnClickListener(v -> {
-            boolean open = guideBody.getVisibility() == View.VISIBLE;
-            guideBody.setVisibility(open ? View.GONE : View.VISIBLE);
-            guideToggle.setText(open ? "▾" : "▴");
-        });
-        root.addView(guideCard, widen());
-
         // ── v3.4.3 — THE CALM REPAIR BANNER (one line, only when a grant was revoked) ──
         repairBanner = new TextView(this);
         repairBanner.setTextColor(P.warn);
         repairBanner.setTextSize(11.5f);
+        repairBanner.setMaxLines(1);
+        repairBanner.setEllipsize(android.text.TextUtils.TruncateAt.END);
         repairBanner.setPadding(dp(2), dp(8), dp(2), dp(8));
         repairBanner.setVisibility(View.GONE);
         repairBanner.setOnClickListener(v -> {
@@ -1118,6 +1120,10 @@ public class MainActivity extends Activity {
         boolean repair = OnboardingWizard.needsRepair(done, overlay, notif, battery);
         repairBanner.setVisibility(repair ? View.VISIBLE : View.GONE);
         if (repair) repairBanner.setText(OnboardingWizard.repairBannerText(overlay, notif, battery));
+        if (quickStartCard != null && repair) quickStartCard.setVisibility(View.GONE);
+        else if (quickStartCard != null && !AppPrefs.quickStartDone(prefs)) {
+            quickStartCard.setVisibility(View.VISIBLE);
+        }
     }
 
     /** The setup checklist: ONLY the REQUIRED items, the whole card stays GONE
@@ -1136,8 +1142,9 @@ public class MainActivity extends Activity {
         // re-read on every resume so the row can never go stale.
         boolean overlay = android.provider.Settings.canDrawOverlays(this);
         boolean allOk = notif && battery && autostart && overlay;
-        setupCard.setVisibility(allOk ? View.GONE : View.VISIBLE);
-        if (allOk) { setupCard.removeAllViews(); return; }
+        boolean repairShown = repairBanner != null && repairBanner.getVisibility() == View.VISIBLE;
+        setupCard.setVisibility(allOk || repairShown ? View.GONE : View.VISIBLE);
+        if (allOk || repairShown) { setupCard.removeAllViews(); return; }
         // every resume re-diffs: a revoked grant must REAPPEAR, a granted one must clear
         setupCard.removeAllViews();
         LinearLayout head2 = row();
@@ -1246,14 +1253,47 @@ public class MainActivity extends Activity {
     }
 
     private void showUpdateBanner(String text, int percent) {
-        updateBanner.setVisibility(View.VISIBLE);
-        if (text != null) updateBanner.setText(text);
+        if (updateCard == null || updateStatus == null) return;
+        updateCard.setVisibility(View.VISIBLE);
+        if (text != null) updateStatus.setText(text);
         if (percent >= 0) {
             updateBar.setVisibility(View.VISIBLE);
             updateBar.setProgress(percent);
-            updateBanner.setText(updateBanner.getText().toString().replaceAll("\\d+%", "") + " " + percent + "%");
         } else if (percent == -2) {
             updateBar.setVisibility(View.GONE);
+        }
+        boolean pending = SelfUpdater.hasPendingUpdate(this);
+        String state = updateStatus.getText() == null ? "" : updateStatus.getText().toString();
+        boolean busy = state.startsWith("Checking") || state.startsWith("Downloading")
+            || state.startsWith("Verifying") || state.startsWith("Installing");
+        if (pending) {
+            updateAction.setText(t("ස්ථාපනය කරන්න", "Install Update"));
+            updateAction.setEnabled(true);
+        } else if (busy) {
+            updateAction.setText(state.startsWith("Downloading")
+                ? t("බාගැනෙමින්…", "Downloading…")
+                : state.startsWith("Checking") ? t("පරීක්ෂා කරමින්…", "Checking…")
+                : t("ස්ථාපනය සූදානම්…", "Installing…"));
+            updateAction.setEnabled(false);
+        } else if (state.startsWith("Update available")) {
+            updateAction.setText(t("දැන් යාවත්කාලීන කරන්න", "Update Now"));
+            updateAction.setEnabled(true);
+        } else {
+            updateAction.setText(t("යාවත්කාලීන පරීක්ෂා කරන්න", "Check for Update"));
+            updateAction.setEnabled(true);
+        }
+        if (quickUpdateStatus != null) {
+            quickUpdateStatus.setText(state);
+            if (quickUpdateAction != null) quickUpdateAction.setEnabled(!busy);
+        }
+    }
+
+    private void onUpdateAction() {
+        if (SelfUpdater.hasPendingUpdate(this)) {
+            SelfUpdater.installPendingUpdate(this, true);
+        } else {
+            showUpdateBanner("Checking…", -2);
+            SelfUpdater.updateNow(this);
         }
     }
 
@@ -1283,10 +1323,8 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ViewGroup.LayoutParams(-1, -2));
 
         // ══════════════════════════════════════════════════════════════════════
-        // v3.4.3 — QUICK SETTINGS (Replit QA-0006 / QA-0007): the five controls a
-        // beginner actually changes, always visible, zero jargon. Everything else
-        // lives below in ONE collapsible "Advanced settings" container, so the tab
-        // opens calm instead of as a 76-preference wall.
+        // v3.4.4 — Quick visual controls stay up front; the full preference set
+        // remains reachable below in one collapsible Advanced settings section.
         // ══════════════════════════════════════════════════════════════════════
         outer.addView(quickSettingsCard(), widen());
 
@@ -1300,10 +1338,10 @@ public class MainActivity extends Activity {
         advTitle.setTextSize(14f);
         advTitle.setTypeface(Typeface.DEFAULT_BOLD);
         advHeader.addView(advTitle, new LinearLayout.LayoutParams(0, -2, 1f));
-        final TextView advChevron = new TextView(this);
-        advChevron.setTextColor(P.desc);
-        advChevron.setTextSize(14f);
-        advHeader.addView(advChevron, new LinearLayout.LayoutParams(-2, -2));
+        final ImageView advChevron = new ImageView(this);
+        advChevron.setScaleType(ImageView.ScaleType.CENTER);
+        advChevron.setContentDescription("Expand advanced settings");
+        advHeader.addView(advChevron, new LinearLayout.LayoutParams(dp(48), dp(48)));
         outer.addView(advHeader, widen());
 
         final LinearLayout advBody = column();
@@ -1311,7 +1349,11 @@ public class MainActivity extends Activity {
         final boolean[] expanded = {false};
         Runnable paintAdv = () -> {
             advBody.setVisibility(expanded[0] ? View.VISIBLE : View.GONE);
-            advChevron.setText(expanded[0] ? "▴" : "▾");
+            advChevron.setImageDrawable(UiIcons.tinted(this,
+                expanded[0] ? R.drawable.ic_chevron_up : R.drawable.ic_chevron_down,
+                P.desc, 18));
+            advChevron.setContentDescription(expanded[0]
+                ? "Collapse advanced settings" : "Expand advanced settings");
             advTitle.setText(t("උසස් සැකසුම්", "Advanced settings")
                 + (expanded[0] ? "" : t(" · සියලු 76 සැකසුම්", " · all 76 preferences")));
         };
@@ -1359,7 +1401,7 @@ public class MainActivity extends Activity {
                 themeChanged();
             }), widen());
         g1.addView(UiSegmented.row(this, P, prefs, "UI භාෂාව", "UI language",
-            new String[]{t("ද්විභාෂා", "Bilingual"), "සිංහල", "English"},
+            new String[]{t("ද්විභාෂා", "Bilingual"), "Sinhala", "English"},
             AppPrefs.UI_SI.equals(AppPrefs.uiLang(prefs)) ? 1
                 : (AppPrefs.UI_EN.equals(AppPrefs.uiLang(prefs)) ? 2 : 0), i -> {
                 prefs.edit().putString(AppPrefs.K_UI_LANG,
@@ -1525,14 +1567,15 @@ public class MainActivity extends Activity {
     /**
      * v3.4.3 — THE QUICK SETTINGS CARD (Replit QA-0006).
      *
-     * <p>Five controls, no acronyms: theme, accent, subtitle size (with a LIVE preview),
-     * automatic Sinhala subtitles, and the two "comfort" switches (resume + night
-     * dimmer). Every one of them is a real preference — nothing here is decorative.
+     * <p>Core controls: theme, accent, surface/navigation previews, subtitle size,
+     * automatic subtitles and comfort switches. Every control writes its preference.
      */
     private View quickSettingsCard() {
         LinearLayout card = UiGroup.make(this, P, prefs, "ඉක්මන් සැකසුම්", "Quick settings");
         card.addView(themeThumbs(), widen());
         card.addView(accentPicker(), widen());
+        UiGroup.divider(this, card, P, prefs);
+        card.addView(surfaceBarPreviewTiles(), widen());
         UiGroup.divider(this, card, P, prefs);
         // subtitle size + the live preview (the Studio preview itself stays Sinhala on purpose)
         card.addView(UiSlider.make(this, P, prefs, "උපසිරැසි අකුරු", "Subtitle size",
@@ -1561,7 +1604,112 @@ public class MainActivity extends Activity {
         UiGroup.divider(this, card, P, prefs);
         UiGroup.switchRow(this, card, P, prefs, R.drawable.ic_settings,
             "මධ්‍යම රාත්‍රී අඳුරු", "Midnight night dimmer", AppPrefs.K_MIDNIGHT_DIMMER, true);
+        UiGroup.divider(this, card, P, prefs);
+        LinearLayout updateCheck = column();
+        TextView updateCheckTitle = new TextView(this);
+        updateCheckTitle.setText(t("යාවත්කාලීන", "App update"));
+        updateCheckTitle.setTextColor(P.title);
+        updateCheckTitle.setTextSize(13f);
+        updateCheckTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        updateCheck.addView(updateCheckTitle, widen());
+        quickUpdateStatus = new TextView(this);
+        quickUpdateStatus.setText("Not checked yet");
+        quickUpdateStatus.setTextColor(P.desc);
+        quickUpdateStatus.setTextSize(12f);
+        updateCheck.addView(quickUpdateStatus, widen(0, dp(4)));
+        quickUpdateAction = smallBtn(t("යාවත්කාලීන පරීක්ෂා කරන්න", "Check for Update"));
+        quickUpdateAction.setOnClickListener(v -> checkForUpdates());
+        updateCheck.addView(quickUpdateAction, widen(0, dp(6)));
+        card.addView(updateCheck, widen());
         return card;
+    }
+
+    /** Small visual controls for the same saved surface and navigation preferences. */
+    private View surfaceBarPreviewTiles() {
+        LinearLayout group = column();
+        TextView heading = new TextView(this);
+        heading.setText("Surface and bottom bar");
+        heading.setTextColor(P.desc);
+        UiTokens.text(heading, 10.5f, 600, 0.4f, true);
+        heading.setPadding(0, dp(4), 0, dp(5));
+        group.addView(heading, widen());
+        group.addView(previewChoiceRow("Surface", new String[]{"Flat", "Glass"},
+            AppPrefs.glass(prefs) ? 1 : 0, true), widen(0, 6));
+        group.addView(previewChoiceRow("Bottom bar", new String[]{"Docked", "Floating"},
+            AppPrefs.floatingBar(prefs) ? 1 : 0, false), widen());
+        return group;
+    }
+
+    private View previewChoiceRow(String title, String[] labels, int selected, boolean surface) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < labels.length; i++) {
+            final int choice = i;
+            LinearLayout tile = new LinearLayout(this);
+            tile.setOrientation(LinearLayout.VERTICAL);
+            tile.setGravity(Gravity.CENTER);
+            tile.setPadding(dp(8), dp(7), dp(8), dp(7));
+            GradientDrawable tileBg = rounded(choice == selected ? P.accentSoft : P.surfaceLow, dp(12));
+            tileBg.setStroke(dp(choice == selected ? 2 : 0),
+                choice == selected ? P.accent : 0);
+            tile.setBackground(tileBg);
+            tile.setContentDescription(title + ": " + labels[i]);
+            tile.setSelected(choice == selected);
+
+            FrameLayout sample = new FrameLayout(this);
+            sample.setBackground(rounded(P.bg, dp(7)));
+            if (surface) {
+                View sampleCard = new View(this);
+                GradientDrawable sampleBg = rounded(choice == 1 ? P.surfaceHigh : P.surface, dp(5));
+                if (choice == 1) sampleBg.setStroke(dp(1), 0x55FFFFFF);
+                sampleCard.setBackground(sampleBg);
+                FrameLayout.LayoutParams cardLp = new FrameLayout.LayoutParams(dp(38), dp(19),
+                    Gravity.CENTER);
+                sample.addView(sampleCard, cardLp);
+            } else {
+                LinearLayout barPreview = new LinearLayout(this);
+                barPreview.setGravity(Gravity.CENTER);
+                barPreview.setPadding(dp(10), dp(3), dp(10), dp(3));
+                GradientDrawable barBg = rounded(P.surfaceHigh,
+                    choice == 1 ? dp(12) : dp(4));
+                barPreview.setBackground(barBg);
+                for (int dot = 0; dot < 3; dot++) {
+                    View item = new View(this);
+                    item.setBackground(rounded(P.accentDim, dp(3)));
+                    LinearLayout.LayoutParams itemLp = new LinearLayout.LayoutParams(dp(10), dp(4));
+                    itemLp.leftMargin = itemLp.rightMargin = dp(3);
+                    barPreview.addView(item, itemLp);
+                }
+                FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
+                    choice == 1 ? -2 : -1, dp(14),
+                    choice == 1 ? Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL : Gravity.BOTTOM);
+                if (choice == 1) barLp.bottomMargin = dp(3);
+                sample.addView(barPreview, barLp);
+            }
+            tile.addView(sample, new LinearLayout.LayoutParams(-1, dp(36)));
+            TextView label = new TextView(this);
+            label.setText(labels[i]);
+            label.setTextColor(choice == selected ? P.accent : P.text);
+            UiTokens.text(label, 10.5f, 600, 0f, false);
+            label.setGravity(Gravity.CENTER);
+            label.setPadding(0, dp(4), 0, 0);
+            tile.addView(label, new LinearLayout.LayoutParams(-1, -2));
+            tile.setOnClickListener(v -> {
+                if (surface) {
+                    prefs.edit().putString(AppPrefs.K_SURFACE_STYLE,
+                        choice == 1 ? AppPrefs.SURFACE_GLASS : AppPrefs.SURFACE_FLAT).apply();
+                } else {
+                    prefs.edit().putString(AppPrefs.K_BOTTOM_BAR_STYLE,
+                        choice == 1 ? AppPrefs.BAR_FLOATING : AppPrefs.BAR_DOCKED).apply();
+                }
+                themeChanged();
+            });
+            LinearLayout.LayoutParams tileLp = new LinearLayout.LayoutParams(0, -2, 1f);
+            tileLp.leftMargin = tileLp.rightMargin = dp(3);
+            row.addView(tile, tileLp);
+        }
+        row.setContentDescription(title);
+        return row;
     }
 
     // ── Customize helpers (v3.4.0) ────────────────────────────────────────────
@@ -1644,7 +1792,7 @@ public class MainActivity extends Activity {
             TextView label = new TextView(this);
             label.setText(names[i]);
             label.setTextColor(i == 3 ? 0xFF111827 : 0xFFCBD5E1);
-            UiTokens.text(label, 9.5f, 600, 0f, false);
+            UiTokens.text(label, 10.5f, 600, 0f, false);
             label.setGravity(Gravity.CENTER);
             label.setPadding(0, dp(4), 0, 0);
             tile.addView(label, new LinearLayout.LayoutParams(-1, -2));
@@ -1740,12 +1888,11 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, -2, 1f);
         tlp.leftMargin = dp(12);
         r.addView(text, tlp);
-        TextView more = new TextView(this);
-        more.setText("›");
-        more.setTextColor(P.desc);
-        more.setTextSize(22f);
-        more.setPadding(dp(8), 0, dp(4), 0);
-        r.addView(more, new LinearLayout.LayoutParams(-2, -2));
+        ImageView more = new ImageView(this);
+        more.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_forward, P.desc, 16));
+        more.setContentDescription("Open " + title);
+        more.setScaleType(ImageView.ScaleType.CENTER);
+        r.addView(more, new LinearLayout.LayoutParams(dp(40), dp(48)));
         r.setOnClickListener(click);
         return r;
     }
@@ -1764,13 +1911,11 @@ public class MainActivity extends Activity {
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackgroundColor(P.card2);
         bar.setPadding(dp(8), dp(10), dp(12), dp(10));
-        TextView back = new TextView(this);
-        back.setText("‹");
-        back.setTextColor(P.accent);
-        back.setTextSize(26f);
-        back.setGravity(Gravity.CENTER);
-        back.setPadding(dp(12), 0, dp(8), 0);
-        bar.addView(back, new LinearLayout.LayoutParams(-2, -2));
+        ImageView back = new ImageView(this);
+        back.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_back, P.accent, 20));
+        back.setContentDescription("Back");
+        back.setScaleType(ImageView.ScaleType.CENTER);
+        bar.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
         TextView barTitle = new TextView(this);
         barTitle.setText(title);
         barTitle.setTextColor(P.title);
@@ -2745,8 +2890,8 @@ public class MainActivity extends Activity {
             final TextView installPerm = settingRow(c1, t("Install unknown apps", "Install unknown apps"),
                 canInstallApks() ? t("ලැබී ඇත", "granted") : t("නැත (1-tap)", "not granted (1-tap)"));
             installPerm.setTextColor(canInstallApks() ? P.ok : P.warn);
-            installPerm.setOnClickListener(v -> openInstallPermission());
-            final TextView check = settingRow(c1, R.drawable.ic_search, t("දැන් පරීක්ෂා කරන්න", "Check now"), "GitHub Releases");
+            final TextView check = settingRow(c1, R.drawable.ic_search,
+                t("යාවත්කාලීන පරීක්ෂා කරන්න", "Check for Update"), "GitHub Releases");
             check.setTextColor(P.accentDim);
             check.setOnClickListener(v -> checkForUpdates());
             settingRow(c1, R.drawable.ic_info, "Obtainium", t("ගැලපේ — එකම signing key", "compatible — same permanent key"));
@@ -3434,61 +3579,11 @@ public class MainActivity extends Activity {
         return o.toByteArray();
     }
 
-    // ── the in-app GitHub update check (renders UpdateChecker.Result) ──────────
+    // ── REST-free in-app update check ─────────────────────────────────────────
 
     private void checkForUpdates() {
-        toast("…");
-        new Thread(() -> {
-            UpdateChecker.Result r = UpdateChecker.check();
-            main.post(() -> {
-                if (r.offline) {
-                    android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(this)
-                        .setTitle(t("යාවත්කාලීන පරීක්ෂාව", "Update check"))
-                        .setMessage((r.error == null || r.error.isEmpty() ? "unknown" : r.error)
-                            + "\n\n" + t("නැවත උත්සාහ කරන්න", "please retry"))
-                        .setPositiveButton(android.R.string.ok, null);
-                    try { d.show(); } catch (Throwable ignored) { }
-                    return;
-                }
-                if (!r.newer) {
-                    toast(t("අලුත්ම — v" + AppInfo.VERSION_NAME, "v" + AppInfo.VERSION_NAME + " is the latest release"));
-                    updateBanner.setVisibility(View.GONE);
-        UiIcons.setCompound(updateBanner, R.drawable.ic_update, P.accentDim, 14, Gravity.START);
-                    return;
-                }
-                String msg = "v" + r.latest + " " + t("ඇතුළත් · a new release is available", "— a new release is available")
-                    + "\n\n" + (r.notes.isEmpty() ? "" : r.notes + "\n\n")
-                    + "Download: AnantPlay-Sinhala-Player-v" + r.latest + ".apk\n"
-                    + t("නිහඬ ස්වයංක්‍රීය යාවත්කාලීනය දැනටමත් ON නම් එය බාගෙන නිහඬව සූදානම් වේ.",
-                        "With silent auto-update ON it downloads quietly and posts one quiet ready note.");
-                android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(this)
-                    .setTitle(t("යාවත්කාලීනයක් ඇත", "Update available"))
-                    .setMessage(msg)
-                    .setPositiveButton(t("දැන් install කරන්න", "Install now"), (dd, w) -> {
-                        // a manual check deliberately bypasses the cooldown
-                        new Thread(() -> SelfUpdater.checkAndMaybeInstall(MainActivity.this, true), "si-upd-manual").start();
-                    })
-                    .setNeutralButton(t("Release එක විවෘත කරන්න", "Open release"), (dd, w) -> {
-                        try {
-                            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse(r.releaseUrl.isEmpty() ? UpdateChecker.REPO_URL + "/releases/latest" : r.releaseUrl)));
-                        } catch (Throwable t) {
-                            toast("browser එකක් නැත — " + UpdateChecker.REPO_URL);
-                        }
-                    })
-                    .setNegativeButton(t("මෙම සංස්කරණය මඟහරින්න", "Skip this version"), (dd, w) -> {
-                        getSharedPreferences("selfupdate", MODE_PRIVATE).edit()
-                            .putString("skippedVersion", r.latest).apply();
-                        SelfUpdater.cancelBanners(this);
-                        toast(t("v" + r.latest + " මඟහැරියා", "skipped v" + r.latest));
-                        updateBanner.setVisibility(View.GONE);
-        UiIcons.setCompound(updateBanner, R.drawable.ic_update, P.accentDim, 14, Gravity.START);
-                    })
-                    .setOnCancelListener(dd -> { });
-                try { d.show(); } catch (Throwable ignored) { }
-                showUpdateBanner("v" + r.latest + " — " + t("නිහඬව බාගැනෙයි", "downloading quietly"), -2);
-            });
-        }, "si-update").start();
+        showUpdateBanner("Checking…", -2);
+        SelfUpdater.checkNow(this);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -3528,7 +3623,11 @@ public class MainActivity extends Activity {
         // v3.3.1 — the user's Card-corner-radius choice (6 / 16 / 28 dp), never a
         // hard-coded 16: the Customize row used to change nothing on screen.
         GradientDrawable g = rounded(color, dp(P.radiusCard));
-        g.setStroke(dp(1), 0x1FFFFFFF);
+        if (AppPrefs.glass(prefs)) {
+            g.setStroke(dp(1), ThemeEngine.hairline(P, AppPrefs.borderAlpha(prefs)));
+        } else {
+            g.setStroke(0, 0);
+        }
         l.setBackground(g);
         return l;
     }
@@ -3841,15 +3940,6 @@ public class MainActivity extends Activity {
     private boolean canInstallApks() {
         try { return getPackageManager().canRequestPackageInstalls(); }
         catch (Throwable t) { return false; }
-    }
-
-    private void openInstallPermission() {
-        try {
-            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:" + getPackageName())));
-        } catch (Throwable t) {
-            Miui.openAppDetails(this);
-        }
     }
 
     private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }

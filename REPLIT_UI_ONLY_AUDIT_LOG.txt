@@ -1,0 +1,376 @@
+ANANTPLAY v3.4.3 — UI-ONLY FORENSIC AUDIT
+Read-only audit scope. No production Android Java or drawable was modified.
+Baseline: imported HEAD f118ea7 is a Replit config commit; its parent origin/main 5b367912 records the v3.4.3 release, and AndroidManifest.xml says versionCode 30403.
+The request's example SHA was not the imported HEAD. The checked source itself is the v3.4.3 baseline; no version claim is made about v3.4.4.
+
+SCOPE & LIMITS
+This report combines source-anchored findings with a reproducible inventory of UI text call sites, vector resources, and UiIcons call sites. It is a static source audit, not a screenshot/device audit. There is no Android emulator installed, so visual states are represented in the studio simulator rather than claimed as device-verified.
+The project has no Browser UI screen; WebBrowserView is the in-app browser view. The subtitle, audio/quality, and settings overlays are sheets; code exposes more than three sheet/dialog states, so they are listed by action rather than miscounted.
+
+PRIORITIZED, EXACT SOURCE FINDINGS
+P1 — The cinema HUD's bottom dock is a seven-item horizontally scrolling row. Five items use word labels and two are live values. On narrow landscape screens, important controls can be off-screen and the dock reads as a pill wall.
+PlayActivity.java:2269 | chips.addView(pillBtn(R.drawable.ic_subtitles, "Subtitles", v -> togglePanel()));
+PlayActivity.java:2270 | chips.addView(pillBtn(R.drawable.ic_audio_track, "Audio / Quality", v -> showTrackSheet()));
+PlayActivity.java:2271 | aspectChip = chip(R.drawable.ic_aspect_fit, VideoViewport.modeLabel(aspectMode), v -> cycleAspect());
+PlayActivity.java:2273 | speedChip = chip(R.drawable.ic_speed, "1.0x", v -> cycleSpeed());
+PlayActivity.java:2275 | chips.addView(pillBtn(R.drawable.ic_rotate, "Rotate", v -> rotateScreen()));
+PlayActivity.java:2276 | chips.addView(pillBtn(R.drawable.ic_vlc_external, "VLC", v -> openExternalPlayer()));
+PlayActivity.java:2277 | chips.addView(pillBtn(R.drawable.ic_search, "Title", v -> openTitleSearch()));
+These use pillBtn() at 12sp (helper) or chip() at 11.5sp; reducing point size will not fix the count/scroll problem. Use icon-only controls with content descriptions, active dots, and a small value only for aspect/speed.
+
+P1 — The subtitle sheet has multiple horizontal chip rows, including the long AI/action labels; the grouped actions compete for attention and create long scroll.
+PlayActivity.java:3553 | t2("SL Sub Sites"), true, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openLkFinder(); }));
+PlayActivity.java:3555 | "Local .srt", false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; pickLocal(); }));
+PlayActivity.java:3582 | t2("Spoken/Formal"), false, v -> toggleRegister()));
+PlayActivity.java:3584 | "AI Studio", false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
+PlayActivity.java:3593 | t2("NewZone translator"), false, v -> {
+PlayActivity.java:3596 | t2("Audio → SRT (AI)"), false, v -> {
+Combine rarely used translation tools into one secondary action; keep language, subtitle selection, and sync controls as the primary tasks.
+
+P2 — Player settings repeat descriptive labels and word-heavy buttons where compact values or segmented controls fit better.
+PlayActivity.java:2441 | Button aspect = btn("Fit ⇄ Fill ⇄ Zoom");
+PlayActivity.java:2412 | s.addView(label(Chrome.pick("ධාවන වේගය · Playback speed")));
+PlayActivity.java:2326 | p.addView(label(Chrome.pick("කාල ගැලපුම · Sync nudge")));
+PlayActivity.java:2456 | s.addView(label(Chrome.pick("භාෂාව · Language")));
+PlayActivity.java:2469 | Button close = btn(Chrome.pick("වසන්න · Done"));
+Recommended: display 0.5×–2.5× as one segmented row; use the active ratio in the dock; move slider units into a small inline value.
+
+P2 — Home combines a 14sp auto-open heading with an explanatory 11.5sp paragraph, plus a separate 15sp getting-started block. This creates competing onboarding explanations above the primary receiver action.
+MainActivity.java:827 | head.setText(t("Cast කළ විට ඉබේ විවෘත කරන්න",
+MainActivity.java:835 | body.setText(t("\"Display over other apps\" එක වරක් දෙන්න — ඊට පසු Cast කළ සැණින් player විවෘත වේ.",
+MainActivity.java:891 | qsTitle.setText(t("මිනිත්තු 10න් පටන් ගන්න", "Get started in 3 steps"));
+Keep one primary action and a one-line state hint; place permission detail behind a compact disclosure instead of deleting the explanation.
+
+P2 — Onboarding and home use 20sp / 17sp / 15sp headings across the setup flow; those sizes can be correct as hierarchy, but the screen should be checked for translation wrapping and redundant instructions. The static audit flags them for layout review, not automatic reduction.
+OnboardingWizard.java:236 | title.setTextSize(20f);
+OnboardingWizard.java:415 | head.setText("3 steps to watch");
+MainActivity.java:343 | appTitle.setTextSize(16f);
+
+P3 — Browser's omnibar and suggestions are 13–14sp; shield status is 8sp. The tiny badge is a legibility risk; keep status secondary but raise its floor and use a concise icon + count. MainActivity uses text glyphs for expand/back affordances (▾, ‹) in the customization/browser surfaces; replace with existing vectors.
+WebBrowserView.java:176 | shieldBadge.setTextSize(8f);
+WebBrowserView.java:511 | autoChip.setText("Auto " + (on ? "ON" : "OFF"));
+MainActivity.java:1051 | guideToggle.setText("▾");
+MainActivity.java:1744 | more.setText("›");
+MainActivity.java:1768 | back.setText("‹");
+
+ICON AND LAYOUT INVENTORY
+Vector resources audited: 64
+Observed outline stroke widths: 1.6, 1.65, 1.7, 1.75, 1.85, 1.9, 2.2, 2.4
+Every drawable resource is listed below; consistent 24×24 viewports are not a guarantee of consistent optical weight or padding.
+res/drawable/ic_alert.xml | 24×24 viewport | 3 paths | stroke width(s): 1.85
+res/drawable/ic_aspect_fill.xml | 24×24 viewport | 7 paths | stroke width(s): 1.75
+res/drawable/ic_aspect_fit.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75
+res/drawable/ic_audio_track.xml | 24×24 viewport | 5 paths | stroke width(s): 2.2
+res/drawable/ic_back.xml | 24×24 viewport | 1 paths | stroke width(s): 1.9
+res/drawable/ic_backup.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_bookmark.xml | 24×24 viewport | 1 paths | stroke width(s): 1.75
+res/drawable/ic_brightness.xml | 24×24 viewport | 5 paths | stroke width(s): 1.75
+res/drawable/ic_cast.xml | 24×24 viewport | 5 paths | stroke width(s): 1.75, unset
+res/drawable/ic_check_circle.xml | 24×24 viewport | 2 paths | stroke width(s): 1.85
+res/drawable/ic_close.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75
+res/drawable/ic_copy.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75
+res/drawable/ic_desktop.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_dot.xml | 24×24 viewport | 1 paths | stroke width(s): unset
+res/drawable/ic_download.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_folder_zip.xml | 24×24 viewport | 2 paths | stroke width(s): 1.65
+res/drawable/ic_font.xml | 24×24 viewport | 3 paths | stroke width(s): 1.85
+res/drawable/ic_forward.xml | 24×24 viewport | 1 paths | stroke width(s): 1.9
+res/drawable/ic_forward_10.xml | 24×24 viewport | 4 paths | stroke width(s): 1.7, unset
+res/drawable/ic_globe.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_history.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_info.xml | 24×24 viewport | 3 paths | stroke width(s): 1.85
+res/drawable/ic_launcher_background.xml | 108×108 viewport | 2 paths | stroke width(s): unset
+res/drawable/ic_launcher_foreground.xml | 108×108 viewport | 4 paths | stroke width(s): 1.6, unset
+res/drawable/ic_launcher_monochrome.xml | 108×108 viewport | 2 paths | stroke width(s): unset
+res/drawable/ic_link.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75
+res/drawable/ic_lock.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_moon.xml | 24×24 viewport | 1 paths | stroke width(s): 1.75
+res/drawable/ic_more_dots.xml | 24×24 viewport | 3 paths | stroke width(s): unset
+res/drawable/ic_movie.xml | 24×24 viewport | 4 paths | stroke width(s): 1.7
+res/drawable/ic_nav_customize.xml | 24×24 viewport | 4 paths | stroke width(s): 1.75
+res/drawable/ic_nav_customize_filled.xml | 24×24 viewport | 4 paths | stroke width(s): unset
+res/drawable/ic_nav_home.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_nav_home_filled.xml | 24×24 viewport | 1 paths | stroke width(s): unset
+res/drawable/ic_nav_troubleshoot.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75
+res/drawable/ic_nav_troubleshoot_filled.xml | 24×24 viewport | 1 paths | stroke width(s): unset
+res/drawable/ic_nav_web.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_nav_web_filled.xml | 24×24 viewport | 1 paths | stroke width(s): unset
+res/drawable/ic_palette.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75
+res/drawable/ic_pause.xml | 24×24 viewport | 2 paths | stroke width(s): 2.4
+res/drawable/ic_pause_filled.xml | 24×24 viewport | 2 paths | stroke width(s): unset
+res/drawable/ic_pip.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75
+res/drawable/ic_play.xml | 24×24 viewport | 1 paths | stroke width(s): 1.9
+res/drawable/ic_play_filled.xml | 24×24 viewport | 1 paths | stroke width(s): unset
+res/drawable/ic_plus.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75
+res/drawable/ic_quality_hd.xml | 24×24 viewport | 6 paths | stroke width(s): 1.6
+res/drawable/ic_refresh.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75, unset
+res/drawable/ic_replay_10.xml | 24×24 viewport | 4 paths | stroke width(s): 1.7, unset
+res/drawable/ic_rotate.xml | 24×24 viewport | 4 paths | stroke width(s): 1.75, unset
+res/drawable/ic_search.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75
+res/drawable/ic_settings.xml | 24×24 viewport | 2 paths | stroke width(s): 1.7
+res/drawable/ic_share.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_shield_adblock.xml | 24×24 viewport | 2 paths | stroke width(s): 1.75
+res/drawable/ic_sliders.xml | 24×24 viewport | 6 paths | stroke width(s): 1.7, unset
+res/drawable/ic_speed.xml | 24×24 viewport | 5 paths | stroke width(s): 1.75, unset
+res/drawable/ic_srilanka_sub.xml | 24×24 viewport | 4 paths | stroke width(s): 1.7
+res/drawable/ic_stat_si.xml | 24×24 viewport | 1 paths | stroke width(s): unset
+res/drawable/ic_subtitles.xml | 24×24 viewport | 5 paths | stroke width(s): 1.75
+res/drawable/ic_sun.xml | 24×24 viewport | 9 paths | stroke width(s): 1.75
+res/drawable/ic_translate.xml | 24×24 viewport | 5 paths | stroke width(s): 1.7
+res/drawable/ic_unlock.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_update.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_vlc_external.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+res/drawable/ic_volume.xml | 24×24 viewport | 3 paths | stroke width(s): 1.75
+
+ALL UiIcons CALL SITES
+UiIcons call sites: 53
+src/lk/techworld/anantplay/sicast/MainActivity.java:429 | ImageView icon = UiIcons.view(this, iconSet[i][0], P.desc, iconDp);
+src/lk/techworld/anantplay/sicast/MainActivity.java:562 | iv.setImageDrawable(UiIcons.tinted(this, resId, P.text, 20));
+src/lk/techworld/anantplay/sicast/MainActivity.java:614 | UiIcons.tinted(this, on ? res[1] : res[0], on ? P.accent : P.desc, 22));
+src/lk/techworld/anantplay/sicast/MainActivity.java:653 | UiIcons.setCompound(title, R.drawable.ic_history, P.accent, 16, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:680 | play.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_play_filled, P.accent, 18));
+src/lk/techworld/anantplay/sicast/MainActivity.java:832 | UiIcons.setCompound(head, R.drawable.ic_cast, P.accent, 16, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:843 | UiIcons.setCompound(enable, R.drawable.ic_check_circle, 0xFF0A0A14, 16, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:872 | UiIcons.setCompound(updateBanner, R.drawable.ic_update, P.accentDim, 14, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:892 | UiIcons.setCompound(qsTitle, R.drawable.ic_check_circle, P.accent, 16, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:910 | UiIcons.setCompound(got, R.drawable.ic_check_circle, 0xFF0A0A14, 16, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:981 | UiIcons.setCompound(toggle, up ? R.drawable.ic_pause : R.drawable.ic_play,
+src/lk/techworld/anantplay/sicast/MainActivity.java:1045 | UiIcons.setCompound(guideTitle, R.drawable.ic_info, P.accentDim, 14, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:1147 | UiIcons.setCompound(h, R.drawable.ic_alert, P.warn, 15, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:1721 | ic.setImageDrawable(UiIcons.tinted(this, iconRes, iconColor, 20));
+src/lk/techworld/anantplay/sicast/MainActivity.java:1851 | UiIcons.setCompound(dimHead, R.drawable.ic_moon, P.accent, 16, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:1890 | if (idx == AppPrefs.accent(prefs)) UiIcons.setIconOnly(dot, R.drawable.ic_check_circle, 0xFF0A0A14, 14);
+src/lk/techworld/anantplay/sicast/MainActivity.java:2278 | if (idx == AppPrefs.subColor(prefs)) UiIcons.setIconOnly(dot, R.drawable.ic_check_circle, 0xFF0A0A14, 14);
+src/lk/techworld/anantplay/sicast/MainActivity.java:2966 | UiIcons.setCompound(l, R.drawable.ic_check_circle, P.ok, 13, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3163 | UiIcons.setIconOnly(mark, o.pass ? R.drawable.ic_check_circle : R.drawable.ic_close, o.pass ? P.ok : P.err, 15);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3251 | UiIcons.setCompound(selfTestLine, all ? R.drawable.ic_check_circle : R.drawable.ic_alert,
+src/lk/techworld/anantplay/sicast/MainActivity.java:3350 | UiIcons.setCompound(t, R.drawable.ic_alert, P.warn, 15, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3417 | UiIcons.setCompound(v, ok ? R.drawable.ic_check_circle : R.drawable.ic_close,
+src/lk/techworld/anantplay/sicast/MainActivity.java:3456 | UiIcons.setCompound(updateBanner, R.drawable.ic_update, P.accentDim, 14, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3485 | UiIcons.setCompound(updateBanner, R.drawable.ic_update, P.accentDim, 14, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3623 | UiIcons.setCompound((TextView) first, iconRes, P.accent, 15, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3630 | UiIcons.setCompound(b, iconRes, P.text, 15, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3637 | UiIcons.setCompound(b, iconRes, 0xFF0A0A14, 16, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3644 | UiIcons.setCompound(b, iconRes, P.err, 15, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3651 | UiIcons.setCompound(b, iconRes, tint, primary ? 16 : 15, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3658 | UiIcons.setIconOnly(b, iconRes, tint, 16);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3664 | UiIcons.setCompound(tv, R.drawable.ic_dot, color, 9, Gravity.START);
+src/lk/techworld/anantplay/sicast/MainActivity.java:3759 | ic.setImageDrawable(UiIcons.tinted(this, iconRes, P.accent, 22));
+src/lk/techworld/anantplay/sicast/MainActivity.java:3790 | UiIcons.setCompound(chip, ok ? R.drawable.ic_check_circle : R.drawable.ic_alert,
+src/lk/techworld/anantplay/sicast/OnboardingWizard.java:312 | icon.setImageDrawable(UiIcons.tinted(act, R.mipmap.ic_launcher, p.accent, 40));
+src/lk/techworld/anantplay/sicast/PlayActivity.java:1132 | UiIcons.setCompound(statusPill, R.drawable.ic_search, 0xFFFDE68A, 16, Gravity.START);
+src/lk/techworld/anantplay/sicast/PlayActivity.java:2051 | unlockIcon.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_lock, 0xFFE2E8F0, 14));
+src/lk/techworld/anantplay/sicast/PlayActivity.java:2405 | UiIcons.setCompound(head, R.drawable.ic_settings, 0xFFE2E8F0, 15, Gravity.START);
+src/lk/techworld/anantplay/sicast/PlayActivity.java:2787 | iv.setImageDrawable(UiIcons.tinted(this, resId, Color.WHITE, size));
+src/lk/techworld/anantplay/sicast/PlayActivity.java:2806 | ((ImageView) playPause).setImageDrawable(UiIcons.tinted(this,
+src/lk/techworld/anantplay/sicast/PlayActivity.java:2813 | if (v instanceof TextView) UiIcons.setCompound((TextView) v, resId, 0xFFE2E8F0, 13, Gravity.START);
+src/lk/techworld/anantplay/sicast/PlayActivity.java:2820 | UiIcons.setCompound(t, resId, 0xFFE2E8F0, 13, Gravity.START);
+src/lk/techworld/anantplay/sicast/PlayActivity.java:2827 | UiIcons.setCompound(b, resId, Color.WHITE, 15, Gravity.START);
+src/lk/techworld/anantplay/sicast/PlayActivity.java:3878 | UiIcons.setCompound(head, R.drawable.ic_alert, 0xFFFF6B6B, 15, Gravity.START);
+src/lk/techworld/anantplay/sicast/PlayActivity.java:3943 | if (g.isTrackSelected(i)) UiIcons.setCompound(b, R.drawable.ic_check_circle, 0xFF86EFAC, 15, Gravity.START);
+src/lk/techworld/anantplay/sicast/SpeedDial.java:202 | plus.setImageDrawable(UiIcons.tinted(c, R.drawable.ic_plus, p.accent, 22));
+src/lk/techworld/anantplay/sicast/UiChip.java:30 | UiIcons.setCompound(t, iconRes, selected ? 0xFF0A0A14 : p.text, 14, Gravity.START);
+src/lk/techworld/anantplay/sicast/UiGroup.java:63 | ic.setImageDrawable(UiIcons.tinted(c, iconRes, p.accent, 20));
+src/lk/techworld/anantplay/sicast/UiGroup.java:233 | iv.setImageDrawable(UiIcons.tinted(c, iconRes, p.desc, 34));
+src/lk/techworld/anantplay/sicast/WebBrowserView.java:172 | shieldIcon.setImageDrawable(UiIcons.tinted(act, R.drawable.ic_shield_adblock, 0xFF22C55E, 19));
+src/lk/techworld/anantplay/sicast/WebBrowserView.java:512 | UiIcons.setCompound(autoChip, R.drawable.ic_refresh,
+src/lk/techworld/anantplay/sicast/WebBrowserView.java:520 | iv.setImageDrawable(UiIcons.tinted(act, resId, 0xFFE2E8F0, 20));
+src/lk/techworld/anantplay/sicast/WebBrowserView.java:752 | ic.setImageDrawable(UiIcons.tinted(act, R.drawable.ic_search, 0xFF94A3B8, 15));
+src/lk/techworld/anantplay/sicast/WebBrowserView.java:1244 | UiIcons.setCompound(chip, R.drawable.ic_nav_web, 0xFFE2E8F0, 12, Gravity.START);
+
+MORNYE REFERENCE COMPARISON (read-only)
+Read-only Mornye comparison checkout: /tmp/mornye-ref
+lib/widgets/settings_group.dart :: Expressive connected list | 216: /// Corners of one row in an expressive connected list: the card radius at the; 317: // Expressive connected list: every row is its own surface separated by
+lib/widgets/settings_group.dart :: surfaceContainerHigh | 781: : colorScheme.surfaceContainerHigh;; 834: ? colorScheme.surfaceContainerHighest
+lib/widgets/player_playback_controls.dart :: playPauseSize | 75: final playPauseSize = desktopMornye; 293: iconSize: playPauseSize,
+lib/widgets/mornye_player_layout.dart :: PlayerPlaybackControls | 378: Widget controls() => PlayerPlaybackControls(
+lib/theme/app_tokens.dart :: gapLg | 22: required this.gapLg,; 64: gapLg: 16,
+lib/theme/app_theme.dart :: surfaceContainer | 169: : scheme.surfaceContainer,; 181: color: scheme.surfaceContainerLow,
+
+MORNYE-GRADE GAP SUMMARY
+• Surface hierarchy: app has a dark/AMOLED/light palette, accent presets, radius tokens and grouped settings, but several screens still depend on repeated stroked cards/chips rather than one clear canvas → surface → control hierarchy.
+• Density: player actions are split between a 7-control dock and several subtitle rows; Mornye's player layout organizes controls into measured, aligned groups and uses spacious surface-container contrast.
+• Typography: the shared scale is strong, but screen code frequently chooses local sizes and bilingual labels; simplify copy and centralize text roles instead of globally shrinking the font.
+• Customization: settings expose many raw rows and sliders. Build preview-first tiles for theme/accent/radius/navigation, retaining a collapsible advanced list.
+• App icon: current adaptive and monochrome XML assets exist; focus redesign on a single bold, centered cinema-frame/letterform silhouette with safe-zone margins, no fine linework, no text, and identical monochrome geometry.
+
+Canva API note: current export documentation has a design-export-formats endpoint that can report SVG availability and an SVG export job type, but exports can return feature_not_available. The studio offers per-design format checks and manual SVG upload; Canva SVG export is best-effort and cannot be promised for every design.
+Production callback note: this repl has no active production deployment. A production URL cannot be supplied until publishing. The studio labels the Replit development callback as development and prefers CANVA_REDIRECT_URI / REPLIT_APP_URL once set.
+
+RECOMMENDED v3.4.4 HANDOFF
+1. Replace the scrolling player action pills with an accessible icon dock: CC, audio tracks, aspect, speed, and title search; use a small active indicator and retain spoken labels as accessibility descriptions.
+2. Keep the upper HUD title and 3-zone layout; make only the low-frequency options (rotate, lock, PiP, external player, settings) icon controls. Use 44dp touch targets.
+3. Collapse subtitle tools into: language / source / sync / style / more. Put AI translation and site search under More; no more than one horizontal chip strip.
+4. Home: one receiver state card, one action, one short supporting sentence. Move onboarding steps into a dismissible guided checklist.
+5. Settings: preview-first theme, accent, and bar-style tiles; keep the current Simple/Advanced distinction and all existing preferences.
+6. Keep changes inside v3.4.x, Java 8, minSdk 26, targetSdk 36, under 5 MB, with the existing layout-parameter and no-AccessibilityService constraints.
+
+No Android production source or resource was modified by this work.
+
+TEXT-LITERAL SOURCE INVENTORY
+Literal UI text candidate lines inventoried: 155
+
+[MainActivity.java] 70 literal text call lines
+MainActivity.java:341 | 16f sp (near line 343) | ඇනන්ට්ප්ලේ සිංහල · AnantPlay Sinhala
+MainActivity.java:350 | 9.5f sp (near line 352) | v
+MainActivity.java:649 | 14.5f sp (near line 651) | නැවත බලන්න · Continue watching
+MainActivity.java:656 | 11.5f sp (near line 658) | හිස් කරන්න · Clear
+MainActivity.java:690 | 13f sp (near line 692) | Video
+MainActivity.java:720 | 11.5f sp (near line 722) | නැවත විවෘත · Re-open · නැවත · Resume
+MainActivity.java:827 | 14f sp (near line 830) | Cast කළ විට ඉබේ විවෘත කරන්න
+MainActivity.java:835 | 11.5f sp (near line 839) | "Display over other apps" එක වරක් දෙන්න — ඊට පසු Cast කළ සැණින් player විවෘත වේ.
+MainActivity.java:891 | 15f sp (near line 894) | මිනිත්තු 10න් පටන් ගන්න · Get started in 3 steps
+MainActivity.java:930 | 11.5f sp (near line 933) | AnantPlay එකේ Cast බොත්තමෙන් "සිංහල Player" තෝරන්න
+MainActivity.java:980 | not statically resolved | වසන්න · Stop receiver · අරඹන්න · Start receiver
+MainActivity.java:1044 | 14.5f sp (near line 1047) | භාවිත කරන ආකාරය · How to use
+MainActivity.java:1051 | 16f sp (near line 1053) | ▾
+MainActivity.java:1072 | 11.5f sp (near line 1079) | ▾ · ▴
+MainActivity.java:1146 | 13.5f sp (near line 1149) | සැකසුම · අවසර අවශ්‍යයි (1-tap each) · Setup · permissions needed (1-tap each)
+MainActivity.java:1156 | 13.5f sp (near line 1149) | android.permission.POST_NOTIFICATIONS
+MainActivity.java:1254 | not statically resolved | \\d+% ·  ·   · %
+MainActivity.java:1298 | 14f sp (near line 1300) | උසස් සැකසුම් · Advanced settings
+MainActivity.java:1314 | not statically resolved | ▴ · ▾
+MainActivity.java:1315 | not statically resolved | උසස් සැකසුම් · Advanced settings
+MainActivity.java:1325 | not statically resolved | පෙනුම · Appearance
+MainActivity.java:1329 | not statically resolved | තියුණු · Sharp · රවුම් · Rounded · පිල් · Pill
+MainActivity.java:1336 | not statically resolved | සමතලා · Flat · වීදුරු · Glass
+MainActivity.java:1347 | not statically resolved | පළල් · Spacious · සුවපහසු · Comfort · තද · Compact
+MainActivity.java:1355 | not statically resolved | සවිකර · Docked · පාවෙන · Floating
+MainActivity.java:1362 | not statically resolved | ද්විභාෂා · Bilingual · සිංහල · English
+MainActivity.java:1387 | not statically resolved | උපසිරැසි · Subtitles & style
+MainActivity.java:1399 | not statically resolved | බ්‍රව්සර් · Browser
+MainActivity.java:1401 | not statically resolved | ඉහළ · Top · පහළ · Bottom
+MainActivity.java:1409 | not statically resolved | 2 · 3 · 4
+MainActivity.java:1414 | not statically resolved | DDG · Google · Startpage · Brave
+MainActivity.java:1443 | not statically resolved | ධාවකය · Player
+MainActivity.java:1445 | not statically resolved | ගැළපුම · Fit · පිරවුම · Fill · 16:9 · දිගු · Stretch
+MainActivity.java:1460 | not statically resolved | ස්වයංක්‍රීය · Auto · තිරස් · Landscape · සිරස් · Portrait
+MainActivity.java:1467 | not statically resolved | VLC · MX · mpv · තෝරන්න · Ask
+MainActivity.java:1473 | not statically resolved | නැත · Off · 15m · 30m · 60m
+MainActivity.java:1497 | not statically resolved | ජාලය සහ දත්ත · Cast, network & data
+MainActivity.java:1533 | v sp (near line 1541) | ඉක්මන් සැකසුම් · Quick settings
+MainActivity.java:1542 | v sp (near line 1541) | ශ්‍රී ලංකාවේ චිත්‍රපටිය — අකුරු හරිම පැහැදිලියි!
+MainActivity.java:1546 | AppPrefs.fontSp(prefs sp (near line 1549) | ශ්‍රී ලංකාවේ චිත්‍රපටිය — අකුරු හරිම පැහැදිලියි!
+MainActivity.java:1683 | AppPrefs.fontSp(prefs sp (near line 1685) | ශ්‍රී ලංකාවේ චිත්‍රපටිය — සිංහල උපසිරැසි
+MainActivity.java:1744 | 22f sp (near line 1746) | ›
+MainActivity.java:1768 | 26f sp (near line 1770) | ‹
+MainActivity.java:1847 | 13.5f sp (near line 1849) | මධ්‍යම රාත්‍රී අඳුරු මාදිලිය · Midnight Night Dimmer
+MainActivity.java:1868 | not statically resolved | %
+MainActivity.java:1889 | 13f sp (near line 1888) | 
+MainActivity.java:1920 | 13f sp (near line 1921) |  · #
+MainActivity.java:2160 | 10.5f sp (near line 2162) | සජීවී preview · Live preview · Live preview
+MainActivity.java:2168 | 10.5f sp (near line 2162) | ශ්‍රී ලංකාවේ චිත්‍රපටිය — සිංහල උපසිරැසි
+MainActivity.java:2223 | not statically resolved |  · 
+MainActivity.java:2277 | 12f sp (near line 2276) | 
+MainActivity.java:2431 | not statically resolved |  s
+MainActivity.java:2454 | not statically resolved |  s
+MainActivity.java:2468 | not statically resolved |  s
+MainActivity.java:2522 | not statically resolved |  · 
+MainActivity.java:2557 | 13f sp (near line 2559) | • 
+MainActivity.java:2713 | not statically resolved | …
+MainActivity.java:3098 | 12.5f sp (near line 3096) | 10-ජංගම පරීක්ෂණය ඉහත hero බොත්තමෙන් — ප්‍රතිඵල මෙහි පෙනේ.
+MainActivity.java:3149 | 12f sp (near line 3152) | තව පරීක්ෂණයක් ධාවනය වී නැත — ඉහත hero බොත්තම ඔබන්න.
+MainActivity.java:3169 | 12.5f sp (near line 3171) | . 
+MainActivity.java:3174 | 11f sp (near line 3176) |  ms
+MainActivity.java:3180 | 11f sp (near line 3182) |      · 
+MainActivity.java:3189 | 12.5f sp (near line 3192) | තීරණය:  · ALL FEATURES HEALTHY · සියලු විශේෂාංග සෞඛ්‍යසම්පූර්ණයි
+MainActivity.java:3213 | not statically resolved | සම්පූර්ණ පරීක්ෂණය ධාවනය වෙමින්… · running all 10 feature probes…
+MainActivity.java:3226 | not statically resolved | …  · /10 
+MainActivity.java:3248 | not statically resolved | / ·  
+MainActivity.java:3349 | 13.5f sp (near line 3352) | අවසාන Crash එක සටහන් වී ඇත · Last Crash Captured
+MainActivity.java:3406 | 12f sp (near line 3408) | …
+MainActivity.java:3677 | not statically resolved | ON · OFF
+MainActivity.java:3788 | not statically resolved |  · 
+
+[PlayActivity.java] 53 literal text call lines
+PlayActivity.java:984 | not statically resolved | ● LIVE
+PlayActivity.java:1805 | not statically resolved | 
+PlayActivity.java:2054 | 11.5f sp (near line 2056) |   Tap to unlock · අගුළු හරින්න
+PlayActivity.java:2140 | 10.5f sp (near line 2142) | සිංහල
+PlayActivity.java:2252 | 11.5f sp (near line 2251) | 0:00
+PlayActivity.java:2258 | 11.5f sp (near line 2256) | 0:00
+PlayActivity.java:2269 | not statically resolved | Subtitles
+PlayActivity.java:2270 | not statically resolved | Audio / Quality
+PlayActivity.java:2273 | not statically resolved | 1.0x
+PlayActivity.java:2275 | not statically resolved | Rotate
+PlayActivity.java:2276 | not statically resolved | VLC
+PlayActivity.java:2277 | not statically resolved | Title
+PlayActivity.java:2322 | not statically resolved | අකුරේ ප්‍රමාණය · Font size
+PlayActivity.java:2324 | not statically resolved | පසුබිම් අඳුන · Mask
+PlayActivity.java:2326 | not statically resolved | කාල ගැලපුම · Sync nudge
+PlayActivity.java:2332 | not statically resolved | නැවත ලබාගන්න · Refetch subs
+PlayActivity.java:2338 | 13 sp (near line 2346) | නොමිලේ පරිවර්තනය · Free translate now
+PlayActivity.java:2348 | 13 sp (near line 2346) | URL උපසිරැසි එක ලබාගන්න
+PlayActivity.java:2363 | 13 sp (near line 2360) | Go — worker එකෙන් හාන්ගතකරන්න
+PlayActivity.java:2374 | not statically resolved | Find Sinhala Sub (SL sites) · සිංහල සොයන්න
+PlayActivity.java:2378 | not statically resolved | local .srt / .zip load
+PlayActivity.java:2382 | not statically resolved | වසන්න · Close
+PlayActivity.java:2404 | 14 sp (near line 2407) | Player settings · ධාවක සැකසුම්
+PlayActivity.java:2412 | 14 sp (near line 2407) | ධාවන වේගය · Playback speed
+PlayActivity.java:2421 | 12.5f sp (near line 2417) | %.2fx
+PlayActivity.java:2424 | 11.5f sp (near line 2425) | 1x · %.2gx
+PlayActivity.java:2429 | 11.5f sp (near line 2425) | %.02fx
+PlayActivity.java:2440 | not statically resolved | රූප පරිමාණය · Aspect
+PlayActivity.java:2441 | not statically resolved | Fit ⇄ Fill ⇄ Zoom
+PlayActivity.java:2448 | not statically resolved | අකුරු ප්‍රමාණය · Font size
+PlayActivity.java:2450 | not statically resolved | පසුබිම් අඳුන · Mask
+PlayActivity.java:2452 | not statically resolved | කාල ගැලපුම · Sync nudge
+PlayActivity.java:2456 | 11.5f sp (near line 2461) | භාෂාව · Language
+PlayActivity.java:2469 | 11.5f sp (near line 2461) | වසන්න · Done
+PlayActivity.java:2502 | not statically resolved | Fit · Fill · 16:9 · Stretch
+PlayActivity.java:2513 | not statically resolved | Off · 15m · 30m · 60m
+PlayActivity.java:2530 | not statically resolved | Done
+PlayActivity.java:2595 | not statically resolved | %.2gx
+PlayActivity.java:2810 | not statically resolved | \uD83D\uDCAC Subtitles
+PlayActivity.java:3012 | not statically resolved | Auto-rotate (sensor) · Lock landscape · Lock portrait
+PlayActivity.java:3071 | not statically resolved | %.2g×
+PlayActivity.java:3536 | not statically resolved | More
+PlayActivity.java:3543 | not statically resolved | Auto · Spoken · Formal
+PlayActivity.java:3635 | not statically resolved | −0.25s
+PlayActivity.java:3636 | not statically resolved | +0.25s
+PlayActivity.java:3637 | not statically resolved | −1s
+PlayActivity.java:3638 | not statically resolved | +1s
+PlayActivity.java:3772 | not statically resolved | http:// · https://
+PlayActivity.java:3877 | 14 sp (near line 3880) | Playback error
+PlayActivity.java:3890 | 12.5f sp (near line 3886) | Retry
+PlayActivity.java:3900 | not statically resolved | Retry with alternate headers
+PlayActivity.java:3909 | not statically resolved | Open in VLC
+PlayActivity.java:3913 | not statically resolved | Copy error
+
+[WebBrowserView.java] 14 literal text call lines
+WebBrowserView.java:338 | not statically resolved | 
+WebBrowserView.java:472 | not statically resolved | 99+
+WebBrowserView.java:511 | not statically resolved | Auto  · ON · OFF
+WebBrowserView.java:616 | 13f sp (near line 617) | +
+WebBrowserView.java:811 | not statically resolved | Move up
+WebBrowserView.java:813 | not statically resolved | Move down
+WebBrowserView.java:815 | not statically resolved | Delete
+WebBrowserView.java:873 | not statically resolved | Desktop mode
+WebBrowserView.java:881 | not statically resolved | Bookmark this page
+WebBrowserView.java:884 | not statically resolved | Bookmarks
+WebBrowserView.java:887 | not statically resolved | Paste a link
+WebBrowserView.java:890 | not statically resolved | Find on page
+WebBrowserView.java:893 | not statically resolved | Browser home
+WebBrowserView.java:896 | not statically resolved | Clear cache & cookies
+
+[OnboardingWizard.java] 18 literal text call lines
+OnboardingWizard.java:293 | not statically resolved | Step  ·  of 
+OnboardingWizard.java:315 | 17f sp (near line 317) | AnantPlay Player
+OnboardingWizard.java:322 | 17f sp (near line 317) | Watch AnantPlay movies with automatic Sinhala subtitles.
+OnboardingWizard.java:323 | 17f sp (near line 317) | Setup takes about 30 seconds. Every step can be skipped and 
+OnboardingWizard.java:333 | not statically resolved | Your Android version does not ask for this — 
+OnboardingWizard.java:336 | not statically resolved | The receiver runs without this. The permission only 
+OnboardingWizard.java:339 | not statically resolved | Skipping this never blocks setup. You can grant it later 
+OnboardingWizard.java:351 | not statically resolved | With "Display over other apps" allowed, a cast jumps 
+OnboardingWizard.java:354 | not statically resolved | The status above is read live from Android every time you 
+OnboardingWizard.java:368 | not statically resolved | Android may put the receiver to sleep to save battery. 
+OnboardingWizard.java:383 | not statically resolved | This is a vendor setting the OS does not always report — the 
+OnboardingWizard.java:409 | 13.5f sp (near line 417) | AnantPlay Player is a receiver — it plays the movies 
+OnboardingWizard.java:415 | 13.5f sp (near line 417) | 3 steps to watch
+OnboardingWizard.java:437 | not statically resolved | Probes 1–3 exercise this phone's own receiver (localhost 
+OnboardingWizard.java:594 | 12f sp (near line 596) | ✓ · ✗
+OnboardingWizard.java:599 | 11.5f sp (near line 601) | # ·  
+OnboardingWizard.java:606 | 10.5f sp (near line 608) |  ms
+OnboardingWizard.java:640 | not statically resolved | android.permission.POST_NOTIFICATIONS
+
+Sizing note: the nearest setTextSize within eight source lines is an automated locator, not a Java data-flow proof. Dynamic strings, helper defaults, inherited styles, and bilingual alternatives are labelled conservatively.

@@ -26,8 +26,7 @@ import java.util.Map;
  *     to refuse an oversized download BEFORE the first byte arrives;
  *   · httpsOnly() — the install path accepts https:// download URLs only.
  *
- * v3.2.0 — THE ZERO-RATE-LIMIT 3-TIER RESOLVER (Smoking Gun #1: the 60/hr
- * api.github.com REST limit burned 200+ calls in 148 s on the field phone):
+ * v3.2.0 — THE ZERO-RATE-LIMIT 2-TIER RESOLVER:
  *   · Tier 1 (PRIMARY) — https://github.com/<repo>/releases/latest, a plain
  *     WEB page redirect: HttpURLConnection with setInstanceFollowRedirects(false)
  *     sees the 302 and reads the Location header
@@ -35,14 +34,12 @@ import java.util.Map;
  *     are DERIVED deterministically:
  *         https://github.com/<repo>/releases/download/v<ver>/SHA256SUMS.txt
  *         https://github.com/<repo>/releases/download/v<ver>/AnantPlay-Sinhala-Player-v<ver>.apk
- *     github.com's web CDN has no per-IP REST quota — the check costs ZERO
- *     api.github.com calls by construction;
+  *     this route is a simple web redirect and does not call the REST API;
  *   · Tier 2 (FALLBACK) — the tiny docs/latest.json the release workflow
  *     publishes to raw.githubusercontent.com ({"version":"3.2.0","code":30200}),
- *     auto-updated by .github/workflows/release-apk.yml on every release;
- *   · Tier 3 (LAST RESORT) — the old api.github.com REST call, only when BOTH
- *     tiers above failed, honoring X-RateLimit-Remaining / Retry-After when the
- *     API answers 403 (and NEVER re-fired while a backoff is outstanding).
+ *     auto-updated by .github/workflows/release-apk.yml on every release.
+ * There is no GitHub REST API endpoint in the update path. A failed check is
+ * throttled locally instead of falling back to a rate-limited service.
  * Every tier fills the SAME Release shape, so the download/verify/install path
  * above is untouched: https-only, 30 MB cap, strict SHA-256 vs SHA256SUMS.txt. */
 final class SelfUpdateCore {
@@ -58,9 +55,24 @@ final class SelfUpdateCore {
     /** v3.2.0 — the repo the resolver derives every tier-1 URL from. */
     static final String REPO = "dictationb1/anantplay-sinhala-player";
 
-    /** v3.2.0 — the three resolver tiers, in firing order (the lab asserts
-     *  which tier answered via Release.tier). */
-    static final String TIER_WEB_REDIRECT = "web-redirect", TIER_RAW_JSON = "raw-json", TIER_REST_API = "rest-api";
+    /** The two resolver routes, in firing order (the lab asserts the winner). */
+    static final String TIER_WEB_REDIRECT = "web-redirect", TIER_RAW_JSON = "raw-json";
+
+    /** Injectable only by the package-local verification lab. */
+    interface ConnectionOpener {
+        HttpURLConnection open(String url) throws Exception;
+    }
+    private static volatile ConnectionOpener testConnectionOpener;
+
+    static void setConnectionOpenerForTests(ConnectionOpener opener) {
+        testConnectionOpener = opener;
+    }
+
+    private static HttpURLConnection openConnection(String url) throws Exception {
+        ConnectionOpener opener = testConnectionOpener;
+        if (opener != null) return opener.open(url);
+        return (HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
+    }
 
     /** The deterministic release-name contract (the CI's exact asset name). */
     static String apkAssetName(String version) {
@@ -82,11 +94,6 @@ final class SelfUpdateCore {
         return "https://raw.githubusercontent.com/" + REPO + "/main/docs/latest.json";
     }
 
-    /** v3.2.0 — the legacy REST URL (tier 3, LAST resort only). */
-    static String restLatestUrl() {
-        return "https://api.github.com/repos/" + REPO + "/releases/latest";
-    }
-
     private SelfUpdateCore() { }
 
     /** True only for https:// URLs (the updater refuses everything else). */
@@ -96,21 +103,20 @@ final class SelfUpdateCore {
 
     // ── v3.2.0 — THE BACKOFF GATE (pure — the lab proves the whole contract) ──
 
-    /** The app-open debounce: a check runs at most once per 60 s. */
-    static final long MIN_CHECK_INTERVAL_MS = 60 * 1000L;
+    /** The app-open success cooldown: automatic checks run at most every 5 min. */
+    static final long MIN_CHECK_INTERVAL_MS = 5 * 60 * 1000L;
     /** THE FAILURE BACKOFF: after a failed/offline check, automatic re-checks
      *  are locked out for 15 minutes (the anti-hammer contract that killed the
      *  250 ms field loop). A manual "Check now" always bypasses it. */
     static final long FAILURE_BACKOFF_MS = 15 * 60 * 1000L;
 
     /**
-     * v3.2.0 — may an AUTOMATIC check start right now? Three locks, any one
-     * vetoes: the 60 s app-open debounce (lastCheck — persisted BEFORE the
+     * May an AUTOMATIC check start right now? Two locks, either one vetoes:
+     * the 5-minute app-open cooldown (lastCheck — persisted BEFORE the
      * network attempt, so it holds even when the attempt crashed), the
-     * 15-minute FAILURE backoff (lastFailedCheck), and (by JobScheduler's own
-     * cadence) the 4-hour period. `manual=true` (the user pressed Check now)
-     * bypasses everything. Pure — the lab drives every branch and the exact
-     * 200-calls-in-148-s field storm. */
+     * 15-minute FAILURE backoff (lastFailedCheck). `manual=true` bypasses both
+     * gates because the user explicitly asked to check now.
+     * Pure — the lab drives every branch and the 200-calls-in-148-s field storm. */
     static boolean checkAllowed(long nowMs, long lastCheck, long lastFailedCheck, boolean manual) {
         if (manual) return true;
         if (lastCheck > 0 && nowMs - lastCheck < MIN_CHECK_INTERVAL_MS) return false;
@@ -118,49 +124,47 @@ final class SelfUpdateCore {
         return true;
     }
 
-    /** The GitHub release facts we need. v3.2.0 adds `tier` (which resolver
-     *  answered) so the lab + the Troubleshooter can prove api.github.com was
-     *  NEVER touched on the happy path. */
+    /** The GitHub release facts required before any APK can be downloaded. */
     static final class Release {
         String version;          // tag without 'v'
         String apkUrl;           // browser_download_url of the .apk asset
         String sha256Expected;   // from SHA256SUMS.txt (null when absent → refuse)
         long apkSize = -1;       // the asset's declared size (bytes; -1 unknown)
-        String tier = "";        // web-redirect | raw-json | rest-api (the lab asserts)
+        String tier = "";        // web-redirect | raw-json (the lab asserts)
     }
 
-    // ── the v3.2.0 3-tier resolver (ZERO api.github.com on the happy path) ────
+    // ── the 2-tier resolver (no GitHub REST API calls) ────────────────────────
 
     /**
-     * THE release resolver: tiers fire in order web-redirect → raw-json →
-     * rest-api, the first one that produces a Release with a valid apk URL
+     * THE release resolver: routes fire in order web-redirect → raw-json;
+     * the first one that produces a complete, verified release shape
      * wins. A tier's own HTTP body errors are soft (the next tier gets its
-     * chance); only all-three-failed returns null.
-     * `restHook` lets the lab stub the REST transport without network. */
+     * chance); only both-routes-failed returns null.
+     */
     static Release fetchReleaseAny() throws Exception {
-        // TIER 1 — the github.com/releases/latest 302 redirect (web CDN, no quota)
+        // Route 1 — the github.com/releases/latest 302 redirect (web CDN, no quota)
         try {
             Release r = fetchViaWebRedirect();
-            if (r != null) return r;
+            if (usableRelease(r)) return r;
         } catch (Throwable t) {
             Diag.w("selfupd", "tier1 web-redirect: " + t);
         }
-        // TIER 2 — the CI-maintained docs/latest.json on raw.githubusercontent.com
+        // Route 2 — the CI-maintained docs/latest.json on raw.githubusercontent.com
         try {
             Release r = fetchViaRawJson();
-            if (r != null) return r;
+            if (usableRelease(r)) return r;
         } catch (Throwable t) {
             Diag.w("selfupd", "tier2 raw-json: " + t);
         }
-        // TIER 3 — LAST RESORT: the rate-limited REST API (a 403 here is final
-        // for this attempt; the caller's backoff keeps us from re-burning it)
-        try {
-            Release r = fetchRelease(restLatestUrl());
-            if (r != null) { r.tier = TIER_REST_API; return r; }
-        } catch (Throwable t) {
-            Diag.w("selfupd", "tier3 rest-api: " + t);
-        }
         return null;
+    }
+
+    private static boolean usableRelease(Release r) {
+        return r != null
+            && r.version != null && r.version.matches("[0-9]+\\.[0-9]+\\.[0-9]+")
+            && httpsOnly(r.apkUrl)
+            && apkAssetName(r.version).equals(apkFileName(r.apkUrl))
+            && r.sha256Expected != null && r.sha256Expected.matches("(?i)[0-9a-f]{64}");
     }
 
     /**
@@ -175,6 +179,7 @@ final class SelfUpdateCore {
         if (tag == null || tag.isEmpty()) return null;
         Release r = new Release();
         r.version = stripV(tag);
+        if (!r.version.matches("[0-9]+\\.[0-9]+\\.[0-9]+")) return null;
         r.tier = TIER_WEB_REDIRECT;
         r.apkUrl = derivedApkUrl(tag);
         r.sha256Expected = fetchExpectedSha(derivedSumsUrl(tag), apkAssetName(r.version));
@@ -184,7 +189,7 @@ final class SelfUpdateCore {
     /** The observable-redirect core: HEAD → 302 → Location's /tag/vX.Y.Z tail.
      *  Public-contract seam: the lab passes its own connection factory. */
     static String resolveLatestTagByRedirect(String releasesLatestUrl) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(releasesLatestUrl).openConnection(java.net.Proxy.NO_PROXY);
+        HttpURLConnection c = openConnection(releasesLatestUrl);
         try {
             c.setRequestMethod("HEAD");
             c.setInstanceFollowRedirects(false);     // the 302 is the ANSWER, not a chase
@@ -211,14 +216,20 @@ final class SelfUpdateCore {
         return tag.isEmpty() ? null : tag;
     }
 
-    /** TIER 2 — docs/latest.json ({"version":"3.2.0","code":30200}), written by
-     *  the release workflow; the asset URLs derive exactly like tier 1. */
+    /** Route 2 — docs/latest.json written by the release workflow. */
     static Release fetchViaRawJson() throws Exception {
-        return fetchViaRawJsonBody(httpGet(rawLatestJsonUrl()));
+        Release r = fetchViaRawJsonBody(httpGet(rawLatestJsonUrl()));
+        if (r == null) return null;
+        String sumsSha = fetchExpectedSha(derivedSumsUrl("v" + r.version), apkAssetName(r.version));
+        if (sumsSha == null) return null;
+        if (r.sha256Expected != null && !r.sha256Expected.equalsIgnoreCase(sumsSha)) return null;
+        r.sha256Expected = sumsSha;
+        return r;
     }
 
-    /** The tier-2 parser (pure — the lab drives fixture bodies). Never throws:
-     *  a junk body is a null (the tier falls through to tier 3). */
+    /** The tier-2 JSON parser (pure — the lab drives fixture bodies). Never throws:
+     *  a junk body is null; network resolution separately requires a matching
+     *  SHA256SUMS.txt entry before the release can be used. */
     static Release fetchViaRawJsonBody(String json) {
         if (json == null || json.trim().isEmpty()) return null;
         Object root;
@@ -229,7 +240,7 @@ final class SelfUpdateCore {
         }
         if (!(root instanceof Map)) return null;
         String version = MiniJson.str(root, "version");
-        if (version == null || stripV(version).isEmpty()) return null;
+        if (version == null || !stripV(version).matches("[0-9]+\\.[0-9]+\\.[0-9]+")) return null;
         String tag = version.startsWith("v") ? version : "v" + version;
         Release r = new Release();
         r.version = stripV(tag);
@@ -240,8 +251,6 @@ final class SelfUpdateCore {
         String sha = MiniJson.str(root, "sha256");
         if (sha != null && sha.matches("[0-9a-fA-F]{64}")) {
             r.sha256Expected = sha.toLowerCase(Locale.ROOT);
-        } else {
-            r.sha256Expected = fetchExpectedSha(derivedSumsUrl(tag), apkAssetName(r.version));
         }
         return r;
     }
@@ -264,45 +273,6 @@ final class SelfUpdateCore {
             Diag.w("selfupd", "sha fetch: " + t);
             return null;
         }
-    }
-
-    // ── the legacy REST path (tier 3 — LAST resort only) ───────────────────────
-
-    /** GET the /releases/latest JSON + the SHA256SUMS.txt asset, parse the apk
-     *  URL, the version, the declared size and the expected hash (MiniJson).
-     *  v3.2.0: honors X-RateLimit-Remaining / Retry-After by REPORTING them
-     *  (SelfUpdater's backoff enforces the pause; the Troubleshooter records
-     *  the fact the quota is exhausted instead of hammering it). */
-    static Release fetchRelease(String apiUrl) throws Exception {
-        String body = httpGet(apiUrl);
-        if (body == null || body.isEmpty()) return null;
-        Object root = MiniJson.parse(body);
-        if (!(root instanceof java.util.Map)) return null;
-        String tag = MiniJson.str(root, "tag_name");
-        if (tag == null || tag.isEmpty()) return null;
-        Release r = new Release();
-        r.version = tag.startsWith("v") ? tag.substring(1) : tag;
-        r.apkUrl = "";
-        java.util.List<Object> assets = MiniJson.arr(MiniJson.objGet(root, "assets"));
-        if (assets != null) {
-            String sumsUrl = null;
-            for (Object a : assets) {
-                String name = MiniJson.str(a, "name");
-                String url = MiniJson.str(a, "browser_download_url");
-                if (name == null || url == null) continue;
-                if (name.toLowerCase(Locale.ROOT).endsWith(".apk") && r.apkUrl.isEmpty()) {
-                    r.apkUrl = url;
-                    Number size = MiniJson.num(a, "size");
-                    r.apkSize = size == null ? -1 : size.longValue();
-                }
-                if (name.equalsIgnoreCase("SHA256SUMS.txt")) sumsUrl = url;
-            }
-            if (sumsUrl != null && !r.apkUrl.isEmpty()) {
-                String sums = httpGet(sumsUrl);
-                r.sha256Expected = pickShaLine(sums, apkFileName(r.apkUrl));
-            }
-        }
-        return r.apkUrl.isEmpty() ? null : r;
     }
 
     /** The file name part of a download URL. */
@@ -361,7 +331,7 @@ final class SelfUpdateCore {
      */
     static long downloadToFile(String url, File out, Progress progress) throws Exception {
         if (!httpsOnly(url)) throw new SecurityException("refusing non-https download: " + url);
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
+        HttpURLConnection c = openConnection(url);
         c.setConnectTimeout(10000);
         c.setReadTimeout(30000);
         try {
@@ -417,7 +387,7 @@ final class SelfUpdateCore {
     /** The v2.4.0 in-memory download (kept for the lab + tiny fixtures). */
     static byte[] download(String url) throws Exception {
         if (!httpsOnly(url)) throw new SecurityException("refusing non-https download: " + url);
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
+        HttpURLConnection c = openConnection(url);
         c.setConnectTimeout(10000);
         c.setReadTimeout(30000);
         try {
@@ -434,10 +404,10 @@ final class SelfUpdateCore {
     }
 
     static String httpGet(String url) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
+        HttpURLConnection c = openConnection(url);
         c.setConnectTimeout(8000);
         c.setReadTimeout(15000);
-        c.setRequestProperty("Accept", "application/vnd.github+json");
+        c.setRequestProperty("Accept", "application/json, text/plain;q=0.9, */*;q=0.8");
         try {
             if (c.getResponseCode() != 200) return null;
             InputStream in = c.getInputStream();

@@ -31,28 +31,28 @@
   "name": "ic_play",
   "group": "media",
   "metaphor": "Rounded play triangle, optically centred (apex at 19.4)",
-  "stroke": 1.9,
+  "stroke": 1.8,
   "filled": true
  },
  {
   "name": "ic_pause",
   "group": "media",
-  "metaphor": "Two capsule bars, 2.4dp optical weight",
-  "stroke": 2.4,
+  "metaphor": "Two capsule bars, 1.8dp optical weight",
+  "stroke": 1.8,
   "filled": true
  },
  {
   "name": "ic_replay_10",
   "group": "media",
   "metaphor": "Counter-clockwise ring + '10' (seek back)",
-  "stroke": 1.7,
+  "stroke": 1.8,
   "filled": false
  },
  {
   "name": "ic_forward_10",
   "group": "media",
   "metaphor": "Clockwise ring + '10' (seek forward)",
-  "stroke": 1.7,
+  "stroke": 1.8,
   "filled": false
  },
  {
@@ -101,14 +101,14 @@
   "name": "ic_quality_hd",
   "group": "media",
   "metaphor": "HD badge (resolution picker)",
-  "stroke": 1.6,
+  "stroke": 1.8,
   "filled": false
  },
  {
   "name": "ic_audio_track",
   "group": "media",
   "metaphor": "Five capsule bars (audio / track picker)",
-  "stroke": 2.2,
+  "stroke": 1.8,
   "filled": false
  },
  {
@@ -150,7 +150,7 @@
   "name": "ic_translate",
   "group": "media",
   "metaphor": "Latin A beside a CJK-style glyph with a swap bar (free translate)",
-  "stroke": 1.7,
+  "stroke": 1.8,
   "filled": false
  },
  {
@@ -205,15 +205,15 @@
  {
   "name": "ic_back",
   "group": "browser",
-  "metaphor": "Chevron left, 1.9 stroke (back)",
-  "stroke": 1.9,
+  "metaphor": "Chevron left, 1.8 stroke (back)",
+  "stroke": 1.8,
   "filled": false
  },
  {
   "name": "ic_forward",
   "group": "browser",
   "metaphor": "Chevron right (forward)",
-  "stroke": 1.9,
+  "stroke": 1.8,
   "filled": false
  },
  {
@@ -234,8 +234,8 @@
   "name": "ic_more_dots",
   "group": "browser",
   "metaphor": "Three dots (overflow menu)",
-  "stroke": 1.75,
-  "filled": false
+   "stroke": 0,
+   "filled": true
  },
  {
   "name": "ic_close",
@@ -262,21 +262,21 @@
   "name": "ic_folder_zip",
   "group": "browser",
   "metaphor": "Folder with a Z (subtitle .zip)",
-  "stroke": 1.65,
+  "stroke": 1.8,
   "filled": false
  },
  {
   "name": "ic_settings",
   "group": "system",
   "metaphor": "Cog wheel: 8 teeth, round joins, hub circle (settings)",
-  "stroke": 1.7,
+  "stroke": 1.8,
   "filled": false
  },
  {
   "name": "ic_sliders",
   "group": "system",
   "metaphor": "Three horizontal rails with knobs (customization)",
-  "stroke": 1.7,
+  "stroke": 1.8,
   "filled": false
  },
  {
@@ -332,7 +332,7 @@
   "name": "ic_srilanka_sub",
   "group": "system",
   "metaphor": "Caption bar + sparkle (Sri Lankan subtitle finder)",
-  "stroke": 1.7,
+  "stroke": 1.8,
   "filled": false
  },
  {
@@ -360,7 +360,7 @@
   "name": "ic_movie",
   "group": "system",
   "metaphor": "Clapperboard (recent plays, cinema identity)",
-  "stroke": 1.7,
+  "stroke": 1.8,
   "filled": false
  },
  {
@@ -369,5 +369,96 @@
   "metaphor": "Screen with three broadcast arcs at the bottom-left (cast receiver)",
   "stroke": 1.75,
   "filled": false
+ },
+ {
+  "name": "ic_chevron_down",
+  "group": "system",
+  "metaphor": "Down chevron for expandable controls",
+  "stroke": 1.8,
+  "filled": false
+ },
+ {
+  "name": "ic_chevron_up",
+  "group": "system",
+  "metaphor": "Up chevron for expanded controls",
+  "stroke": 1.8,
+  "filled": false
+  },
+  {
+   "name": "ic_dot",
+   "group": "support",
+   "metaphor": "Small filled state indicator",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_nav_customize_filled",
+   "group": "nav-state",
+   "metaphor": "Filled active state for the Customize navigation icon",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_nav_home_filled",
+   "group": "nav-state",
+   "metaphor": "Filled active state for the Home navigation icon",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_nav_troubleshoot_filled",
+   "group": "nav-state",
+   "metaphor": "Filled active state for the Troubleshooter navigation icon",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_nav_web_filled",
+   "group": "nav-state",
+   "metaphor": "Filled active state for the Web navigation icon",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_pause_filled",
+   "group": "media-state",
+   "metaphor": "Filled Pause transport state",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_play_filled",
+   "group": "media-state",
+   "metaphor": "Filled Play transport state",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_launcher_background",
+   "group": "launcher",
+   "metaphor": "Adaptive launcher background artwork",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_launcher_foreground",
+   "group": "launcher",
+   "metaphor": "Sinhala monogram and gradient play badge; 108dp adaptive artwork",
+   "stroke": 1.8,
+   "filled": true
+  },
+  {
+   "name": "ic_launcher_monochrome",
+   "group": "launcher",
+   "metaphor": "Monochrome adaptive launcher artwork",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_stat_si",
+   "group": "system",
+   "metaphor": "Monochrome status-bar notification mark",
+   "stroke": 0,
+   "filled": true
  }
 ]
