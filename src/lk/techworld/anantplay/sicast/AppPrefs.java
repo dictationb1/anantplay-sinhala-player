@@ -531,6 +531,15 @@ public final class AppPrefs {
     }
     public static String fontFamily(SharedPreferences p) { return normalizeFontFamily(p.getString(K_FONT_FAMILY, FONT_NOTO)); }
     public static int subColor(SharedPreferences p) { return normalizeSubColor(p.getInt(K_SUB_COLOR, 0)); }
+
+    /**
+     * v3.4.0 - the subtitle colour actually rendered: the explicit hex wins, otherwise the
+     * preset index. Pure, so the lab proves both paths.
+     */
+    public static int subColorArgb(SharedPreferences p) {
+        int hex = accentHexColor(subColorHex(p));
+        return hex != 0 ? hex : ThemeEngine.SUB_COLORS[subColor(p)];
+    }
     public static String subBg(SharedPreferences p) { return normalizeSubBg(p.getString(K_SUB_BG, BG_PILL)); }
     public static int subBgOpacity(SharedPreferences p) { return normalizeSubBgOpacity(p.getInt(K_SUB_BG_OPACITY, 55)); }
     public static boolean subBold(SharedPreferences p) { return p.getBoolean(K_SUB_BOLD, true); }

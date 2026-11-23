@@ -865,54 +865,361 @@ public class MainActivity extends Activity {
     // subtitle rows → ONE focused sub-page each, with a crisp ‹ back bar)
     // ═══════════════════════════════════════════════════════════════════════════
 
+    /**
+     * v3.4.0 - THE CUSTOMIZE HUB.
+     *
+     * <p>Five Mornye-grouped cards: Appearance (inline, with real theme thumbnails,
+     * accent dots, radius/density/bottom-bar segmenteds), Subtitles & style (a live
+     * 74dp cinema frame), Browser, Player, and Cast/Network/Data. Every control writes
+     * a preference that is in AppPrefs.BACKUP_KEYS, so a backup round-trips all of it.
+     */
     private View buildSettingsTab() {
         ScrollView scroll = new ScrollView(this);
         scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
         LinearLayout root = column();
         scroll.addView(root, new ViewGroup.LayoutParams(-1, -2));
-        root.addView(sectionTitle(t("සැකසුම්", "Settings")));
-        LinearLayout list = card(P.card);
-        list.addView(categoryRow(R.drawable.ic_palette, P.accent,
-            t("පෙනුම සහ තේමාව", "Appearance & Theme"),
-            t("තේමාව · AMOLED · Dynamic Color · වර්ණ · භාෂාව · density",
-              "Theme · AMOLED · Dynamic Color · accent · language · density"),
-            v -> openAppearance()));
-        list.addView(categoryRow(R.drawable.ic_subtitles, 0xFF8B5CF6,
-            t("උපසිරැසි සහ විලුම් චිත්‍රාගාරය", "Subtitles & Style Studio"),
-            t("සජීවී preview · අකුරු · වර්ණ · එන්ජිමේ ප්‍රමුඛතාව · පරිවර්තනය",
-              "Live preview · font · color · engine priority · translate"),
-            v -> openSubtitleStudio()));
-        list.addView(categoryRow(R.drawable.ic_movie, 0xFF3B82F6,
-            t("ධාවනය සහ gestures", "Playback & Gestures"),
-            t("වේගය · aspect · seek පියවර · PiP · resume · HUD",
-              "Speed · aspect · seek step · PiP · resume · HUD"),
-            v -> openPlayback()));
-        list.addView(categoryRow(R.drawable.ic_nav_web, 0xFF38BDF8,
-            t("Web Player සහ Custom Links", "Web Player & Custom Links"),
-            t("අඩවි URL add/edit/reorder · UA · Ad blocker · auto-open",
-              "Site URLs add/edit/reorder · UA · Ad blocker · auto-open"),
-            v -> openWebPlayer()));
-        list.addView(categoryRow(R.drawable.ic_cast, 0xFF10B981,
-            t("Cast සහ ජාලය", "Cast & Network"),
-            t("නම · DLNA · mDNS · Worker URL · DoH", "Name · DLNA · mDNS · Worker URL · DoH"),
-            v -> openCastNetwork()));
-        list.addView(categoryRow(R.drawable.ic_update, 0xFFF59E0B,
-            t("නිහඬ යාවත්කාලීන", "Silent Updates"),
-            t("ස්වයංක්‍රීය · නිහඬ · throttled · Skip version",
-              "Automatic · silent · throttled · Skip version"),
-            v -> openUpdates()));
-        list.addView(categoryRow(R.drawable.ic_backup, 0xFFEC4899,
-            t("Backup & Restore", "Backup & Restore"),
-            t("සියලු සැකසුම් JSON එකක් ලෙස — ඔබේමයි", "All settings as clean JSON — yours to keep"),
-            v -> openBackup()));
-        list.addView(categoryRow(R.drawable.ic_info, 0xFF94A3B8,
-            t("පිළිබඳ සහ ආරක්ෂණය", "About & Security"),
-            t("සංස්කරණය · ආරක්ෂණ විග්‍රහය · බලපත්‍ර", "Version · security audit · licenses"),
-            v -> openAbout()));
-        root.addView(list, widen());
-        root.addView(caption(t("සැකසුම් 100% දේශීයයි — කිසිදු දත්ත එළතට නොයයි.",
-            "All settings stay on this phone — nothing leaves the device.")));
+
+        // ══ 1. APPEARANCE ══════════════════════════════════════════════════════
+        LinearLayout g1 = UiGroup.make(this, P, prefs, "පෙනුම", "Appearance");
+        g1.addView(themeThumbs(), widen());
+        g1.addView(accentPicker(), widen());
+        g1.addView(UiSegmented.row(this, P, prefs, "කොන් රේඛාව", "Card radius",
+            new String[]{t("තියුණු", "Sharp"), t("රවුම්", "Rounded"), t("පිල්", "Pill")},
+            radiusIndex(), i -> {
+                prefs.edit().putString(AppPrefs.K_CARD_RADIUS,
+                    new String[]{AppPrefs.RADIUS_SHARP, AppPrefs.RADIUS_ROUNDED, AppPrefs.RADIUS_PILL}[i]).apply();
+                themeChanged();
+            }), widen());
+        g1.addView(UiSegmented.row(this, P, prefs, "මතුපිට", "Surface",
+            new String[]{t("සමතලා", "Flat"), t("වීදුරු", "Glass")},
+            AppPrefs.glass(prefs) ? 1 : 0, i -> {
+                prefs.edit().putString(AppPrefs.K_SURFACE_STYLE,
+                    i == 1 ? AppPrefs.SURFACE_GLASS : AppPrefs.SURFACE_FLAT).apply();
+                themeChanged();
+            }), widen());
+        g1.addView(UiSlider.make(this, P, prefs, "මායිම් අඳුන", "Border alpha",
+            0, 60, AppPrefs.borderAlpha(prefs), "%", v -> {
+                prefs.edit().putInt(AppPrefs.K_BORDER_ALPHA, v).apply();
+            }), widen());
+        g1.addView(UiSegmented.row(this, P, prefs, "පිරිසැලසුම", "Density",
+            new String[]{t("පළල්", "Spacious"), t("සුවපහසු", "Comfort"), t("තද", "Compact")},
+            AppPrefs.spacious(prefs) ? 0 : (AppPrefs.compact(prefs) ? 2 : 1), i -> {
+                prefs.edit().putString(AppPrefs.K_DENSITY,
+                    new String[]{AppPrefs.DENSITY_SPACIOUS, AppPrefs.DENSITY_COMFORTABLE,
+                        AppPrefs.DENSITY_COMPACT}[i]).apply();
+                themeChanged();
+            }), widen());
+        g1.addView(UiSegmented.row(this, P, prefs, "පහළ තීරුව", "Bottom bar",
+            new String[]{t("සවිකර", "Docked"), t("පාවෙන", "Floating")},
+            AppPrefs.floatingBar(prefs) ? 1 : 0, i -> {
+                prefs.edit().putString(AppPrefs.K_BOTTOM_BAR_STYLE,
+                    i == 1 ? AppPrefs.BAR_FLOATING : AppPrefs.BAR_DOCKED).apply();
+                themeChanged();
+            }), widen());
+        g1.addView(UiSegmented.row(this, P, prefs, "UI භාෂාව", "UI language",
+            new String[]{t("ද්විභාෂා", "Bilingual"), "සිංහල", "English"},
+            AppPrefs.UI_SI.equals(AppPrefs.uiLang(prefs)) ? 1
+                : (AppPrefs.UI_EN.equals(AppPrefs.uiLang(prefs)) ? 2 : 0), i -> {
+                prefs.edit().putString(AppPrefs.K_UI_LANG,
+                    new String[]{AppPrefs.UI_BI, AppPrefs.UI_SI, AppPrefs.UI_EN}[i]).apply();
+                themeChanged();
+            }), widen());
+        UiGroup.divider(this, g1, P, prefs);
+        UiGroup.switchRow(this, g1, P, prefs, R.drawable.ic_sliders,
+            "පහළ තීරු ලේබල", "Bottom bar labels", AppPrefs.K_BOTTOM_BAR_LABELS, true);
+        UiGroup.divider(this, g1, P, prefs);
+        UiGroup.switchRow(this, g1, P, prefs, R.drawable.ic_refresh,
+            "චලනය", "Motion & animation", AppPrefs.K_MOTION, true);
+        UiGroup.divider(this, g1, P, prefs);
+        UiGroup.switchRow(this, g1, P, prefs, R.drawable.ic_palette,
+            "වර්ණ දීප්තිය", "Accent glow", AppPrefs.K_ACCENT_GLOW, true);
+        UiGroup.divider(this, g1, P, prefs);
+        UiGroup.switchRow(this, g1, P, prefs, R.drawable.ic_nav_web,
+            "Web ටැබ් එක", "Show the Browser tab", AppPrefs.K_SHOW_WEB_TAB, true);
+        UiGroup.divider(this, g1, P, prefs);
+        UiGroup.switchRow(this, g1, P, prefs, R.drawable.ic_nav_troubleshoot,
+            "දෝෂ ටැබ් එක", "Show the Troubleshoot tab", AppPrefs.K_SHOW_TROUBLE_TAB, true);
+        root.addView(g1, widen());
+
+        // ══ 2. SUBTITLES & STYLE ═══════════════════════════════════════════════
+        LinearLayout g2 = UiGroup.make(this, P, prefs, "උපසිරැසි", "Subtitles & style");
+        g2.addView(subtitlePreview(), widen());
+        UiGroup.row(this, g2, P, prefs, R.drawable.ic_font,
+            "අකුරු · වර්ණය · පසුබිම", "Font, colour, background, position", null, true,
+            v -> openSubtitleStudio());
+        UiGroup.divider(this, g2, P, prefs);
+        UiGroup.row(this, g2, P, prefs, R.drawable.ic_translate,
+            "පරිවර්තනය සහ එන්ජිම", "Translation & engine priority", null, true,
+            v -> openSubtitleStudio());
+        root.addView(g2, widen());
+
+        // ══ 3. BROWSER ═════════════════════════════════════════════════════════
+        LinearLayout g3 = UiGroup.make(this, P, prefs, "බ්‍රව්සර්", "Browser");
+        g3.addView(UiSegmented.row(this, P, prefs, "ලිපින තීරුව", "Omnibar",
+            new String[]{t("ඉහළ", "Top"), t("පහළ", "Bottom")},
+            AppPrefs.omnibarBottom(prefs) ? 1 : 0, i -> {
+                prefs.edit().putString(AppPrefs.K_OMNIBAR_POS,
+                    i == 0 ? AppPrefs.OMNIBAR_TOP : AppPrefs.OMNIBAR_BOTTOM).apply();
+                if (browser != null) { pages.removeView(browser); browser = null; webPage = null;
+                    if (currentTab == TAB_WEB) selectTab(TAB_WEB); }
+            }), widen());
+        g3.addView(UiSegmented.row(this, P, prefs, "Speed dial තීරු", "Speed dial columns",
+            new String[]{"2", "3", "4"}, AppPrefs.speedDialCols(prefs) - 2, i -> {
+                prefs.edit().putInt(AppPrefs.K_SPEEDDIAL_COLS, i + 2).apply();
+                if (browser != null) browser.onResumeWeb();
+            }), widen());
+        g3.addView(UiSegmented.row(this, P, prefs, "සෙවුම් යන්ත්‍රය", "Search engine",
+            new String[]{"DDG", "Google", "Startpage", "Brave"}, searchIndex(), i -> {
+                prefs.edit().putString(AppPrefs.K_SEARCH_ENGINE,
+                    new String[]{AppPrefs.SEARCH_DDG, AppPrefs.SEARCH_GOOGLE,
+                        AppPrefs.SEARCH_STARTPAGE, AppPrefs.SEARCH_BRAVE}[i]).apply();
+            }), widen());
+        UiGroup.divider(this, g3, P, prefs);
+        UiGroup.switchRow(this, g3, P, prefs, R.drawable.ic_shield_adblock,
+            "දැන්වීම් පෙරහන", "Ad & tracker shield", AppPrefs.K_AD_BLOCK, true);
+        UiGroup.divider(this, g3, P, prefs);
+        UiGroup.switchRow(this, g3, P, prefs, R.drawable.ic_info,
+            "අවහිර ගණන", "Show the blocked count", AppPrefs.K_SHOW_BLOCK_COUNT, true);
+        UiGroup.divider(this, g3, P, prefs);
+        UiGroup.switchRow(this, g3, P, prefs, R.drawable.ic_refresh,
+            "ස්වයංක්‍රීය විවෘත", "Auto-open a sniffed stream", AppPrefs.K_AUTO_OPEN_SNIFFED, false);
+        UiGroup.divider(this, g3, P, prefs);
+        UiGroup.switchRow(this, g3, P, prefs, R.drawable.ic_desktop,
+            "Desktop UA", "Desktop user-agent", AppPrefs.K_WEB_DESKTOP_UA, false);
+        UiGroup.divider(this, g3, P, prefs);
+        UiGroup.switchRow(this, g3, P, prefs, R.drawable.ic_moon,
+            "අඳුරු පිටු", "Reader dark", AppPrefs.K_READER_DARK, true);
+        UiGroup.divider(this, g3, P, prefs);
+        UiGroup.switchRow(this, g3, P, prefs, R.drawable.ic_globe,
+            "Favicons", "Real favicons in the speed dial", AppPrefs.K_FAVICONS, true);
+        UiGroup.divider(this, g3, P, prefs);
+        UiGroup.row(this, g3, P, prefs, R.drawable.ic_link,
+            "අඩවි ලින්ක්", "Custom links & user-agent", null, true, v -> openWebPlayer());
+        root.addView(g3, widen());
+
+        // ══ 4. PLAYER ══════════════════════════════════════════════════════════
+        LinearLayout g4 = UiGroup.make(this, P, prefs, "ධාවකය", "Player");
+        g4.addView(UiSegmented.row(this, P, prefs, "රූප පරිමාණය", "Default aspect",
+            new String[]{t("ගැළපුම", "Fit"), t("පිරවුම", "Fill"), "16:9", t("දිගු", "Stretch")},
+            aspectIndex(), i -> {
+                prefs.edit().putString(AppPrefs.K_ASPECT_MODE,
+                    new String[]{AppPrefs.ASPECT_FIT, AppPrefs.ASPECT_FILL,
+                        AppPrefs.ASPECT_169, AppPrefs.ASPECT_STRETCH}[i]).apply();
+            }), widen());
+        g4.addView(UiSlider.make(this, P, prefs, "පෙරනිමි වේගය", "Default speed",
+            25, 250, AppPrefs.playSpeedPm(prefs), "%", v -> {
+                prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, v).apply();
+            }), widen());
+        g4.addView(UiSlider.make(this, P, prefs, "හඬ වැඩි කිරීම", "Volume boost",
+            0, 150, AppPrefs.volumeBoost(prefs), "%", v -> {
+                prefs.edit().putInt(AppPrefs.K_VOLUME_BOOST, v).apply();
+            }), widen());
+        g4.addView(UiSegmented.row(this, P, prefs, "තිර දිශාව", "Orientation",
+            new String[]{t("ස්වයංක්‍රීය", "Auto"), t("තිරස්", "Landscape"), t("සිරස්", "Portrait")},
+            orientationIndex(), i -> {
+                prefs.edit().putString(AppPrefs.K_ORIENTATION,
+                    new String[]{AppPrefs.ORIENT_AUTO, AppPrefs.ORIENT_LANDSCAPE,
+                        AppPrefs.ORIENT_PORTRAIT}[i]).apply();
+            }), widen());
+        g4.addView(UiSegmented.row(this, P, prefs, "බාහිර ධාවකය", "External player",
+            new String[]{"VLC", "MX", "mpv", t("තෝරන්න", "Ask")}, externalIndex(), i -> {
+                prefs.edit().putString(AppPrefs.K_EXTERNAL_PLAYER,
+                    new String[]{AppPrefs.EXT_VLC, AppPrefs.EXT_MX, AppPrefs.EXT_MPV,
+                        AppPrefs.EXT_CHOOSER}[i]).apply();
+            }), widen());
+        g4.addView(UiSegmented.row(this, P, prefs, "නිදාගැනීමේ කාලය", "Sleep timer",
+            new String[]{t("නැත", "Off"), "15m", "30m", "60m"},
+            sleepIndex(), i -> {
+                prefs.edit().putLong(AppPrefs.K_SLEEP_TIMER_MS,
+                    new long[]{0L, 900000L, 1800000L, 3600000L}[i]).apply();
+            }), widen());
+        UiGroup.divider(this, g4, P, prefs);
+        UiGroup.switchRow(this, g4, P, prefs, R.drawable.ic_speed,
+            "දෙවරක් තට්ටු කිරීම", "Double-tap to seek", AppPrefs.K_DOUBLE_TAP_SEEK, true);
+        UiGroup.divider(this, g4, P, prefs);
+        UiGroup.switchRow(this, g4, P, prefs, R.drawable.ic_pip,
+            "Auto-PiP", "Auto picture-in-picture", AppPrefs.K_AUTO_PIP, true);
+        UiGroup.divider(this, g4, P, prefs);
+        UiGroup.switchRow(this, g4, P, prefs, R.drawable.ic_play,
+            "නැවත අරඹන්න", "Auto-resume position", AppPrefs.K_AUTO_RESUME, true);
+        UiGroup.divider(this, g4, P, prefs);
+        UiGroup.switchRow(this, g4, P, prefs, R.drawable.ic_brightness,
+            "තිරය දැල්වී තබන්න", "Keep the screen on", AppPrefs.K_KEEP_SCREEN_ON, true);
+        UiGroup.divider(this, g4, P, prefs);
+        UiGroup.row(this, g4, P, prefs, R.drawable.ic_sliders,
+            "gestures සහ seek පියවර", "Gestures, seek step & HUD timeout", null, true,
+            v -> openPlayback());
+        root.addView(g4, widen());
+
+        // ══ 5. CAST, NETWORK & DATA ════════════════════════════════════════════
+        LinearLayout g5 = UiGroup.make(this, P, prefs, "ජාලය සහ දත්ත", "Cast, network & data");
+        UiGroup.row(this, g5, P, prefs, R.drawable.ic_cast,
+            "රිසීවර නම සහ port", "Receiver name & port", String.valueOf(AppPrefs.receiverPort(prefs)),
+            true, v -> openCastNetwork());
+        UiGroup.divider(this, g5, P, prefs);
+        UiGroup.switchRow(this, g5, P, prefs, R.drawable.ic_cast,
+            "DLNA", "DLNA renderer", AppPrefs.K_DLNASTART, true);
+        UiGroup.divider(this, g5, P, prefs);
+        UiGroup.switchRow(this, g5, P, prefs, R.drawable.ic_globe,
+            "mDNS", "mDNS responder", AppPrefs.K_MDNS, true);
+        UiGroup.divider(this, g5, P, prefs);
+        UiGroup.row(this, g5, P, prefs, R.drawable.ic_update,
+            "යාවත්කාලීන", "Silent updates", null, true, v -> openUpdates());
+        UiGroup.divider(this, g5, P, prefs);
+        UiGroup.row(this, g5, P, prefs, R.drawable.ic_backup,
+            "උපස්ථ කිරීම", "Backup & restore", null, true, v -> openBackup());
+        UiGroup.divider(this, g5, P, prefs);
+        UiGroup.row(this, g5, P, prefs, R.drawable.ic_info,
+            "පිළිබඳ සහ ආරක්ෂණය", "About & security", "v" + AppInfo.VERSION_NAME, true,
+            v -> openAbout());
+        root.addView(g5, widen());
+
+        root.addView(UiGroup.caption(this, P, t(
+            "සැකසුම් 100% දේශීයයි — කිසිදු දත්ත එළියට නොයයි. සියල්ල Backup එකේ ඇතුළත්.",
+            "All settings stay on this phone — nothing leaves it, and every one is in the backup.")));
         return scroll;
+    }
+
+    // ── Customize helpers (v3.4.0) ────────────────────────────────────────────
+
+    private int radiusIndex() {
+        String v = AppPrefs.cardRadius(prefs);
+        return AppPrefs.RADIUS_SHARP.equals(v) ? 0 : (AppPrefs.RADIUS_PILL.equals(v) ? 2 : 1);
+    }
+
+    private int searchIndex() {
+        String v = AppPrefs.searchEngine(prefs);
+        if (AppPrefs.SEARCH_GOOGLE.equals(v)) return 1;
+        if (AppPrefs.SEARCH_STARTPAGE.equals(v)) return 2;
+        if (AppPrefs.SEARCH_BRAVE.equals(v)) return 3;
+        return 0;
+    }
+
+    private int aspectIndex() {
+        String v = AppPrefs.aspectMode(prefs);
+        if (AppPrefs.ASPECT_FILL.equals(v)) return 1;
+        if (AppPrefs.ASPECT_169.equals(v)) return 2;
+        if (AppPrefs.ASPECT_STRETCH.equals(v)) return 3;
+        return 0;
+    }
+
+    private int orientationIndex() {
+        String v = AppPrefs.orientation(prefs);
+        if (AppPrefs.ORIENT_LANDSCAPE.equals(v)) return 1;
+        if (AppPrefs.ORIENT_PORTRAIT.equals(v)) return 2;
+        return 0;
+    }
+
+    private int externalIndex() {
+        String v = AppPrefs.externalPlayer(prefs);
+        if (AppPrefs.EXT_VLC.equals(v)) return 0;
+        if (AppPrefs.EXT_MX.equals(v)) return 1;
+        if (AppPrefs.EXT_MPV.equals(v)) return 2;
+        return 3;
+    }
+
+    private int sleepIndex() {
+        long v = AppPrefs.sleepTimerMs(prefs);
+        if (v == 900000L) return 1;
+        if (v == 1800000L) return 2;
+        if (v >= 3600000L) return 3;
+        return 0;
+    }
+
+    /** The 4 theme thumbnail cards: a real miniature of each canvas. */
+    private View themeThumbs() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(8), 0, dp(10));
+        String[] keys = {AppPrefs.THEME_SYSTEM, AppPrefs.THEME_DARK,
+            AppPrefs.THEME_AMOLED, AppPrefs.THEME_LIGHT};
+        String[] names = {t("පද්ධති", "System"), "Midnight", "AMOLED", "Light"};
+        int[] bgs = {0xFF12172A, 0xFF0B1020, 0xFF000000, 0xFFF3F5FB};
+        int[] cards = {0xFF1E2540, 0xFF111A2E, 0xFF0A0F1C, 0xFFFFFFFF};
+        String cur = AppPrefs.themeMode(prefs);
+        for (int i = 0; i < keys.length; i++) {
+            final String key = keys[i];
+            LinearLayout tile = new LinearLayout(this);
+            tile.setOrientation(LinearLayout.VERTICAL);
+            tile.setGravity(Gravity.CENTER);
+            boolean on = key.equals(cur);
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(bgs[i]);
+            g.setCornerRadius(dp(12));
+            g.setStroke(dp(on ? 2 : 1), on ? P.accent : 0x33FFFFFF);
+            tile.setBackground(g);
+            tile.setPadding(dp(6), dp(8), dp(6), dp(7));
+
+            View bar = new View(this);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(cards[i]);
+            bg.setCornerRadius(dp(4));
+            bar.setBackground(bg);
+            tile.addView(bar, new LinearLayout.LayoutParams(-1, dp(22)));
+
+            TextView label = new TextView(this);
+            label.setText(names[i]);
+            label.setTextColor(i == 3 ? 0xFF111827 : 0xFFCBD5E1);
+            UiTokens.text(label, 9.5f, 600, 0f, false);
+            label.setGravity(Gravity.CENTER);
+            label.setPadding(0, dp(4), 0, 0);
+            tile.addView(label, new LinearLayout.LayoutParams(-1, -2));
+
+            tile.setOnClickListener(v -> {
+                prefs.edit().putString(AppPrefs.K_THEME_MODE, key).apply();
+                themeChanged();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+            lp.rightMargin = dp(7);
+            row.addView(tile, lp);
+        }
+        return row;
+    }
+
+    /** 10 accent dots + the custom hex entry. */
+    private View accentPicker() {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.addView(UiSegmented.accentDots(this, P, prefs, AppPrefs.accent(prefs),
+            AppPrefs.accentHex(prefs), idx -> {
+                prefs.edit().putInt(AppPrefs.K_ACCENT, idx).putString(AppPrefs.K_ACCENT_HEX, "").apply();
+                themeChanged();
+            }, v -> openAppearance()), widen());
+        return wrap;
+    }
+
+    /** The 74dp live cinema frame that proves the subtitle style before a film is opened. */
+    private View subtitlePreview() {
+        FrameLayout stage = new FrameLayout(this);
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            new int[]{0xFF3B2E6E, 0xFF12101F, 0xFF07060C});
+        bg.setCornerRadius(dp(11));
+        stage.setBackground(bg);
+        TextView line = new TextView(this);
+        line.setText("ශ්‍රී ලංකාවේ චිත්‍රපටිය — සිංහල උපසිරැසි");
+        line.setTextColor(AppPrefs.subColorArgb(prefs));
+        line.setTextSize(AppPrefs.fontSp(prefs));
+        line.setGravity(Gravity.CENTER);
+        line.setPadding(dp(8), dp(3), dp(8), dp(3));
+        line.setTypeface(UiTokens.si(this, AppPrefs.subBold(prefs) ? 600 : 400));
+        line.setLineSpacing(dp(1), AppPrefs.subLineSpacing(prefs) / 100f);
+        String style = AppPrefs.subBg(prefs);
+        if (AppPrefs.BG_BOX.equals(style)) {
+            line.setBackgroundColor(ThemeEngine.pillColor(Math.max(90, AppPrefs.subBgOpacity(prefs))));
+        } else if (AppPrefs.BG_OUTLINE.equals(style) || AppPrefs.BG_SHADOW.equals(style)) {
+            line.setBackgroundColor(0);
+        } else {
+            line.setBackgroundColor(ThemeEngine.pillColor(AppPrefs.subBgOpacity(prefs)));
+        }
+        line.setShadowLayer(dp(Math.max(1, AppPrefs.subOutline(prefs))), 0, 0, 0xFF000000);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, -2,
+            Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        lp.bottomMargin = dp(9);
+        stage.addView(line, lp);
+        stage.setOnClickListener(v -> openSubtitleStudio());
+        // No setLayoutParams here: the caller adds it with widen() (LinearLayout.LayoutParams),
+        // which is the only class the parent accepts (the v3.3.1 static gate proves it).
+        return stage;
     }
 
     /** One Mornye-style category row: big icon chip + bold title + 1-line subtitle + ›. */
