@@ -348,6 +348,10 @@ final class StreamHttpConfig {
         String cookie;
         /** The {@code b} base URL from the {@code t=} payload, or null. */
         String base;
+        /** The {@code r.slug} movie slug from the {@code t=} payload (e.g.
+         *  {@code influencers-MAyBtWlRaw8}), or null — the REAL movie name when the
+         *  page title is junk. v3.4.1. */
+        String slug;
 
         boolean hasDirect() { return direct != null && !direct.isEmpty(); }
     }
@@ -409,6 +413,7 @@ final class StreamHttpConfig {
                 if (json != null && json.indexOf('{') >= 0) {
                     r.cookie = jsonString(json, "c");
                     r.base = jsonString(json, "b");
+                    r.slug = jsonString(json, "slug");   // v3.4.1 — the real movie name
                 }
             }
         }

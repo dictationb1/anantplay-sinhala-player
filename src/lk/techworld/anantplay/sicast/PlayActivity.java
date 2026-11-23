@@ -257,6 +257,26 @@ public class PlayActivity extends Activity {
     private int videoW, videoH;
     private float videoPar = 1f;
     private int aspectMode = VideoViewport.FIT;
+    /** v3.4.1 — proof that at least one cue has actually been painted this track. */
+    private boolean firstCueRendered;
+    /** v3.4.1 — one-shot: the playhead is outside the cue range and we said so once. */
+    private boolean cueRangeWarned;
+
+    // ── v3.4.1 — LAYER 4: the stream's OWN captions, translated live ─────────
+    /** True while Layer 4 is translating the embedded track line by line. */
+    private volatile boolean liveTranslateOn;
+    /** The English line currently on screen (so a late translation can replace it). */
+    private volatile String liveLine = "";
+    /** line → Sinhala, an LRU of 400 lines: zero re-translation, zero lag on rewind. */
+    private final java.util.Map<String, String> liveCache =
+        new java.util.LinkedHashMap<String, String>(64, 0.75f, true) {
+            @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, String> e) {
+                return size() > 400;
+            }
+        };
+    /** Lines with a translation in flight (never two requests for the same line). */
+    private final java.util.Set<String> livePending =
+        java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
     /** Lock: every touch is swallowed except the tiny unlock pill. */
     private boolean locked;
     /** The measured window insets (status bar / gesture bar), in px. */
@@ -307,11 +327,13 @@ public class PlayActivity extends Activity {
         siFont = UiTokens.si(this, false);
         siFontSemi = UiTokens.si(this, true);
         parseIntent();
+        recoverTitleFromCast();   // v3.4.1 — a junk title may still carry the real slug
         if (url == null) {          // nothing playable arrived — leave cleanly, no half UI
             finish();
             return;
         }
         buildUi();
+        if (titleIsJunk) promptJunkTitle();   // v3.4.1 — the 1-tap intro prompt
         startPlayback();
         startTicker();
         applyVolumeBoost();
@@ -479,6 +501,7 @@ public class PlayActivity extends Activity {
             enFallbackOn = false;
             subDelayMs = 0;
             parseIntent();
+            recoverTitleFromCast();   // v3.4.1 — re-cast: recover the real name again
             if (url != null) {
                 startPlayback();
                 if (!titleIsJunk) fetchSinhala();
@@ -861,6 +884,109 @@ public class PlayActivity extends Activity {
      *      displayed as "සිංහල උපසිරැසි සූදානම්" — the exact wrong-language
      *      field failure, fixed at the source.
      * Every state change lands in the status pill; every failure names its cause. */
+    /**
+     * v3.4.1 — RECOVER THE REAL MOVIE NAME FROM THE CAST URL (defect #4.1).
+     *
+     * <p>The field log's title was {@code "ArrowTV Player"} — the page's own branding —
+     * but the relay URL in the very same cast carried
+     * {@code "slug":"influencers-MAyBtWlRaw8"} inside its {@code t=} token. That slug is
+     * the movie. Recovering it means the user never sees the "pick a movie" prompt at
+     * all, and the cache key becomes the real name, so the right cues are found.
+     *
+     * <p>Falls back to a slug-looking path segment when the token has none.
+     */
+    private void recoverTitleFromCast() {
+        if (!(titleIsJunk || TitleCleaner.isJunkTitle(title))) return;
+        final String raw = title;
+        try {
+            StreamHttpConfig.Relay r = StreamHttpConfig.relay(url);
+            String slug = r.slug;
+            if (slug == null) slug = slugFromUrl(url);
+            String real = TitleCleaner.fromSlug(slug);
+            if (real != null && !real.isEmpty()) {
+                title = real;
+                titleIsJunk = false;
+                Diag.i("subs", "junk title \"" + raw + "\" → real movie \"" + real + "\" (cast slug)");
+                Troubleshooter.record("SUBS", "junk title \"" + raw + "\" recovered from the cast slug: "
+                    + real);
+            }
+        } catch (Throwable t) {
+            Diag.w("subs", "slug recovery: " + t);
+        }
+    }
+
+    /** The last dash-bearing path segment of a URL — a scraper's movie slug, or null. */
+    static String slugFromUrl(String u) {
+        if (u == null) return null;
+        String s = u;
+        int q = s.indexOf('?');
+        if (q > 0) s = s.substring(0, q);
+        int hash = s.indexOf('#');
+        if (hash > 0) s = s.substring(0, hash);
+        String best = null;
+        for (String seg : s.split("/")) {
+            if (seg.length() < 6 || seg.indexOf('-') < 0) continue;
+            if (seg.contains("://") || seg.contains(":")) continue;
+            boolean letters = false;
+            for (int i = 0; i < seg.length(); i++) if (Character.isLetter(seg.charAt(i))) { letters = true; break; }
+            if (letters) best = seg;
+        }
+        return best;
+    }
+
+    /**
+     * v3.4.1 — THE 1-TAP INTRO PROMPT (defect #4.1).
+     *
+     * <p>When the cast reports only the player's branding, the subtitle pill becomes a
+     * single friendly tap target during the opening minutes: one tap opens the movie
+     * title search, and the 5-layer engine takes over from there. Drawn with a vector
+     * (UiIcons) — never an emoji glyph, which is what made the v3.4.0 UI look messy.
+     */
+    private void promptJunkTitle() {
+        try {
+            setState("junk", t2("චිත්‍රපටයේ නම දෙන්න — තත්පර 5න් සිංහල උපසිරැසි · Tap to pick the movie title"), -1);
+            if (statusPill != null) {
+                UiIcons.setCompound(statusPill, R.drawable.ic_search, 0xFFFDE68A, 16, Gravity.START);
+                statusPill.setClickable(true);
+                statusPill.setOnClickListener(v -> openTitleSearch());
+            }
+            Troubleshooter.record("SUBS", "junk title: the 1-tap movie-title prompt is on screen");
+        } catch (Throwable t) {
+            Diag.w("subs", "junk prompt: " + t);
+        }
+    }
+
+    /**
+     * v3.4.1 — is THIS playback's title junk for caching purposes?
+     *
+     * <p>Recomputed live rather than read from the {@code titleIsJunk} field, because a
+     * later real title (typed by the user, or recovered from the cast slug) must
+     * immediately make the cache usable again.
+     */
+    private boolean isJunkForCache() {
+        if (title == null) return true;
+        return titleIsJunk || TitleCleaner.isJunkTitle(title);
+    }
+
+    /**
+     * v3.4.1 — the ONLY writer into the subtitle cache.
+     *
+     * <p>Refuses to persist anything under a junk title: that is exactly how
+     * "ArrowTV Player" ended up owning 906 cues belonging to some other movie.
+     */
+    private void saveCues(String key, List<Cue> list) {
+        if (key == null || list == null || list.isEmpty()) return;
+        if (isJunkForCache()) {
+            Diag.i("subs", "cache write refused: junk title \"" + title + "\"");
+            return;
+        }
+        try {
+            store.save(key, list);
+        } catch (Throwable t) {
+            Diag.w("subs", "cache write: " + t);
+        }
+    }
+
     private void fetchSinhala() {
         if (fetching || testMode) return;
         fetching = true;
@@ -870,10 +996,19 @@ public class PlayActivity extends Activity {
                 boolean series = episode > 0 || season > 0;
                 String type = series ? "series" : "movie";
                 String key = type + ":t:" + (title == null ? "" : title.toLowerCase(Locale.ROOT)) + ":" + season + ":" + episode + ":" + activeLang;
-                List<Cue> cached = store.load(key);
-                if (cached != null) {
-                    applyCues(cached, "cached");
-                    return;
+                // ══ v3.4.1 — NEVER TRUST A JUNK TITLE'S CACHE (defect #4.1) ═════════
+                // The field log: title="ArrowTV Player" → "cues loaded: 906 · source=cached".
+                // The cache key was "movie:t:arrowtv player:0:0:si", so every cast that
+                // reported the player's own branding loaded whatever movie happened to
+                // be cached under that key first. A junk title now never READS a cache
+                // entry (and saveCues() never writes one).
+                final boolean junkKey = isJunkForCache();
+                if (!junkKey) {
+                    List<Cue> cached = store.load(key);
+                    if (cached != null) {
+                        applyCues(cached, "cached");
+                        return;
+                    }
                 }
                 setState("fetching", BridgeApi.searchingText(), myGen);
                 // ── 1. cast-supplied subs first (v2.1): instant, no IMDb needed ──
@@ -890,7 +1025,7 @@ public class PlayActivity extends Activity {
                             // already BE Sinhala (a Baiscope link!) — then it just shows.
                             if ("si".equals(activeLang) && SubLangDetect.looksSinhala(SubLangDetect.sampleOf(enCues))) {
                                 applyCues(enCues, "cast-subs (human Sinhala)");
-                                store.save(key, enCues);
+                                saveCues(key, enCues);
                                 return;
                             }
                             setState("fetching", "cast subtitle පරිවර්තනය වෙමින්… · translating the cast's subtitle…", myGen);
@@ -1036,7 +1171,7 @@ public class PlayActivity extends Activity {
         if (got == null || got.isEmpty()) return false;
         if (!"si".equals(activeLang) || SubLangDetect.looksSinhala(SubLangDetect.sampleOf(got))) {
             applyCues(got, how);
-            if (key != null) store.save(key, got);
+            if (key != null) saveCues(key, got);
             return true;
         }
         // the list is NOT Sinhala but was fetched FOR Sinhala → free-translate it
@@ -1057,7 +1192,7 @@ public class PlayActivity extends Activity {
             if (r.cues != null && !r.cues.isEmpty() && SubLangDetect.looksSinhala(SubLangDetect.sampleOf(r.cues))) {
                 applyCues(r.cues, (how == null || how.isEmpty() ? "" : how + " → ") + "free translator"
                     + (r.cacheHits > 0 ? " (cached)" : ""));
-                if (key != null) store.save(key, r.cues);
+                if (key != null) saveCues(key, r.cues);
                 return true;
             }
             // the translator did not land → show the source text HONESTLY labeled
@@ -1180,13 +1315,72 @@ public class PlayActivity extends Activity {
     }
 
     private void applyCues(List<Cue> loaded, String how) {
-        cues = loaded;
+        // ══ v3.4.1 — THE CUE-MATCH GUARD (defect #4.2) ═══════════════════════════
+        // The 4 Hz ticker walks the list and BREAKS at the first cue whose t0 is past
+        // the playhead, which is only correct on a list sorted by t0. A translated or
+        // merged track can arrive unsorted, and then cues silently never matched —
+        // "loaded but not rendering". Sorting here makes the ticker's contract true.
+        List<Cue> sorted = loaded;
+        boolean ordered = true;
+        for (int i = 1; i < loaded.size(); i++) {
+            if (loaded.get(i - 1).t0 > loaded.get(i).t0) { ordered = false; break; }
+        }
+        if (!ordered) {
+            sorted = new ArrayList<>(loaded);
+            try {
+                java.util.Collections.sort(sorted, (a, b) -> Long.compare(a.t0, b.t0));
+            } catch (Throwable t) {
+                Diag.w("subs", "sort: " + t);
+            }
+            Diag.i("subs", "cue list was UNSORTED — repaired (" + sorted.size() + " cues)");
+            Troubleshooter.record("SUBS", "cue list was unsorted — repaired before rendering");
+        }
+        cues = sorted;
+        // a fresh track always resets the "first cue rendered" proof + the offset guard
+        firstCueRendered = false;
+        cueRangeWarned = false;
         boolean hasEn = false;
-        for (Cue c : loaded) if (c.en != null && !c.en.isEmpty()) { hasEn = true; break; }
-        setState("ready", "සිංහල උපසිරැසි සූදානම් · " + loaded.size() + " cues · " + how
+        for (Cue c : sorted) if (c.en != null && !c.en.isEmpty()) { hasEn = true; break; }
+        setState("ready", "සිංහල උපසිරැසි සූදානම් · " + sorted.size() + " cues · " + how
             + (hasEn ? "" : " · human Sinhala"));
-        Diag.i("subs", "applied " + loaded.size() + " cues (" + how + ")");
-        Troubleshooter.record("SUBS", "cues loaded: " + loaded.size() + " · source=" + how + " · render=on");
+        Diag.i("subs", "applied " + sorted.size() + " cues (" + how + ")");
+        Troubleshooter.record("SUBS", "cues loaded: " + sorted.size() + " · source=" + how + " · render=on");
+        // …and prove the view can actually paint them
+        main.post(this::repairSubtitleView);
+    }
+
+    /**
+     * v3.4.1 — SUBTITLE VISIBILITY GUARD (defect #4.2).
+     *
+     * <p>Once cues exist the ONLY acceptable state for the subtitle view is "paintable":
+     * visible-capable, alpha 1, and above the video surface. v3.4.0 could leave it with
+     * alpha 0 or buried behind the surface (both from the Cinema-Polish pass), so a
+     * perfectly loaded track rendered nothing at all. This repairs the three properties
+     * and logs the repair, so the Troubleshooter shows it instead of the user guessing.
+     */
+    private void repairSubtitleView() {
+        if (subView == null) return;
+        boolean fixed = false;
+        try {
+            if (subView.getAlpha() < 1f) { subView.setAlpha(1f); fixed = true; }
+            if (subLayer != null) {
+                if (subLayer.getAlpha() < 1f) { subLayer.setAlpha(1f); fixed = true; }
+                if (subLayer.getVisibility() != View.VISIBLE) { subLayer.setVisibility(View.VISIBLE); fixed = true; }
+                if (subLayer.getParent() instanceof View) {
+                    View host = (View) subLayer.getParent();
+                    if (host.indexOfChild(subLayer) < host.getChildCount() - 1) {
+                        subLayer.bringToFront(); fixed = true;   // above the video surface
+                    }
+                }
+            }
+            if (subView.getTextSize() < dp(8)) { applyStudioStyle(); fixed = true; }
+        } catch (Throwable t) {
+            Diag.w("subs", "subtitle guard: " + t);
+        }
+        if (fixed) {
+            Diag.i("subs", "subtitle view repaired (alpha/visibility/z-order)");
+            Troubleshooter.record("SUBS", "subtitle view repaired: alpha/visibility/z-order");
+        }
     }
 
     /** Nothing in Sinhala: offer the stream's own text track (the "CC English" habit).
@@ -1199,8 +1393,18 @@ public class PlayActivity extends Activity {
                 player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build());
                 enFallbackOn = true;
-                setState(state, stateDetail + " · stream CC (auto-translate available in the subtitles sheet)");
-                Diag.i("subs", "Sinhala unavailable — stream text track on (English CC, translate available)");
+                // ══ v3.4.1 — LAYER 4 TURNS ON HERE (defect #4.3) ══════════════════
+                // Layers 1-3 found no external SRT, but the stream itself may carry an
+                // English CC track (WebVTT / CEA-608 / SubRip inside HLS-DASH). The text
+                // track is now enabled and onCues() feeds every line through
+                // FreeSubTranslator, so Sinhala appears WITHOUT any provider, key or
+                // download. This is the layer that makes "never fail" literally true.
+                liveTranslateOn = true;
+                setState(state, stateDetail
+                    + " · stream CC → සිංහල live (Layer 4) · tap for the subtitles sheet");
+                Diag.i("subs", "Layer 4 ON — embedded stream captions will be translated live");
+                Troubleshooter.record("SUBS", "Layer 4 enabled: the stream's own text track is on, "
+                    + "each line translated to Sinhala on the fly (in-memory cache, 400 lines)");
             } catch (Throwable t) {
                 Diag.w("subs", "fallback track: " + t);
             }
@@ -1215,14 +1419,75 @@ public class PlayActivity extends Activity {
             sb.append(c.text);
         }
         String clean = Cue.stripMarkup(sb.toString());
+        if (!liveTranslateOn) {
+            main.post(() -> {
+                if (subView != null) {
+                    // the stream's own CC track: system font, base direction from the language
+                    applyLangStyle();
+                    subView.setText(clean);
+                    subView.setVisibility(clean.isEmpty() ? View.GONE : View.VISIBLE);
+                }
+            });
+            return;
+        }
+        // ── v3.4.1 — LAYER 4: Sinhala if we already have it, English until we do ──
+        liveLine = clean;
+        String known;
+        synchronized (liveCache) { known = liveCache.get(clean); }
+        final String show = known != null ? known : clean;
         main.post(() -> {
-            if (subView != null) {
-                // the stream's own CC track: system font, base direction from the language
-                applyLangStyle();
-                subView.setText(clean);
-                subView.setVisibility(clean.isEmpty() ? View.GONE : View.VISIBLE);
+            if (subView == null) return;
+            applyLangStyle();
+            subView.setText(show);
+            subView.setVisibility(show.isEmpty() ? View.GONE : View.VISIBLE);
+            if (!firstCueRendered && !show.isEmpty()) {
+                firstCueRendered = true;
+                Diag.i("subs", "first cue rendered \u2713 (layer 4, stream CC)");
+                Troubleshooter.record("SUBS", "[SUBS] first cue rendered \u2713 · source=layer4 stream CC");
             }
         });
+        if (known == null && !clean.isEmpty()) queueLiveTranslation(clean);
+    }
+
+    /**
+     * v3.4.1 — translate ONE caption line to Sinhala, off the UI thread.
+     *
+     * <p>FreeSubTranslator is the on-device, keyless, disk-cached engine, so a repeated
+     * line costs nothing; the in-memory {@link #liveCache} then makes a rewind instant.
+     * Only the line that is still on screen is replaced — a late answer for an earlier
+     * line is cached but never painted over the current one.
+     */
+    private void queueLiveTranslation(final String line) {
+        if (line == null || line.isEmpty() || !livePending.add(line)) return;
+        new Thread(() -> {
+            try {
+                List<Cue> one = new ArrayList<>(1);
+                one.add(new Cue(1, 0, 2000, "00:00:00,000 --> 00:00:02,000", line, null, null));
+                FreeSubTranslator.Result r = FreeSubTranslator.translate(getFilesDir(), one, activeLang,
+                    ms -> { try { Thread.sleep(ms); } catch (InterruptedException ignored) { } });
+                String si = null;
+                if (r != null && r.cues != null && !r.cues.isEmpty()) {
+                    Cue c = r.cues.get(0);
+                    si = c.si != null && !c.si.isEmpty() ? c.si : c.en;
+                }
+                if (si != null && !si.isEmpty()) {
+                    synchronized (liveCache) { liveCache.put(line, si); }
+                    if (line.equals(liveLine)) {
+                        final String out = si;
+                        main.post(() -> {
+                            if (subView != null) {
+                                subView.setText(out);
+                                subView.setVisibility(View.VISIBLE);
+                            }
+                        });
+                    }
+                }
+            } catch (Throwable t) {
+                Diag.w("subs", "layer 4 translate: " + t);
+            } finally {
+                livePending.remove(line);
+            }
+        }, "layer4-sub").start();
     }
 
     /** A local .srt/.zip the user picked (SAF) — human Sinhala from Baiscope/Zoom/etc.
@@ -1300,7 +1565,7 @@ public class PlayActivity extends Activity {
                 setState(state, "Cinema Polish Ready · සිනමා ප්‍රඥප්තිය සූදානම්");
                 Diag.i("subs", "cinema polish hot-swapped (" + got.size() + " cues)");
             });
-            store.save(key, got);
+            saveCues(key, got);
         } catch (Exception e) {
             Diag.w("subs", "polish swap skipped: " + e);
         }
@@ -1333,6 +1598,18 @@ public class PlayActivity extends Activity {
                 }
                 if (hit != null) {
                     String text = hit.si == null || hit.si.isEmpty() ? hit.en : hit.si;
+                    // v3.4.1 — the first painted cue is a PROOF, not an assumption
+                    if (!firstCueRendered && text != null && !text.trim().isEmpty()) {
+                        firstCueRendered = true;
+                        if (subView != null && (subView.getAlpha() < 1f
+                                || (subLayer != null && subLayer.getVisibility() != View.VISIBLE))) {
+                            main.post(this::repairSubtitleView);
+                        }
+                        Diag.i("subs", "first cue rendered \u2713 at " + pos + " ms ("
+                            + (hit.si != null && !hit.si.isEmpty() ? "si" : "en") + ")");
+                        Troubleshooter.record("SUBS", "[SUBS] first cue rendered \u2713 · cue t0="
+                            + hit.t0 + " · playhead=" + pos + " ms · offset=" + subDelayMs + " ms");
+                    }
                     // v3.2.0 — the text was ALREADY stripped at parse time
                     // (Cue.stripMarkup); the renderer only types the view.
                     // v3.2.0 — ONE-place typeface: applyLangStyle() (called on
@@ -1343,6 +1620,19 @@ public class PlayActivity extends Activity {
                     subView.setVisibility(View.VISIBLE);
                 } else {
                     subView.setVisibility(View.GONE);
+                    // v3.4.1 — "loaded but nothing shows" has exactly one more cause we
+                    // can name: the playhead sits outside every cue's window (a wrong
+                    // track, or a track for a different cut). Say it ONCE, with numbers,
+                    // instead of leaving the user staring at a silent screen.
+                    if (!cueRangeWarned && !cs.isEmpty()) {
+                        Cue first = cs.get(0), last = cs.get(cs.size() - 1);
+                        if (pos > last.t1 + 5000 || pos < first.t0 - 60000) {
+                            cueRangeWarned = true;
+                            Troubleshooter.record("SUBS", "cues loaded but the playhead is OUTSIDE the "
+                                + "cue range · playhead=" + pos + " ms · cues " + first.t0
+                                + "–" + last.t1 + " ms · adjust the subtitle offset in the sheet");
+                        }
+                    }
                 }
                 if (hudVisible) {
                     timeNow.setText(ReceiverServer.clock(player.getCurrentPosition()));
@@ -1380,7 +1670,7 @@ public class PlayActivity extends Activity {
     private void showStatus() {
         if (hudStatus != null) {
             boolean good = "ready".equals(state) || "local".equals(state);
-            boolean warn = "fetching".equals(state);
+            boolean warn = "fetching".equals(state) || "junk".equals(state);   // v3.4.1
             hudStatus.setText(stateDetail);
             hudStatus.setTextColor(good ? 0xFF8CFF8C : warn ? 0xFFF59E0B : 0xFFFFB3B3);
             hudStatus.setVisibility(View.VISIBLE);

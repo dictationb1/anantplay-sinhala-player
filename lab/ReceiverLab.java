@@ -4854,6 +4854,86 @@ public class ReceiverLab {
 
         // ── v3.4.1 — THE 10/10 PROBE + HONEST VERDICT LAB (defect #3) ─────────
         probesLab();
+
+        // ── v3.4.1 — THE SUBTITLE TRUTH LAB (defect #4) ──────────────────────
+        subsLab();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.1 — v341 subs: JUNK-TITLE CACHE POISONING, SLUG RECOVERY, LAYERS 4 & 5
+    //
+    // The field report: title="ArrowTV Player" → "cues loaded: 906 · source=cached".
+    // The cache was read BEFORE any junk-title test, keyed on the raw title, so the
+    // player's own branding owned 906 cues of some other movie. The cast URL in the
+    // same log carried "slug":"influencers-MAyBtWlRaw8" — the real movie.
+    // ═════════════════════════════════════════════════════════════════════════
+    static void subsLab() throws Exception {
+        // the exact field string, and the look-alikes that must stay junk
+        check("v341 subs: 'ArrowTV Player' is recognised as a junk title",
+            TitleCleaner.isJunkTitle("ArrowTV Player"));
+        check("v341 subs: a real movie title is NOT junk",
+            !TitleCleaner.isJunkTitle("Influencers") && !TitleCleaner.isJunkTitle("The Odyssey 2026"));
+
+        // the slug IS the movie
+        check("v341 subs: the field slug becomes the real movie name",
+            "Influencers".equals(TitleCleaner.fromSlug("influencers-MAyBtWlRaw8")),
+            TitleCleaner.fromSlug("influencers-MAyBtWlRaw8"));
+        check("v341 subs: a multi-word slug is title-cased",
+            "The Great Escape".equals(TitleCleaner.fromSlug("the-great-escape-9Xk2Lm4P")),
+            TitleCleaner.fromSlug("the-great-escape-9Xk2Lm4P"));
+        check("v341 subs: a junk slug is refused, never used as a title",
+            TitleCleaner.fromSlug("player-embed-1a2b3c4d") == null
+                && TitleCleaner.fromSlug("") == null
+                && TitleCleaner.fromSlug(null) == null);
+
+        // …and it really travels through the relay token
+        String b64o = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("https://proxy.yenime.net".getBytes(StandardCharsets.UTF_8));
+        String tok = java.util.Base64.getEncoder().encodeToString(
+            ("{\"b\":\"https://cdn.example/\",\"r\":{\"subjectId\":\"7149\","
+                + "\"slug\":\"influencers-MAyBtWlRaw8\"}}").getBytes(StandardCharsets.UTF_8));
+        StreamHttpConfig.Relay rr = StreamHttpConfig.relay(
+            "http://192.168.1.7:34783/" + b64o + "/manifest.mpd?t="
+                + java.net.URLEncoder.encode(tok, StandardCharsets.UTF_8));
+        check("v341 subs: the relay token exposes the movie slug",
+            "influencers-MAyBtWlRaw8".equals(rr.slug), rr.slug);
+        check("v341 subs: the slug recovered from the token is the real title",
+            "Influencers".equals(TitleCleaner.fromSlug(rr.slug)));
+
+        // the wiring, asserted on the shipped source (these classes need android.jar)
+        String play = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        check("v341 subs: the cache READ is gated on the junk title",
+            play.contains("final boolean junkKey = isJunkForCache();")
+                && play.contains("if (!junkKey) {"));
+        check("v341 subs: EVERY cache write goes through the junk-safe saveCues()",
+            countOf(play, "store.save(") == 1 && play.contains("private void saveCues("));
+        check("v341 subs: the real title is recovered from the cast slug at start-up",
+            play.contains("recoverTitleFromCast();"));
+        check("v341 subs: a still-junk title raises the 1-tap intro prompt",
+            play.contains("promptJunkTitle();") && play.contains("openTitleSearch()"));
+        check("v341 subs: the cue list is SORTED before rendering (the cue-match guard)",
+            play.contains("Collections.sort(sorted") || play.contains("java.util.Collections.sort(sorted"));
+        check("v341 subs: the subtitle view is repaired (alpha / visibility / z-order)",
+            play.contains("private void repairSubtitleView()") && play.contains("bringToFront()"));
+        check("v341 subs: the first painted cue is PROVEN and recorded",
+            play.contains("[SUBS] first cue rendered"));
+        check("v341 subs: LAYER 4 enables the stream text track and translates it live",
+            play.contains("liveTranslateOn = true;") && play.contains("queueLiveTranslation("));
+        check("v341 subs: Layer 4 caches each translated line in memory",
+            play.contains("liveCache.put("));
+
+        String web = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
+        check("v341 subs: LAYER 5 hooks URL.createObjectURL for client-side Blob subtitles",
+            web.contains("__siBlobHook") && web.contains("URL.createObjectURL"));
+        check("v341 subs: LAYER 5 catches <a download href=\"blob:…\"> too",
+            web.contains("a[download]") && web.contains("blob:"));
+        check("v341 subs: LAYER 5 posts through the ONE registered interface (SniJS)",
+            web.contains("public void onBlobDownload(String base64, String name)"));
+        check("v341 subs: LAYER 5 refuses anything over the 5 MB cap",
+            web.contains("BLOB_CAP") && web.contains("5 * 1024 * 1024"));
+        String sd = readRepoFile("src/lk/techworld/anantplay/sicast/SpeedDial.java");
+        check("v341 subs: tools.newzone.top/en/subtitle-translator is a built-in speed dial entry",
+            sd.contains("https://tools.newzone.top/en/subtitle-translator"));
     }
 
     // ═════════════════════════════════════════════════════════════════════════

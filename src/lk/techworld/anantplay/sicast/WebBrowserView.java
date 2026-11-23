@@ -318,6 +318,7 @@ public class WebBrowserView extends FrameLayout {
                     "document.addEventListener('play',function(e){f(e.target)},true);" +
                     "document.addEventListener('loadedmetadata',function(e){f(e.target)},true);" +
                     "var l=document.querySelectorAll('video,source');for(var i=0;i<l.length;i++)f(l[i]);})()", null);
+                injectBlobHook(v);
             }
         });
 
@@ -865,6 +866,102 @@ public class WebBrowserView extends FrameLayout {
             if (!StreamSniffer.shouldReport(s, null, -1)) return;
             String kind = StreamSniffer.classify(s, null);
             report(new StreamSniffer.Hit().url(s).kind(kind == null ? "VIDEO" : kind));
+        }
+
+        /** v3.4.1 — Layer 5: a client-side Blob subtitle (tools.newzone.top, any site). */
+        @JavascriptInterface
+        public void onBlobDownload(String base64, String name) {
+            WebBrowserView.this.onBlobDownload(base64, name);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // v3.4.1 — LAYER 5: THE CHROMIUM BLOB SUBTITLE BRIDGE (defect #4.4)
+    //
+    // Android 16's WebView IS Chromium, and the most useful Sinhala workflow on the
+    // web ends in a CLIENT-SIDE Blob: tools.newzone.top/en/subtitle-translator
+    // translates an .srt in the page and hands you the result through
+    // URL.createObjectURL(new Blob([...])). A blob: URL cannot be downloaded by the
+    // DownloadListener (it has no network address) and Media3 cannot play it, so in
+    // v3.4.0 that file simply vanished. This shim closes the loop:
+    //   · URL.createObjectURL is wrapped, so any Blob that looks like a subtitle is
+    //     read with FileReader and posted to the Java bridge as base64;
+    //   · an <a download href="blob:…"> click is caught in the capture phase and the
+    //     blob is fetched in-page (only the page can read its own blob:) and posted;
+    //   · Java caps the payload at 5 MB, base64-decodes it and attaches it to the
+    //     movie that is playing RIGHT NOW — one tap, no file manager.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /** The largest Blob we will carry across the bridge (matches SrtLoader's cap). */
+    private static final int BLOB_CAP = 5 * 1024 * 1024;
+
+    /** Install the Blob hook (idempotent: the page flag survives re-injection). */
+    private void injectBlobHook(WebView v) {
+        try {
+            v.evaluateJavascript(BLOB_HOOK_JS, null);
+        } catch (Throwable t) {
+            Diag.w("web", "blob hook: " + t);
+        }
+    }
+
+    /** The shim: wrap createObjectURL, catch <a download>, fetch the blob in-page. */
+    private static final String BLOB_HOOK_JS =
+        "(function(){if(window.__siBlobHook)return;window.__siBlobHook=1;" +
+        "var grab=function(u,n){try{fetch(u).then(function(r){return r.blob()})" +
+        ".then(function(b){if(!b||b.size>" + BLOB_CAP + ")return;" +
+        "var fr=new FileReader();fr.onload=function(){try{var s=String(fr.result||'');" +
+        "var i=s.indexOf(',');if(i>0&&window.SniJS)SniJS.onBlobDownload(s.substring(i+1),n||'subtitle.srt');}catch(e){}};" +
+        "fr.readAsDataURL(b);}).catch(function(){});}catch(e){}};" +
+        "var orig=URL.createObjectURL?URL.createObjectURL.bind(URL):null;" +
+        "if(orig){URL.createObjectURL=function(b){try{" +
+        "var n=(b&&b.name)||'';var t=(b&&b.type)||'';" +
+        "if(b&&b.size&&b.size<=" + BLOB_CAP + "&&/(srt|vtt|zip|sub|ass|ssa)/i.test(t+' '+n)){grab(orig(b),n||'subtitle.srt');}" +
+        "}catch(e){}return orig(b);};}" +
+        "document.addEventListener('click',function(ev){try{" +
+        "var a=ev.target&&ev.target.closest?ev.target.closest('a[download]'):null;if(!a)return;" +
+        "var h=a.getAttribute('href')||'';if(h.indexOf('blob:')!==0)return;" +
+        "grab(h,a.getAttribute('download')||'subtitle.srt');}catch(e){}},true);})()";
+
+    /** Called from JS on a worker thread: a base64 subtitle Blob, straight to the player.
+     *  Reached through {@link JsBridge#onBlobDownload} — SniJS is the ONE interface
+     *  registered with the WebView, so the shim's `SniJS.onBlobDownload(...)` resolves. */
+    void onBlobDownload(final String base64, final String name) {
+        if (base64 == null || base64.isEmpty()) return;
+        if (base64.length() > BLOB_CAP * 4 / 3 + 16) {
+            Diag.w("web", "blob refused: " + base64.length() + " b64 chars > 5 MB cap");
+            return;
+        }
+        new Thread(() -> {
+            byte[] bytes;
+            try {
+                bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
+            } catch (Throwable t) {
+                Diag.w("web", "blob decode: " + t);
+                return;
+            }
+            if (bytes == null || bytes.length == 0) return;
+            final byte[] b = bytes;
+            final String nm = name == null || name.isEmpty() ? "blob-subtitle.srt" : name;
+            Diag.i("web", "blob subtitle captured (" + b.length + " B, " + nm + ")");
+            act.runOnUiThread(() -> attachBytes(b, nm));
+        }, "blob-sub").start();
+    }
+
+    /** Attach already-in-memory subtitle bytes to the live player (shared with the
+     *  Blob bridge; the download path reuses the same tail). */
+    private void attachBytes(byte[] bytes, String name) {
+        PlayActivity p = PlayActivity.current();
+        if (p != null) {
+            p.attachCapturedSubs(bytes, name);
+            toast("subtitle attached · " + bytes.length + " B");
+            return;
+        }
+        try {
+            java.io.File f = new java.io.File(act.getCacheDir(), "captured-sub.bin");
+            try (java.io.FileOutputStream o = new java.io.FileOutputStream(f)) { o.write(bytes); }
+            toast("saved — open a movie, then Subtitles → Local .srt");
+        } catch (Throwable t) {
+            toast("could not save the subtitle: " + t.getMessage());
         }
     }
 
