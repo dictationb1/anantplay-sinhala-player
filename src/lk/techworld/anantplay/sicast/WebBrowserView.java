@@ -784,7 +784,7 @@ public class WebBrowserView extends FrameLayout {
                 + "\n" + (bar2 < 0 ? "" : entries[i].substring(0, bar2));
         }
         new android.app.AlertDialog.Builder(act)
-            .setTitle("★ Bookmarks (tap = open, long-press = remove)")
+            .setTitle("Bookmarks — tap to open, long-press to remove")
             .setItems(labels, (d, which) -> load(entries[which].substring(0, Math.max(0, entries[which].indexOf('|')))))
             .setNeutralButton("Clear all", (d, w) -> prefs.edit().putString("webBookmarks", "").apply())
             .setNegativeButton(android.R.string.cancel, null)

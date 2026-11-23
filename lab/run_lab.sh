@@ -105,6 +105,20 @@ python3 lab/verify_refs.py
 python3 lab/verify_layouts.py --selftest
 python3 lab/verify_layouts.py
 
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.4.1 — THE UI-COMPLETENESS TRUTH GATE (third gating auditor)
+#
+# The v3.4.0 field report said "symbols are way too huge" and "customizations
+# aren't actually working". This gate turns both sentences into arithmetic:
+#   R1  every UiIcons.* call with a literal size must be <= 28dp (hero disc
+#       32dp, designed empty-state illustration 40dp — both named exceptions);
+#   R2  every AppPrefs K_* must be listed in BACKUP_KEYS *and* reachable from a
+#       UI surface, directly or through an AppPrefs accessor (zero dead keys);
+#   R3  zero emoji inside a control string — the chrome is drawn with
+#       res/drawable/ic_*.xml through UiIcons, never with a font glyph.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 lab/verify_ui_completeness.py
+
 echo "── live bridge E2E (best effort — never gating)"
 # v3.3.0 — LAB_SKIP_LIVE=1 skips the network leg entirely (air-gapped runners and
 # local verification runs must finish in seconds, not wait on a worker timeout).
