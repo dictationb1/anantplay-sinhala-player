@@ -8,7 +8,7 @@
 >    “More tools” තුළ වසා තබයි. Aspect සහ sleep timer සඳහා segmented controls ඇත.
 > 3. **Quick Settings පෙරදසුන්** — Flat/Glass මතුපිට සහ Docked/Floating පහළ තීරුව සෘජුව
 >    තෝරාගත හැක; accent වර්ණ 10ක් ඇත.
-> 4. **අයිකන හා වර්ණ** — outlined vector icons 1.8dp stroke එකකට සකස් කර ඇත; Flat cards වල
+> 4. **අයිකන හා වර්ණ** — outlined vector icons 1.75–1.85dp stroke පරාසයක සකස් කර ඇත; Flat cards වල
 >    අනවශ්‍ය මායිම් ඉවත් කර Glass mode එකේ hairline සුරකියි; stroke පළල 1.75–1.85dp අතරය.
 > 5. **English UI default** — Sinhala subtitle preview සහ subtitle language names එලෙසම පවතී.
 >

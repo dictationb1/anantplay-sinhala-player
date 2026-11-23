@@ -234,8 +234,8 @@
   "name": "ic_more_dots",
   "group": "browser",
   "metaphor": "Three dots (overflow menu)",
-  "stroke": 1.75,
-  "filled": false
+   "stroke": 0,
+   "filled": true
  },
  {
   "name": "ic_close",
@@ -383,5 +383,82 @@
   "metaphor": "Up chevron for expanded controls",
   "stroke": 1.8,
   "filled": false
+  },
+  {
+   "name": "ic_dot",
+   "group": "support",
+   "metaphor": "Small filled state indicator",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_nav_customize_filled",
+   "group": "nav-state",
+   "metaphor": "Filled active state for the Customize navigation icon",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_nav_home_filled",
+   "group": "nav-state",
+   "metaphor": "Filled active state for the Home navigation icon",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_nav_troubleshoot_filled",
+   "group": "nav-state",
+   "metaphor": "Filled active state for the Troubleshooter navigation icon",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_nav_web_filled",
+   "group": "nav-state",
+   "metaphor": "Filled active state for the Web navigation icon",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_pause_filled",
+   "group": "media-state",
+   "metaphor": "Filled Pause transport state",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_play_filled",
+   "group": "media-state",
+   "metaphor": "Filled Play transport state",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_launcher_background",
+   "group": "launcher",
+   "metaphor": "Adaptive launcher background artwork",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_launcher_foreground",
+   "group": "launcher",
+   "metaphor": "Sinhala monogram and gradient play badge; 108dp adaptive artwork",
+   "stroke": 1.8,
+   "filled": true
+  },
+  {
+   "name": "ic_launcher_monochrome",
+   "group": "launcher",
+   "metaphor": "Monochrome adaptive launcher artwork",
+   "stroke": 0,
+   "filled": true
+  },
+  {
+   "name": "ic_stat_si",
+   "group": "system",
+   "metaphor": "Monochrome status-bar notification mark",
+   "stroke": 0,
+   "filled": true
  }
 ]

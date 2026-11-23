@@ -2331,8 +2331,11 @@ public class PlayActivity extends Activity {
         p.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(radiusCard());
-        bg.setColor(0xF20E1424);
-        bg.setStroke(dp(1), 0x33FFFFFF);
+        ThemeEngine.Palette palette = pal();
+        bg.setColor(ThemeEngine.cardFill(palette, AppPrefs.glass(prefs)));
+        if (AppPrefs.glass(prefs)) {
+            bg.setStroke(dp(1), palette.stroke);
+        }
         p.setBackground(bg);
         p.setPadding(dp(14), dp(12), dp(14), dp(12));
 
@@ -3729,6 +3732,9 @@ public class PlayActivity extends Activity {
         LinearLayout moreHeader = new LinearLayout(this);
         moreHeader.setGravity(Gravity.CENTER_VERTICAL);
         moreHeader.setPadding(dp(4), dp(8), dp(4), dp(4));
+        moreHeader.setFocusable(true);
+        moreHeader.setClickable(true);
+        moreHeader.setContentDescription("More subtitle tools, collapsed");
         TextView moreTitle = new TextView(this);
         moreTitle.setText(t2("තවත් මෙවලම් · More tools"));
         moreTitle.setTextColor(p.title);
@@ -3736,7 +3742,7 @@ public class PlayActivity extends Activity {
         moreHeader.addView(moreTitle, new LinearLayout.LayoutParams(0, -2, 1f));
         ImageView moreChevron = new ImageView(this);
         moreChevron.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_chevron_down, p.desc, 18));
-        moreChevron.setContentDescription("Expand more subtitle tools");
+        moreChevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         moreHeader.addView(moreChevron, new LinearLayout.LayoutParams(dp(44), dp(44)));
         LinearLayout moreBody = new LinearLayout(this);
         moreBody.setOrientation(LinearLayout.VERTICAL);
@@ -3787,8 +3793,8 @@ public class PlayActivity extends Activity {
             moreBody.setVisibility(open ? View.VISIBLE : View.GONE);
             moreChevron.setImageDrawable(UiIcons.tinted(this,
                 open ? R.drawable.ic_chevron_up : R.drawable.ic_chevron_down, p.desc, 18));
-            moreChevron.setContentDescription(open
-                ? "Collapse more subtitle tools" : "Expand more subtitle tools");
+            moreHeader.setContentDescription(open
+                ? "More subtitle tools, expanded" : "More subtitle tools, collapsed");
         });
         moreWrap.addView(moreHeader, new LinearLayout.LayoutParams(-1, -2));
         moreWrap.addView(moreBody, new LinearLayout.LayoutParams(-1, -2));

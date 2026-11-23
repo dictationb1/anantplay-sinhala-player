@@ -920,7 +920,7 @@ public class MainActivity extends Activity {
         hero.addView(heroPill, new LinearLayout.LayoutParams(-2, -2));
         TextView heroSub = new TextView(this);
         heroSub.setText(t("AnantPlay එකේ Cast බොත්තමෙන් \"සිංහල Player\" තෝරන්න",
-            "Choose \"AnantPlay Player\" in AnantPlay's Cast menu"));
+            "Choose \"AnantPlay Sinhala Player\" in AnantPlay's Cast menu"));
         heroSub.setTextColor(P.desc);
         heroSub.setTextSize(11.5f);
         heroSub.setPadding(0, dp(4), 0, 0);
@@ -964,7 +964,7 @@ public class MainActivity extends Activity {
             boolean castable = ReceiverService.castDiscoverable();
             boolean announced = ReceiverService.isAnnounced();
             heroPill.setText(up
-                ? (announced || castable ? t("සිංහල Player සූදානම්", "Sinhala Player ready")
+                ? (announced || castable ? t("සිංහල Player සූදානම්", "AnantPlay Player ready")
                                          : t("සූදානම් — announce වෙමින්…", "arming announcement…"))
                 : t("ක්‍රියාත්මක නැත", "Off"));
             statusDot(heroPill, up ? (announced || castable ? P.ok : P.warn) : P.desc);
@@ -994,7 +994,7 @@ public class MainActivity extends Activity {
             Miui.openAnantPlay(this);
             // v3.1.0 — the ONE smart non-intrusive cast confirmation (zero nagging)
             toast(t("සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න",
-                "Ready to cast — choose AnantPlay Player from AnantPlay's Cast menu"));
+                "Ready to cast — choose AnantPlay Sinhala Player from AnantPlay's Cast menu"));
         }), new LinearLayout.LayoutParams(0, -2, 1f));
         if (AppPrefs.showWebTab(prefs)) {
             g1.addView(actionBtn(R.drawable.ic_nav_web, t("බ්‍රව්සරයෙන් බලන්න", "Watch in WebView"), v -> selectTab(TAB_WEB)),
