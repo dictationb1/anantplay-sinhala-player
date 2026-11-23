@@ -68,17 +68,28 @@ java -Dsun.net.http.allowRestrictedHeaders=true -cp lab/out/classes \
   lk.techworld.anantplay.sicast.ReceiverLab > lab/out/lab.txt 2>&1
 LAB_EXIT=$?
 set -e
-cat lab/out/lab.txt
 if [ "$LAB_EXIT" -ne 0 ]; then
+  cat lab/out/lab.txt
   echo "LAB FAILED: ReceiverLab exited $LAB_EXIT" >&2
   exit 1
 fi
+
+# v3.4.4 — Audit each drawable/path and each literal app text size. Individual
+# assertions are appended to the same lab report so the published count reflects
+# both the executable Java regressions and the source/resource checks.
+if ! python3 lab/verify_v344_ui.py >> lab/out/lab.txt 2>&1; then
+  cat lab/out/lab.txt
+  echo "LAB FAILED: v3.4.4 vector/typography audit" >&2
+  exit 1
+fi
+
+cat lab/out/lab.txt
 if grep -q "  FAIL " lab/out/lab.txt; then
   echo "LAB FAILED: at least one FAIL line in lab/out/lab.txt" >&2
   exit 1
 fi
 PASSED=$(grep -c "  PASS " lab/out/lab.txt || true)
-echo "Lab proof: $PASSED checks passed (0 failed)"
+echo "Lab proof: $PASSED executable and static checks passed (0 failed)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # v3.1.2 — THE BYTECODE REFERENCE VERIFIER (structure-level crash prevention)

@@ -9,6 +9,9 @@
 > duplicate setup guidance, Settings adds visual surface/navigation previews and
 > ten accent swatches, and outlined vectors use a consistent 1.75–1.85dp stroke family.
 > Existing playback, subtitle, backup, privacy, and permission behavior is retained.
+>
+> Local verification: 1,221 executable Java regressions + 1,915 icon/typography checks
+> = 3,136 checks passed.
 
 > The signed release metadata (`docs/latest.json`) is written by the release workflow
 > after it builds the permanent-key APK, so its checksum always matches the published file.

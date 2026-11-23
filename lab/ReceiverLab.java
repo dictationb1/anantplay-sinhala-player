@@ -2860,7 +2860,7 @@ public class ReceiverLab {
         check("v312 tsr: the report's crash section leads with the EXCEPTION line",
             rep.contains("EXCEPTION android.content.res.Resources$NotFoundException"));
         check("v312 tsr: the report header stamps the app version + SDK only (no model)",
-            rep.contains("app v3.4.3") && rep.contains("Android SDK"));
+            rep.contains("app v" + AppInfo.VERSION_NAME) && rep.contains("Android SDK"));
         check("v312 tsr: the report is zero-PII end-to-end (the whole bundle re-scrubbed)",
             !rep.contains("24117RN76G") && !rep.contains("192.168.1.39"));
     }
@@ -4232,10 +4232,10 @@ public class ReceiverLab {
             + "LinearLayout parent)",
             playSrc.contains("final FrameLayout parent = rootView;")
                 && !playSrc.contains("(ViewGroup) hudCenter.getParent()"));
-        check("v331 crash1: the chip strip is added to its HorizontalScrollView with "
+        check("v331 crash1: the language strip is added to its HorizontalScrollView with "
             + "FrameLayout.LayoutParams",
-            playSrc.contains("hs.addView(chips, new FrameLayout.LayoutParams(-2, -2));")
-                && !playSrc.contains("hs.addView(chips, new LinearLayout.LayoutParams("));
+            playSrc.contains("hs.addView(langRow, new FrameLayout.LayoutParams(-2, -2));")
+                && !playSrc.contains("hs.addView(langRow, new LinearLayout.LayoutParams("));
         check("v331 crash1: applyVideoSize() never casts getLayoutParams() unchecked",
             playSrc.contains("surface.getLayoutParams() instanceof FrameLayout.LayoutParams")
                 && !playSrc.contains("FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) surface.getLayoutParams()"));
@@ -5544,17 +5544,17 @@ public class ReceiverLab {
         String web = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
         String manifest = readRepoFile("AndroidManifest.xml");
 
-        // ── the giant-icon fix: 40dp plate, real padding, 20dp glyph ──
-        check("v342 player: the HUD icon plate is 40dp (ICON_BOX_DP = 40)",
-            play.contains("ICON_BOX_DP = 40"));
+        // ── the giant-icon fix: 44dp plate, real padding, 20dp glyph ──
+        check("v342 player: the HUD icon plate is 44dp (ICON_BOX_DP = 44)",
+            play.contains("ICON_BOX_DP = 44"));
         check("v342 player: icon() applies REAL internal padding around the glyph",
             play.contains("int pad = dp(Math.max(0, (ICON_BOX_DP - size) / 2f))")
                 && play.contains("iv.setPadding(pad, pad, pad, pad)"));
         check("v342 player: every top-bar plate is added at ICON_BOX_DP (never a bare 36dp)",
             !play.contains("new LinearLayout.LayoutParams(dp(36), dp(36))"));
-        check("v342 player: the top bar uses topIconParams() for all four right-side plates",
-            countOf(play, "hudTopBar.addView(") == 7
-                && countOf(play, "topIconParams()") == 5,     // 4 call sites + the definition
+        check("v342 player: the top bar uses topIconParams() for all five right-side plates",
+            countOf(play, "hudTopBar.addView(") == 8
+                && countOf(play, "topIconParams()") == 6,     // 5 call sites + the definition
             "addView=" + countOf(play, "hudTopBar.addView(") + " params=" + countOf(play, "topIconParams()"));
 
         // ── subtitles at the BOTTOM, never the centre ──
