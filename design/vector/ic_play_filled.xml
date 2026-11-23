@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ic_play - AnantPlay Sinhala Player icon system v3.4.0.
+     Grammar: 24dp viewport, 2dp optical padding, 1.9dp stroke, round caps/joins.
+     Tint at runtime: UiIcons.tinted(ctx, R.drawable.ic_play, color, sizeDp). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M8.6 5.4L19.4 12L8.6 18.6Z"
+        android:fillColor="#FFFFFFFF"/>
+</vector>

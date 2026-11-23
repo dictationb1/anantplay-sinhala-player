@@ -1,0 +1,1468 @@
+{
+  "$description": "AnantPlay Sinhala Player v3.4.0 design tokens. Colours are computed with the identical lerp used by ThemeEngine.blend() in the shipping Java, so this file and the APK can never drift. Import into Figma Free via Tokens Studio (see blueprint Phase 6) or map to Figma Variables by hand.",
+  "$metadata": {
+    "source": "dictationb1/anantplay-sinhala-player @ 1db180f (v3.3.1) + v3.4.0 design spec",
+    "grid": "24dp icon viewport, 2dp optical padding, 1.75dp stroke",
+    "formats": "W3C DTCG ($type/$value) with Tokens Studio $themes",
+    "version": "3.4.0"
+  },
+  "color": {
+    "theme": {
+      "midnight-slate": {
+        "bg": {
+          "$type": "color",
+          "$value": "#0B1020",
+          "$description": "Canvas. AMOLED is literally #000000."
+        },
+        "surface": {
+          "$type": "color",
+          "$value": "#111A2E",
+          "$description": "Card / sheet surface tier 1"
+        },
+        "surface-sunken": {
+          "$type": "color",
+          "$value": "#0E1526",
+          "$description": "Nav bar, docked bar, inset tier"
+        },
+        "surface-raised": {
+          "$type": "color",
+          "$value": "#1A2440",
+          "$description": "Chips, segmented-control track"
+        },
+        "on-surface": {
+          "$type": "color",
+          "$value": "#F1F5F9",
+          "$description": "Primary text (100% opacity)"
+        },
+        "on-surface-secondary": {
+          "$type": "color",
+          "$value": "#E2E8F0",
+          "$description": "Body text (100% - already tinted)"
+        },
+        "on-surface-muted": {
+          "$type": "color",
+          "$value": "#94A3B8",
+          "$description": "Secondary/muted text (68% / 45% rule)"
+        },
+        "outline": {
+          "$type": "color",
+          "$value": "#323745",
+          "$description": "1dp hairline borders"
+        },
+        "outline-strong": {
+          "$type": "color",
+          "$value": "#5D626F",
+          "$description": "Focused / active borders"
+        },
+        "scrim": {
+          "$type": "color",
+          "$value": "#000000",
+          "$description": "60-72% alpha bottom-sheet scrim"
+        },
+        "status-ok": {
+          "$type": "color",
+          "$value": "#22C55E"
+        },
+        "status-warn": {
+          "$type": "color",
+          "$value": "#F59E0B"
+        },
+        "status-error": {
+          "$type": "color",
+          "$value": "#EF4444"
+        },
+        "accent-dim": {
+          "$type": "color",
+          "$value": "#3C2D71",
+          "$description": "blend(accent,bg,0.62) - text on tinted chips"
+        },
+        "accent-soft": {
+          "$type": "color",
+          "$value": "#251F4B",
+          "$description": "blend(accent,bg,0.80) - chip fill"
+        }
+      },
+      "amoled-black": {
+        "bg": {
+          "$type": "color",
+          "$value": "#000000",
+          "$description": "Canvas. AMOLED is literally #000000."
+        },
+        "surface": {
+          "$type": "color",
+          "$value": "#0A0F1C",
+          "$description": "Card / sheet surface tier 1"
+        },
+        "surface-sunken": {
+          "$type": "color",
+          "$value": "#070B14",
+          "$description": "Nav bar, docked bar, inset tier"
+        },
+        "surface-raised": {
+          "$type": "color",
+          "$value": "#141B2E",
+          "$description": "Chips, segmented-control track"
+        },
+        "on-surface": {
+          "$type": "color",
+          "$value": "#F1F5F9",
+          "$description": "Primary text (100% opacity)"
+        },
+        "on-surface-secondary": {
+          "$type": "color",
+          "$value": "#E2E8F0",
+          "$description": "Body text (100% - already tinted)"
+        },
+        "on-surface-muted": {
+          "$type": "color",
+          "$value": "#94A3B8",
+          "$description": "Secondary/muted text (68% / 45% rule)"
+        },
+        "outline": {
+          "$type": "color",
+          "$value": "#292A2B",
+          "$description": "1dp hairline borders"
+        },
+        "outline-strong": {
+          "$type": "color",
+          "$value": "#56585B",
+          "$description": "Focused / active borders"
+        },
+        "scrim": {
+          "$type": "color",
+          "$value": "#000000",
+          "$description": "60-72% alpha bottom-sheet scrim"
+        },
+        "status-ok": {
+          "$type": "color",
+          "$value": "#22C55E"
+        },
+        "status-warn": {
+          "$type": "color",
+          "$value": "#F59E0B"
+        },
+        "status-error": {
+          "$type": "color",
+          "$value": "#EF4444"
+        },
+        "accent-dim": {
+          "$type": "color",
+          "$value": "#35235D",
+          "$description": "blend(accent,bg,0.62) - text on tinted chips"
+        },
+        "accent-soft": {
+          "$type": "color",
+          "$value": "#1C1231",
+          "$description": "blend(accent,bg,0.80) - chip fill"
+        }
+      },
+      "nordic-dark": {
+        "bg": {
+          "$type": "color",
+          "$value": "#0F1419",
+          "$description": "Canvas. AMOLED is literally #000000."
+        },
+        "surface": {
+          "$type": "color",
+          "$value": "#1A2129",
+          "$description": "Card / sheet surface tier 1"
+        },
+        "surface-sunken": {
+          "$type": "color",
+          "$value": "#151B21",
+          "$description": "Nav bar, docked bar, inset tier"
+        },
+        "surface-raised": {
+          "$type": "color",
+          "$value": "#222C36",
+          "$description": "Chips, segmented-control track"
+        },
+        "on-surface": {
+          "$type": "color",
+          "$value": "#E8EEF4",
+          "$description": "Primary text (100% opacity)"
+        },
+        "on-surface-secondary": {
+          "$type": "color",
+          "$value": "#D5DEE7",
+          "$description": "Body text (100% - already tinted)"
+        },
+        "on-surface-muted": {
+          "$type": "color",
+          "$value": "#8FA0B0",
+          "$description": "Secondary/muted text (68% / 45% rule)"
+        },
+        "outline": {
+          "$type": "color",
+          "$value": "#33383E",
+          "$description": "1dp hairline borders"
+        },
+        "outline-strong": {
+          "$type": "color",
+          "$value": "#5A6167",
+          "$description": "Focused / active borders"
+        },
+        "scrim": {
+          "$type": "color",
+          "$value": "#000000",
+          "$description": "60-72% alpha bottom-sheet scrim"
+        },
+        "status-ok": {
+          "$type": "color",
+          "$value": "#34D399"
+        },
+        "status-warn": {
+          "$type": "color",
+          "$value": "#FBBF24"
+        },
+        "status-error": {
+          "$type": "color",
+          "$value": "#F87171"
+        },
+        "accent-dim": {
+          "$type": "color",
+          "$value": "#3E2F6D",
+          "$description": "blend(accent,bg,0.62) - text on tinted chips"
+        },
+        "accent-soft": {
+          "$type": "color",
+          "$value": "#282245",
+          "$description": "blend(accent,bg,0.80) - chip fill"
+        }
+      },
+      "clean-light": {
+        "bg": {
+          "$type": "color",
+          "$value": "#F3F5FB",
+          "$description": "Canvas. AMOLED is literally #000000."
+        },
+        "surface": {
+          "$type": "color",
+          "$value": "#FFFFFF",
+          "$description": "Card / sheet surface tier 1"
+        },
+        "surface-sunken": {
+          "$type": "color",
+          "$value": "#EBEFF7",
+          "$description": "Nav bar, docked bar, inset tier"
+        },
+        "surface-raised": {
+          "$type": "color",
+          "$value": "#E4E9F5",
+          "$description": "Chips, segmented-control track"
+        },
+        "on-surface": {
+          "$type": "color",
+          "$value": "#111827",
+          "$description": "Primary text (100% opacity)"
+        },
+        "on-surface-secondary": {
+          "$type": "color",
+          "$value": "#1F2937",
+          "$description": "Body text (100% - already tinted)"
+        },
+        "on-surface-muted": {
+          "$type": "color",
+          "$value": "#64748B",
+          "$description": "Secondary/muted text (68% / 45% rule)"
+        },
+        "outline": {
+          "$type": "color",
+          "$value": "#CDD0D8",
+          "$description": "1dp hairline borders"
+        },
+        "outline-strong": {
+          "$type": "color",
+          "$value": "#A2A7B1",
+          "$description": "Focused / active borders"
+        },
+        "scrim": {
+          "$type": "color",
+          "$value": "#000000",
+          "$description": "60-72% alpha bottom-sheet scrim"
+        },
+        "status-ok": {
+          "$type": "color",
+          "$value": "#15803D"
+        },
+        "status-warn": {
+          "$type": "color",
+          "$value": "#B45309"
+        },
+        "status-error": {
+          "$type": "color",
+          "$value": "#B91C1C"
+        },
+        "accent-dim": {
+          "$type": "color",
+          "$value": "#DFD1FC",
+          "$description": "blend(accent,bg,0.62) - text on tinted chips"
+        },
+        "accent-soft": {
+          "$type": "color",
+          "$value": "#EFE8FE",
+          "$description": "blend(accent,bg,0.80) - chip fill"
+        }
+      }
+    },
+    "accent": {
+      "mornye-violet": {
+        "base": {
+          "$type": "color",
+          "$value": "#8B5CF6",
+          "$description": "Shipping default (ThemeEngine.ACCENTS[0])"
+        },
+        "dim": {
+          "$type": "color",
+          "$value": "#3C2D71",
+          "$description": "text-on-chip, dark surfaces"
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "#251F4B",
+          "$description": "chip fill, dark surfaces"
+        },
+        "dim-on-light": {
+          "$type": "color",
+          "$value": "#DFD1FC",
+          "$description": "text-on-chip, Clean Light"
+        },
+        "soft-on-light": {
+          "$type": "color",
+          "$value": "#EFE8FE",
+          "$description": "chip fill, Clean Light"
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "#0A0A14",
+          "$description": "text/icon placed on a solid accent fill"
+        }
+      },
+      "ocean-blue": {
+        "base": {
+          "$type": "color",
+          "$value": "#3B82F6",
+          "$description": "Shipping ACCENTS[1]"
+        },
+        "dim": {
+          "$type": "color",
+          "$value": "#1D3B71",
+          "$description": "text-on-chip, dark surfaces"
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "#15274B",
+          "$description": "chip fill, dark surfaces"
+        },
+        "dim-on-light": {
+          "$type": "color",
+          "$value": "#C8DCFC",
+          "$description": "text-on-chip, Clean Light"
+        },
+        "soft-on-light": {
+          "$type": "color",
+          "$value": "#E4EEFE",
+          "$description": "chip fill, Clean Light"
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "#0A0A14",
+          "$description": "text/icon placed on a solid accent fill"
+        }
+      },
+      "emerald-green": {
+        "base": {
+          "$type": "color",
+          "$value": "#10B981",
+          "$description": "Shipping ACCENTS[2]"
+        },
+        "dim": {
+          "$type": "color",
+          "$value": "#0D5045",
+          "$description": "text-on-chip, dark surfaces"
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "#0C3233",
+          "$description": "chip fill, dark surfaces"
+        },
+        "dim-on-light": {
+          "$type": "color",
+          "$value": "#BCEBDC",
+          "$description": "text-on-chip, Clean Light"
+        },
+        "soft-on-light": {
+          "$type": "color",
+          "$value": "#DEF5ED",
+          "$description": "chip fill, Clean Light"
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "#0A0A14",
+          "$description": "text/icon placed on a solid accent fill"
+        }
+      },
+      "sunset-coral": {
+        "base": {
+          "$type": "color",
+          "$value": "#FB7185",
+          "$description": "Shipping ACCENTS[3]"
+        },
+        "dim": {
+          "$type": "color",
+          "$value": "#663546",
+          "$description": "text-on-chip, dark surfaces"
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "#3B2334",
+          "$description": "chip fill, dark surfaces"
+        },
+        "dim-on-light": {
+          "$type": "color",
+          "$value": "#FED7DD",
+          "$description": "text-on-chip, Clean Light"
+        },
+        "soft-on-light": {
+          "$type": "color",
+          "$value": "#FEEBEE",
+          "$description": "chip fill, Clean Light"
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "#0A0A14",
+          "$description": "text/icon placed on a solid accent fill"
+        }
+      },
+      "warm-amber": {
+        "base": {
+          "$type": "color",
+          "$value": "#F59E0B",
+          "$description": "Shipping ACCENTS[4]"
+        },
+        "dim": {
+          "$type": "color",
+          "$value": "#644618",
+          "$description": "text-on-chip, dark surfaces"
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "#3A2C1C",
+          "$description": "chip fill, dark surfaces"
+        },
+        "dim-on-light": {
+          "$type": "color",
+          "$value": "#FCE4BB",
+          "$description": "text-on-chip, Clean Light"
+        },
+        "soft-on-light": {
+          "$type": "color",
+          "$value": "#FEF1DD",
+          "$description": "chip fill, Clean Light"
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "#0A0A14",
+          "$description": "text/icon placed on a solid accent fill"
+        }
+      },
+      "rose-pink": {
+        "base": {
+          "$type": "color",
+          "$value": "#EC4899",
+          "$description": "Shipping ACCENTS[5]"
+        },
+        "dim": {
+          "$type": "color",
+          "$value": "#60254E",
+          "$description": "text-on-chip, dark surfaces"
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "#381B38",
+          "$description": "chip fill, dark surfaces"
+        },
+        "dim-on-light": {
+          "$type": "color",
+          "$value": "#FACCE2",
+          "$description": "text-on-chip, Clean Light"
+        },
+        "soft-on-light": {
+          "$type": "color",
+          "$value": "#FCE5F1",
+          "$description": "chip fill, Clean Light"
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "#0A0A14",
+          "$description": "text/icon placed on a solid accent fill"
+        }
+      },
+      "sky-cyan": {
+        "base": {
+          "$type": "color",
+          "$value": "#38BDF8",
+          "$description": "Shipping ACCENTS[6]"
+        },
+        "dim": {
+          "$type": "color",
+          "$value": "#1C5272",
+          "$description": "text-on-chip, dark surfaces"
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "#14334B",
+          "$description": "chip fill, dark surfaces"
+        },
+        "dim-on-light": {
+          "$type": "color",
+          "$value": "#C7EDFD",
+          "$description": "text-on-chip, Clean Light"
+        },
+        "soft-on-light": {
+          "$type": "color",
+          "$value": "#E3F6FE",
+          "$description": "chip fill, Clean Light"
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "#0A0A14",
+          "$description": "text/icon placed on a solid accent fill"
+        }
+      },
+      "slate-teal": {
+        "base": {
+          "$type": "color",
+          "$value": "#14B8A6",
+          "$description": "Shipping ACCENTS[7]"
+        },
+        "dim": {
+          "$type": "color",
+          "$value": "#0E5053",
+          "$description": "text-on-chip, dark surfaces"
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "#0D323B",
+          "$description": "chip fill, dark surfaces"
+        },
+        "dim-on-light": {
+          "$type": "color",
+          "$value": "#BDEBE6",
+          "$description": "text-on-chip, Clean Light"
+        },
+        "soft-on-light": {
+          "$type": "color",
+          "$value": "#DEF5F3",
+          "$description": "chip fill, Clean Light"
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "#0A0A14",
+          "$description": "text/icon placed on a solid accent fill"
+        }
+      },
+      "indigo-night": {
+        "base": {
+          "$type": "color",
+          "$value": "#6366F1",
+          "$description": "NEW v3.4.0 - deepest flagship accent"
+        },
+        "dim": {
+          "$type": "color",
+          "$value": "#2C316F",
+          "$description": "text-on-chip, dark surfaces"
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "#1D214A",
+          "$description": "chip fill, dark surfaces"
+        },
+        "dim-on-light": {
+          "$type": "color",
+          "$value": "#D3D4FB",
+          "$description": "text-on-chip, Clean Light"
+        },
+        "soft-on-light": {
+          "$type": "color",
+          "$value": "#E9EAFD",
+          "$description": "chip fill, Clean Light"
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "#0A0A14",
+          "$description": "text/icon placed on a solid accent fill"
+        }
+      },
+      "lion-gold": {
+        "base": {
+          "$type": "color",
+          "$value": "#D9A441",
+          "$description": "NEW v3.4.0 - Sri Lankan identity accent (flag gold)"
+        },
+        "dim": {
+          "$type": "color",
+          "$value": "#59482D",
+          "$description": "text-on-chip, dark surfaces"
+        },
+        "soft": {
+          "$type": "color",
+          "$value": "#342E27",
+          "$description": "chip fill, dark surfaces"
+        },
+        "dim-on-light": {
+          "$type": "color",
+          "$value": "#F4E6CA",
+          "$description": "text-on-chip, Clean Light"
+        },
+        "soft-on-light": {
+          "$type": "color",
+          "$value": "#FAF2E4",
+          "$description": "chip fill, Clean Light"
+        },
+        "on-accent": {
+          "$type": "color",
+          "$value": "#0A0A14",
+          "$description": "text/icon placed on a solid accent fill"
+        }
+      }
+    },
+    "subtitle": {
+      "pure-white": {
+        "$type": "color",
+        "$value": "#FFFFFF",
+        "$description": "ThemeEngine.SUB_COLORS[0]"
+      },
+      "warm-yellow": {
+        "$type": "color",
+        "$value": "#FFE899",
+        "$description": "SUB_COLORS[1]"
+      },
+      "soft-cyan": {
+        "$type": "color",
+        "$value": "#9BE8FF",
+        "$description": "SUB_COLORS[2]"
+      },
+      "mint-green": {
+        "$type": "color",
+        "$value": "#A7F3C5",
+        "$description": "SUB_COLORS[3]"
+      },
+      "soft-pink": {
+        "$type": "color",
+        "$value": "#F9A8D4",
+        "$description": "SUB_COLORS[4]"
+      },
+      "subtle-gold": {
+        "$type": "color",
+        "$value": "#FDE68A",
+        "$description": "SUB_COLORS[5]"
+      },
+      "pill-bg": {
+        "$type": "color",
+        "$value": "#000000",
+        "$description": "Rendered at 0-95% alpha (AppPrefs.subBgOpacity)"
+      },
+      "outline": {
+        "$type": "color",
+        "$value": "#0A0A0A",
+        "$description": "BG_OUTLINE: 4dp shadow layer, no fill"
+      }
+    },
+    "brand": {
+      "obsidian": {
+        "$type": "color",
+        "$value": "#08070F",
+        "$description": "App icon background edge"
+      },
+      "indigo-glow": {
+        "$type": "color",
+        "$value": "#2A1D5C",
+        "$description": "App icon background centre"
+      },
+      "aura": {
+        "$type": "color",
+        "$value": "#8B5CF6",
+        "$description": "App icon violet aura (38% alpha)"
+      },
+      "monogram": {
+        "$type": "color",
+        "$value": "#C9D4FF",
+        "$description": "App icon monogram gradient end"
+      }
+    }
+  },
+  "typography": {
+    "hero-title": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "28sp",
+        "$description": "One per screen: the receiver status hero / movie title"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.18
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "-0.4sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 700
+      }
+    },
+    "screen-title": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "22sp",
+        "$description": "Sub-page + sheet headline"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.22
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "-0.2sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 700
+      }
+    },
+    "section-header": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "15sp",
+        "$description": "Card group header (Appearance, Subtitles...)"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.3
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "0.1sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 600
+      }
+    },
+    "card-title": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "15.5sp",
+        "$description": "Settings row title / card heading"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.3
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "-0.1sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 600
+      }
+    },
+    "body": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "14sp",
+        "$description": "Default reading text"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.45
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "0sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 400
+      }
+    },
+    "body-secondary": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "12.5sp",
+        "$description": "Settings row subtitle (68% colour)"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.45
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "0sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 400
+      }
+    },
+    "caption": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "11.5sp",
+        "$description": "Footnotes, legal, privacy line (45% colour)"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.35
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "0.1sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 400
+      }
+    },
+    "overline": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "10.5sp",
+        "$description": "UPPERCASE micro label above a group"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.2
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "0.6sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 600
+      }
+    },
+    "chip-label": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "12sp",
+        "$description": "Pill / segmented control label"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.0
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "0.2sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 600
+      }
+    },
+    "numeric": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "17sp",
+        "$description": "Timestamps, ms counters (tabular-nums)"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.1
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "-0.3sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 700
+      }
+    },
+    "mono-log": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "10.5sp",
+        "$description": "Diagnostics log ring (monospace)"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.5
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "0sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 400
+      }
+    },
+    "subtitle-portrait": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "18sp",
+        "$description": "Default 18sp; user range 12-36sp"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.35
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "0.1sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 700
+      }
+    },
+    "subtitle-landscape": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "22sp",
+        "$description": "Landscape default; same 12-36sp range"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.3
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "0.1sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 700
+      }
+    },
+    "nav-label": {
+      "fontFamily": {
+        "$type": "fontFamily",
+        "$value": [
+          "Noto Sans Sinhala",
+          "Roboto Flex",
+          "sans-serif"
+        ],
+        "$description": "Sinhala resolves to the bundled NotoSansSinhala; Latin to the system sans"
+      },
+      "fontSize": {
+        "$type": "dimension",
+        "$value": "10sp",
+        "$description": "Bottom bar label"
+      },
+      "lineHeight": {
+        "$type": "number",
+        "$value": 1.1
+      },
+      "letterSpacing": {
+        "$type": "dimension",
+        "$value": "0.2sp"
+      },
+      "fontWeight": {
+        "$type": "fontWeight",
+        "$value": 600
+      }
+    }
+  },
+  "dimension": {
+    "space-2": {
+      "$type": "dimension",
+      "$value": "2dp",
+      "$description": "4dp base grid"
+    },
+    "space-4": {
+      "$type": "dimension",
+      "$value": "4dp",
+      "$description": "4dp base grid"
+    },
+    "space-6": {
+      "$type": "dimension",
+      "$value": "6dp",
+      "$description": "4dp base grid"
+    },
+    "space-8": {
+      "$type": "dimension",
+      "$value": "8dp",
+      "$description": "4dp base grid"
+    },
+    "space-12": {
+      "$type": "dimension",
+      "$value": "12dp",
+      "$description": "4dp base grid"
+    },
+    "space-16": {
+      "$type": "dimension",
+      "$value": "16dp",
+      "$description": "4dp base grid"
+    },
+    "space-20": {
+      "$type": "dimension",
+      "$value": "20dp",
+      "$description": "4dp base grid"
+    },
+    "space-24": {
+      "$type": "dimension",
+      "$value": "24dp",
+      "$description": "4dp base grid"
+    },
+    "space-32": {
+      "$type": "dimension",
+      "$value": "32dp",
+      "$description": "4dp base grid"
+    },
+    "space-40": {
+      "$type": "dimension",
+      "$value": "40dp",
+      "$description": "4dp base grid"
+    },
+    "radius-badge": {
+      "$type": "dimension",
+      "$value": "6dp",
+      "$description": "badge / thumbnail"
+    },
+    "radius-thumb": {
+      "$type": "dimension",
+      "$value": "8dp",
+      "$description": "list thumbnail"
+    },
+    "radius-control": {
+      "$type": "dimension",
+      "$value": "12dp",
+      "$description": "chip, small control"
+    },
+    "radius-field": {
+      "$type": "dimension",
+      "$value": "14dp",
+      "$description": "text field / omnibar"
+    },
+    "radius-card": {
+      "$type": "dimension",
+      "$value": "16dp",
+      "$description": "default card (RADIUS_ROUNDED)"
+    },
+    "radius-card-sharp": {
+      "$type": "dimension",
+      "$value": "6dp",
+      "$description": "RADIUS_SHARP"
+    },
+    "radius-card-pill": {
+      "$type": "dimension",
+      "$value": "24dp",
+      "$description": "RADIUS_PILL (Apple squircle)"
+    },
+    "radius-sheet": {
+      "$type": "dimension",
+      "$value": "28dp",
+      "$description": "modal bottom sheet"
+    },
+    "radius-sheet-pill": {
+      "$type": "dimension",
+      "$value": "32dp",
+      "$description": "Apple-pill sheet"
+    },
+    "radius-full": {
+      "$type": "dimension",
+      "$value": "999dp",
+      "$description": "pill / circle"
+    },
+    "icon-sm": {
+      "$type": "dimension",
+      "$value": "20dp",
+      "$description": "dense rows"
+    },
+    "icon-md": {
+      "$type": "dimension",
+      "$value": "24dp",
+      "$description": "the icon grid viewport"
+    },
+    "icon-lg": {
+      "$type": "dimension",
+      "$value": "28dp",
+      "$description": "HUD transport"
+    },
+    "touch-target": {
+      "$type": "dimension",
+      "$value": "48dp",
+      "$description": "Material minimum interactive size"
+    },
+    "nav-bar-height": {
+      "$type": "dimension",
+      "$value": "64dp",
+      "$description": "docked bottom bar"
+    },
+    "nav-bar-floating-height": {
+      "$type": "dimension",
+      "$value": "60dp",
+      "$description": "floating pill bar"
+    },
+    "omnibar-height": {
+      "$type": "dimension",
+      "$value": "52dp",
+      "$description": "browser omnibar"
+    },
+    "hud-top-height": {
+      "$type": "dimension",
+      "$value": "48dp",
+      "$description": "player top zone minimum"
+    },
+    "scrub-track": {
+      "$type": "dimension",
+      "$value": "3dp",
+      "$description": "thin scrub line"
+    },
+    "scrub-track-active": {
+      "$type": "dimension",
+      "$value": "6dp",
+      "$description": "thick scrub line while dragging"
+    },
+    "sheet-handle": {
+      "$type": "dimension",
+      "$value": "36dp",
+      "$description": "drag handle width"
+    },
+    "sheet-handle-h": {
+      "$type": "dimension",
+      "$value": "4dp",
+      "$description": "drag handle height"
+    },
+    "phone-frame": {
+      "$type": "dimension",
+      "$value": "390dp",
+      "$description": "Figma artboard width (390x844)"
+    },
+    "phone-frame-tall": {
+      "$type": "dimension",
+      "$value": "412dp",
+      "$description": "412x915 artboard"
+    }
+  },
+  "shadow": {
+    "elevation-0": {
+      "$type": "shadow",
+      "$value": "none",
+      "$description": "flat (cards on AMOLED)"
+    },
+    "elevation-1": {
+      "$type": "shadow",
+      "$value": {
+        "offsetX": "0dp",
+        "offsetY": "1dp",
+        "blur": "3dp",
+        "spread": "0dp",
+        "color": "#000000",
+        "alpha": 0.28
+      }
+    },
+    "elevation-2": {
+      "$type": "shadow",
+      "$value": {
+        "offsetX": "0dp",
+        "offsetY": "4dp",
+        "blur": "12dp",
+        "spread": "-2dp",
+        "color": "#000000",
+        "alpha": 0.38
+      },
+      "$description": "floating pill nav bar"
+    },
+    "elevation-3": {
+      "$type": "shadow",
+      "$value": {
+        "offsetX": "0dp",
+        "offsetY": "8dp",
+        "blur": "24dp",
+        "spread": "-4dp",
+        "color": "#000000",
+        "alpha": 0.48
+      },
+      "$description": "bottom sheet, media-capture dock"
+    },
+    "glow-accent": {
+      "$type": "shadow",
+      "$value": {
+        "offsetX": "0dp",
+        "offsetY": "0dp",
+        "blur": "24dp",
+        "spread": "0dp",
+        "color": "#8B5CF6",
+        "alpha": 0.35
+      },
+      "$description": "hero pulse ring / live status dot"
+    }
+  },
+  "motion": {
+    "duration-instant": {
+      "$type": "duration",
+      "$value": "90ms"
+    },
+    "duration-fast": {
+      "$type": "duration",
+      "$value": "150ms",
+      "$description": "icon/colour state change"
+    },
+    "duration-medium": {
+      "$type": "duration",
+      "$value": "250ms",
+      "$description": "sheet slide, tab pill"
+    },
+    "duration-slow": {
+      "$type": "duration",
+      "$value": "400ms",
+      "$description": "page transition"
+    },
+    "duration-pulse": {
+      "$type": "duration",
+      "$value": "2400ms",
+      "$description": "hero live pulse ring loop"
+    },
+    "ease-standard": {
+      "$type": "cubicBezier",
+      "$value": [
+        0.2,
+        0,
+        0,
+        1
+      ]
+    },
+    "ease-emphasized": {
+      "$type": "cubicBezier",
+      "$value": [
+        0.05,
+        0.7,
+        0.1,
+        1
+      ]
+    },
+    "ease-exit": {
+      "$type": "cubicBezier",
+      "$value": [
+        0.3,
+        0,
+        0.8,
+        0.15
+      ]
+    }
+  },
+  "$themes": [
+    {
+      "name": "midnight-slate",
+      "group": "Theme",
+      "selectedTokenSets": {
+        "color/theme/midnight-slate": "enabled"
+      }
+    },
+    {
+      "name": "amoled-black",
+      "group": "Theme",
+      "selectedTokenSets": {
+        "color/theme/amoled-black": "enabled"
+      }
+    },
+    {
+      "name": "nordic-dark",
+      "group": "Theme",
+      "selectedTokenSets": {
+        "color/theme/nordic-dark": "enabled"
+      }
+    },
+    {
+      "name": "clean-light",
+      "group": "Theme",
+      "selectedTokenSets": {
+        "color/theme/clean-light": "enabled"
+      }
+    },
+    {
+      "name": "accent-mornye-violet",
+      "group": "Accent",
+      "selectedTokenSets": {
+        "color/accent/mornye-violet": "enabled"
+      }
+    },
+    {
+      "name": "accent-ocean-blue",
+      "group": "Accent",
+      "selectedTokenSets": {
+        "color/accent/ocean-blue": "enabled"
+      }
+    },
+    {
+      "name": "accent-emerald-green",
+      "group": "Accent",
+      "selectedTokenSets": {
+        "color/accent/emerald-green": "enabled"
+      }
+    },
+    {
+      "name": "accent-sunset-coral",
+      "group": "Accent",
+      "selectedTokenSets": {
+        "color/accent/sunset-coral": "enabled"
+      }
+    },
+    {
+      "name": "accent-warm-amber",
+      "group": "Accent",
+      "selectedTokenSets": {
+        "color/accent/warm-amber": "enabled"
+      }
+    },
+    {
+      "name": "accent-rose-pink",
+      "group": "Accent",
+      "selectedTokenSets": {
+        "color/accent/rose-pink": "enabled"
+      }
+    },
+    {
+      "name": "accent-sky-cyan",
+      "group": "Accent",
+      "selectedTokenSets": {
+        "color/accent/sky-cyan": "enabled"
+      }
+    },
+    {
+      "name": "accent-slate-teal",
+      "group": "Accent",
+      "selectedTokenSets": {
+        "color/accent/slate-teal": "enabled"
+      }
+    },
+    {
+      "name": "accent-indigo-night",
+      "group": "Accent",
+      "selectedTokenSets": {
+        "color/accent/indigo-night": "enabled"
+      }
+    },
+    {
+      "name": "accent-lion-gold",
+      "group": "Accent",
+      "selectedTokenSets": {
+        "color/accent/lion-gold": "enabled"
+      }
+    }
+  ]
+}

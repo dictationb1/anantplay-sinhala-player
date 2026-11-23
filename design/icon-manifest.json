@@ -1,0 +1,373 @@
+[
+ {
+  "name": "ic_nav_home",
+  "group": "nav",
+  "metaphor": "Rounded-roof house; door notch is the 'enter the cinema' opening",
+  "stroke": 1.75,
+  "filled": true
+ },
+ {
+  "name": "ic_nav_web",
+  "group": "nav",
+  "metaphor": "Globe with equator + one meridian (browser = the world)",
+  "stroke": 1.75,
+  "filled": true
+ },
+ {
+  "name": "ic_nav_customize",
+  "group": "nav",
+  "metaphor": "Two vertical tune rails with round knobs (live customization)",
+  "stroke": 1.75,
+  "filled": true
+ },
+ {
+  "name": "ic_nav_troubleshoot",
+  "group": "nav",
+  "metaphor": "Health ring with an ECG pulse (the 10-point probe)",
+  "stroke": 1.75,
+  "filled": true
+ },
+ {
+  "name": "ic_play",
+  "group": "media",
+  "metaphor": "Rounded play triangle, optically centred (apex at 19.4)",
+  "stroke": 1.9,
+  "filled": true
+ },
+ {
+  "name": "ic_pause",
+  "group": "media",
+  "metaphor": "Two capsule bars, 2.4dp optical weight",
+  "stroke": 2.4,
+  "filled": true
+ },
+ {
+  "name": "ic_replay_10",
+  "group": "media",
+  "metaphor": "Counter-clockwise ring + '10' (seek back)",
+  "stroke": 1.7,
+  "filled": false
+ },
+ {
+  "name": "ic_forward_10",
+  "group": "media",
+  "metaphor": "Clockwise ring + '10' (seek forward)",
+  "stroke": 1.7,
+  "filled": false
+ },
+ {
+  "name": "ic_speed",
+  "group": "media",
+  "metaphor": "Speedometer arc + needle (playback rate)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_aspect_fit",
+  "group": "media",
+  "metaphor": "Screen frame with an inset letterbox (fit)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_aspect_fill",
+  "group": "media",
+  "metaphor": "Inset frame + corner arrows pushing outward (fill)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_rotate",
+  "group": "media",
+  "metaphor": "Two opposing arcs with arrowheads (screen rotation)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_pip",
+  "group": "media",
+  "metaphor": "Screen frame with an inset PIP window bottom-right",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_vlc_external",
+  "group": "media",
+  "metaphor": "Box with an escaping arrow (open in external player)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_quality_hd",
+  "group": "media",
+  "metaphor": "HD badge (resolution picker)",
+  "stroke": 1.6,
+  "filled": false
+ },
+ {
+  "name": "ic_audio_track",
+  "group": "media",
+  "metaphor": "Five capsule bars (audio / track picker)",
+  "stroke": 2.2,
+  "filled": false
+ },
+ {
+  "name": "ic_volume",
+  "group": "media",
+  "metaphor": "Speaker cone + two sound arcs (volume capsule)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_brightness",
+  "group": "media",
+  "metaphor": "Sunrise: half-disc over a horizon with three rays (brightness)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_lock",
+  "group": "media",
+  "metaphor": "Padlock closed (HUD lock)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_unlock",
+  "group": "media",
+  "metaphor": "Padlock with the shackle open (HUD unlocked)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_subtitles",
+  "group": "media",
+  "metaphor": "Rounded caption frame with two text runs (subtitles sheet)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_translate",
+  "group": "media",
+  "metaphor": "Latin A beside a CJK-style glyph with a swap bar (free translate)",
+  "stroke": 1.7,
+  "filled": false
+ },
+ {
+  "name": "ic_search",
+  "group": "browser",
+  "metaphor": "Lens + handle, 45 degrees (omnibar / find on page)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_globe",
+  "group": "browser",
+  "metaphor": "Globe (site identity / language)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_link",
+  "group": "browser",
+  "metaphor": "Two interlocking chain links (URL / paste link)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_shield_adblock",
+  "group": "browser",
+  "metaphor": "Shield with a slash (ad/tracker shield + blocked count)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_bookmark",
+  "group": "browser",
+  "metaphor": "Bookmark ribbon (saved sites)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_history",
+  "group": "browser",
+  "metaphor": "Clock face (browsing history)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_refresh",
+  "group": "browser",
+  "metaphor": "300-degree ring + arrowhead (reload / retry)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_back",
+  "group": "browser",
+  "metaphor": "Chevron left, 1.9 stroke (back)",
+  "stroke": 1.9,
+  "filled": false
+ },
+ {
+  "name": "ic_forward",
+  "group": "browser",
+  "metaphor": "Chevron right (forward)",
+  "stroke": 1.9,
+  "filled": false
+ },
+ {
+  "name": "ic_share",
+  "group": "browser",
+  "metaphor": "Tray with an escaping up arrow (share report / link)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_copy",
+  "group": "browser",
+  "metaphor": "Two offset sheets (copy report)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_more_dots",
+  "group": "browser",
+  "metaphor": "Three dots (overflow menu)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_close",
+  "group": "browser",
+  "metaphor": "Cross (dismiss / clear)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_plus",
+  "group": "browser",
+  "metaphor": "Plus (add site / new tab)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_desktop",
+  "group": "browser",
+  "metaphor": "Monitor on a stand (desktop mode)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_folder_zip",
+  "group": "browser",
+  "metaphor": "Folder with a Z (subtitle .zip)",
+  "stroke": 1.65,
+  "filled": false
+ },
+ {
+  "name": "ic_settings",
+  "group": "system",
+  "metaphor": "Cog wheel: 8 teeth, round joins, hub circle (settings)",
+  "stroke": 1.7,
+  "filled": false
+ },
+ {
+  "name": "ic_sliders",
+  "group": "system",
+  "metaphor": "Three horizontal rails with knobs (customization)",
+  "stroke": 1.7,
+  "filled": false
+ },
+ {
+  "name": "ic_palette",
+  "group": "system",
+  "metaphor": "Paint droplet with a highlight (accent / theme picker)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_font",
+  "group": "system",
+  "metaphor": "Letter A with crossbar (font family / size)",
+  "stroke": 1.85,
+  "filled": false
+ },
+ {
+  "name": "ic_moon",
+  "group": "system",
+  "metaphor": "Crescent moon (dark theme)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_sun",
+  "group": "system",
+  "metaphor": "Sun disc + 8 rays (light theme)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_check_circle",
+  "group": "system",
+  "metaphor": "Ring with a tick (pass / healthy)",
+  "stroke": 1.85,
+  "filled": false
+ },
+ {
+  "name": "ic_alert",
+  "group": "system",
+  "metaphor": "Triangle with a bang (warning / failed probe)",
+  "stroke": 1.85,
+  "filled": false
+ },
+ {
+  "name": "ic_info",
+  "group": "system",
+  "metaphor": "Ring with an i (about / detail)",
+  "stroke": 1.85,
+  "filled": false
+ },
+ {
+  "name": "ic_srilanka_sub",
+  "group": "system",
+  "metaphor": "Caption bar + sparkle (Sri Lankan subtitle finder)",
+  "stroke": 1.7,
+  "filled": false
+ },
+ {
+  "name": "ic_update",
+  "group": "system",
+  "metaphor": "Up arrow leaving a tray (update / upgrade)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_backup",
+  "group": "system",
+  "metaphor": "Archive box (backup & restore JSON)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_download",
+  "group": "system",
+  "metaphor": "Down arrow into a tray (download / export)",
+  "stroke": 1.75,
+  "filled": false
+ },
+ {
+  "name": "ic_movie",
+  "group": "system",
+  "metaphor": "Clapperboard (recent plays, cinema identity)",
+  "stroke": 1.7,
+  "filled": false
+ },
+ {
+  "name": "ic_cast",
+  "group": "system",
+  "metaphor": "Screen with three broadcast arcs at the bottom-left (cast receiver)",
+  "stroke": 1.75,
+  "filled": false
+ }
+]

@@ -184,4 +184,18 @@ public final class ThemeEngine {
         int a = Math.max(0, Math.min(95, opacityPct)) * 255 / 100;
         return (a << 24) | 0x000000;                            // pure black pill
     }
+
+    /** The hairline colour for the current theme + the user's border alpha (0..60). */
+    public static int hairline(Palette p, int alphaPercent) {
+        int a = AppPrefs.normalizeBorderAlpha(alphaPercent);
+        int rgb = p.light ? 0x000000 : 0xFFFFFF;
+        int alpha = Math.round(a / 100f * 255f);
+        return (alpha << 24) | rgb;
+    }
+
+    /** The card fill: flat = solid tier 1, glass = translucent tier 1 over the canvas. */
+    public static int cardFill(Palette p, boolean glass) {
+        if (!glass) return p.card;
+        return blend(p.card, p.bg, 0.22f) & 0x00FFFFFF | 0xE6000000;   // ~90% opaque tint
+    }
 }

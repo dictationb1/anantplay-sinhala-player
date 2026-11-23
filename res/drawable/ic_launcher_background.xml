@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ic_launcher_background - deep obsidian/indigo radial glow + violet aura (108dp adaptive background layer) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="45"
+                android:gradientRadius="78">
+                <item android:offset="0" android:color="#FF2A1D5C"/>
+                <item android:offset="0.46" android:color="#FF141031"/>
+                <item android:offset="1" android:color="#FF08070F"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M50,18.5a32,32 0 1,0 0,64a32,32 0 1,0 0,-64z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="50"
+                android:centerY="50.5"
+                android:gradientRadius="32">
+                <item android:offset="0" android:color="#618B5CF6"/>
+                <item android:offset="1" android:color="#008B5CF6"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

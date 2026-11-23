@@ -88,6 +88,54 @@ public final class AppPrefs {
     public static final String K_WEB_LINKS = "webLinks";             // v3.2.0: "name|url\n…" (≤8 entries)
     public static final String K_FREE_TRANSLATOR = "freeTranslator"; // v3.2.0: bool (Layer 3 on/off)
 
+    // ══ v3.4.0 - Mornye-grade shell, surface, subtitle studio, browser, player ══
+    /** Surface style: flat (default) or glass (translucent + hairline). */
+    public static final String K_SURFACE_STYLE = "surfaceStyle";        // flat|glass
+    /** Hairline alpha on cards, 0..60 (percent). */
+    public static final String K_BORDER_ALPHA = "borderAlpha";          // 0..60
+    /** Bottom navigation shape: docked full-width bar or a floating pill. */
+    public static final String K_BOTTOM_BAR_STYLE = "bottomBarStyle";   // docked|floating
+    /** Show the text label under each bottom-bar icon. */
+    public static final String K_BOTTOM_BAR_LABELS = "bottomBarLabels"; // bool
+    /** Show the Troubleshoot tab. */
+    public static final String K_SHOW_TROUBLE_TAB = "showTroubleTab";   // bool
+    /** Master motion switch (tab pill slide, press scale). */
+    public static final String K_MOTION = "motionEnabled";              // bool
+    /** Accent glow on the hero card + active tab. */
+    public static final String K_ACCENT_GLOW = "accentGlow";            // bool
+    /** Explicit subtitle text colour ("" = use the preset index). */
+    public static final String K_SUB_COLOR_HEX = "subColorHex";         // ""|rrggbb
+    /** Subtitle outline / shadow radius in dp, 0..6. */
+    public static final String K_SUB_OUTLINE = "subOutline";            // 0..6
+    /** Subtitle drop shadow on/off. */
+    public static final String K_SUB_SHADOW = "subShadow";              // bool
+    /** Browser omnibar position: bottom (default, reachable) or top. */
+    public static final String K_OMNIBAR_POS = "omnibarPos";            // top|bottom
+    /** Speed-dial grid columns. */
+    public static final String K_SPEEDDIAL_COLS = "speedDialCols";      // 2|3|4
+    /** Omnibar search engine. */
+    public static final String K_SEARCH_ENGINE = "searchEngine";        // ddg|google|startpage|brave
+    /** Custom user-agent (overrides both mobile and desktop presets). */
+    public static final String K_WEB_CUSTOM_UA = "webCustomUa";         // ""
+    /** Inject color-scheme:dark into pages. */
+    public static final String K_READER_DARK = "readerDark";            // bool
+    /** Show real favicons in the speed dial (else coloured monograms). */
+    public static final String K_FAVICONS = "favicons";                 // bool
+    /** Show the blocked-request count badge on the shield. */
+    public static final String K_SHOW_BLOCK_COUNT = "showBlockCount";   // bool
+    /** Player default orientation. */
+    public static final String K_ORIENTATION = "orientation";           // auto|landscape|portrait
+    /** Preferred external player. */
+    public static final String K_EXTERNAL_PLAYER = "externalPlayer";    // vlc|mx|mpv|chooser
+    /** Volume boost 0..150 percent (player.setVolume - no FFmpeg). */
+    public static final String K_VOLUME_BOOST = "volumeBoost";          // 0..150
+    /** Sleep timer: 0 off, 900000/1800000/3600000 ms, -1 end-of-video. */
+    public static final String K_SLEEP_TIMER_MS = "sleepTimerMs";       // -1|0|900000|1800000|3600000
+    /** A version the user asked to skip in the updater. */
+    public static final String K_SKIP_VERSION = "skipVersion";          // ""
+    /** Light-weight browser tabs: one URL per line (single renderer, no OOM). */
+    public static final String K_WEB_TABS = "webTabs";                  // "url\nurl"
+
     /** Every key SettingsBackup carries (ordered — the export JSON is stable). */
     public static final List<String> BACKUP_KEYS = Arrays.asList(
         K_THEME_MODE, K_DYNAMIC_COLOR, K_ACCENT, K_ACCENT_HEX, K_UI_LANG, K_DENSITY, K_CARD_RADIUS,
@@ -100,7 +148,14 @@ public final class AppPrefs {
         K_SWIPE_BRIGHTNESS, K_SWIPE_VOLUME, K_SWIPE_SEEK, K_LOCK_ON_START,
         K_DOH_DIAG, K_RECEIVER_NAME, K_RECEIVER_PORT, K_DLNASTART, K_MDNS,
         K_WORKER_URL, K_AUTO_UPDATE, K_AUTO_OPEN_SNIFFED, K_WEB_DESKTOP_UA,
-        K_AD_BLOCK, K_WEB_LINKS, K_FREE_TRANSLATOR);
+        K_AD_BLOCK, K_WEB_LINKS, K_FREE_TRANSLATOR,
+        // v3.4.0 - every new customization surface, so Backup & Restore stays lossless.
+        K_SURFACE_STYLE, K_BORDER_ALPHA, K_BOTTOM_BAR_STYLE, K_BOTTOM_BAR_LABELS,
+        K_SHOW_TROUBLE_TAB, K_MOTION, K_ACCENT_GLOW,
+        K_SUB_COLOR_HEX, K_SUB_OUTLINE, K_SUB_SHADOW,
+        K_OMNIBAR_POS, K_SPEEDDIAL_COLS, K_SEARCH_ENGINE, K_WEB_CUSTOM_UA,
+        K_READER_DARK, K_FAVICONS, K_SHOW_BLOCK_COUNT, K_WEB_TABS,
+        K_ORIENTATION, K_EXTERNAL_PLAYER, K_VOLUME_BOOST, K_SLEEP_TIMER_MS, K_SKIP_VERSION);
 
     // ── the normalizers (pure — Mornye's normalizeXxx pattern) ─────────────────
 
@@ -234,11 +289,27 @@ public final class AppPrefs {
     public static final class Link {
         public final String name;
         public final String url;
-        Link(String name, String url) { this.name = name; this.url = url; }
+        /** v3.4.0 - "streaming" (default) or "subtitle"; drives the two speed-dial groups. */
+        public final String group;
+        Link(String name, String url) { this(name, url, "streaming"); }
+        Link(String name, String url, String group) {
+            this.name = name;
+            this.url = url;
+            this.group = normalizeLinkGroup(group);
+        }
+        /** True when this link belongs in the Sri Lankan subtitle group. */
+        public boolean isSubtitle() { return "subtitle".equals(group); }
     }
 
-    /** Parse the stored "name|url\nname|url" list → clean entries (https-only
-     *  URLs, trimmed names, ≤8 entries, deduped by URL). */
+    public static final String GROUP_STREAMING = "streaming", GROUP_SUBTITLE = "subtitle";
+
+    public static String normalizeLinkGroup(String v) {
+        return GROUP_SUBTITLE.equals(v) ? GROUP_SUBTITLE : GROUP_STREAMING;
+    }
+
+    /** Parse the stored "name|url|group" list → clean entries (https-only URLs, trimmed
+     *  names, ≤8 entries, deduped by URL). A two-field "name|url" line from a v3.3.1
+     *  backup still parses and defaults to the streaming group (backwards compatible). */
     public static List<Link> parseLinks(String stored) {
         List<Link> out = new ArrayList<>();
         if (stored == null || stored.trim().isEmpty()) return out;
@@ -249,13 +320,20 @@ public final class AppPrefs {
             int bar = t.indexOf('|');
             if (bar < 0) continue;
             String name = t.substring(0, bar).trim();
-            String url = t.substring(bar + 1).trim();
+            String rest = t.substring(bar + 1).trim();
+            String group = GROUP_STREAMING;
+            int bar2 = rest.indexOf('|');
+            String url = rest;
+            if (bar2 >= 0) {
+                url = rest.substring(0, bar2).trim();
+                group = normalizeLinkGroup(rest.substring(bar2 + 1).trim());
+            }
             if (name.isEmpty() || name.length() > 64) continue;
             if (!(url.startsWith("https://") || url.startsWith("http://"))) continue;
             if (url.length() > 300) continue;
             boolean dup = false;
             for (Link l : out) if (l.url.equals(url)) { dup = true; break; }
-            if (!dup) out.add(new Link(name, url));
+            if (!dup) out.add(new Link(name, url, group));
         }
         return out;
     }
@@ -266,7 +344,8 @@ public final class AppPrefs {
         if (links != null) {
             for (Link l : links) {
                 if (sb.length() > 0) sb.append('\n');
-                sb.append(l.name.replace('|', ' ')).append('|').append(l.url);
+                sb.append(l.name.replace('|', ' ')).append('|').append(l.url)
+                  .append('|').append(normalizeLinkGroup(l.group));
             }
         }
         return sb.toString();
@@ -274,6 +353,84 @@ public final class AppPrefs {
 
     /** Boundary clamping (the slider contract): a corrupt value snaps to the
      *  nearest bound — never to a default that could surprise the user. */
+    // ── v3.4.0 value vocabularies ────────────────────────────────────────────
+    public static final String SURFACE_FLAT = "flat", SURFACE_GLASS = "glass";
+    public static final String BAR_DOCKED = "docked", BAR_FLOATING = "floating";
+    public static final String OMNIBAR_TOP = "top", OMNIBAR_BOTTOM = "bottom";
+    public static final String SEARCH_DDG = "ddg", SEARCH_GOOGLE = "google",
+        SEARCH_STARTPAGE = "startpage", SEARCH_BRAVE = "brave";
+    public static final String ORIENT_AUTO = "auto", ORIENT_LANDSCAPE = "landscape",
+        ORIENT_PORTRAIT = "portrait";
+    public static final String EXT_VLC = "vlc", EXT_MX = "mx", EXT_MPV = "mpv", EXT_CHOOSER = "chooser";
+
+    public static String normalizeSurfaceStyle(String v) {
+        return SURFACE_GLASS.equals(v) ? SURFACE_GLASS : SURFACE_FLAT;
+    }
+    public static String normalizeBottomBarStyle(String v) {
+        return BAR_FLOATING.equals(v) ? BAR_FLOATING : BAR_DOCKED;
+    }
+    public static String normalizeOmnibarPos(String v) {
+        return OMNIBAR_TOP.equals(v) ? OMNIBAR_TOP : OMNIBAR_BOTTOM;
+    }
+    public static int normalizeSpeedDialCols(int v) { return clampTo(v, 2, 4); }
+    public static int normalizeBorderAlpha(int v) { return clampTo(v, 0, 60); }
+    public static int normalizeSubOutline(int v) { return clampTo(v, 0, 6); }
+    public static int normalizeVolumeBoost(int v) { return clampTo(v, 0, 150); }
+    public static String normalizeSearchEngine(String v) {
+        if (SEARCH_GOOGLE.equals(v) || SEARCH_STARTPAGE.equals(v) || SEARCH_BRAVE.equals(v)) return v;
+        return SEARCH_DDG;
+    }
+    public static String normalizeOrientation(String v) {
+        if (ORIENT_LANDSCAPE.equals(v) || ORIENT_PORTRAIT.equals(v)) return v;
+        return ORIENT_AUTO;
+    }
+    public static String normalizeExternalPlayer(String v) {
+        if (EXT_VLC.equals(v) || EXT_MX.equals(v) || EXT_MPV.equals(v)) return v;
+        return EXT_CHOOSER;
+    }
+    /** Sleep timer: -1 = end of video, 0 = off, otherwise 15/30/60 minutes. */
+    public static long normalizeSleepTimer(long v) {
+        if (v < 0) return -1L;
+        if (v == 0L) return 0L;
+        return clampTo((int) (v / 60000L), 1, 240) * 60000L;
+    }
+    public static String normalizeSubColorHex(String v) {
+        String h = normalizeAccentHex(v);
+        return h;
+    }
+    public static String normalizeCustomUa(String v) {
+        if (v == null) return "";
+        String t = v.trim();
+        return t.length() > 256 ? t.substring(0, 256) : t;
+    }
+    public static String normalizeSkipVersion(String v) {
+        if (v == null) return "";
+        String t = v.trim();
+        return t.length() > 32 ? t.substring(0, 32) : t;
+    }
+    /** The light tab list: at most 5 http(s) URLs, one per line. */
+    public static java.util.List<String> parseTabs(String stored) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (stored == null || stored.isEmpty()) return out;
+        for (String line : stored.split("\n")) {
+            String u = line.trim();
+            if (u.isEmpty()) continue;
+            if (!(u.startsWith("http://") || u.startsWith("https://"))) continue;
+            if (out.size() >= 5) break;
+            if (!out.contains(u)) out.add(u);
+        }
+        return out;
+    }
+    public static String serializeTabs(java.util.List<String> tabs) {
+        StringBuilder sb = new StringBuilder();
+        if (tabs != null) for (String u : tabs) {
+            if (u == null || u.trim().isEmpty()) continue;
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(u.trim());
+        }
+        return sb.toString();
+    }
+
     public static int clampTo(int v, int min, int max) {
         return v < min ? min : (v > max ? max : v);
     }
@@ -330,6 +487,27 @@ public final class AppPrefs {
                 case K_LOCK_ON_START:
                     return raw instanceof Boolean ? raw
                         : Boolean.parseBoolean(String.valueOf(raw)) ? Boolean.TRUE : Boolean.FALSE;
+                // ── v3.4.0 ────────────────────────────────────────────────
+                case K_SURFACE_STYLE: return normalizeSurfaceStyle(String.valueOf(raw));
+                case K_BOTTOM_BAR_STYLE: return normalizeBottomBarStyle(String.valueOf(raw));
+                case K_OMNIBAR_POS: return normalizeOmnibarPos(String.valueOf(raw));
+                case K_SEARCH_ENGINE: return normalizeSearchEngine(String.valueOf(raw));
+                case K_ORIENTATION: return normalizeOrientation(String.valueOf(raw));
+                case K_EXTERNAL_PLAYER: return normalizeExternalPlayer(String.valueOf(raw));
+                case K_BORDER_ALPHA: return normalizeBorderAlpha(Integer.parseInt(String.valueOf(raw).trim()));
+                case K_SPEEDDIAL_COLS: return normalizeSpeedDialCols(Integer.parseInt(String.valueOf(raw).trim()));
+                case K_SUB_OUTLINE: return normalizeSubOutline(Integer.parseInt(String.valueOf(raw).trim()));
+                case K_VOLUME_BOOST: return normalizeVolumeBoost(Integer.parseInt(String.valueOf(raw).trim()));
+                case K_SLEEP_TIMER_MS: return normalizeSleepTimer(Long.parseLong(String.valueOf(raw).trim()));
+                case K_SUB_COLOR_HEX: return normalizeSubColorHex(String.valueOf(raw));
+                case K_WEB_CUSTOM_UA: return normalizeCustomUa(String.valueOf(raw));
+                case K_SKIP_VERSION: return normalizeSkipVersion(String.valueOf(raw));
+                case K_WEB_TABS: return serializeTabs(parseTabs(String.valueOf(raw)));
+                case K_BOTTOM_BAR_LABELS: case K_SHOW_TROUBLE_TAB: case K_MOTION:
+                case K_ACCENT_GLOW: case K_SUB_SHADOW: case K_READER_DARK:
+                case K_FAVICONS: case K_SHOW_BLOCK_COUNT:
+                    return raw instanceof Boolean ? raw
+                        : Boolean.parseBoolean(String.valueOf(raw)) ? Boolean.TRUE : Boolean.FALSE;
                 default: return null;                                 // unknown key → reject
             }
         } catch (Throwable t) {
@@ -377,6 +555,15 @@ public final class AppPrefs {
     }
     public static String fontFamily(SharedPreferences p) { return normalizeFontFamily(p.getString(K_FONT_FAMILY, FONT_NOTO)); }
     public static int subColor(SharedPreferences p) { return normalizeSubColor(p.getInt(K_SUB_COLOR, 0)); }
+
+    /**
+     * v3.4.0 - the subtitle colour actually rendered: the explicit hex wins, otherwise the
+     * preset index. Pure, so the lab proves both paths.
+     */
+    public static int subColorArgb(SharedPreferences p) {
+        int hex = accentHexColor(subColorHex(p));
+        return hex != 0 ? hex : ThemeEngine.SUB_COLORS[subColor(p)];
+    }
     public static String subBg(SharedPreferences p) { return normalizeSubBg(p.getString(K_SUB_BG, BG_PILL)); }
     public static int subBgOpacity(SharedPreferences p) { return normalizeSubBgOpacity(p.getInt(K_SUB_BG_OPACITY, 55)); }
     public static boolean subBold(SharedPreferences p) { return p.getBoolean(K_SUB_BOLD, true); }
@@ -408,8 +595,49 @@ public final class AppPrefs {
     public static boolean mdnsEnabled(SharedPreferences p) { return p.getBoolean(K_MDNS, true); }
     public static String workerUrl(SharedPreferences p) { return normalizeWorkerUrl(p.getString(K_WORKER_URL, BridgeApi.DEFAULT_WORKER_URL)); }
     public static boolean adBlock(SharedPreferences p) { return p.getBoolean(K_AD_BLOCK, true); }
+    /** v3.4.0 - the desktop user-agent switch (was read inline before). */
+    public static boolean webDesktopUa(SharedPreferences p) { return p.getBoolean(K_WEB_DESKTOP_UA, false); }
+    public static boolean autoOpenSniffed(SharedPreferences p) { return p.getBoolean(K_AUTO_OPEN_SNIFFED, false); }
     public static boolean freeTranslator(SharedPreferences p) { return p.getBoolean(K_FREE_TRANSLATOR, true); }
     public static List<Link> webLinks(SharedPreferences p) { return parseLinks(p.getString(K_WEB_LINKS, "")); }
+
+    // ── v3.4.0 readers ───────────────────────────────────────────────────────
+    public static String surfaceStyle(SharedPreferences p) { return normalizeSurfaceStyle(p.getString(K_SURFACE_STYLE, SURFACE_FLAT)); }
+    public static boolean glass(SharedPreferences p) { return SURFACE_GLASS.equals(surfaceStyle(p)); }
+    public static int borderAlpha(SharedPreferences p) { return normalizeBorderAlpha(p.getInt(K_BORDER_ALPHA, 18)); }
+    public static String bottomBarStyle(SharedPreferences p) { return normalizeBottomBarStyle(p.getString(K_BOTTOM_BAR_STYLE, BAR_DOCKED)); }
+    public static boolean floatingBar(SharedPreferences p) { return BAR_FLOATING.equals(bottomBarStyle(p)); }
+    public static boolean bottomBarLabels(SharedPreferences p) { return p.getBoolean(K_BOTTOM_BAR_LABELS, true); }
+    public static boolean showTroubleTab(SharedPreferences p) { return p.getBoolean(K_SHOW_TROUBLE_TAB, true); }
+    public static boolean motionEnabled(SharedPreferences p) { return p.getBoolean(K_MOTION, true); }
+    public static boolean accentGlow(SharedPreferences p) { return p.getBoolean(K_ACCENT_GLOW, true); }
+    public static String subColorHex(SharedPreferences p) { return normalizeSubColorHex(p.getString(K_SUB_COLOR_HEX, "")); }
+    public static int subOutline(SharedPreferences p) { return normalizeSubOutline(p.getInt(K_SUB_OUTLINE, 0)); }
+    public static boolean subShadow(SharedPreferences p) { return p.getBoolean(K_SUB_SHADOW, true); }
+    public static String omnibarPos(SharedPreferences p) { return normalizeOmnibarPos(p.getString(K_OMNIBAR_POS, OMNIBAR_BOTTOM)); }
+    public static boolean omnibarBottom(SharedPreferences p) { return OMNIBAR_BOTTOM.equals(omnibarPos(p)); }
+    public static int speedDialCols(SharedPreferences p) { return normalizeSpeedDialCols(p.getInt(K_SPEEDDIAL_COLS, 4)); }
+    public static String searchEngine(SharedPreferences p) { return normalizeSearchEngine(p.getString(K_SEARCH_ENGINE, SEARCH_DDG)); }
+    public static String webCustomUa(SharedPreferences p) { return normalizeCustomUa(p.getString(K_WEB_CUSTOM_UA, "")); }
+    public static boolean readerDark(SharedPreferences p) { return p.getBoolean(K_READER_DARK, true); }
+    public static boolean favicons(SharedPreferences p) { return p.getBoolean(K_FAVICONS, true); }
+    public static boolean showBlockCount(SharedPreferences p) { return p.getBoolean(K_SHOW_BLOCK_COUNT, true); }
+    public static String orientation(SharedPreferences p) { return normalizeOrientation(p.getString(K_ORIENTATION, ORIENT_AUTO)); }
+    public static String externalPlayer(SharedPreferences p) { return normalizeExternalPlayer(p.getString(K_EXTERNAL_PLAYER, EXT_CHOOSER)); }
+    public static int volumeBoost(SharedPreferences p) { return normalizeVolumeBoost(p.getInt(K_VOLUME_BOOST, 100)); }
+    public static long sleepTimerMs(SharedPreferences p) { return normalizeSleepTimer(p.getLong(K_SLEEP_TIMER_MS, 0)); }
+    public static String skipVersion(SharedPreferences p) { return normalizeSkipVersion(p.getString(K_SKIP_VERSION, "")); }
+    public static java.util.List<String> webTabs(SharedPreferences p) { return parseTabs(p.getString(K_WEB_TABS, "")); }
+
+    /** The search URL for the chosen engine (pure - the lab proves all four). */
+    public static String searchUrl(String engine, String query) {
+        String q = query == null ? "" : query;
+        String e = normalizeSearchEngine(engine);
+        if (SEARCH_GOOGLE.equals(e)) return "https://www.google.com/search?q=" + q;
+        if (SEARCH_STARTPAGE.equals(e)) return "https://www.startpage.com/sp/search?query=" + q;
+        if (SEARCH_BRAVE.equals(e)) return "https://search.brave.com/search?q=" + q;
+        return "https://duckduckgo.com/?q=" + q;
+    }
 
     /** The UI-language picker (v3.1.0): Bilingual / සිංහල පමණයි / English Only —
      *  pure, so the lab proves each mode's rendering. */

@@ -34,6 +34,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -182,7 +183,8 @@ public class PlayActivity extends Activity {
     private TextView notice;          // transient toasts ("+10 s", "Brightness 40%")
     private TextView hudTitle, hudStatus;
     private TextView timeNow, timeTotal;
-    private SeekBar seek;
+    private ScrubBar seek;
+    private CapsuleBar brightCapsule, volCapsule;
     private View playPause;
     private View spinner;
     private LinearLayout hud, panel, sheet;
@@ -198,6 +200,8 @@ public class PlayActivity extends Activity {
     private TextView statusPill;
     private LinearLayout subActions;
     private Typeface siFont;
+    /** v3.4.0 - the REAL 600 weight (was a synthetic bold of the 400 face). */
+    private Typeface siFontSemi;
 
     private String url, title, headersJson, cookie, mime;
     /** v3.3.0 — the cast's top-level ua/referer/origin (Cast.describe forwards them). */
@@ -278,12 +282,9 @@ public class PlayActivity extends Activity {
         activeLang = Langs.isKnown(prefs.getString("defaultLang", null)) ? prefs.getString("defaultLang", Langs.DEFAULT) : Langs.DEFAULT;
         store = new SubtitleStore(getFilesDir());
         api = new BridgeApi(prefs.getString("workerUrl", BridgeApi.DEFAULT_WORKER_URL));
-        try {
-            siFont = Typeface.createFromAsset(getAssets(), "fonts/NotoSansSinhala-Regular.ttf");
-        } catch (Throwable t) {
-            Diag.w("font", "asset font failed: " + t);
-            siFont = Typeface.DEFAULT;
-        }
+        // v3.4.0 - real weight 400 from the subset; falls back safely, never crashes.
+        siFont = UiTokens.si(this, false);
+        siFontSemi = UiTokens.si(this, true);
         parseIntent();
         if (url == null) {          // nothing playable arrived — leave cleanly, no half UI
             finish();
@@ -292,6 +293,8 @@ public class PlayActivity extends Activity {
         buildUi();
         startPlayback();
         startTicker();
+        applyVolumeBoost();
+        armSleepTimer(AppPrefs.sleepTimerMs(prefs));
         // v3.1.2 — the Troubleshooter timeline: the launch source + the open fact
         Troubleshooter.record("PLAYER", "launch source=" + launchSource()
             + " · title=\"" + (title == null ? "" : title) + "\" · state=open");
@@ -302,9 +305,9 @@ public class PlayActivity extends Activity {
         // Cinemeta: the pill immediately becomes the 1-tap title-search entry.
         if (!testMode) {
             if (titleIsJunk) {
-                setState("not-found", "🔍 චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name");
+                setState("not-found", "චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name");
             } else {
-                setState("fetching", "✨ සිංහල උපසිරැසි ලබාගනිමින්… · fetching Sinhala subtitles…");
+                setState("fetching", "සිංහල උපසිරැසි ලබාගනිමින්… · fetching Sinhala subtitles…");
             }
         }
         main.postDelayed(() -> { expectTakeover = false; armAutoPip(); }, 3000);   // PiP only after the hand-over
@@ -596,6 +599,7 @@ public class PlayActivity extends Activity {
                     updateSnapshot();
                 }
                 @Override public void onIsPlayingChanged(boolean p) {
+                    setPlayPauseIcon(p);
                     if (p) scheduleHudHide();
                     updateSnapshot();
                 }
@@ -621,7 +625,7 @@ public class PlayActivity extends Activity {
                             + StreamHttpConfig.describe(httpHeaders));
                         Troubleshooter.record("HTTP", "HTTP " + code + " → automatic recovery retry with "
                             + StreamHttpConfig.describe(httpHeaders));
-                        flash("🔧 HTTP " + code + " — retrying with browser headers…");
+                        flash("HTTP " + code + " — retrying with browser headers…");
                         rebuildAt(pos);
                         updateSnapshot();
                         return;
@@ -689,7 +693,7 @@ public class PlayActivity extends Activity {
             timeTotal.setText("● LIVE");
         } else {
             seek.setVisibility(View.VISIBLE);
-            seek.setMax((int) Math.max(1, dur));
+            seek.setDuration((long) Math.max(1, dur));
             timeTotal.setText(ReceiverServer.clock(dur));
         }
         hudTitle.setText(title);
@@ -790,7 +794,7 @@ public class PlayActivity extends Activity {
                             // v3.2.0 — the script check FIRST: the cast's sub may
                             // already BE Sinhala (a Baiscope link!) — then it just shows.
                             if ("si".equals(activeLang) && SubLangDetect.looksSinhala(SubLangDetect.sampleOf(enCues))) {
-                                applyCues(enCues, "cast-subs (human Sinhala ✓)");
+                                applyCues(enCues, "cast-subs (human Sinhala)");
                                 store.save(key, enCues);
                                 return;
                             }
@@ -823,7 +827,7 @@ public class PlayActivity extends Activity {
                     // v3.2.0: JUNK TITLES NEVER REACH CINEMETA (the raw-JSON banner
                     // fix): "ArrowTV Player" and friends open the title-search pill.
                     if (titleIsJunk || TitleCleaner.isJunkTitle(title)) {
-                        setState("not-found", "🔍 චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name", myGen);
+                        setState("not-found", "චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name", myGen);
                         return;   // NEVER "no Cinemeta match for: ArrowTV Player"
                     }
                     TitleCleaner.Clean cleaned = TitleCleaner.clean(title);
@@ -886,7 +890,7 @@ public class PlayActivity extends Activity {
                         } else if ("cinema-polished".equals(quality)) {
                             polishHotSwapped = true;       // already upgraded
                         }
-                        if (validateOrTranslate(got, key, myGen, source + ("cinema-polished".equals(quality) ? " · ✨ cinema" : ""))) return;
+                        if (validateOrTranslate(got, key, myGen, source + ("cinema-polished".equals(quality) ? " · cinema" : ""))) return;
                         continue;   // validation sent it to the free translator and that failed → next round
                     }
                     if ("translating".equals(status) && token != null && !token.isEmpty()) {
@@ -956,7 +960,7 @@ public class PlayActivity extends Activity {
             });
             if (myGen != fetchGen) return true;   // a re-cast owns the screen now
             if (r.cues != null && !r.cues.isEmpty() && SubLangDetect.looksSinhala(SubLangDetect.sampleOf(r.cues))) {
-                applyCues(r.cues, (how == null || how.isEmpty() ? "" : how + " → ") + "free translator ✓"
+                applyCues(r.cues, (how == null || how.isEmpty() ? "" : how + " → ") + "free translator"
                     + (r.cacheHits > 0 ? " (cached)" : ""));
                 if (key != null) store.save(key, r.cues);
                 return true;
@@ -1100,7 +1104,7 @@ public class PlayActivity extends Activity {
                 player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
                     .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build());
                 enFallbackOn = true;
-                setState(state, stateDetail + " · stream CC (auto-translate available in ⚙ subs)");
+                setState(state, stateDetail + " · stream CC (auto-translate available in the subtitles sheet)");
                 Diag.i("subs", "Sinhala unavailable — stream text track on (English CC, translate available)");
             } catch (Throwable t) {
                 Diag.w("subs", "fallback track: " + t);
@@ -1198,7 +1202,7 @@ public class PlayActivity extends Activity {
             polishWatchToken = null;
             main.post(() -> {
                 cues = got;                       // SubtitleStore swap without touching playback
-                setState(state, "✨ Cinema Polish Ready · සිනමා ප්‍රඥප්තිය සූදානම්");
+                setState(state, "Cinema Polish Ready · සිනමා ප්‍රඥප්තිය සූදානම්");
                 Diag.i("subs", "cinema polish hot-swapped (" + got.size() + " cues)");
             });
             store.save(key, got);
@@ -1209,7 +1213,7 @@ public class PlayActivity extends Activity {
 
     private void applyTestCues() {
         List<Cue> demo = new ArrayList<>();
-        demo.add(new Cue(0, 500, 4000, "00:00:00,500 --> 00:00:04,000", "", "", "ආයුබෝවන්! සිංහල Player ක්‍රියාත්මකයි ✓"));
+        demo.add(new Cue(0, 500, 4000, "00:00:00,500 --> 00:00:04,000", "", "", "ආයුබෝවන්! සිංහල Player ක්‍රියාත්මකයි"));
         demo.add(new Cue(1, 4600, 9000, "00:00:04,600 --> 00:00:09,000", "", "", "මෙය AnantPlay Cast මඟින් එවන වීඩියෝවකි — උපසිරැසි සිංහලෙන්."));
         demo.add(new Cue(2, 9500, 15000, "00:00:09,500 --> 00:00:15,000", "", "", "ඔබේ චිත්‍රපටිය AnantPlay තුළ විවෘත කර Cast ඔබන්න — මෙය ස්වයංක්‍රීයව විවෘත වේ."));
         cues = demo;
@@ -1247,7 +1251,7 @@ public class PlayActivity extends Activity {
                 }
                 if (hudVisible) {
                     timeNow.setText(ReceiverServer.clock(player.getCurrentPosition()));
-                    if (!dragging) seek.setProgress((int) Math.max(0, player.getCurrentPosition()));
+                    if (!dragging) seek.setPosition(Math.max(0, player.getCurrentPosition()));
                 }
                 if (++tick % 4 == 0) saveResumePoint();   // v3.1.0: Auto-Resume
             }
@@ -1282,14 +1286,14 @@ public class PlayActivity extends Activity {
         if (hudStatus != null) {
             boolean good = "ready".equals(state) || "local".equals(state);
             boolean warn = "fetching".equals(state);
-            hudStatus.setText((good ? "✓ " : warn ? "… " : "⚠ ") + stateDetail);
+            hudStatus.setText(stateDetail);
             hudStatus.setTextColor(good ? 0xFF8CFF8C : warn ? 0xFFF59E0B : 0xFFFFB3B3);
             hudStatus.setVisibility(View.VISIBLE);
             if (good) main.postDelayed(hudStatusHide, 3000);   // success auto-hides after 3 s
         }
         if (statusPill != null) {
             boolean good = "ready".equals(state) || "local".equals(state);
-            statusPill.setText((good ? "✓ " : "fetching".equals(state) ? "… " : "⚠ ") + stateDetail);
+            statusPill.setText(stateDetail);
             statusPill.setTextColor(good ? 0xFF8CFF8C : "fetching".equals(state) ? 0xFFFDE68A : 0xFFFFB3B3);
             statusPill.setVisibility(View.VISIBLE);
             if (good) main.postDelayed(pillHide, 3000);
@@ -1333,6 +1337,18 @@ public class PlayActivity extends Activity {
     private void buildUi() {
         if (AppPrefs.keepScreenOn(prefs))
             getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // v3.4.0 - the user's default orientation (auto / landscape / portrait)
+        String orient = AppPrefs.orientation(prefs);
+        try {
+            if (AppPrefs.ORIENT_LANDSCAPE.equals(orient))
+                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            else if (AppPrefs.ORIENT_PORTRAIT.equals(orient))
+                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+            else
+                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        } catch (Throwable t) {
+            Diag.w("player", "orientation: " + t);
+        }
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
         if (Build.VERSION.SDK_INT >= 28) {
@@ -1408,8 +1424,8 @@ public class PlayActivity extends Activity {
         subActions.setVisibility(View.GONE);
         subActions.addView(pillBtn("↻ Retry", v -> { subActions.setVisibility(View.GONE); fetchGen++; fetching = false; fetchSinhala(); }));
         subActions.addView(pillBtn("⇄ Provider", v -> { subActions.setVisibility(View.GONE); fetchGen++; fetching = false; prefs.edit().putBoolean("preferCastSubs", true).apply(); fetchSinhala(); }));
-        subActions.addView(pillBtn("📄 Local .srt", v -> { subActions.setVisibility(View.GONE); pickLocal(); }));
-        subActions.addView(pillBtn("⏱ ±0.25s", v -> nudge(250)));
+        subActions.addView(pillBtn(R.drawable.ic_folder_zip, "Local .srt", v -> { subActions.setVisibility(View.GONE); pickLocal(); }));
+        subActions.addView(pillBtn(R.drawable.ic_speed, "±0.25s", v -> nudge(250)));
         pillBox.addView(subActions, new LinearLayout.LayoutParams(-2, -2));
 
         langChips = new LinearLayout(this);
@@ -1433,8 +1449,8 @@ public class PlayActivity extends Activity {
         extraBg.setColor(0xE60E1424);
         extraBg.setCornerRadius(dp(16));
         extraActions.setBackground(extraBg);
-        extraActions.addView(pillBtn("🗣 Spoken/Formal", v -> toggleRegister()));
-        extraActions.addView(pillBtn("✨ AI Studio", v -> openAiStudioBridge()));
+        extraActions.addView(pillBtn(R.drawable.ic_translate, "Spoken/Formal", v -> toggleRegister()));
+        extraActions.addView(pillBtn(R.drawable.ic_sun, "AI Studio", v -> openAiStudioBridge()));
         extraActions.setVisibility(View.GONE);
         pillBox.addView(extraActions, new LinearLayout.LayoutParams(-2, -2));
 
@@ -1492,9 +1508,8 @@ public class PlayActivity extends Activity {
         ub.setCornerRadius(dp(18));
         ub.setStroke(dp(1), 0x55FFFFFF);
         unlockPill.setBackground(ub);
-        TextView unlockIcon = new TextView(this);
-        unlockIcon.setText("🔒");
-        unlockIcon.setTextSize(14);
+        ImageView unlockIcon = new ImageView(this);
+        unlockIcon.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_lock, 0xFFE2E8F0, 14));
         unlockPill.addView(unlockIcon, new LinearLayout.LayoutParams(-2, -2));
         TextView unlockText = new TextView(this);
         unlockText.setText("  Tap to unlock · අගුළු හරින්න");
@@ -1559,7 +1574,7 @@ public class PlayActivity extends Activity {
             new int[]{0xB3000000, 0x00000000});
         hudTopBar.setBackground(topBg);
 
-        View back = icon("‹", 24, v -> finish());
+        View back = icon(R.drawable.ic_back, 24, v -> finish());
         hudTopBar.addView(back, new LinearLayout.LayoutParams(dp(40), dp(38)));
 
         LinearLayout titles = new LinearLayout(this);
@@ -1581,7 +1596,7 @@ public class PlayActivity extends Activity {
         hudTopBar.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
 
         badgeSub = new TextView(this);
-        badgeSub.setText("සිං ✓");
+        badgeSub.setText("සිංහල");
         badgeSub.setTextColor(0xFF86EFAC);
         badgeSub.setTextSize(10.5f);
         badgeSub.setPadding(dp(7), dp(3), dp(7), dp(3));
@@ -1592,13 +1607,13 @@ public class PlayActivity extends Activity {
         badgeSub.setVisibility(View.GONE);
         hudTopBar.addView(badgeSub, new LinearLayout.LayoutParams(-2, -2));
 
-        View lock = icon("🔒", 15, v -> setLocked(true));
+        View lock = icon(R.drawable.ic_lock, 15, v -> setLocked(true));
         hudTopBar.addView(lock, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        View rotate = icon("🔄", 15, v -> rotateScreen());
+        View rotate = icon(R.drawable.ic_rotate, 15, v -> rotateScreen());
         hudTopBar.addView(rotate, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        View vlc = icon("📺", 15, v -> openExternalPlayer());
+        View vlc = icon(R.drawable.ic_vlc_external, 15, v -> openExternalPlayer());
         hudTopBar.addView(vlc, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        View gear = icon("⚙", 15, v -> toggleSheet());
+        View gear = icon(R.drawable.ic_settings, 15, v -> toggleSheet());
         hudTopBar.addView(gear, new LinearLayout.LayoutParams(dp(36), dp(36)));
         box.addView(hudTopBar, new LinearLayout.LayoutParams(-1, -2));
 
@@ -1613,9 +1628,9 @@ public class PlayActivity extends Activity {
         LinearLayout transport = new LinearLayout(this);
         transport.setOrientation(LinearLayout.HORIZONTAL);
         transport.setGravity(Gravity.CENTER);
-        View minus = icon("⏪ " + stepLabel, 15, v -> skip(-stepMs));
+        View minus = icon(R.drawable.ic_replay_10, 20, v -> skip(-stepMs));
         transport.addView(minus, new LinearLayout.LayoutParams(dp(64), dp(52)));
-        playPause = icon("▶", 26, v -> toggle());
+        playPause = icon(R.drawable.ic_play_filled, 26, v -> toggle());
         GradientDrawable playBg = new GradientDrawable();
         playBg.setColor(0xE61A2440);
         playBg.setCornerRadius(dp(32));
@@ -1623,7 +1638,7 @@ public class PlayActivity extends Activity {
         LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(dp(64), dp(64));
         playLp.leftMargin = playLp.rightMargin = dp(18);
         transport.addView(playPause, playLp);
-        View plus = icon(stepLabel + " ⏩", 15, v -> skip(stepMs));
+        View plus = icon(R.drawable.ic_forward_10, 20, v -> skip(stepMs));
         transport.addView(plus, new LinearLayout.LayoutParams(dp(64), dp(52)));
         hudCenter.addView(transport, new LinearLayout.LayoutParams(-2, -2));
 
@@ -1641,6 +1656,24 @@ public class PlayActivity extends Activity {
         gpl.topMargin = dp(14);
         hudCenter.addView(gesturePill, gpl);
 
+        // v3.4.0 - the Apple-style capsules FLANK the transport inside zone 2, so they are
+        // always where the thumb already is and never need a second overlay parent.
+        hudCenter.removeView(transport);
+        LinearLayout capsuleRow = new LinearLayout(this);
+        capsuleRow.setOrientation(LinearLayout.HORIZONTAL);
+        capsuleRow.setGravity(Gravity.CENTER_VERTICAL);
+        capsuleRow.setPadding(dp(10), 0, dp(10), 0);
+        brightCapsule = new CapsuleBar(this, R.drawable.ic_brightness, 0xFF0A0A14, 26, 104);
+        brightCapsule.setVisibility(View.GONE);
+        capsuleRow.addView(brightCapsule, new LinearLayout.LayoutParams(-2, -2));
+        capsuleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        capsuleRow.addView(transport, new LinearLayout.LayoutParams(-2, -2));
+        capsuleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        volCapsule = new CapsuleBar(this, R.drawable.ic_volume, 0xFF0A0A14, 26, 104);
+        volCapsule.setVisibility(View.GONE);
+        capsuleRow.addView(volCapsule, new LinearLayout.LayoutParams(-2, -2));
+        hudCenter.addView(capsuleRow, new LinearLayout.LayoutParams(-1, -2));
+
         box.addView(hudCenter, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         // ══ ZONE 3 — BOTTOM (seek + times + the action chips) ══════════════════
@@ -1650,16 +1683,18 @@ public class PlayActivity extends Activity {
             new int[]{0xB3000000, 0x00000000});
         hudBottomBar.setBackground(botBg);
 
-        seek = new SeekBar(this);
-        seek.setPadding(dp(2), dp(2), dp(2), dp(2));
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int v, boolean user) {
-                if (user && player != null) timeNow.setText(ReceiverServer.clock(v));
+        // v3.4.0 - the custom cinema scrub bar (3dp -> 6dp, buffered layer, drag preview)
+        seek = new ScrubBar(this, ThemeEngine.palette(
+            AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
+            AppPrefs.cardRadius(prefs)).accent);
+        seek.setListener(new ScrubBar.Listener() {
+            @Override public void onScrubStart() { dragging = true; }
+            @Override public void onScrub(long positionMs) {
+                if (timeNow != null) timeNow.setText(ReceiverServer.clock(positionMs));
             }
-            @Override public void onStartTrackingTouch(SeekBar s) { dragging = true; }
-            @Override public void onStopTrackingTouch(SeekBar s) {
+            @Override public void onScrubEnd(long positionMs) {
                 dragging = false;
-                if (player != null) { player.seekTo(s.getProgress()); updateSnapshot(); }
+                if (player != null) { player.seekTo(positionMs); updateSnapshot(); }
             }
         });
         hudBottomBar.addView(seek, new LinearLayout.LayoutParams(-1, -2));
@@ -1687,15 +1722,15 @@ public class PlayActivity extends Activity {
         chips.setOrientation(LinearLayout.HORIZONTAL);
         chips.setPadding(0, dp(4), 0, dp(2));
 
-        chips.addView(pillBtn("💬 Subtitles", v -> togglePanel()));
-        chips.addView(pillBtn("🔊 Audio / Quality", v -> showTrackSheet()));
-        aspectChip = chip("📐 " + VideoViewport.modeLabel(aspectMode), v -> cycleAspect());
+        chips.addView(pillBtn(R.drawable.ic_subtitles, "Subtitles", v -> togglePanel()));
+        chips.addView(pillBtn(R.drawable.ic_audio_track, "Audio / Quality", v -> showTrackSheet()));
+        aspectChip = chip(R.drawable.ic_aspect_fit, VideoViewport.modeLabel(aspectMode), v -> cycleAspect());
         chips.addView(aspectChip);
-        speedChip = chip("⏩ 1.0x", v -> cycleSpeed());
+        speedChip = chip(R.drawable.ic_speed, "1.0x", v -> cycleSpeed());
         chips.addView(speedChip);
-        chips.addView(pillBtn("🔄 Rotate", v -> rotateScreen()));
-        chips.addView(pillBtn("📺 VLC", v -> openExternalPlayer()));
-        chips.addView(pillBtn("🔍 Title", v -> openTitleSearch()));
+        chips.addView(pillBtn(R.drawable.ic_rotate, "Rotate", v -> rotateScreen()));
+        chips.addView(pillBtn(R.drawable.ic_vlc_external, "VLC", v -> openExternalPlayer()));
+        chips.addView(pillBtn(R.drawable.ic_search, "Title", v -> openTitleSearch()));
         // v3.3.1 — a HorizontalScrollView IS a FrameLayout: its child must carry
         // FrameLayout.LayoutParams (LinearLayout.LayoutParams died in onMeasure).
         hs.addView(chips, new FrameLayout.LayoutParams(-2, -2));
@@ -1756,7 +1791,7 @@ public class PlayActivity extends Activity {
 
         // v3.2.0 — the FREE keyless translator button (the zero-quota guarantee:
         // whatever is showing can be translated RIGHT NOW, worker or not).
-        Button free = btn("🆓 නොමිලේ පරිවර්තනය · Free translate now");
+        Button free = btn(R.drawable.ic_translate, t2("නොමිලේ පරිවර්තනය · Free translate now"));
         free.setOnClickListener(v -> { panel.setVisibility(View.GONE); manualFreeTranslate(); });
         p.addView(free);
 
@@ -1766,7 +1801,7 @@ public class PlayActivity extends Activity {
         urlIn.setHint("subtitle URL (.srt/.zip) paste · සබ් URL");
         urlIn.setTextSize(13);
         p.addView(urlIn, new LinearLayout.LayoutParams(-1, -2));
-        Button loadUrl = btn("🔗 URL උපසිරැසි එක ලබාගන්න");
+        Button loadUrl = btn(R.drawable.ic_link, "URL උපසිරැසි එක ලබාගන්න");
         loadUrl.setOnClickListener(v -> {
             String u = urlIn.getText().toString().trim();
             if (u.startsWith("http://") || u.startsWith("https://")) {
@@ -1792,7 +1827,7 @@ public class PlayActivity extends Activity {
         // SubDL / OpenSubtitles + a DuckDuckGo fallback). One tap opens the app's
         // Web tab on that site's real search for THIS movie; every .zip/.srt the
         // user then taps is captured, unzipped and attached to this very player.
-        Button lk = btn("🇱🇰 Find Sinhala Sub (SL sites) · සිංහල සොයන්න");
+        Button lk = btn(R.drawable.ic_srilanka_sub, "Find Sinhala Sub (SL sites) · සිංහල සොයන්න");
         lk.setOnClickListener(v -> { panel.setVisibility(View.GONE); openLkFinder(); });
         p.addView(lk);
 
@@ -1822,7 +1857,8 @@ public class PlayActivity extends Activity {
         s.setPadding(dp(16), dp(12), dp(16), dp(16));
 
         TextView head = new TextView(this);
-        head.setText("⚙ Player settings · ධාවක සැකසුම්");
+        head.setText("Player settings · ධාවක සැකසුම්");
+        UiIcons.setCompound(head, R.drawable.ic_settings, 0xFFE2E8F0, 15, Gravity.START);
         head.setTextColor(0xFFE2E8F0);
         head.setTextSize(14);
         head.setTypeface(Typeface.DEFAULT_BOLD);
@@ -1892,11 +1928,69 @@ public class PlayActivity extends Activity {
         return s;
     }
 
+    private UiSheet.Handle settingsSheet;
+    private UiSheet.Handle trackSheet;
+    private UiSheet.Handle subtitleSheet;
+
+    /** v3.4.0 - Player settings as a real modal sheet (60% height: the video stays visible). */
     private void toggleSheet() {
-        if (sheet == null) return;
-        boolean open = sheet.getVisibility() == View.VISIBLE;
-        sheet.setVisibility(open ? View.GONE : View.VISIBLE);
-        if (!open) showStatus();
+        if (settingsSheet != null) { settingsSheet.dismiss(); settingsSheet = null; return; }
+        ThemeEngine.Palette p = ThemeEngine.palette(
+            AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
+            AppPrefs.cardRadius(prefs));
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(UiSheet.header(this, p, t2("Player settings"),
+            t2("වේගය · රූප පරිමාණය · නිදාගැනීම · හඬ")), new LinearLayout.LayoutParams(-1, -2));
+
+        // speed slider with detents
+        float cur = 1f;
+        try { cur = player == null ? 1f : player.getPlaybackParameters().speed; } catch (Throwable ignored) { }
+        body.addView(UiSlider.make(this, p, prefs, "ධාවන වේගය", "Playback speed",
+            25, 250, Math.round(cur * 100), "%", v -> {
+                try {
+                    if (player != null) player.setPlaybackSpeed(v / 100f);
+                    flash(String.format(Locale.US, "%.2fx", v / 100f));
+                } catch (Throwable t) { Diag.w("sheet", "speed: " + t); }
+            }), new LinearLayout.LayoutParams(-1, -2));
+
+        body.addView(UiSegmented.row(this, p, prefs, "රූප පරිමාණය", "Aspect",
+            new String[]{t2("Fit"), t2("Fill"), "16:9", t2("Stretch")},
+            aspectIndex(), i -> {
+                String mode = new String[]{AppPrefs.ASPECT_FIT, AppPrefs.ASPECT_FILL,
+                    AppPrefs.ASPECT_169, AppPrefs.ASPECT_STRETCH}[i];
+                prefs.edit().putString(AppPrefs.K_ASPECT_MODE, mode).apply();
+                aspectMode = VideoViewport.modeFrom(mode);
+                applyVideoSize();
+                if (aspectChip != null) aspectChip.setText(VideoViewport.modeLabel(aspectMode));
+            }), new LinearLayout.LayoutParams(-1, -2));
+
+        body.addView(UiSegmented.row(this, p, prefs, "නිදාගැනීමේ කාලය", "Sleep timer",
+            new String[]{t2("Off"), "15m", "30m", "60m"}, sleepIndex(), i -> {
+                long ms = new long[]{0L, 900000L, 1800000L, 3600000L}[i];
+                prefs.edit().putLong(AppPrefs.K_SLEEP_TIMER_MS, ms).apply();
+                armSleepTimer(ms);
+            }), new LinearLayout.LayoutParams(-1, -2));
+
+        body.addView(UiSlider.make(this, p, prefs, "හඬ වැඩි කිරීම", "Volume boost",
+            0, 150, AppPrefs.volumeBoost(prefs), "%", v -> {
+                prefs.edit().putInt(AppPrefs.K_VOLUME_BOOST, v).apply();
+                applyVolumeBoost();
+            }), new LinearLayout.LayoutParams(-1, -2));
+
+        UiGroup.switchRow(this, body, p, prefs, R.drawable.ic_speed,
+            "දෙවරක් තට්ටු", "Double-tap to seek", AppPrefs.K_DOUBLE_TAP_SEEK, true);
+        UiGroup.switchRow(this, body, p, prefs, R.drawable.ic_brightness,
+            "තිරය දැල්වී", "Keep the screen on", AppPrefs.K_KEEP_SCREEN_ON, true);
+
+        Button done = btn(R.drawable.ic_check_circle, t2("Done"));
+        done.setOnClickListener(v -> { if (settingsSheet != null) settingsSheet.dismiss(); settingsSheet = null; });
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-1, -2);
+        dlp.topMargin = dp(10);
+        body.addView(done, dlp);
+
+        settingsSheet = UiSheet.show(this, p, prefs, body, 62, () -> settingsSheet = null);
+        showStatus();
     }
 
     /**
@@ -1938,9 +2032,9 @@ public class PlayActivity extends Activity {
     private void cycleAspect() {
         aspectMode = VideoViewport.next(aspectMode);
         prefs.edit().putString(AppPrefs.K_ASPECT_MODE, VideoViewport.modeName(aspectMode)).apply();
-        if (aspectChip != null) aspectChip.setText("📐 " + VideoViewport.modeLabel(aspectMode));
+        if (aspectChip != null) aspectChip.setText(VideoViewport.modeLabel(aspectMode));
         applyVideoSize();
-        flash("📐 " + VideoViewport.modeLabel(aspectMode));
+        flash(VideoViewport.modeLabel(aspectMode));
     }
 
     /** The ⏩ chip: 0.75x → 1.0x → 1.25x → 1.5x → 2.0x → 0.75x. */
@@ -1953,7 +2047,7 @@ public class PlayActivity extends Activity {
         float f = steps[next];
         try { if (player != null) player.setPlaybackSpeed(f); } catch (Throwable ignored) { }
         prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, Math.round(f * 100)).apply();
-        if (speedChip != null) speedChip.setText(String.format(Locale.US, "⏩ %.2gx", f));
+        if (speedChip != null) speedChip.setText(String.format(Locale.US, "%.2gx", f));
         flash(String.format(Locale.US, "%.2gx", f));
     }
 
@@ -1963,18 +2057,72 @@ public class PlayActivity extends Activity {
         setRequestedOrientation(cur == Configuration.ORIENTATION_LANDSCAPE
             ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-        flash(cur == Configuration.ORIENTATION_LANDSCAPE ? "📱 Portrait" : "🔄 Landscape");
+        flash(cur == Configuration.ORIENTATION_LANDSCAPE ? "Portrait" : "Landscape");
         main.postDelayed(this::applyVideoSize, 350);
     }
 
     /** Lock every touch; the single unlock pill is the only way back. */
+    /** v3.4.0 - the sleep timer: 0 = off, -1 = end of video, else a one-shot pause. */
+    private void armSleepTimer(long ms) {
+        main.removeCallbacks(sleepRunnable);
+        if (ms > 0) {
+            main.postDelayed(sleepRunnable, ms);
+            flash("Sleep timer " + (ms / 60000L) + "m");
+        } else if (ms < 0) {
+            flash("Sleep at end of video");
+        } else {
+            flash("Sleep timer off");
+        }
+    }
+
+    private final Runnable sleepRunnable = new Runnable() {
+        @Override public void run() {
+            try {
+                if (player != null) player.pause();
+                flash("Sleep timer - paused");
+            } catch (Throwable t) {
+                Diag.w("player", "sleep: " + t);
+            }
+        }
+    };
+
+    /** v3.4.0 - the volume boost (0..150%) applied through player.setVolume. No FFmpeg. */
+    private void applyVolumeBoost() {
+        try {
+            if (player != null) player.setVolume(AppPrefs.volumeBoost(prefs) / 100f);
+        } catch (Throwable t) {
+            Diag.w("player", "volume boost: " + t);
+        }
+    }
+
+    private int aspectIndex() {
+        String v = AppPrefs.aspectMode(prefs);
+        if (AppPrefs.ASPECT_FILL.equals(v)) return 1;
+        if (AppPrefs.ASPECT_169.equals(v)) return 2;
+        if (AppPrefs.ASPECT_STRETCH.equals(v)) return 3;
+        return 0;
+    }
+
+    private int sleepIndex() {
+        long v = AppPrefs.sleepTimerMs(prefs);
+        if (v == 900000L) return 1;
+        if (v == 1800000L) return 2;
+        if (v >= 3600000L) return 3;
+        return 0;
+    }
+
+    private int registerIndex() {
+        String r = prefs.getString(AppPrefs.K_REGISTER, null);
+        return "spoken".equals(r) ? 1 : ("formal".equals(r) ? 2 : 0);
+    }
+
     private void setLocked(boolean on) {
         locked = on;
         if (unlockPill != null) unlockPill.setVisibility(on ? View.VISIBLE : View.GONE);
         if (hud != null) hud.setVisibility(on ? View.GONE : View.VISIBLE);
         hudVisible = !on;
         if (!on) scheduleHudHide();
-        flash(on ? "🔒 Locked" : "🔓 Unlocked");
+        flash(on ? "Locked" : "Unlocked");
     }
 
     // ── v3.2.0 — THE 1-TAP MOVIE TITLE SEARCH (the junk-title pill's action) ──
@@ -1998,7 +2146,7 @@ public class PlayActivity extends Activity {
         seIn.setTextColor(0xFFE2E8F0);
         box.addView(seIn, new LinearLayout.LayoutParams(-1, -2));
         new android.app.AlertDialog.Builder(this)
-            .setTitle("🔍 " + t2("නම සොයන්න · Title search"))
+            .setTitle(t2("නම සොයන්න · Title search"))
             .setView(box)
             .setPositiveButton(t2("සිංහල උපසිරැසි ලබාගන්න · Get subs"), (d, w) -> {
                 String name = nameIn.getText().toString().trim();
@@ -2008,7 +2156,7 @@ public class PlayActivity extends Activity {
                 java.util.regex.Matcher m = java.util.regex.Pattern.compile("s(\\d{1,2})\\s*e(\\d{1,3})").matcher(se);
                 if (m.find()) { s = Integer.parseInt(m.group(1)); e = Integer.parseInt(m.group(2)); }
                 hudTitle.setText(name);
-                flash("🔍 " + name);
+                flash(name);
                 manualFetch(name, s, e);
             })
             .setNegativeButton(android.R.string.cancel, null)
@@ -2077,19 +2225,47 @@ public class PlayActivity extends Activity {
     }
 
     /** A plain text icon-button (the project's zero-asset idiom). */
-    private View icon(String glyph, float sp, View.OnClickListener click) {
-        TextView t = new TextView(this);
-        t.setText(glyph);
-        t.setTextColor(Color.WHITE);
-        t.setTextSize(sp);
-        t.setGravity(Gravity.CENTER);
-        t.setTypeface(siFont, Typeface.BOLD);
+    /** v3.4.0 - a HUD icon button: tinted vector on the same translucent rounded plate. */
+    private View icon(int resId, float sizeDp, View.OnClickListener click) {
+        ImageView iv = new ImageView(this);
+        iv.setImageDrawable(UiIcons.tinted(this, resId, Color.WHITE, Math.round(sizeDp)));
+        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
         GradientDrawable g = new GradientDrawable();
         g.setColor(0x26FFFFFF);
         g.setCornerRadius(dp(12));
-        t.setBackground(g);
-        t.setOnClickListener(click);
+        iv.setBackground(g);
+        iv.setClickable(true);
+        iv.setFocusable(true);
+        iv.setOnClickListener(click);
+        return iv;
+    }
+
+    /** The transport disc swaps between play and pause - it never did before v3.4.0. */
+    private void setPlayPauseIcon(boolean playing) {
+        if (!(playPause instanceof ImageView)) return;
+        ((ImageView) playPause).setImageDrawable(UiIcons.tinted(this,
+            playing ? R.drawable.ic_pause_filled : R.drawable.ic_play_filled, Color.WHITE, 26));
+    }
+
+    /** A pill button with a leading vector (replaces pillBtn("\uD83D\uDCAC Subtitles")). */
+    private View pillBtn(int resId, String label, View.OnClickListener click) {
+        View v = pillBtn(label, click);
+        if (v instanceof TextView) UiIcons.setCompound((TextView) v, resId, 0xFFE2E8F0, 13, Gravity.START);
+        return v;
+    }
+
+    /** A mode chip with a leading vector (aspect / speed). */
+    private TextView chip(int resId, String text, View.OnClickListener click) {
+        TextView t = chip(text, click);
+        UiIcons.setCompound(t, resId, 0xFFE2E8F0, 13, Gravity.START);
         return t;
+    }
+
+    /** A full-width sheet button with a leading vector. */
+    private Button btn(int resId, String text) {
+        Button b = btn(text);
+        UiIcons.setCompound(b, resId, Color.WHITE, 15, Gravity.START);
+        return b;
     }
 
     /** v2.1: a compact pill button for the subtitle action row. */
@@ -2139,9 +2315,16 @@ public class PlayActivity extends Activity {
      * change. setTypeface(tf, style) with a null family NEVER happens again. */
     private void applyLangStyle() {
         if (subView == null) return;
-        Typeface family = Langs.useBundledSinhalaFont(activeLang) ? siFont : Typeface.DEFAULT;
-        int style = AppPrefs.subBold(prefs) ? Typeface.BOLD : Typeface.NORMAL;
-        subView.setTypeface(Typeface.create(family, style));   // family + bold, ONE place
+        // v3.4.0 - REAL weights: the 600 face is a separate file, so "bold" is never a
+        // synthetic smear. Non-Sinhala languages keep the system face + its own bold.
+        boolean bold = AppPrefs.subBold(prefs);
+        Typeface tf;
+        if (Langs.useBundledSinhalaFont(activeLang)) {
+            tf = bold ? siFontSemi : siFont;                  // the two real instances
+        } else {
+            tf = Typeface.create(Typeface.DEFAULT, bold ? Typeface.BOLD : Typeface.NORMAL);
+        }
+        subView.setTypeface(tf);
         subView.setTextDirection(Langs.isRtl(activeLang)
             ? android.view.View.TEXT_DIRECTION_ANY_RTL : android.view.View.TEXT_DIRECTION_LTR);
     }
@@ -2161,7 +2344,8 @@ public class PlayActivity extends Activity {
             getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE));
         subView.setMaxWidth(Math.round(getResources().getDisplayMetrics().widthPixels * 0.88f));
         subView.setLineSpacing(dp(2), AppPrefs.subLineSpacing(prefs) / 100f);   // 100..150 % studio spacing
-        subView.setTextColor(ThemeEngine.SUB_COLORS[AppPrefs.subColor(prefs)]);
+        subView.setTextColor(AppPrefs.subColorArgb(prefs));
+        subView.setShadowLayer(dp(Math.max(1, AppPrefs.subOutline(prefs))), 0, 0, 0xFF000000);
         applyLangStyle();                                      // the ONE typeface setter
         if (AppPrefs.BG_OUTLINE.equals(AppPrefs.subBg(prefs))) {
             // crisp black edge/outline only — no pill background
@@ -2288,13 +2472,13 @@ public class PlayActivity extends Activity {
             try {
                 startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
                     android.net.Uri.parse("https://aistudio.google.com/")));
-                setState(state, "✅ " + n + " cues copied — paste into AI Studio, then 📄 Local .srt to import · "
+                setState(state, n + " cues copied — paste into AI Studio, then import a local .srt · "
                     + n + " පේළි පිටපත් — AI Studio එකට paste කරන්න");
             } catch (android.content.ActivityNotFoundException anf) {
                 // no browser installed — the prompt is already on the clipboard, so the
                 // user can still paste it anywhere; say exactly that instead of crashing
                 Diag.w("subs", "ai studio bridge: no browser (" + anf + ")");
-                setState(state, "✅ " + n + " cues copied — but this phone has no browser to open AI Studio · "
+                setState(state, n + " cues copied — but this phone has no browser to open AI Studio · "
                     + n + " පේළි පිටපත් විය, නමුත් browser එකක් නැත");
             }
         } catch (Throwable e) {
@@ -2382,7 +2566,7 @@ public class PlayActivity extends Activity {
                         long delta = (long) ((dx / Math.max(1f, root.getWidth())) * 120000L);   // full width = 2 min
                         long to = Math.max(0, Math.min(dur > 0 ? dur : Long.MAX_VALUE, startPos[0] + delta));
                         previewTo[0] = to;
-                        gesture((delta >= 0 ? "⏩ " : "⏪ ") + ReceiverServer.clock(to)
+                        gesture((delta >= 0 ? "+" : "−") + ReceiverServer.clock(to)
                             + "  (" + (delta >= 0 ? "+" : "") + (delta / 1000) + "s)");
                     }
                     return true;
@@ -2402,9 +2586,9 @@ public class PlayActivity extends Activity {
     private void setAspect(int mode) {
         aspectMode = mode;
         prefs.edit().putString(AppPrefs.K_ASPECT_MODE, VideoViewport.modeName(mode)).apply();
-        if (aspectChip != null) aspectChip.setText("📐 " + VideoViewport.modeLabel(mode));
+        if (aspectChip != null) aspectChip.setText(VideoViewport.modeLabel(mode));
         applyVideoSize();
-        flash("📐 " + VideoViewport.modeLabel(mode));
+        flash(VideoViewport.modeLabel(mode));
     }
 
     /** The centre gesture pill (brightness / volume / seek preview). */
@@ -2425,7 +2609,7 @@ public class PlayActivity extends Activity {
     /** The ⏪/⏩ double-tap ripple (a translucent pill on the tapped half). */
     private void ripple(boolean right, String text) {
         TextView t = new TextView(this);
-        t.setText((right ? "" : "⏪ ") + text + (right ? " ⏩" : ""));
+        t.setText(text);
         t.setTextColor(Color.WHITE);
         t.setTextSize(15);
         t.setGravity(Gravity.CENTER);
@@ -2456,7 +2640,11 @@ public class PlayActivity extends Activity {
             int step = Math.round(-dy / dp(140));
             int v = Math.max(0, Math.min(max, cur + step));
             if (v != cur) am.setStreamVolume(AudioManager.STREAM_MUSIC, v, 0);
-            gesture("🔊 " + Math.round(v * 100f / max) + "%");
+            gesture("Volume " + Math.round(v * 100f / max) + "%");
+            if (volCapsule != null) {
+                volCapsule.setValue(max <= 0 ? 0 : v / max);
+                volCapsule.setVisibility(View.VISIBLE);
+            }
         } catch (Throwable ignored) { }
     }
 
@@ -2468,7 +2656,11 @@ public class PlayActivity extends Activity {
             WindowManager.LayoutParams lp = getWindow().getAttributes();
             lp.screenBrightness = v;
             getWindow().setAttributes(lp);
-            gesture("☀ " + Math.round(v * 100) + "%");
+            gesture("Brightness " + Math.round(v * 100) + "%");
+            if (brightCapsule != null) {
+                brightCapsule.setValue(Math.max(0f, Math.min(1f, v / 255f)));
+                brightCapsule.setVisibility(View.VISIBLE);
+            }
         } catch (Throwable ignored) { }
     }
 
@@ -2510,10 +2702,78 @@ public class PlayActivity extends Activity {
         else showControls();
     }
 
+    /** v3.4.0 - the Subtitles sheet: the video (and the live subtitle) stay visible above it. */
     private void togglePanel() {
-        boolean open = panel.getVisibility() == View.VISIBLE;
-        panel.setVisibility(open ? View.GONE : View.VISIBLE);
-        if (!open) showStatus();
+        if (subtitleSheet != null) { subtitleSheet.dismiss(); subtitleSheet = null; return; }
+        ThemeEngine.Palette p = ThemeEngine.palette(
+            AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
+            AppPrefs.cardRadius(prefs));
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(UiSheet.header(this, p, t2("Subtitles"),
+            t2("භාෂාව · විලාසය · සමමුහුර්තකරණය")), new LinearLayout.LayoutParams(-1, -2));
+
+        // 18 language chips
+        LinearLayout langRow = UiChip.stripRow(this);
+        for (final Langs.Lang l : Langs.chips()) {
+            langRow.addView(UiChip.make(this, p, prefs, 0, l.nativeName,
+                l.code.equals(activeLang), v -> { switchLang(l.code); }));
+        }
+        langRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_plus, t2("More"),
+            false, v -> showLangSheet()));
+        android.widget.HorizontalScrollView hs = UiChip.strip(this);
+        hs.addView(langRow, new FrameLayout.LayoutParams(-2, -2));
+        body.addView(hs, new LinearLayout.LayoutParams(-1, -2));
+
+        body.addView(UiSegmented.row(this, p, prefs, "වහර", "Register",
+            new String[]{t2("Auto"), t2("Spoken"), t2("Formal")}, registerIndex(), i -> {
+                prefs.edit().putString(AppPrefs.K_REGISTER,
+                    i == 1 ? "spoken" : (i == 2 ? "formal" : null)).apply();
+                fetchGen++;
+                fetchSinhala();
+            }), new LinearLayout.LayoutParams(-1, -2));
+
+        // SL sub sites quick launch
+        LinearLayout slRow = UiChip.stripRow(this);
+        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_srilanka_sub,
+            t2("SL Sub Sites"), true, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openLkFinder(); }));
+        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_folder_zip,
+            "Local .srt", false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; pickLocal(); }));
+        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate,
+            t2("Free translate"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; manualFreeTranslate(); }));
+        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_search,
+            t2("Title search"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openTitleSearch(); }));
+        android.widget.HorizontalScrollView hs2 = UiChip.strip(this);
+        hs2.addView(slRow, new FrameLayout.LayoutParams(-2, -2));
+        body.addView(hs2, new LinearLayout.LayoutParams(-1, -2));
+
+        // live style studio - every change repaints the subtitle behind the sheet
+        body.addView(UiSlider.make(this, p, prefs, "අකුරේ ප්‍රමාණය", "Font size",
+            12, 36, AppPrefs.fontSp(prefs), "sp", v -> {
+                prefs.edit().putInt(AppPrefs.K_FONT_SP, v).apply();
+                applyStudioStyle();
+            }), new LinearLayout.LayoutParams(-1, -2));
+        body.addView(UiSlider.make(this, p, prefs, "පසුබිම් අඳුන", "Mask opacity",
+            0, 95, AppPrefs.subBgOpacity(prefs), "%", v -> {
+                prefs.edit().putInt(AppPrefs.K_SUB_BG_OPACITY, v).apply();
+                applyStudioStyle();
+            }), new LinearLayout.LayoutParams(-1, -2));
+        body.addView(UiSlider.make(this, p, prefs, "පේළි පරතරය", "Line spacing",
+            100, 150, AppPrefs.subLineSpacing(prefs), "%", v -> {
+                prefs.edit().putInt(AppPrefs.K_SUB_LINE_SPACING, v).apply();
+                applyStudioStyle();
+            }), new LinearLayout.LayoutParams(-1, -2));
+        body.addView(UiSlider.make(this, p, prefs, "සමමුහුර්තකරණය", "Sync nudge (ms)",
+            -2000, 2000, 0, "ms", v -> { }));
+        LinearLayout syncRow = UiChip.stripRow(this);
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_replay_10, "−0.25s", false, v -> nudge(-250)));
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_forward_10, "+0.25s", false, v -> nudge(250)));
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_refresh, "−1s", false, v -> nudge(-1000)));
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_refresh, "+1s", false, v -> nudge(1000)));
+        body.addView(syncRow, new LinearLayout.LayoutParams(-1, -2));
+
+        subtitleSheet = UiSheet.show(this, p, prefs, body, 66, () -> subtitleSheet = null);
+        showStatus();
     }
 
     private void scheduleHudHide() {
@@ -2581,7 +2841,7 @@ public class PlayActivity extends Activity {
                     main.post(() -> {
                         if (isFinishing() || finished) return;
                         showError(errorBox.getText().toString()
-                            + "\n\n⚠ " + v.summaryBilingual);
+                            + "\n\n" + v.summaryBilingual);
                     });
                 }
             } catch (Throwable t) {
@@ -2739,7 +2999,8 @@ public class PlayActivity extends Activity {
         card.setPadding(dp(16), dp(14), dp(16), dp(12));
 
         TextView head = new TextView(this);
-        head.setText("▶ Playback error");
+        head.setText(t2("Playback error"));
+        UiIcons.setCompound(head, R.drawable.ic_alert, 0xFFFF6B6B, 15, Gravity.START);
         head.setTextColor(0xFFE2E8F0);
         head.setTextSize(14);
         head.setTypeface(Typeface.DEFAULT_BOLD);
@@ -2751,7 +3012,7 @@ public class PlayActivity extends Activity {
         errorBox.setPadding(0, dp(6), 0, dp(8));
         card.addView(errorBox, new LinearLayout.LayoutParams(-1, -2));
 
-        Button retry = btn("🔄 Retry");
+        Button retry = btn(R.drawable.ic_refresh, t2("Retry"));
         retry.setOnClickListener(v -> {
             card.setVisibility(View.GONE);
             triedHeaderRecovery = false;
@@ -2760,7 +3021,7 @@ public class PlayActivity extends Activity {
         });
         card.addView(retry);
 
-        Button alt = btn("🔧 Retry with alternate headers");
+        Button alt = btn(R.drawable.ic_settings, t2("Retry with alternate headers"));
         alt.setOnClickListener(v -> {
             card.setVisibility(View.GONE);
             httpHeaders = StreamHttpConfig.recovery(url, httpHeaders);
@@ -2769,17 +3030,17 @@ public class PlayActivity extends Activity {
         });
         card.addView(alt);
 
-        Button vlc = btn("📺 Open in VLC");
+        Button vlc = btn(R.drawable.ic_vlc_external, t2("Open in VLC"));
         vlc.setOnClickListener(v -> openExternalPlayer());
         card.addView(vlc);
 
-        Button copy = btn("📋 Copy error");
+        Button copy = btn(R.drawable.ic_copy, t2("Copy error"));
         copy.setOnClickListener(v -> {
             try {
                 android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("error",
                     "v" + AppInfo.VERSION_NAME + " · " + title + "\n" + lastErrorMsg));
-                flash("📋 copied");
+                flash("copied");
             } catch (Throwable ignored) { }
         });
         card.addView(copy);
@@ -2791,7 +3052,8 @@ public class PlayActivity extends Activity {
         if (player == null) return;
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(14), dp(10), dp(14), dp(10));
+        box.addView(UiSheet.header(this, pal(), t2("Audio / Quality"),
+            t2("ධාවන පථ · විභේදනය · භාෂාව")), new LinearLayout.LayoutParams(-1, -2));
         boolean any = false;
         try {
             Tracks tracks = player.getCurrentTracks();
@@ -2801,12 +3063,13 @@ public class PlayActivity extends Activity {
                     final TrackGroup tg = g.getMediaTrackGroup();
                     final int idx = i;
                     String label = trackLabel(g.getType(), g.getTrackFormat(i));
-                    Button b = btn((g.isTrackSelected(i) ? "✓ " : "") + label);
+                    Button b = btn(label);
+                    if (g.isTrackSelected(i)) UiIcons.setCompound(b, R.drawable.ic_check_circle, 0xFF86EFAC, 15, Gravity.START);
                     b.setOnClickListener(v -> {
                         try {
                             player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
                                 .setOverrideForType(new TrackSelectionOverride(tg, idx)).build());
-                            flash("✓ " + label);
+                            flash(label);
                         } catch (Throwable t) { Diag.w("tracks", "select: " + t); }
                     });
                     box.addView(b, new LinearLayout.LayoutParams(-1, -2));
@@ -2816,14 +3079,19 @@ public class PlayActivity extends Activity {
         } catch (Throwable t) {
             Diag.w("tracks", "read: " + t);
         }
-        if (!any) box.addView(label("No alternate audio/quality tracks in this stream · මෙම ධාරාවේ වෙනත් ධාවන පථ නැත"));
-        ScrollView sc = new ScrollView(this);
-        sc.addView(box);
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("🔊 Audio / Quality")
-            .setView(sc)
-            .setNegativeButton("Close", null)
-            .show();
+        if (!any) {
+            box.addView(UiGroup.empty(this, pal(),
+                R.drawable.ic_audio_track, t2("One track only"),
+                t2("This stream carries no alternate audio or quality tracks.")),
+                new LinearLayout.LayoutParams(-1, -2));
+        }
+        trackSheet = UiSheet.show(this, pal(), prefs, box, 60, () -> trackSheet = null);
+    }
+
+    /** The palette for a sheet (the player is always dark, so this is cheap and safe). */
+    private ThemeEngine.Palette pal() {
+        return ThemeEngine.palette(AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs),
+            AppPrefs.accentHex(prefs), AppPrefs.cardRadius(prefs));
     }
 
     /** A human label for one Media3 track (language + quality + bitrate). */
@@ -2880,15 +3148,22 @@ public class PlayActivity extends Activity {
             base.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             for (Map.Entry<String, String> e : extras.entrySet()) base.putExtra(e.getKey(), e.getValue());
             // 1. the preferred player, if installed; 2. any of the others; 3. the chooser.
-            for (String pkg : LkSubFinder.EXTERNAL_PLAYERS) {
+            java.util.List<String> order = new java.util.ArrayList<>();
+            String pref = AppPrefs.externalPlayer(prefs);
+            String want = AppPrefs.EXT_VLC.equals(pref) ? "org.videolan.vlc"
+                : (AppPrefs.EXT_MX.equals(pref) ? "com.mxtech.videoplayer.ad"
+                : (AppPrefs.EXT_MPV.equals(pref) ? "is.air.tv.mpv" : null));
+            if (want != null) order.add(want);
+            for (String pkg : LkSubFinder.EXTERNAL_PLAYERS) if (!order.contains(pkg)) order.add(pkg);
+            for (String pkg : order) {
                 try {
                     Intent i = new Intent(base);
                     i.setPackage(pkg);
                     if (getPackageManager().resolveActivity(i, 0) != null) {
                         startActivity(i);
                         flash(subUrl == null
-                            ? "📺 " + pkg + " · ⚠ subs off (receiver not running)"
-                            : "📺 " + pkg + " · 💬 subs attached");
+                            ? pkg + " · subs off (receiver not running)"
+                            : pkg + " · subs attached");
                         return;
                     }
                 } catch (Throwable t) {
@@ -2897,7 +3172,7 @@ public class PlayActivity extends Activity {
             }
             try {
                 startActivity(Intent.createChooser(base, "Play with…"));
-                if (subUrl == null) flash("⚠ no receiver — subtitles not attached");
+                if (subUrl == null) flash("no receiver — subtitles not attached");
             } catch (Throwable t) {
                 Diag.w("vlc", "chooser: " + t);
                 flash("No external player installed · බාහිර player එකක් නැත");
@@ -2949,10 +3224,10 @@ public class PlayActivity extends Activity {
         final List<LkSubFinder.Site> sites = LkSubFinder.sites();
         final String[] names = new String[sites.size() + 1];
         for (int i = 0; i < sites.size(); i++)
-            names[i] = (sites.get(i).sriLankan ? "🇱🇰 " : "") + sites.get(i).name;
-        names[sites.size()] = "🔍 DuckDuckGo — \"" + q + "\" sinhala subtitles";
+            names[i] = sites.get(i).name + (sites.get(i).sriLankan ? "  (Sri Lanka)" : "");
+        names[sites.size()] = "DuckDuckGo — \"" + q + "\" sinhala subtitles";
         new android.app.AlertDialog.Builder(this)
-            .setTitle("🇱🇰 Find Sinhala subtitles — " + q)
+            .setTitle(t2("Find Sinhala subtitles") + " — " + q)
             .setItems(names, (d, which) -> {
                 String target = which < sites.size()
                     ? sites.get(which).urlFor(q)
@@ -2971,7 +3246,7 @@ public class PlayActivity extends Activity {
             i.putExtra("webUrl", target);
             i.putExtra("openWeb", true);
             startActivity(i);
-            flash("🌐 opening " + StreamSniffer.hostOf(target));
+            flash("opening " + StreamSniffer.hostOf(target));
         } catch (Throwable t) {
             Diag.w("web", "open tab: " + t);
         }
@@ -2983,7 +3258,7 @@ public class PlayActivity extends Activity {
             List<Cue> loaded = SrtLoader.load(bytes, name);
             if (loaded == null || loaded.isEmpty()) { flash("no cues in " + name); return; }
             onLocalCues(loaded, name);
-            flash("💬 " + loaded.size() + " cues attached");
+            flash(loaded.size() + " cues attached");
         } catch (Throwable t) {
             flash("subtitle error: " + t.getMessage());
         }

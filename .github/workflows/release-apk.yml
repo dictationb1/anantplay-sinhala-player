@@ -1,6 +1,6 @@
 name: Release APK (signed, Obtainium-ready)
 
-# v3.3.1 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
+# v3.4.0 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
 # this keeps the runner clock interpretable (the same commit → the same SHA-256).
 env:
   TZ: UTC
@@ -38,7 +38,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.0.1 — no leading v)'
         required: true
-        default: '3.3.1'
+        default: '3.4.0'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -200,7 +200,7 @@ jobs:
           sha256sum "$APK" > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      # ── 6b. v3.3.1 — docs/latest.json: the updater's TIER-2 resolver source ──
+      # ── 6b. v3.4.0 — docs/latest.json: the updater's TIER-2 resolver source ──
       # The in-app updater reads https://raw.githubusercontent.com/<repo>/main/
       # docs/latest.json BEFORE ever touching api.github.com (the zero-rate-limit
       # contract). This step writes it back to main after every release, so the
@@ -216,7 +216,7 @@ jobs:
           # EXACT tier-2 contract parsed by SelfUpdateCore.fetchViaRawJsonBody():
           # version / code / sha256 / apkUrl (sha256 must be 64 lowercase hex).
           # The trailing backslash is REQUIRED — without it the argument line
-          # becomes a separate command (the v3.3.0 archive shipped it broken — v3.3.1 re-verified it).
+          # becomes a separate command (the v3.3.0 archive shipped it broken — v3.4.0 re-verified it).
           printf '{"version":"%s","code":%s,"sha256":"%s","apkUrl":"https://github.com/dictationb1/anantplay-sinhala-player/releases/download/v%s/AnantPlay-Sinhala-Player-v%s.apk"}\n' \
             "$V" "$CODE" "$SHA" "$V" "$V" > docs/latest.json
           python3 - "$V" "$CODE" <<'PY'

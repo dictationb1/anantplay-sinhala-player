@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" role="img" aria-label="nav customize">
+  <path d="M8 3.4a1.2 1.2 0 0 1 1.2 1.2v16.8a1.2 1.2 0 0 1 -2.4 0V4.6A1.2 1.2 0 0 1 8 3.4Z" fill="currentColor"/>
+  <path d="M16 3.4a1.2 1.2 0 0 1 1.2 1.2v16.8a1.2 1.2 0 0 1 -2.4 0V4.6A1.2 1.2 0 0 1 16 3.4Z" fill="currentColor"/>
+  <path d="M8 6.1 a2.7 2.7 0 1 0 0 5.4 a2.7 2.7 0 1 0 0 -5.4 Z" fill="currentColor"/>
+  <path d="M16 12.5 a2.7 2.7 0 1 0 0 5.4 a2.7 2.7 0 1 0 0 -5.4 Z" fill="currentColor"/>
+</svg>
