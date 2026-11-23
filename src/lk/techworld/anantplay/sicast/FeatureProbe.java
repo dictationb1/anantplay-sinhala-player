@@ -106,6 +106,17 @@ public final class FeatureProbe {
         return java.util.Collections.unmodifiableList(new ArrayList<>(LAST));
     }
 
+    /**
+     * v3.4.2 — publish a completed run into the STATIC snapshot that every reader uses.
+     * {@link #runAll} calls it itself; the lab calls it directly to prove that
+     * {@code Troubleshooter.buildReport()} keeps printing 10/10 after a tab switch or a
+     * recreate() (the field's "(not run yet)" bug).
+     */
+    public static void remember(List<Outcome> results) {
+        LAST.clear();
+        if (results != null) for (Outcome o : results) if (o != null) LAST.add(o);
+    }
+
     private static List<Outcome> snapshot() {
         return java.util.Collections.unmodifiableList(new ArrayList<>(LAST));
     }

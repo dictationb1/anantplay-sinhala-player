@@ -138,6 +138,12 @@ public final class AppPrefs {
     /** Light-weight browser tabs: one URL per line (single renderer, no OOM). */
     public static final String K_WEB_TABS = "webTabs";                  // "url\nurl"
 
+    // ── v3.4.2 — MIDNIGHT NIGHT DIMMER ─────────────────────────────────────────
+    /** The dark-room filter: dims the window AND paints a non-touch-blocking overlay. */
+    public static final String K_MIDNIGHT_DIMMER = "midnightDimmer";   // bool
+    /** How much light the dimmer removes: 10..70 percent. */
+    public static final String K_MIDNIGHT_DIM_PCT = "midnightDimPct";  // 10..70
+
     /** Every key SettingsBackup carries (ordered — the export JSON is stable). */
     public static final List<String> BACKUP_KEYS = Arrays.asList(
         K_THEME_MODE, K_DYNAMIC_COLOR, K_ACCENT, K_ACCENT_HEX, K_UI_LANG, K_DENSITY, K_CARD_RADIUS,
@@ -157,7 +163,9 @@ public final class AppPrefs {
         K_SUB_COLOR_HEX, K_SUB_OUTLINE, K_SUB_SHADOW,
         K_OMNIBAR_POS, K_SPEEDDIAL_COLS, K_SEARCH_ENGINE, K_WEB_CUSTOM_UA,
         K_READER_DARK, K_FAVICONS, K_SHOW_BLOCK_COUNT, K_WEB_TABS,
-        K_ORIENTATION, K_EXTERNAL_PLAYER, K_VOLUME_BOOST, K_SLEEP_TIMER_MS, K_SKIP_VERSION);
+        K_ORIENTATION, K_EXTERNAL_PLAYER, K_VOLUME_BOOST, K_SLEEP_TIMER_MS, K_SKIP_VERSION,
+        // v3.4.2 - the Midnight Night Dimmer rides the same lossless backup
+        K_MIDNIGHT_DIMMER, K_MIDNIGHT_DIM_PCT);
 
     // ── the normalizers (pure — Mornye's normalizeXxx pattern) ─────────────────
 
@@ -178,7 +186,31 @@ public final class AppPrefs {
             || THEME_SYSTEM.equals(v) ? v : THEME_DARK;             // Mornye Slate default
     }
 
-    public static String normalizeUiLang(String v) { return UI_SI.equals(v) || UI_EN.equals(v) ? v : UI_BI; }
+    /**
+     * v3.4.2 — THE CLEAN-ENGLISH DEFAULT.
+     *
+     * <p>Out of the box the chrome is 100% crisp English ("AnantPlay Player", one clean
+     * label per control). The field screenshots showed the bilingual "සිංහල · English"
+     * dot-walls reading as clutter; Sinhala remains a first-class OPTION in Settings
+     * ({@link #UI_SI}), it is simply no longer the default. Movie subtitles stay
+     * Sinhala by default — that is {@link #K_DEFAULT_LANG}, a different key.
+     */
+    public static String normalizeUiLang(String v) {
+        if (UI_SI.equals(v) || UI_EN.equals(v) || UI_BI.equals(v)) return v;
+        return UI_EN;                                               // unknown/null → English
+    }
+
+    /** The Midnight Night Dimmer on/off. */
+    public static boolean midnightDimmer(SharedPreferences p) {
+        return p != null && p.getBoolean(K_MIDNIGHT_DIMMER, false);
+    }
+
+    /** 10..70 percent of light removed by the dimmer. */
+    public static int midnightDimPct(SharedPreferences p) {
+        return normalizeDimPct(p == null ? 40 : p.getInt(K_MIDNIGHT_DIM_PCT, 40));
+    }
+
+    public static int normalizeDimPct(int v) { return v < 10 ? 10 : (v > 70 ? 70 : v); }
 
     public static String normalizeDensity(String v) {
         return DENSITY_SPACIOUS.equals(v) || DENSITY_COMPACT.equals(v) ? v : DENSITY_COMFORTABLE;
@@ -507,9 +539,11 @@ public final class AppPrefs {
                 case K_WEB_TABS: return serializeTabs(parseTabs(String.valueOf(raw)));
                 case K_BOTTOM_BAR_LABELS: case K_SHOW_TROUBLE_TAB: case K_MOTION:
                 case K_ACCENT_GLOW: case K_SUB_SHADOW: case K_READER_DARK:
-                case K_FAVICONS: case K_SHOW_BLOCK_COUNT:
+                case K_FAVICONS: case K_SHOW_BLOCK_COUNT: case K_MIDNIGHT_DIMMER:
                     return raw instanceof Boolean ? raw
                         : Boolean.parseBoolean(String.valueOf(raw)) ? Boolean.TRUE : Boolean.FALSE;
+                case K_MIDNIGHT_DIM_PCT:
+                    return normalizeDimPct(Integer.parseInt(String.valueOf(raw).trim()));
                 default: return null;                                 // unknown key → reject
             }
         } catch (Throwable t) {
@@ -536,7 +570,7 @@ public final class AppPrefs {
     public static boolean dynamicColor(SharedPreferences p) { return p.getBoolean(K_DYNAMIC_COLOR, false); }
     public static int accent(SharedPreferences p) { return normalizeAccent(p.getInt(K_ACCENT, 0)); }
     public static String accentHex(SharedPreferences p) { return normalizeAccentHex(p.getString(K_ACCENT_HEX, "")); }
-    public static String uiLang(SharedPreferences p) { return normalizeUiLang(p.getString(K_UI_LANG, UI_BI)); }
+    public static String uiLang(SharedPreferences p) { return normalizeUiLang(p.getString(K_UI_LANG, UI_EN)); }
     public static boolean spacious(SharedPreferences p) { return DENSITY_SPACIOUS.equals(normalizeDensity(p.getString(K_DENSITY, DENSITY_COMFORTABLE))); }
     /** v3.3.1 — the Card-corner-radius preference, normalized (sharp|rounded|apple-pill). */
     public static String cardRadius(SharedPreferences p) {
@@ -547,7 +581,8 @@ public final class AppPrefs {
     public static boolean showWebTab(SharedPreferences p) { return p.getBoolean(K_SHOW_WEB_TAB, true); }
     public static boolean showQuickActions(SharedPreferences p) { return p.getBoolean(K_SHOW_QUICK_ACTIONS, true); }
     /** v3.3.0 — the cinema default: 18 sp portrait (was 22) / 20 sp landscape. */
-    public static int fontSp(SharedPreferences p) { return normalizeFontSp(p.getInt(K_FONT_SP, 18)); }
+    /** v3.4.2 — 16 sp is the clean compact cinema default (18 in landscape via fontSpFor). */
+    public static int fontSp(SharedPreferences p) { return normalizeFontSp(p.getInt(K_FONT_SP, 16)); }
 
     /** The size actually rendered: +2 sp in landscape (cinema default 18 → 20), still
      *  clamped to the 12..36 range so a user's 36 never overflows. */

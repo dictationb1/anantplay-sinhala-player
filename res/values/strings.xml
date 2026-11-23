@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AnantPlay සිංහල Player</string>
+    <!-- v3.4.2 — the clean English display title. The Sinhala chrome is still a
+         first-class OPTION (Settings → Language), it is simply not the default. -->
+    <string name="app_name">AnantPlay Player</string>
     <string name="tile_label">සිංහල Cast</string>
     <string name="tile_on">ready · සක්‍රියයි</string>
     <string name="tile_off">off · ක්‍රියාත්මක කරන්න</string>

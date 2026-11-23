@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="lk.techworld.anantplay.sicast"
-    android:versionCode="30401"
-    android:versionName="3.4.1">
+    android:versionCode="30402"
+    android:versionName="3.4.2">
 
     <!-- The cast-receiver permission set — a strict subset of what official AnantPlay
          itself holds (its AndroidManifest.xml). NO AccessibilityService, NO
@@ -63,7 +63,11 @@
         android:usesCleartextTraffic="true"
         android:supportsRtl="true">
 
-        <activity android:name=".MainActivity" android:exported="true">
+        <!-- v3.4.2 — adjustResize is what lets the WebView omnibar rise above the soft
+             keyboard: with the default adjustPan the bar stayed UNDER the IME and typing
+             was impossible (WebBrowserView now also applies WindowInsets.Type.ime()). -->
+        <activity android:name=".MainActivity" android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
