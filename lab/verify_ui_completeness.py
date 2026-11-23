@@ -49,6 +49,8 @@ HERO_ALLOW = {
 # vector above a title + body block (UiGroup.empty). Allowed up to 40dp, and
 # ONLY inside that one method — every other call site keeps the 28dp cap.
 ILLUSTRATION_METHOD = ("UiGroup.java", "empty")
+# The cinema HUD's own helper: 20dp top bar, 24dp centre disc, never more.
+HUD_MAX_DP = 24
 # The design grammar's intended sizes (documented, checked as a WARN not a FAIL)
 GRAMMAR = {22: "bottom nav", 20: "top app bar / HUD", 18: "settings row", 16: "chip/button"}
 
@@ -188,6 +190,20 @@ def rule_icons():
                     violations.append(
                         "R1 OVERSIZED ICON %s:%d  UiIcons.%s(..., %ddp) > %ddp cap"
                         % (rel(p), line_of(code, m.start()), kind, dp, cap))
+    # v3.4.1 — the PlayActivity HUD helper `icon(R.drawable.x, 20, click)` is a second
+    # icon surface with the same optical cap. v3.4.0 shipped 24dp there (spec: 20dp)
+    # next to four 15dp siblings, which is exactly what reads as "messy".
+    play = os.path.join(PKG, "PlayActivity.java")
+    if os.path.exists(play):
+        code = strip_comments(open(play, encoding="utf-8").read())
+        for m in re.finditer(r"(?<![\w.])icon\s*\(\s*R\.drawable\.\w+\s*,\s*(\d+)\s*,", code):
+            dp = int(m.group(1))
+            checked += 1
+            hist[dp] = hist.get(dp, 0) + 1
+            if dp > HUD_MAX_DP:
+                violations.append("R1 OVERSIZED HUD ICON %s:%d  icon(..., %ddp) > %ddp HUD cap"
+                                  % (rel(play), line_of(code, m.start()), dp, HUD_MAX_DP))
+
     print("R1 icon calls with a literal size : %d" % checked)
     print("R1 size histogram (dp:count)      : %s"
           % ", ".join("%d:%d" % (k, hist[k]) for k in sorted(hist)))

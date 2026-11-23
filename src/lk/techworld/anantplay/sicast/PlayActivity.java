@@ -1959,7 +1959,7 @@ public class PlayActivity extends Activity {
             new int[]{0xB3000000, 0x00000000});
         hudTopBar.setBackground(topBg);
 
-        View back = icon(R.drawable.ic_back, 24, v -> finish());
+        View back = icon(R.drawable.ic_back, 20, v -> finish());   // v3.4.1 — HUD top bar = 20dp
         hudTopBar.addView(back, new LinearLayout.LayoutParams(dp(40), dp(38)));
 
         LinearLayout titles = new LinearLayout(this);
@@ -1992,13 +1992,13 @@ public class PlayActivity extends Activity {
         badgeSub.setVisibility(View.GONE);
         hudTopBar.addView(badgeSub, new LinearLayout.LayoutParams(-2, -2));
 
-        View lock = icon(R.drawable.ic_lock, 15, v -> setLocked(true));
+        View lock = icon(R.drawable.ic_lock, 20, v -> setLocked(true));   // v3.4.1 — 20dp, matching the bar
         hudTopBar.addView(lock, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        View rotate = icon(R.drawable.ic_rotate, 15, v -> rotateScreen());
+        View rotate = icon(R.drawable.ic_rotate, 20, v -> rotateScreen());   // v3.4.1
         hudTopBar.addView(rotate, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        View vlc = icon(R.drawable.ic_vlc_external, 15, v -> openExternalPlayer());
+        View vlc = icon(R.drawable.ic_vlc_external, 20, v -> openExternalPlayer());   // v3.4.1
         hudTopBar.addView(vlc, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        View gear = icon(R.drawable.ic_settings, 15, v -> toggleSheet());
+        View gear = icon(R.drawable.ic_settings, 20, v -> toggleSheet());   // v3.4.1
         hudTopBar.addView(gear, new LinearLayout.LayoutParams(dp(36), dp(36)));
         box.addView(hudTopBar, new LinearLayout.LayoutParams(-1, -2));
 
@@ -2015,7 +2015,7 @@ public class PlayActivity extends Activity {
         transport.setGravity(Gravity.CENTER);
         View minus = icon(R.drawable.ic_replay_10, 20, v -> skip(-stepMs));
         transport.addView(minus, new LinearLayout.LayoutParams(dp(64), dp(52)));
-        playPause = icon(R.drawable.ic_play_filled, 26, v -> toggle());
+        playPause = icon(R.drawable.ic_play_filled, 24, v -> toggle());   // v3.4.1 — centre disc = 24dp
         GradientDrawable playBg = new GradientDrawable();
         playBg.setColor(0xE61A2440);
         playBg.setCornerRadius(dp(32));
@@ -2628,8 +2628,10 @@ public class PlayActivity extends Activity {
     /** The transport disc swaps between play and pause - it never did before v3.4.0. */
     private void setPlayPauseIcon(boolean playing) {
         if (!(playPause instanceof ImageView)) return;
+        // v3.4.1 — the transport disc is 24dp, the same as the button that was built.
+        // v3.4.0 drew it at 26dp and the first play/pause swap silently resized it.
         ((ImageView) playPause).setImageDrawable(UiIcons.tinted(this,
-            playing ? R.drawable.ic_pause_filled : R.drawable.ic_play_filled, Color.WHITE, 26));
+            playing ? R.drawable.ic_pause_filled : R.drawable.ic_play_filled, Color.WHITE, 24));
     }
 
     /** A pill button with a leading vector (replaces pillBtn("\uD83D\uDCAC Subtitles")). */
