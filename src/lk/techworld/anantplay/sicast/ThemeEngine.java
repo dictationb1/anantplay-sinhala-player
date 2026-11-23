@@ -12,10 +12,8 @@ package lk.techworld.anantplay.sicast;
  *   · MODE: System · Dark (Mornye Slate) · AMOLED Pure Black (#000000) · Light;
  *   · DYNAMIC COLOR (Material You, Android 12+): the wallpaper's
  *     system_accent1 seed replaces the preset accent (surfaces stay per-mode);
- *   · v3.2.0 — 8 CURATED ACCENT PRESETS (Mornye Violet, Ocean Blue, Emerald
- *     Green, Sunset Coral, Warm Amber, Rose Pink, Sky Cyan, Slate Teal) shown
- *     as selectable color dots + a CUSTOM #RRGGBB hex accent (AppPrefs.
- *     normalizeAccentHex validates; the custom wins when non-empty);
+ *   · v3.4.4 — 10 CURATED ACCENT PRESETS and named tonal surfaces, with a
+ *     CUSTOM #RRGGBB hex accent (the custom wins when non-empty);
  *   · a derived accentDim (accent ⇢ background blend) for chips/borders so a
  *     single accent seeds a coherent, Material-3-Expressive-feeling surface;
  *   · v3.2.0 — the CARD CORNER RADIUS token (Mornye app_tokens.dart's
@@ -30,7 +28,7 @@ public final class ThemeEngine {
 
     private ThemeEngine() { }
 
-    /** The 8 curated accents (Mornye's named-accent pattern as color dots). */
+    /** Ten curated accents (Mornye's named-accent pattern as color dots). */
     public static final int[] ACCENTS = {
         0xFF8B5CF6,   // 0 Mornye Violet
         0xFF3B82F6,   // 1 Ocean Blue
@@ -40,10 +38,12 @@ public final class ThemeEngine {
         0xFFEC4899,   // 5 Rose Pink
         0xFF38BDF8,   // 6 Sky Cyan (v3.2.0)
         0xFF14B8A6,   // 7 Slate Teal (v3.2.0)
+        0xFF6366F1,   // 8 Indigo
+        0xFFA855F7,   // 9 Orchid
     };
     public static final String[] ACCENT_NAMES = {
         "Mornye Violet", "Ocean Blue", "Emerald Green", "Sunset Coral", "Warm Amber", "Rose Pink",
-        "Sky Cyan", "Slate Teal",
+        "Sky Cyan", "Slate Teal", "Indigo", "Orchid",
     };
 
     /** One resolved theme — every color the app's UI needs. */
@@ -51,19 +51,24 @@ public final class ThemeEngine {
         public final String mode;         // dark|amoled|light (system already resolved)
         public final boolean amoled;
         public final boolean light;
-        public final int bg, card, card2, chip;
+        public final int bg, surfaceLow, surface, surfaceHigh;
+        /** Compatibility aliases: card=surface, card2=surfaceLow, chip=surfaceHigh. */
+        public final int card, card2, chip;
         public final int title, text, desc;
         public final int accent, accentDim, accentSoft;
         public final int ok, warn, err;
         public final int radiusCard, radiusSheet, radiusChip;   // v3.2.0 (dp)
 
-        Palette(String mode, int bg, int card, int card2, int chip, int title, int text, int desc,
+        Palette(String mode, int bg, int surfaceLow, int surface, int surfaceHigh,
+                int title, int text, int desc,
                 int accent, int accentDim, int accentSoft, int ok, int warn, int err,
                 int radiusCard, int radiusSheet, int radiusChip) {
             this.mode = mode;
             this.amoled = AppPrefs.THEME_AMOLED.equals(mode);
             this.light = AppPrefs.THEME_LIGHT.equals(mode);
-            this.bg = bg; this.card = card; this.card2 = card2; this.chip = chip;
+            this.bg = bg;
+            this.surfaceLow = surfaceLow; this.surface = surface; this.surfaceHigh = surfaceHigh;
+            this.card = surface; this.card2 = surfaceLow; this.chip = surfaceHigh;
             this.title = title; this.text = text; this.desc = desc;
             this.accent = accent; this.accentDim = accentDim; this.accentSoft = accentSoft;
             this.ok = ok; this.warn = warn; this.err = err;
@@ -147,7 +152,7 @@ public final class ThemeEngine {
         int ok = 0xFF22C55E, warn = 0xFFF59E0B, err = 0xFFEF4444;
         if (AppPrefs.THEME_LIGHT.equals(m)) { ok = 0xFF15803D; warn = 0xFFB45309; err = 0xFFB91C1C; }
         int[] r = radii(cardRadiusPref);   // v3.3.1 — the user's radius choice, honoured
-        return new Palette(m, bg, card, card2, chip, title, text, desc, accent, accentDim, accentSoft, ok, warn, err,
+        return new Palette(m, bg, card2, card, chip, title, text, desc, accent, accentDim, accentSoft, ok, warn, err,
             r[0], r[1], r[2]);
     }
 
@@ -195,7 +200,7 @@ public final class ThemeEngine {
 
     /** The card fill: flat = solid tier 1, glass = translucent tier 1 over the canvas. */
     public static int cardFill(Palette p, boolean glass) {
-        if (!glass) return p.card;
-        return blend(p.card, p.bg, 0.22f) & 0x00FFFFFF | 0xE6000000;   // ~90% opaque tint
+        if (!glass) return p.surface;
+        return blend(p.surface, p.bg, 0.22f) & 0x00FFFFFF | 0xE6000000;   // ~90% opaque tint
     }
 }

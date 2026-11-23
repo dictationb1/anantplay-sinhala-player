@@ -29,8 +29,8 @@ import java.io.ByteArrayInputStream;
  *    3. mDNS Wire Responder      — a real UDP 5353 loopback probe (the kernel
  *                                  answers our own responder, or the probe
  *                                  reports the daemon state)
- *    4. Zero-Rate-Limit Updater  — the github.com/releases/latest redirect
- *                                  check (tier-1, ZERO api.github.com burn)
+ *    4. Update Resolver          — the github.com/releases/latest redirect
+ *                                  check, with raw latest.json as fallback
  *    5. Cloudflare Worker Bridge — GET <worker>/health (+ version + storage)
  *    6. Subtitle Resolve + Script — live /api/resolve + the Sinhala Unicode
  *                                  validation engine self-check
@@ -355,15 +355,14 @@ public final class FeatureProbe {
         });
     }
 
-    /** 4 — Zero-Rate-Limit Updater: the tier-1 github.com redirect check, and
-     *  PROOF that api.github.com was never touched. */
+    /** 4 — Update resolver: probe the release redirect without using REST. */
     static Outcome probe4Updater(Listener l) {
         return timed(4, "Zero-Rate-Limit Updater", l, o -> {
             try {
                 String tag = SelfUpdateCore.resolveLatestTagByRedirect("https://github.com/" + SelfUpdateCore.REPO + "/releases/latest");
                 boolean got = tag != null && tag.matches("v\\d+\\.\\d+\\.\\d+");
                 o.pass = got;
-                o.detail = got ? "tier-1 redirect resolved " + tag + " (0 api.github.com calls)" : "no release redirect (no releases published yet)";
+            o.detail = got ? "tier-1 redirect resolved " + tag : "no release redirect (no releases published yet)";
             } catch (Exception e) {
                 o.pass = false;
                 o.detail = "offline: " + e.getClass().getSimpleName();

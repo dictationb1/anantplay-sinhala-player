@@ -33,7 +33,11 @@ final class UiSegmented {
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(p.card2);
         bg.setCornerRadius(UiCard.dp(c, 10));
-        bg.setStroke(UiCard.dp(c, 1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)));
+        if (AppPrefs.glass(prefs)) {
+            bg.setStroke(UiCard.dp(c, 1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)));
+        } else {
+            bg.setStroke(0, 0);
+        }
         track.setBackground(bg);
         track.setPadding(UiCard.dp(c, 3), UiCard.dp(c, 3), UiCard.dp(c, 3), UiCard.dp(c, 3));
 
@@ -48,6 +52,8 @@ final class UiSegmented {
             t.setSingleLine(true);
             t.setEllipsize(android.text.TextUtils.TruncateAt.END);
             UiTokens.text(t, 11f, 600, 0.2f, false);
+            t.setContentDescription(labels[i]);
+            t.setSelected(i == current[0]);
             t.setPadding(UiCard.dp(c, 10), UiCard.dp(c, 6), UiCard.dp(c, 10), UiCard.dp(c, 6));
             t.setOnClickListener(v -> {
                 if (current[0] == idx) return;
@@ -69,6 +75,7 @@ final class UiSegmented {
         for (int i = 0; i < segs.length; i++) {
             TextView t = segs[i];
             boolean on = i == sel;
+            t.setSelected(on);
             GradientDrawable g = new GradientDrawable();
             g.setCornerRadius(UiCard.dp(c, 8));
             g.setColor(on ? p.accent : 0x00000000);

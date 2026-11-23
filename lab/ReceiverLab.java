@@ -947,8 +947,8 @@ public class ReceiverLab {
         String apkSha = SelfUpdateCore.sha256(apkBytes);
         String tamperedSha = SelfUpdateCore.sha256(repeatBytes('B', 4096));
         MockGithub mock = new MockGithub("2.4.0", apkBytes, apkSha);   // latest == current
-        SelfUpdateCore.Release r1 = SelfUpdateCore.fetchRelease(mock.url("/releases/latest"));
-        check("v2.4.0 upd: fetchRelease parses the mock GitHub release (version, apk url, sha)",
+        SelfUpdateCore.Release r1 = labRelease("2.4.0", mock, apkSha, apkBytes.length);
+        check("v2.4.0 upd: lab release fixture carries version, APK URL, and SHA",
               r1 != null && "2.4.0".equals(r1.version) && r1.apkUrl.contains("AnantPlay-Sinhala-Player")
               && apkSha.equals(r1.sha256Expected));
         check("v2.4.0 upd: version comparison — 2.4.0 vs current 2.4.0 → NOT newer (no pointless download)",
@@ -957,7 +957,7 @@ public class ReceiverLab {
               UpdateChecker.isNewer("3.0.0", "2.4.0"));
 
         MockGithub mock2 = new MockGithub("2.5.0", apkBytes, apkSha);
-        SelfUpdateCore.Release r2 = SelfUpdateCore.fetchRelease(mock2.url("/releases/latest"));
+        SelfUpdateCore.Release r2 = labRelease("2.5.0", mock2, apkSha, apkBytes.length);
         // v3.0.0: download() now enforces https-only — the lab drives the pure
         // streaming core (pump) over its local mock, exactly like the phone's
         // downloadToFile drives it over the real https GitHub URL.
@@ -990,10 +990,10 @@ public class ReceiverLab {
               "AnantPlay-Sinhala-Player-v2.5.0.apk".equals(
                   SelfUpdateCore.apkFileName("https://github.com/dictationb1/anantplay-sinhala-player/releases/download/v2.5.0/AnantPlay-Sinhala-Player-v2.5.0.apk")));
         boolean offlineGraceful = false;
-        try { SelfUpdateCore.fetchRelease("http://127.0.0.1:1/nope"); }
+        try { SelfUpdateCore.resolveLatestTagByRedirect("http://127.0.0.1:1/nope"); }
         catch (Exception e) { offlineGraceful = true; }   // a checked, typed failure
         try {
-            SelfUpdateCore.Release dead = SelfUpdateCore.fetchRelease("http://127.0.0.1:1/nope");
+            String dead = SelfUpdateCore.resolveLatestTagByRedirect("http://127.0.0.1:1/nope");
             offlineGraceful = offlineGraceful || dead == null;
         } catch (Exception ignored) { }
         check("v2.4.0 upd: a dead endpoint fails in a CONTROLLED way (offline = graceful, no crash of the app)",
@@ -1369,8 +1369,8 @@ public class ReceiverLab {
         byte[] apk3 = repeatBytes('C', 300_000);
         String apk3Sha = SelfUpdateCore.sha256(apk3);
         MockGithub mock3 = new MockGithub("3.0.0", apk3, apk3Sha, apk3.length);
-        SelfUpdateCore.Release rel3 = SelfUpdateCore.fetchRelease(mock3.url("/releases/latest"));
-        check("v3 upd: fetchRelease also parses the declared asset SIZE (the pre-download cap gate)",
+        SelfUpdateCore.Release rel3 = labRelease("3.0.0", mock3, apk3Sha, apk3.length);
+        check("v3 upd: lab fixture carries the declared asset SIZE (the pre-download cap gate)",
               rel3 != null && rel3.apkSize == 300_000);
         check("v3 upd: an over-cap declared size is refused before the download (rel.apkSize > MAX)",
               rel3 != null && !(rel3.apkSize > SelfUpdateCore.MAX_APK_BYTES)
@@ -1425,9 +1425,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30403 strictly > 30402 (v3.4.2) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30403 && AppInfo.VERSION_CODE > 30402 && AppInfo.VERSION_CODE < 40000
-              && "3.4.3".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30404 strictly > 30403 (v3.4.3) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30404 && AppInfo.VERSION_CODE > 30403 && AppInfo.VERSION_CODE < 40000
+              && "3.4.4".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1459,9 +1459,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.4.3 / 30403 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.3}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30403}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.4.4 / 30404 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.4}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30404}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -1931,6 +1931,37 @@ public class ReceiverLab {
         }
     }
 
+    static java.net.HttpURLConnection updateFixture(URL url, int code,
+            Map<String, String> headers, String body) throws Exception {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        return new java.net.HttpURLConnection(url) {
+            @Override public void connect() { }
+            @Override public void disconnect() { }
+            @Override public boolean usingProxy() { return false; }
+            @Override public int getResponseCode() { return code; }
+            @Override public String getHeaderField(String name) {
+                if (headers == null) return null;
+                for (Map.Entry<String, String> e : headers.entrySet()) {
+                    if (e.getKey().equalsIgnoreCase(name)) return e.getValue();
+                }
+                return null;
+            }
+            @Override public InputStream getInputStream() {
+                return new java.io.ByteArrayInputStream(bytes);
+            }
+        };
+    }
+
+    static SelfUpdateCore.Release labRelease(String version, MockGithub mock, String sha, long size) {
+        SelfUpdateCore.Release r = new SelfUpdateCore.Release();
+        r.version = version;
+        r.apkUrl = mock.url("/dl/" + SelfUpdateCore.apkAssetName(version));
+        r.sha256Expected = sha;
+        r.apkSize = size;
+        r.tier = "lab-mock";
+        return r;
+    }
+
     /** A tiny local HTTP server that plays GitHub Releases: serves
      *  /releases/latest (JSON), the apk asset, SHA256SUMS.txt, and a /dl/huge
      *  path with an over-cap declared Content-Length (the pre-read gate test). */
@@ -2386,13 +2417,16 @@ public class ReceiverLab {
     // ════════════════════════════════════════════════════════════════════════
     static void v31ThemeChecks() {
         // ThemeEngine: the modes
-        check("v31 theme: the curated accent presets exist (v3.2.0: 8)",
-            ThemeEngine.ACCENTS.length == 8 && ThemeEngine.ACCENT_NAMES.length == 8);
+        check("v344 theme: ten named accent presets exist",
+            ThemeEngine.ACCENTS.length == 10 && ThemeEngine.ACCENT_NAMES.length == 10);
         check("v31 theme: the presets are distinct",
-            java.util.Arrays.stream(ThemeEngine.ACCENTS).distinct().count() == 8);
+            java.util.Arrays.stream(ThemeEngine.ACCENTS).distinct().count() == 10);
         ThemeEngine.Palette dark = ThemeEngine.palette(AppPrefs.THEME_DARK, -1, 0);
         check("v31 theme: Dark (Mornye Slate) keeps the v3 canvas color",
             dark.bg == 0xFF0B1020 && !dark.light && !dark.amoled);
+        check("v344 theme: named tonal surfaces retain three distinct tiers and compatibility aliases",
+            dark.surfaceLow != dark.surface && dark.surface != dark.surfaceHigh
+                && dark.surfaceLow == dark.card2 && dark.surface == dark.card && dark.surfaceHigh == dark.chip);
         ThemeEngine.Palette amoled = ThemeEngine.palette(AppPrefs.THEME_AMOLED, -1, 0);
         check("v31 theme: AMOLED canvas is PURE #000000",
             amoled.bg == 0xFF000000 && amoled.amoled);
@@ -2434,8 +2468,10 @@ public class ReceiverLab {
                 && AppPrefs.normalizeUiLang("bi").equals("bi")
                 && AppPrefs.normalizeUiLang("xx").equals("en")
                 && AppPrefs.normalizeUiLang(null).equals("en"));
-        check("v31 prefs: accent clamp (v3.2.0: 8 presets)",
-            AppPrefs.normalizeAccent(-1) == 0 && AppPrefs.normalizeAccent(8) == 0 && AppPrefs.normalizeAccent(7) == 7 && AppPrefs.normalizeAccent(3) == 3);
+        check("v344 prefs: accent index accepts ten presets and clamps outside the range",
+            AppPrefs.normalizeAccent(-1) == 0 && AppPrefs.normalizeAccent(10) == 0
+                && AppPrefs.normalizeAccent(8) == 8 && AppPrefs.normalizeAccent(9) == 9
+                && AppPrefs.normalizeAccent(7) == 7 && AppPrefs.normalizeAccent(3) == 3);
         check("v31 prefs: font size clamps to the 12–36 bounds (v3.3.0 cinema range)",
             AppPrefs.normalizeFontSp(1) == 12 && AppPrefs.normalizeFontSp(99) == 36 && AppPrefs.normalizeFontSp(22) == 22);
         check("v31 prefs: pill opacity clamps to the 0–95 bounds (v3.2.0)",
@@ -2606,18 +2642,18 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v31 sec: both workflows carry versionCode 30403 / 3.4.3",
-            buildYml.contains("30403") && buildYml.contains("3.4.3") && relYml.contains("3.4.3"));
+        check("v344 sec: workflows and manifest enforce versionCode 30404 / 3.4.4",
+            buildYml.contains("30404") && buildYml.contains("3.4.4") && relYml.contains("3.4.4"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
-        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30403 + versionName 3.4.3",
-            srcManifest.contains("android:versionCode=\"30403\"")
-                && srcManifest.contains("android:versionName=\"3.4.3\"")
-                && "30403".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.3".equals(AppInfo.VERSION_NAME));
+        check("v344 pipe: AndroidManifest.xml declares the shipped versionCode 30404 + versionName 3.4.4",
+            srcManifest.contains("android:versionCode=\"30404\"")
+                && srcManifest.contains("android:versionName=\"3.4.4\"")
+                && "30404".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.4".equals(AppInfo.VERSION_NAME));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -2626,11 +2662,11 @@ public class ReceiverLab {
         // v3.1 — THE ARTIFACT-NAME PARITY GUARD (the v3.0.0 filename remnants
         // that survived the 3.1.0 bump: the build job still uploaded
         // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
-        check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.3.apk")
+        check("v344 pipe: build-apk.yml names the artifact from its resolved version",
+            buildYml.contains("steps.app-version.outputs.version")
                 && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
-        check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.3.apk")
+        check("v344 pipe: versioned artifact naming agrees across build and release workflows",
+            buildYml.contains("AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
         // v3.1.1 — REPRODUCIBILITY GUARD: the pre-merge build and the post-merge
         // release build of the SAME commit used to differ only by the ZIP entry
@@ -2855,7 +2891,7 @@ public class ReceiverLab {
         check("v312 tsr: the report's crash section leads with the EXCEPTION line",
             rep.contains("EXCEPTION android.content.res.Resources$NotFoundException"));
         check("v312 tsr: the report header stamps the app version + SDK only (no model)",
-            rep.contains("app v3.4.3") && rep.contains("Android SDK"));
+            rep.contains("app v" + AppInfo.VERSION_NAME) && rep.contains("Android SDK"));
         check("v312 tsr: the report is zero-PII end-to-end (the whole bundle re-scrubbed)",
             !rep.contains("24117RN76G") && !rep.contains("192.168.1.39"));
     }
@@ -3029,9 +3065,9 @@ public class ReceiverLab {
     // v3.2.0 — THE MASTER OVERHAUL LABS (every Phase 1–4 fix, proven live)
     // ═══════════════════════════════════════════════════════════════════════
 
-    /** v3.2.0 — THE ZERO-RATE-LIMIT UPDATER LAB: a mock github.com serves the
+    /** v3.2.0 — THE TWO-ROUTE UPDATER LAB: a mock github.com serves the
      *  exact 302 the real endpoint serves; the tier-1 resolver must resolve
-     *  the tag, derive BOTH asset URLs, and NEVER call api.github.com; the
+     *  the tag and derive BOTH asset URLs without using a REST route; the
      *  15-minute backoff must hold across re-delivered jobs; lastCheck must
      *  be persisted BEFORE the network call. */
     static void v320UpdaterZeroRateLimitChecks() throws Exception {
@@ -3050,7 +3086,7 @@ public class ReceiverLab {
                             String reqLine = r.readLine();   // "HEAD /releases/latest HTTP/1.1"
                             for (String l; (l = r.readLine()) != null && !l.isEmpty(); ) { }
                             String path = reqLine == null ? "" : reqLine.split(" ")[1];
-                            if (path.contains("api.github.com")) latestTag[0] = "API-BURNED";
+                            if (path.contains("/api/")) latestTag[0] = "UNEXPECTED_REST_ROUTE";
                             else if (path.contains("/releases/latest")) {
                                 c.getOutputStream().write(("HTTP/1.1 302 Found\r\nLocation: https://github.com/"
                                     + "dictationb1/anantplay-sinhala-player/releases/tag/v3.2.1\r\nContent-Length: 0\r\n\r\n")
@@ -3070,7 +3106,7 @@ public class ReceiverLab {
         try {
             String tag = SelfUpdateCore.resolveLatestTagByRedirect("http://127.0.0.1:" + port + "/releases/latest");
             check("v320 upd: tier-1 resolves the 302 Location to the tag", "v3.2.1".equals(tag), "got " + tag);
-            check("v320 upd: the resolver NEVER touched api.github.com on the happy path",
+            check("v320 upd: the resolver did not use a REST route on the redirect path",
                 latestTag[0] == null, "flag=" + latestTag[0]);
             check("v320 upd: tagFromLocation parses the /tag/ tail",
                 "v3.2.1".equals(SelfUpdateCore.tagFromLocation("https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.2.1")));
@@ -3128,6 +3164,57 @@ public class ReceiverLab {
                     + "a".repeat(64) + "\"}").sha256Expected));
         check("v320 upd: a junk latest.json body is a null (tier falls through)",
             SelfUpdateCore.fetchViaRawJsonBody("not json") == null);
+        final String resolverSha = "b".repeat(64);
+        final List<String> resolverHosts = new ArrayList<>();
+        SelfUpdateCore.setConnectionOpenerForTests(url -> {
+            URL u = new URL(url);
+            resolverHosts.add(u.getHost());
+            if (u.getPath().equals("/" + SelfUpdateCore.REPO + "/releases/latest")) {
+                return updateFixture(u, 302, java.util.Collections.singletonMap("Location",
+                    "https://github.com/" + SelfUpdateCore.REPO + "/releases/tag/v3.4.4"), "");
+            }
+            if (u.getPath().endsWith("/SHA256SUMS.txt")) {
+                return updateFixture(u, 200, null,
+                    resolverSha + "  " + SelfUpdateCore.apkAssetName("3.4.4") + "\n");
+            }
+            return updateFixture(u, 404, null, "");
+        });
+        try {
+            SelfUpdateCore.Release tier1 = SelfUpdateCore.fetchReleaseAny();
+            check("v344 updater: Tier 1 returns verified release metadata without another host",
+                tier1 != null && SelfUpdateCore.TIER_WEB_REDIRECT.equals(tier1.tier)
+                    && resolverSha.equals(tier1.sha256Expected)
+                    && resolverHosts.equals(java.util.Arrays.asList("github.com", "github.com")));
+        } finally {
+            SelfUpdateCore.setConnectionOpenerForTests(null);
+        }
+        resolverHosts.clear();
+        SelfUpdateCore.setConnectionOpenerForTests(url -> {
+            URL u = new URL(url);
+            resolverHosts.add(u.getHost());
+            if (u.getPath().equals("/" + SelfUpdateCore.REPO + "/releases/latest")) {
+                return updateFixture(u, 200, null, "");
+            }
+            if (u.getPath().equals("/" + SelfUpdateCore.REPO + "/main/docs/latest.json")) {
+                return updateFixture(u, 200, null,
+                    "{\"version\":\"3.4.4\",\"sha256\":\"" + resolverSha + "\"}");
+            }
+            if (u.getPath().endsWith("/SHA256SUMS.txt")) {
+                return updateFixture(u, 200, null,
+                    resolverSha + "  " + SelfUpdateCore.apkAssetName("3.4.4") + "\n");
+            }
+            return updateFixture(u, 404, null, "");
+        });
+        try {
+            SelfUpdateCore.Release tier2 = SelfUpdateCore.fetchReleaseAny();
+            check("v344 updater: Tier 2 fallback requires docs/latest.json and matching SHA256SUMS",
+                tier2 != null && SelfUpdateCore.TIER_RAW_JSON.equals(tier2.tier)
+                    && resolverSha.equals(tier2.sha256Expected)
+                    && resolverHosts.equals(java.util.Arrays.asList(
+                        "github.com", "raw.githubusercontent.com", "github.com")));
+        } finally {
+            SelfUpdateCore.setConnectionOpenerForTests(null);
+        }
 
         // ── the 15-minute failure backoff contract (the 250 ms loop killer) ──
         long now = System.currentTimeMillis();
@@ -3137,8 +3224,16 @@ public class ReceiverLab {
             !SelfUpdateCore.checkAllowed(now, now - 1000, now - 5 * 60 * 1000L, false));
         check("v320 upd: a failed check 16 minutes ago no longer blocks (both stamps 16 min old)",
             SelfUpdateCore.checkAllowed(now, now - 16 * 60 * 1000L, now - 16 * 60 * 1000L, false));
-        check("v320 upd: a check 30 seconds ago is blocked by the 60 s app-open debounce",
-            !SelfUpdateCore.checkAllowed(now, now - 30 * 1000L, 0, false));
+        check("v320 upd: a successful check 4m59s ago is blocked by the 5-minute cooldown",
+            !SelfUpdateCore.checkAllowed(now, now - (5 * 60 * 1000L - 1000L), 0, false));
+        check("v320 upd: a successful check exactly 5 minutes ago is allowed",
+            SelfUpdateCore.checkAllowed(now, now - 5 * 60 * 1000L, 0, false));
+        check("v320 upd: a failed check just under 15 minutes ago is blocked",
+            !SelfUpdateCore.checkAllowed(now, now - 16 * 60 * 1000L,
+                now - (15 * 60 * 1000L - 1000L), false));
+        check("v320 upd: a failed check exactly 15 minutes ago is allowed",
+            SelfUpdateCore.checkAllowed(now, now - 16 * 60 * 1000L,
+                now - 15 * 60 * 1000L, false));
         check("v320 upd: a MANUAL check bypasses every gate",
             SelfUpdateCore.checkAllowed(now, now - 1000, now - 1000, true));
         // the storm simulation: 200 re-delivered jobs inside 148 s → 1 network attempt
@@ -3169,17 +3264,65 @@ public class ReceiverLab {
         String coreSrc = readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdateCore.java");
         check("v320 upd: the tier-1 resolver reads the redirect with setInstanceFollowRedirects(false)",
             coreSrc.contains("setInstanceFollowRedirects(false)"));
-        check("v320 upd: the resolver's tier order is web-redirect → raw-json → rest-api",
-            coreSrc.contains("TIER_WEB_REDIRECT") && coreSrc.contains("TIER_RAW_JSON") && coreSrc.contains("TIER_REST_API")
-                && coreSrc.indexOf("TIER_WEB_REDIRECT") < coreSrc.indexOf("TIER_RAW_JSON")
-                && coreSrc.indexOf("TIER_RAW_JSON") < coreSrc.indexOf("TIER_REST_API"));
-        // the ordering contract: in checkOnLaunch the putLong("lastCheck") line
-        // appears BEFORE the schedule() call (strip the comment tail and compare offsets)
+        check("v320 upd: the resolver has only web-redirect then raw-json routes",
+            coreSrc.contains("TIER_WEB_REDIRECT") && coreSrc.contains("TIER_RAW_JSON")
+                && !coreSrc.contains("TIER_REST_API")
+                && coreSrc.indexOf("TIER_WEB_REDIRECT") < coreSrc.indexOf("TIER_RAW_JSON"));
+        check("v344 updater: release metadata accepts only strict HTTPS APKs with SHA-256",
+            coreSrc.contains("apkAssetName(r.version).equals(apkFileName(r.apkUrl))")
+                && coreSrc.contains("r.sha256Expected.matches(\"(?i)[0-9a-f]{64}\")"));
+        String rawResolverBody = coreSrc.substring(coreSrc.indexOf("static Release fetchViaRawJson()"));
+        check("v344 updater: raw latest.json SHA must match SHA256SUMS.txt before resolution",
+            rawResolverBody.contains("fetchExpectedSha(derivedSumsUrl")
+                && rawResolverBody.contains("r.sha256Expected.equalsIgnoreCase(sumsSha)"));
+        check("v344 updater: update transport seam verifies no third REST host is contacted",
+            coreSrc.contains("setConnectionOpenerForTests") && !coreSrc.contains("api." + "github.com"));
+        check("v344 updater: launched update checks run on the daemon executor, not JobScheduler",
+            updSrc.contains("checkExecutor.execute(() -> {")
+                && updSrc.contains("checkAndMaybeInstall(app, false, false)")
+                && !methodBody(updSrc, "checkOnLaunch").contains("schedule("));
+        check("v344 updater: MainActivity attaches the listener before launching the check",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java")
+                .indexOf("SelfUpdater.setUiListener") < readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java")
+                    .indexOf("SelfUpdater.checkOnLaunch(this)"));
+        check("v344 updater: App does not start the launch check before the UI listener exists",
+            !readRepoFile("src/lk/techworld/anantplay/sicast/App.java").contains("SelfUpdater.checkOnLaunch"));
+        check("v344 updater: all updater source paths avoid the GitHub REST API hostname",
+            !coreSrc.contains("api." + "github.com")
+                && !updSrc.contains("api." + "github.com")
+                && !readRepoFile("src/lk/techworld/anantplay/sicast/UpdateChecker.java").contains("api." + "github.com")
+                && !readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("api." + "github.com"));
+        String pendingInstallBody = updSrc.substring(updSrc.indexOf("private static void verifyAndInstallPending"));
+        check("v344 updater: pending APK SHA-256 is re-verified before PackageInstaller handoff",
+            pendingInstallBody.indexOf("SelfUpdateCore.sha256(apk)") >= 0
+                && pendingInstallBody.indexOf("SelfUpdateCore.sha256(apk)")
+                    < pendingInstallBody.indexOf("install(c, apk)"));
+        check("v344 updater: verified pending APK survives startup cleanup until user install",
+            updSrc.contains("File pending = pendingFile(c)")
+                && updSrc.contains("if (f.equals(pending)) continue"));
+        check("v344 updater: Home download progress starts visibly at 0 percent",
+            updSrc.indexOf("initialProgress.onDownloadProgress(0)")
+                < updSrc.indexOf("SelfUpdateCore.downloadToFile"));
+        check("v344 updater: install permission is requested only from the install action and resumes on return",
+            updSrc.contains("ACTION_MANAGE_UNKNOWN_APP_SOURCES")
+                && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("SelfUpdater.resumePendingInstall(this)")
+                && !updSrc.contains("notifyInstallPermission"));
+        String mainActivitySrc = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        check("v344 updater: Home card presents Update Now and Install Update",
+            mainActivitySrc.contains("\"Update Now\"") && mainActivitySrc.contains("\"Install Update\""));
+        check("v344 updater: Quick Settings has a Check for Update action wired to live status",
+            mainActivitySrc.contains("quickUpdateAction = smallBtn")
+                && mainActivitySrc.contains("quickUpdateAction.setOnClickListener(v -> checkForUpdates())")
+                && mainActivitySrc.contains("quickUpdateStatus.setText(state)")
+                && mainActivitySrc.contains("\"Check for Update\""));
+        // The app-open direct worker writes the timestamp immediately before transport;
+        // the launch method itself neither schedules a one-shot job nor pre-consumes cooldown.
         String launchBody = methodBody(updSrc, "checkOnLaunch");
-        int persistAt = launchBody == null ? -1 : stripComments(launchBody).indexOf("putLong(\"lastCheck\"");
-        int scheduleAt = launchBody == null ? -1 : stripComments(launchBody).indexOf("schedule(");
-        check("v320 upd: lastCheck is persisted BEFORE the network call (checkOnLaunch writes it before schedule())",
-            persistAt >= 0 && scheduleAt >= 0 && persistAt < scheduleAt);
+        check("v344 updater: launch check does not schedule a deferred one-shot job",
+            launchBody != null && !stripComments(launchBody).contains("schedule("));
+        check("v344 updater: 5-minute cooldown and 15-minute failure backoff remain in shipped core",
+            coreSrc.contains("MIN_CHECK_INTERVAL_MS = 5 * 60 * 1000L")
+                && coreSrc.contains("FAILURE_BACKOFF_MS = 15 * 60 * 1000L"));
         check("v320 upd: the periodic schedule is armed ONLY from App.onCreate (never the job)",
             readRepoFile("src/lk/techworld/anantplay/sicast/App.java").contains("SelfUpdater.schedulePeriodic(this)")
                 && onStartBody != null && !onStartBody.contains("schedulePeriodic"));
@@ -3504,8 +3647,8 @@ public class ReceiverLab {
                 && AppPrefs.normalizeAspectMode("wide").equals("fit"));
         check("v320 cust: receiver port clamps to 1024..65535 (8765 default)",
             AppPrefs.normalizeReceiverPort(80) == 8765 && AppPrefs.normalizeReceiverPort(9000) == 9000);
-        check("v320 cust: 8 curated accents + 6 subtitle colors shipped",
-            ThemeEngine.ACCENTS.length == 8 && ThemeEngine.SUB_COLORS.length == 6);
+        check("v344 cust: 10 curated accents + 6 subtitle colors shipped",
+            ThemeEngine.ACCENTS.length == 10 && ThemeEngine.SUB_COLORS.length == 6);
         check("v320 cust: the radii token maps the three shapes",
             java.util.Arrays.equals(ThemeEngine.radii("sharp"), new int[]{6, 10, 4})
                 && java.util.Arrays.equals(ThemeEngine.radii("apple-pill"), new int[]{24, 28, 16})
@@ -4109,35 +4252,44 @@ public class ReceiverLab {
         }
     }
 
-    /** The version/pipeline parity gate (3.4.1 / 30401 everywhere, never 4.x). */
+    /** The version/pipeline parity gate (3.4.4 / 30404 everywhere, never 4.x). */
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
-        check("v331 parity: AndroidManifest.xml says 3.4.3 / 30403",
-            manifest.contains("android:versionCode=\"30403\"") && manifest.contains("android:versionName=\"3.4.3\""));
-        check("v331 parity: AppInfo says 3.4.3 / 30403",
-            "3.4.3".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30403);
-        check("v331 parity: 30403 strictly > 30402 (v3.4.2) — an in-place update, no downgrade",
-            AppInfo.VERSION_CODE == 30403 && AppInfo.VERSION_CODE > 30402);
+        check("v344 parity: AndroidManifest.xml says 3.4.4 / 30404",
+            manifest.contains("android:versionCode=\"30404\"") && manifest.contains("android:versionName=\"3.4.4\""));
+        check("v344 parity: AppInfo says 3.4.4 / 30404",
+            "3.4.4".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30404);
+        check("v344 parity: 30404 strictly > 30403 — an in-place update, no downgrade",
+            AppInfo.VERSION_CODE == 30404 && AppInfo.VERSION_CODE > 30403);
         String build = readRepoFile("build.sh");
-        check("v331 parity: build.sh defaults to 3.4.3 / 30403 (previous 30402)",
-            build.contains("VERSION_NAME:-3.4.3") && build.contains("VERSION_CODE:-30403")
-                && build.contains("PREV_VERSION_CODE:-30402"));
+        check("v344 parity: build.sh defaults to 3.4.4 / 30404 (previous 30403)",
+            build.contains("VERSION_NAME:-3.4.4") && build.contains("VERSION_CODE:-30404")
+                && build.contains("PREV_VERSION_CODE:-30403"));
         String latest = readRepoFile("docs/latest.json");
-        check("v331 parity: docs/latest.json carries 3.4.3 / 30403",
-            latest.contains("\"version\":\"3.4.3\"") && latest.contains("\"code\":30403"));
-        check("v331 parity: docs/latest.json apkUrl points at the v3.4.3 asset",
-            latest.contains("/download/v3.4.3/AnantPlay-Sinhala-Player-v3.4.3.apk"));
-        check("v331 parity: README.md announces v3.4.3",
-            readRepoFile("README.md").contains("3.4.3"));
-        check("v331 parity: SETUP-SI.md announces v3.4.3",
-            readRepoFile("SETUP-SI.md").contains("3.4.3"));
+        boolean latestPrevious = latest.contains("\"version\":\"3.4.3\"")
+            && latest.contains("\"code\":30403")
+            && latest.contains("/download/v3.4.3/AnantPlay-Sinhala-Player-v3.4.3.apk");
+        boolean latestCurrent = latest.contains("\"version\":\"3.4.4\"")
+            && latest.contains("\"code\":30404")
+            && latest.contains("/download/v3.4.4/AnantPlay-Sinhala-Player-v3.4.4.apk");
+        check("v344 parity: latest.json is either the prior signed release or the new signed release",
+            (latestPrevious || latestCurrent)
+                && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
+        String readme = readRepoFile("README.md");
+        String setupSi = readRepoFile("SETUP-SI.md");
+        check("v344 parity: README and Sinhala setup guide announce 3.4.4",
+            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.4")
+                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.4)"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v331 parity: build-apk.yml asserts 30403 / 3.4.3",
-            buildWf.contains("versionCode='30403'") && buildWf.contains("versionName='3.4.3'")
-                && buildWf.contains("AnantPlay-Sinhala-Player-v3.4.3.apk"));
+        check("v344 parity: build-apk.yml resolves and verifies the shared 3.4.4 identity",
+            buildWf.contains("test \"$VERSION\" = \"3.4.4\"")
+                && buildWf.contains("test \"$CODE\" = \"30404\"")
+                && buildWf.contains("steps.app-version.outputs.version"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v331 parity: release-apk.yml defaults to 3.4.3",
-            relWf.contains("default: '3.4.3'"));
+        check("v344 parity: release workflow defaults to 3.4.4 and publishes its computed checksum",
+            relWf.contains("default: '3.4.4'")
+                && relWf.contains("SHA=$(cut -d' ' -f1 dist/SHA256SUMS.txt)")
+                && relWf.contains("docs/latest.json"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
             !manifest.contains("versionName=\"4.") && !"4".equals(AppInfo.VERSION_NAME.substring(0, 1)));
         check("v331 parity: the v3.4.0 report ships inside the repo",
@@ -4218,10 +4370,10 @@ public class ReceiverLab {
             + "LinearLayout parent)",
             playSrc.contains("final FrameLayout parent = rootView;")
                 && !playSrc.contains("(ViewGroup) hudCenter.getParent()"));
-        check("v331 crash1: the chip strip is added to its HorizontalScrollView with "
+        check("v331 crash1: the language strip is added to its HorizontalScrollView with "
             + "FrameLayout.LayoutParams",
-            playSrc.contains("hs.addView(chips, new FrameLayout.LayoutParams(-2, -2));")
-                && !playSrc.contains("hs.addView(chips, new LinearLayout.LayoutParams("));
+            playSrc.contains("hs.addView(langRow, new FrameLayout.LayoutParams(-2, -2));")
+                && !playSrc.contains("hs.addView(langRow, new LinearLayout.LayoutParams("));
         check("v331 crash1: applyVideoSize() never casts getLayoutParams() unchecked",
             playSrc.contains("surface.getLayoutParams() instanceof FrameLayout.LayoutParams")
                 && !playSrc.contains("FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) surface.getLayoutParams()"));
@@ -4550,11 +4702,11 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v341 A11: AndroidManifest declares 30403 / 3.4.3",
-            manifest340.contains("android:versionCode=\"30403\"")
-                && manifest340.contains("android:versionName=\"3.4.3\""));
-        check("v341 A11: AppInfo is 3.4.3 / 30403",
-            "3.4.3".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30403);
+        check("v344 A11: AndroidManifest declares 30404 / 3.4.4",
+            manifest340.contains("android:versionCode=\"30404\"")
+                && manifest340.contains("android:versionName=\"3.4.4\""));
+        check("v344 A11: AppInfo is 3.4.4 / 30404",
+            "3.4.4".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30404);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -4877,10 +5029,15 @@ public class ReceiverLab {
 
         // ── the live update channel's own manifest ────────────────────────────
         String latest = readRepoFile("docs/latest.json");
-        check("v331 customize: docs/latest.json announces 3.4.3 / 30403",
-            latest.contains("\"version\":\"3.4.3\"") && latest.contains("\"code\":30403"), latest);
-        check("v331 customize: docs/latest.json points at the v3.4.3 release asset",
-            latest.contains("/download/v3.4.3/AnantPlay-Sinhala-Player-v3.4.3.apk"));
+        boolean latestIsPriorSigned = latest.contains("\"version\":\"3.4.3\"")
+            && latest.contains("\"code\":30403")
+            && latest.contains("/download/v3.4.3/AnantPlay-Sinhala-Player-v3.4.3.apk");
+        boolean latestIsCurrentSigned = latest.contains("\"version\":\"3.4.4\"")
+            && latest.contains("\"code\":30404")
+            && latest.contains("/download/v3.4.4/AnantPlay-Sinhala-Player-v3.4.4.apk");
+        check("v344 customize: latest.json remains a valid previously signed release until the new APK exists",
+            (latestIsPriorSigned || latestIsCurrentSigned)
+                && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
 
@@ -4903,6 +5060,7 @@ public class ReceiverLab {
         v343SecurityChecks();
         v343OnboardingAndHistoryChecks();
         v343UiSubsDashChecks();
+        v344UiRegressionChecks();
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -5140,9 +5298,13 @@ public class ReceiverLab {
         // ── Simple vs Advanced settings ────────────────────────────────────────
         check("v343 ui: a Quick-settings card is the first thing on the Settings tab",
             main.contains("outer.addView(quickSettingsCard(), widen())"));
-        check("v343 ui: the 5 quick controls are the audited ones",
+        check("v344 ui: quick settings include theme, accent and live surface/navigation samples",
             main.contains("themeThumbs()") && main.contains("accentPicker()")
-                && main.contains("\"Subtitle size\"") && main.contains("Automatic Sinhala subtitles")
+                && main.contains("previewChoiceRow(\"Surface\"")
+                && main.contains("previewChoiceRow(\"Bottom bar\""));
+        check("v343 ui: the remaining subtitle and comfort controls stay available",
+            main.contains("\"Subtitle size\"")
+                && main.contains("Automatic Sinhala subtitles")
                 && main.contains("Continue watching resume") && main.contains("Midnight night dimmer"));
         check("v343 ui: the Quick card carries a LIVE subtitle preview",
             main.contains("quickPreview.setTextSize(v)") && main.contains("private TextView quickPreview;"));
@@ -5208,6 +5370,142 @@ public class ReceiverLab {
                     new java.util.LinkedHashMap<String, Object>() {{ put("idle", Boolean.TRUE); }}, false)));
         check("v343 cast: the recovery ladder is time-bounded (60 s), never an endless hold",
             play.contains("RECOVERY_CAP_MS") && play.contains("recoveryDeadline"));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.4 — Mornye icon-first UI, accessible player dock, and version parity
+    // ═════════════════════════════════════════════════════════════════════════
+    static void v344UiRegressionChecks() throws Exception {
+        System.out.println("== v3.4.4 UI — Mornye surfaces, icon-first player, clean chrome ==");
+        String main = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
+        String play = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        String manifest = readRepoFile("AndroidManifest.xml");
+        String appInfo = readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java");
+        String build = readRepoFile("build.sh");
+        String buildWorkflow = readRepoFile(".github/workflows/build-apk.yml");
+        String releaseWorkflow = readRepoFile(".github/workflows/release-apk.yml");
+
+        check("v344 identity: the manifest declares app version 3.4.4 / code 30404",
+            manifest.contains("android:versionName=\"3.4.4\"")
+                && manifest.contains("android:versionCode=\"30404\""));
+        check("v344 identity: AppInfo matches the manifest",
+            appInfo.contains("VERSION_NAME = \"3.4.4\"") && appInfo.contains("VERSION_CODE = 30404"));
+        check("v344 identity: build.sh defaults and downgrade floor use 3.4.4 / 30403",
+            build.contains("VERSION_NAME=${VERSION_NAME:-3.4.4}")
+                && build.contains("VERSION_CODE=${VERSION_CODE:-30404}")
+                && build.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30403}"));
+        check("v344 identity: CI validates the manifest and emits dynamic version outputs",
+            buildWorkflow.contains("test \"$VERSION\" = \"3.4.4\"")
+                && buildWorkflow.contains("test \"$CODE\" = \"30404\"")
+                && buildWorkflow.contains("echo \"version=$VERSION\""));
+        check("v344 identity: CI artifact names use the resolved version",
+            buildWorkflow.contains("AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}.apk")
+                && buildWorkflow.contains("name: AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}-apk"));
+        check("v344 identity: release dispatch defaults to 3.4.4",
+            releaseWorkflow.contains("default: '3.4.4'"));
+
+        check("v344 home: the visible app title is fixed to AnantPlay Player",
+            main.contains("appTitle.setText(\"AnantPlay Player\")"));
+        check("v344 home: cast permission is a compact row inside the receiver hero",
+            main.contains("View overlayHint = autoOpenBanner();")
+                && main.contains("if (overlayHint != null) hero.addView(overlayHint, widen(0, 0));")
+                && main.contains("box.addView(enable, new LinearLayout.LayoutParams(-2, dp(44)));"));
+        check("v344 home: duplicate guide-card references are removed",
+            !main.contains("guideCard") && !main.contains("guideBody"));
+        check("v344 home: repair instructions and setup checklist cannot appear together",
+            main.contains("setupCard.setVisibility(allOk || repairShown ? View.GONE : View.VISIBLE);"));
+        check("v344 home: permission row has a bilingual action and no standalone banner card",
+            main.contains("Auto-open on Cast") && main.contains("autoOpenBanner()"));
+        check("v344 home: cast target copy uses the AnantPlay Player name",
+            main.contains("Choose \\\"AnantPlay Sinhala Player\\\" in AnantPlay's Cast menu"));
+
+        check("v344 settings: visual Surface preview offers Flat and Glass",
+            main.contains("previewChoiceRow(\"Surface\", new String[]{\"Flat\", \"Glass\"}"));
+        check("v344 settings: visual navigation preview offers Docked and Floating",
+            main.contains("previewChoiceRow(\"Bottom bar\", new String[]{\"Docked\", \"Floating\"}"));
+        check("v344 settings: both preview choices save the existing preferences",
+            main.contains("putString(AppPrefs.K_SURFACE_STYLE")
+                && main.contains("putString(AppPrefs.K_BOTTOM_BAR_STYLE"));
+        check("v344 settings: preview selection refreshes the theme immediately",
+            main.contains("tile.setOnClickListener(v -> {") && main.contains("themeChanged();"));
+        check("v344 settings: flat cards have no outline and glass cards use a hairline",
+            main.contains("if (AppPrefs.glass(prefs))")
+                && main.contains("g.setStroke(0, 0);")
+                && main.contains("ThemeEngine.hairline(P, AppPrefs.borderAlpha(prefs))"));
+        check("v344 settings: the Quick Settings card remains first",
+            main.contains("outer.addView(quickSettingsCard(), widen())"));
+
+        check("v344 player: dock has exactly five fixed actions in its dedicated helper",
+            countOf(play, "dock.addView(") == 5 && play.contains("dock.addView(speedDockControl(), dockWeight());"));
+        check("v344 player: dock order is subtitles, tracks, aspect, speed, search",
+            play.indexOf("dockIcon(R.drawable.ic_subtitles")
+                < play.indexOf("dockIcon(R.drawable.ic_audio_track")
+                && play.indexOf("dockIcon(R.drawable.ic_audio_track")
+                < play.indexOf("aspectDockButton = dockIcon")
+                && play.indexOf("aspectDockButton = dockIcon")
+                < play.indexOf("speedDockControl()")
+                && play.indexOf("speedDockControl()")
+                < play.indexOf("dockIcon(R.drawable.ic_search"));
+        check("v344 player: bottom dock is fixed and does not use a horizontal scroll container",
+            play.contains("hudBottomBar.addView(dock, new LinearLayout.LayoutParams(-1, dp(52)));")
+                && !play.contains("HorizontalScrollView dock"));
+        check("v344 player: each icon button meets the 48dp touch-target floor",
+            play.contains("button.setMinimumHeight(dp(48));")
+                && play.contains("button.setMinimumWidth(dp(48));"));
+        check("v344 player: dock labels are provided as accessibility descriptions",
+            play.contains("button.setContentDescription(description);")
+                && play.contains("Playback speed: "));
+        check("v344 player: subtitle-loaded status uses an accessible indicator",
+            play.contains("subtitleDockDot") && play.contains("Sinhala subtitles loaded"));
+        check("v344 player: top controls include lock, rotate, PiP, external player, and settings",
+            play.contains("icon(R.drawable.ic_lock, 20")
+                && play.contains("icon(R.drawable.ic_rotate, 20")
+                && play.contains("icon(R.drawable.ic_pip, 20")
+                && play.contains("icon(R.drawable.ic_vlc_external, 20")
+                && play.contains("icon(R.drawable.ic_settings, 20"));
+        check("v344 player: PiP control calls the real Picture-in-Picture action",
+            play.contains("v -> enterPictureInPicture()") && play.contains("enterPictureInPictureMode"));
+        check("v344 player: playback button description tracks play/pause state",
+            play.contains("playing ? \"Pause playback\" : \"Play playback\""));
+        check("v344 player: speed control includes 2.5x and exposes the chosen rate",
+            play.contains("2f, 2.5f") && play.contains("Playback speed: \" + value"));
+        check("v344 player: aspect sheet exposes Fit, Fill, 16:9, and Stretch",
+            play.contains("new String[]{\"Fit\", \"Fill\", \"16:9\", \"Stretch\"}"));
+        check("v344 player: sleep timer options persist and arm the timer",
+            play.contains("new String[]{\"Off\", \"15m\", \"30m\", \"60m\"}")
+                && play.contains("putLong(AppPrefs.K_SLEEP_TIMER_MS, values[i])")
+                && play.contains("armSleepTimer(values[i])"));
+        check("v344 player: subtitle settings panel uses the selected flat/glass surface",
+            play.contains("ThemeEngine.cardFill(palette, AppPrefs.glass(prefs))")
+                && play.contains("ThemeEngine.hairline(palette, AppPrefs.borderAlpha(prefs))")
+                && play.contains("if (AppPrefs.glass(prefs))"));
+
+        check("v344 subtitles: secondary tools start collapsed",
+            play.contains("moreBody.setVisibility(View.GONE);"));
+        check("v344 subtitles: More Tools has a single accessible expanded/collapsed state",
+            play.contains("More subtitle tools, collapsed")
+                && play.contains("More subtitle tools, expanded")
+                && play.contains("moreChevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO)"));
+        check("v344 subtitles: secondary providers and AI tools live below the disclosure",
+            play.indexOf("LinearLayout toolsRow = UiChip.stripRow(this);")
+                < play.indexOf("toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_sun, \"AI Studio\"")
+                && play.contains("NewZone translator") && play.contains("Audio → SRT (AI)"));
+        check("v344 subtitles: free translation is inside the collapsed tools row",
+            play.contains("toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate, t2(\"Free translate\")"));
+        check("v344 subtitles: sync controls and live style sliders remain in the primary sheet",
+            play.indexOf("LinearLayout syncRow = UiChip.stripRow(this);")
+                < play.indexOf("LinearLayout moreWrap = new LinearLayout(this);")
+                && play.contains("UiSlider.make(this, p, prefs"));
+        check("v344 subtitles: UI translation helper routes bilingual text through Chrome",
+            play.contains("private String t2(String s) { return Chrome.pick(s); }"));
+
+        check("v344 accessibility: advanced-settings disclosure remains labeled",
+            main.contains("Expand advanced settings")
+                && main.contains("Collapse advanced settings"));
+        check("v344 accessibility: player control descriptions cover all top icons",
+            play.contains("Lock player controls") && play.contains("Change screen orientation")
+                && play.contains("Enter picture-in-picture") && play.contains("Open in external player")
+                && play.contains("Player settings"));
     }
 
 
@@ -5385,17 +5683,17 @@ public class ReceiverLab {
         String web = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
         String manifest = readRepoFile("AndroidManifest.xml");
 
-        // ── the giant-icon fix: 40dp plate, real padding, 20dp glyph ──
-        check("v342 player: the HUD icon plate is 40dp (ICON_BOX_DP = 40)",
-            play.contains("ICON_BOX_DP = 40"));
+        // ── the giant-icon fix: 44dp plate, real padding, 20dp glyph ──
+        check("v342 player: the HUD icon plate is 44dp (ICON_BOX_DP = 44)",
+            play.contains("ICON_BOX_DP = 44"));
         check("v342 player: icon() applies REAL internal padding around the glyph",
             play.contains("int pad = dp(Math.max(0, (ICON_BOX_DP - size) / 2f))")
                 && play.contains("iv.setPadding(pad, pad, pad, pad)"));
         check("v342 player: every top-bar plate is added at ICON_BOX_DP (never a bare 36dp)",
             !play.contains("new LinearLayout.LayoutParams(dp(36), dp(36))"));
-        check("v342 player: the top bar uses topIconParams() for all four right-side plates",
-            countOf(play, "hudTopBar.addView(") == 7
-                && countOf(play, "topIconParams()") == 5,     // 4 call sites + the definition
+        check("v342 player: the top bar uses topIconParams() for all five right-side plates",
+            countOf(play, "hudTopBar.addView(") == 8
+                && countOf(play, "topIconParams()") == 6,     // 5 call sites + the definition
             "addView=" + countOf(play, "hudTopBar.addView(") + " params=" + countOf(play, "topIconParams()"));
 
         // ── subtitles at the BOTTOM, never the centre ──
