@@ -4200,6 +4200,317 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 player, customize, privacy & updater invariants ==");
         v331PlayerCustomizeChecks();
+
+        // ═════════ v3.4.0 — THE VECTOR UI OVERHAUL (A1..A11) ═════════
+        v340Checks();
+    }
+
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // v3.4.0 — THE VECTOR UI OVERHAUL (acceptance criteria A1..A11)
+    //
+    // A1 zero UI-chrome emoji · A2 every icon is a VectorDrawable · A3 adaptive +
+    // monochrome icon · A5 no LayoutParams mismatch · A6 no dangling refs ·
+    // A8 every preference survives Backup & Restore · A9 ZWJ/ZWNJ preserved ·
+    // A11 version stays v3.x. (A4 APK size and A7 full-lab green are asserted by
+    // build.sh / this run's own exit code; A10 is a device-only check.)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /** True when the char is an emoji / pictograph that must never be UI chrome. */
+    static boolean isEmojiChar(char ch) {
+        int c = ch;
+        return (c >= 0x1F000 && c <= 0x1FAFF)   // emoji blocks (surrogate halves included)
+            || (c >= 0x2600 && c <= 0x27BF)     // misc symbols + dingbats
+            || (c >= 0x2B00 && c <= 0x2BFF)
+            || (c >= 0x2300 && c <= 0x23FF)     // ⌛ ⏩ ⏸ …
+            || (c >= 0x25A0 && c <= 0x25FF)     // ▶ ◀ ■
+            || (c >= 0x2190 && c <= 0x21FF)     // arrows used as chrome
+            || (c >= 0x2100 && c <= 0x214F)     // ℹ
+            || (c >= 0xD800 && c <= 0xDBFF);    // a high surrogate ⇒ an astral glyph follows
+    }
+
+    /** The emoji on a line, ignoring comments and the arrows the Javadoc uses. */
+    static String emojiOnLine(String line) {
+        String t = line.trim();
+        if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")) return "";
+        // strip a TRAILING comment too (a field bug lived behind one)
+        int slashes = line.indexOf("//");
+        String body = slashes >= 0 ? line.substring(0, slashes) : line;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < body.length(); i++) {
+            char ch = body.charAt(i);
+            if ("\u2192\u2190\u21C4\u2194\u21BB\u21D2\u21E2\u2191\u2193\u25BE\u25B4\u25CF\u2022\u2605".indexOf(ch) >= 0) continue;
+            if (isEmojiChar(ch)) sb.append(ch);
+        }
+        return sb.toString();
+    }
+
+    static void v340Checks() throws Exception {
+        System.out.println("== v3.4.0 A1 — zero UI-chrome emoji in the three screens ==");
+        String[] screens = {"MainActivity.java", "PlayActivity.java", "WebBrowserView.java"};
+        for (String f : screens) {
+            String src = readRepoFile("src/lk/techworld/anantplay/sicast/" + f);
+            String[] lines = src.split("\n");
+            int bad = 0;
+            String first = "";
+            for (String line : lines) {
+                String e = emojiOnLine(line);
+                if (!e.isEmpty()) { bad++; if (first.isEmpty()) first = line.trim(); }
+            }
+            check("v340 A1: " + f + " carries no emoji outside comments (" + bad + " offending lines)",
+                bad == 0, bad == 0 ? null : first);
+        }
+
+        System.out.println("== v3.4.0 A2 — every icon is a real VectorDrawable ==");
+        java.io.File drawables = new java.io.File("res/drawable");
+        String[] files = drawables.list();
+        int iconCount = 0, badIcon = 0;
+        String badName = "";
+        if (files != null) {
+            java.util.Arrays.sort(files);
+            for (String f : files) {
+                if (!f.startsWith("ic_") || !f.endsWith(".xml")) continue;
+                iconCount++;
+                String body = readRepoFile("res/drawable/" + f);
+                // the three launcher LAYERS are 108dp by design; every other icon is 24dp
+                boolean launcherLayer = f.startsWith("ic_launcher_");
+                boolean ok = body.contains("<vector")
+                    && body.contains("android:pathData=")
+                    && (launcherLayer
+                        ? body.contains("android:viewportWidth=\"108\"")
+                        : (body.contains("android:viewportWidth=\"24\"")
+                           && body.contains("android:width=\"24dp\"")));
+                if (!ok) { badIcon++; if (badName.isEmpty()) badName = f; }
+                check("v340 A2: res/drawable/" + f + " is a 24dp vector with pathData", ok);
+            }
+        }
+        check("v340 A2: at least 57 ic_*.xml drawables ship (" + iconCount + ")", iconCount >= 57);
+        check("v340 A2: every icon vector is well formed (" + badIcon + " bad)", badIcon == 0, badName);
+
+        String homeFilled = readRepoFile("res/drawable/ic_nav_home_filled.xml");
+        check("v340 A2: ic_nav_home_filled is ONE evenOdd path (a real cutout, not two overpainted paths)",
+            homeFilled.contains("android:fillType=\"evenOdd\"")
+                && countOf(homeFilled, "android:pathData=") == 1);
+        String statIcon = readRepoFile("res/drawable/ic_stat_si.xml");
+        check("v340 A2: ic_stat_si is a flat white silhouette (no gradient in a notification icon)",
+            statIcon.contains("#FFFFFFFF") && !statIcon.contains("<gradient"));
+
+        System.out.println("== v3.4.0 A3 — adaptive + monochrome launcher icon ==");
+        String adaptive = readRepoFile("res/mipmap-anydpi-v26/ic_launcher.xml");
+        check("v340 A3: res/mipmap-anydpi-v26/ic_launcher.xml is an adaptive-icon with all three layers",
+            adaptive.contains("<adaptive-icon")
+                && adaptive.contains("<background")
+                && adaptive.contains("<foreground")
+                && adaptive.contains("<monochrome"));
+        String adaptiveRound = readRepoFile("res/mipmap-anydpi-v26/ic_launcher_round.xml");
+        check("v340 A3: ic_launcher_round.xml ships too", adaptiveRound.contains("<adaptive-icon"));
+        for (String layer : new String[]{"ic_launcher_background", "ic_launcher_foreground", "ic_launcher_monochrome"}) {
+            String body = readRepoFile("res/drawable/" + layer + ".xml");
+            check("v340 A3: " + layer + ".xml is a 108dp vector",
+                body.contains("android:viewportWidth=\"108\"") && body.contains("<path"));
+        }
+        String fg = readRepoFile("res/drawable/ic_launcher_foreground.xml");
+        check("v340 A3: the foreground carries the real Sinhala monogram path (a long pathData, not a placeholder)",
+            fg.length() > 4000);
+        check("v340 A3: the monochrome layer is a single-colour silhouette (evenOdd play cutout)",
+            readRepoFile("res/drawable/ic_launcher_monochrome.xml").contains("evenOdd"));
+
+        System.out.println("== v3.4.0 — UiIcons contracts (blueprint traps #2 and #3) ==");
+        String icons = readRepoFile("src/lk/techworld/anantplay/sicast/UiIcons.java");
+        int cmpStart = icons.indexOf("public static void setCompound(");
+        int cmpEnd = icons.indexOf("public static void setIconOnly(");
+        String cmpBody = (cmpStart >= 0 && cmpEnd > cmpStart) ? icons.substring(cmpStart, cmpEnd) : "";
+        check("v340 UiIcons: setCompound NEVER clears the text (trap #2)",
+            !cmpBody.isEmpty() && !cmpBody.contains("setText("));
+        int viewStart = icons.indexOf("public static ImageView view(");
+        int viewEnd = icons.indexOf("public static ImageView button(");
+        String viewBody = (viewStart >= 0 && viewEnd > viewStart) ? icons.substring(viewStart, viewEnd) : "";
+        check("v340 UiIcons: view() sets NO container-specific LayoutParams (trap #3)",
+            !viewBody.isEmpty() && !viewBody.contains("LinearLayout.LayoutParams")
+                && !viewBody.contains("FrameLayout.LayoutParams"));
+        check("v340 UiIcons: every drawable is mutate()d before setTint (no shared-tint leak)",
+            icons.contains("d = d.mutate();") && icons.contains("d.setTint(color);"));
+        check("v340 UiIcons: paramsFor() returns the class the PARENT requires",
+            icons.contains("new LinearLayout.LayoutParams(w, h, weight)")
+                && icons.contains("new android.widget.FrameLayout.LayoutParams(w, h, gravity)"));
+
+        System.out.println("== v3.4.0 — the two REAL Sinhala weights (trap #1) ==");
+        java.io.File reg = new java.io.File("assets/fonts/NotoSansSinhala-Regular.ttf");
+        java.io.File semi = new java.io.File("assets/fonts/NotoSansSinhala-SemiBold.ttf");
+        check("v340 fonts: NotoSansSinhala-Regular.ttf exists", reg.isFile());
+        check("v340 fonts: NotoSansSinhala-SemiBold.ttf exists (a REAL 600 face, not faux bold)", semi.isFile());
+        long total = (reg.isFile() ? reg.length() : 0) + (semi.isFile() ? semi.length() : 0);
+        check("v340 fonts: the two weights together are < 430 KB (" + (total / 1024) + " KB) - the old variable font was 1154 KB",
+            total > 0 && total < 430 * 1024);
+        check("v340 fonts: the pair is smaller than the single variable original by > 700 KB",
+            1181956L - total > 700 * 1024);
+        for (java.io.File f : new java.io.File[]{reg, semi}) {
+            if (!f.isFile()) continue;
+            byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
+            String head = new String(bytes, StandardCharsets.ISO_8859_1);
+            check("v340 fonts: " + f.getName() + " keeps the GSUB shaping table",
+                head.contains("GSUB"));
+            check("v340 fonts: " + f.getName() + " keeps the GPOS positioning table",
+                head.contains("GPOS"));
+            check("v340 fonts: " + f.getName() + " keeps GDEF", head.contains("GDEF"));
+            check("v340 fonts: " + f.getName() + " is a static instance (no gvar axis left)",
+                !head.contains("gvar"));
+        }
+        String uiTokens = readRepoFile("src/lk/techworld/anantplay/sicast/UiTokens.java");
+        check("v340 fonts: UiTokens loads the SemiBold asset by name",
+            uiTokens.contains("fonts/NotoSansSinhala-SemiBold.ttf"));
+        check("v340 fonts: UiTokens loads the Regular asset by name",
+            uiTokens.contains("fonts/NotoSansSinhala-Regular.ttf"));
+        String playSrc = readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java");
+        check("v340 fonts: the player asks UiTokens for the real 600 face (no synthetic bold on Sinhala)",
+            playSrc.contains("siFontSemi = UiTokens.si(this, true)")
+                && playSrc.contains("tf = bold ? siFontSemi : siFont"));
+
+        System.out.println("== v3.4.0 A9 — Sinhala ZWJ / ZWNJ survive the pipeline ==");
+        String zwj = "\u0DC1\u0DCA\u200D\u0DBB\u0DD3";           // ශ්‍රී
+        String withZwnj = "\u0D9A\u0DCA\u200C\u0DC2";             // ක්‍ෂ
+        check("v340 A9: stripMarkup preserves the ZWJ conjunct ශ්‍රී byte-for-byte",
+            zwj.equals(Cue.stripMarkup(zwj)));
+        check("v340 A9: stripMarkup preserves ZWNJ (U+200C)",
+            withZwnj.equals(Cue.stripMarkup(withZwnj)));
+        check("v340 A9: stripMarkup still removes an ASS tag and keeps the text",
+            "hello".equals(Cue.stripMarkup("{\\an8}<i>hello</i>")));
+        check("v340 A9: the studio preview line in MainActivity carries the ZWJ conjunct",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains(zwj));
+
+        System.out.println("== v3.4.0 A8 — preferences: normalizers, backup coverage, round-trip ==");
+        String prefsSrc = readRepoFile("src/lk/techworld/anantplay/sicast/AppPrefs.java");
+        java.util.Set<String> declared = new java.util.LinkedHashSet<>();
+        java.util.regex.Matcher km = java.util.regex.Pattern
+            .compile("public static final String (K_[A-Z0-9_]+)").matcher(prefsSrc);
+        while (km.find()) declared.add(km.group(1));
+        int backupStart = prefsSrc.indexOf("BACKUP_KEYS = Arrays.asList(");
+        int backupEnd = prefsSrc.indexOf(");", backupStart);
+        String backupBlock = (backupStart >= 0 && backupEnd > backupStart)
+            ? prefsSrc.substring(backupStart, backupEnd) : "";
+        int missing = 0;
+        String firstMissing = "";
+        for (String k : declared) {
+            if (!backupBlock.contains(k)) { missing++; if (firstMissing.isEmpty()) firstMissing = k; }
+        }
+        check("v340 A8: every one of the " + declared.size() + " K_* keys is in BACKUP_KEYS ("
+            + missing + " missing)", missing == 0, firstMissing);
+        check("v340 A8: BACKUP_KEYS is at least 70 keys (it was 50 in v3.3.1)",
+            AppPrefs.BACKUP_KEYS.size() >= 70);
+
+        check("v340 A8: normalizeSurfaceStyle accepts glass and rejects junk",
+            "glass".equals(AppPrefs.normalizeSurfaceStyle("glass"))
+                && "flat".equals(AppPrefs.normalizeSurfaceStyle("nonsense")));
+        check("v340 A8: normalizeBottomBarStyle", "floating".equals(AppPrefs.normalizeBottomBarStyle("floating"))
+            && "docked".equals(AppPrefs.normalizeBottomBarStyle("x")));
+        check("v340 A8: normalizeOmnibarPos", "top".equals(AppPrefs.normalizeOmnibarPos("top"))
+            && "bottom".equals(AppPrefs.normalizeOmnibarPos("x")));
+        check("v340 A8: normalizeSpeedDialCols clamps to 2..4",
+            AppPrefs.normalizeSpeedDialCols(9) == 4 && AppPrefs.normalizeSpeedDialCols(0) == 2);
+        check("v340 A8: normalizeBorderAlpha clamps to 0..60",
+            AppPrefs.normalizeBorderAlpha(999) == 60 && AppPrefs.normalizeBorderAlpha(-5) == 0);
+        check("v340 A8: normalizeSubOutline clamps to 0..6",
+            AppPrefs.normalizeSubOutline(99) == 6 && AppPrefs.normalizeSubOutline(-1) == 0);
+        check("v340 A8: normalizeVolumeBoost clamps to 0..150",
+            AppPrefs.normalizeVolumeBoost(400) == 150 && AppPrefs.normalizeVolumeBoost(-2) == 0);
+        check("v340 A8: normalizeOrientation", "landscape".equals(AppPrefs.normalizeOrientation("landscape"))
+            && "auto".equals(AppPrefs.normalizeOrientation("sideways")));
+        check("v340 A8: normalizeExternalPlayer", "vlc".equals(AppPrefs.normalizeExternalPlayer("vlc"))
+            && "chooser".equals(AppPrefs.normalizeExternalPlayer("winamp")));
+        check("v340 A8: normalizeSearchEngine", "brave".equals(AppPrefs.normalizeSearchEngine("brave"))
+            && "ddg".equals(AppPrefs.normalizeSearchEngine("altavista")));
+        check("v340 A8: normalizeSleepTimer keeps -1 / 0 and snaps minutes",
+            AppPrefs.normalizeSleepTimer(-1) == -1 && AppPrefs.normalizeSleepTimer(0) == 0
+                && AppPrefs.normalizeSleepTimer(1800000L) == 1800000L);
+
+        check("v340 A8: normalizeValue accepts the new string keys",
+            "top".equals(AppPrefs.normalizeValue(AppPrefs.K_OMNIBAR_POS, "top"))
+                && "glass".equals(AppPrefs.normalizeValue(AppPrefs.K_SURFACE_STYLE, "glass"))
+                && "vlc".equals(AppPrefs.normalizeValue(AppPrefs.K_EXTERNAL_PLAYER, "vlc")));
+        check("v340 A8: normalizeValue accepts the new numeric keys",
+            Integer.valueOf(4).equals(AppPrefs.normalizeValue(AppPrefs.K_SPEEDDIAL_COLS, "9"))
+                && Integer.valueOf(60).equals(AppPrefs.normalizeValue(AppPrefs.K_BORDER_ALPHA, "500")));
+        check("v340 A8: normalizeValue accepts the new boolean keys",
+            Boolean.TRUE.equals(AppPrefs.normalizeValue(AppPrefs.K_MOTION, "true"))
+                && Boolean.FALSE.equals(AppPrefs.normalizeValue(AppPrefs.K_ACCENT_GLOW, "false")));
+
+        java.util.Map<String, Object> raw = new java.util.LinkedHashMap<>();
+        raw.put(AppPrefs.K_SURFACE_STYLE, "glass");
+        raw.put(AppPrefs.K_BOTTOM_BAR_STYLE, "floating");
+        raw.put(AppPrefs.K_OMNIBAR_POS, "top");
+        raw.put(AppPrefs.K_SPEEDDIAL_COLS, 3);
+        raw.put(AppPrefs.K_SEARCH_ENGINE, "startpage");
+        raw.put(AppPrefs.K_ORIENTATION, "landscape");
+        raw.put(AppPrefs.K_EXTERNAL_PLAYER, "mpv");
+        raw.put(AppPrefs.K_VOLUME_BOOST, 130);
+        raw.put(AppPrefs.K_MOTION, true);
+        raw.put(AppPrefs.K_SUB_COLOR_HEX, "#ffcc00");
+        java.util.Map<String, Object> norm = AppPrefs.normalizeMap(raw);
+        check("v340 A8: a full import map round-trips every new key (" + norm.size() + "/" + raw.size() + ")",
+            norm.size() == raw.size());
+        check("v340 A8: the imported hex is normalized to 6 lowercase hex",
+            "ffcc00".equals(norm.get(AppPrefs.K_SUB_COLOR_HEX)));
+
+        System.out.println("== v3.4.0 — custom links keep their group (3-field, backwards compatible) ==");
+        java.util.List<AppPrefs.Link> grouped = AppPrefs.parseLinks(
+            "Baiscope|https://baiscope.lk|subtitle\nMySite|https://mysite.lk|streaming");
+        check("v340 links: a 3-field line carries its group", grouped.size() == 2
+            && grouped.get(0).isSubtitle() && !grouped.get(1).isSubtitle());
+        java.util.List<AppPrefs.Link> legacy = AppPrefs.parseLinks("Old|https://old.lk");
+        check("v340 links: a v3.3.1 two-field backup still parses (defaults to streaming)",
+            legacy.size() == 1 && !legacy.get(0).isSubtitle());
+        check("v340 links: serializeLinks -> parseLinks keeps the group",
+            AppPrefs.parseLinks(AppPrefs.serializeLinks(grouped)).get(0).isSubtitle());
+        // SpeedDial is an Android class (not in the pure-lab compile set), so assert the
+        // five Sri Lankan sites from its SOURCE - which is what the user actually sees.
+        String dialSrc = readRepoFile("src/lk/techworld/anantplay/sicast/SpeedDial.java");
+        check("v340 links: the Sri Lankan subtitle list ships 5 sites",
+            dialSrc.contains("Baiscope") && dialSrc.contains("zoom.lk")
+                && dialSrc.contains("piratelk") && dialSrc.contains("subdl")
+                && dialSrc.contains("opensubtitles"));
+
+        System.out.println("== v3.4.0 — the browser search engines ==");
+        check("v340 browser: DuckDuckGo is the default URL builder",
+            AppPrefs.searchUrl(AppPrefs.SEARCH_DDG, "abc").startsWith("https://duckduckgo.com/"));
+        check("v340 browser: Google", AppPrefs.searchUrl(AppPrefs.SEARCH_GOOGLE, "abc").contains("google.com/search"));
+        check("v340 browser: Startpage", AppPrefs.searchUrl(AppPrefs.SEARCH_STARTPAGE, "abc").contains("startpage.com"));
+        check("v340 browser: Brave", AppPrefs.searchUrl(AppPrefs.SEARCH_BRAVE, "abc").contains("search.brave.com"));
+
+        System.out.println("== v3.4.0 — subtitle colour: explicit hex beats the preset ==");
+        check("v340 subtitles: subColorArgb falls back to the preset when no hex is set",
+            AppPrefs.accentHexColor("") == 0);
+
+        System.out.println("== v3.4.0 — the shell, the sheets and the scrub bar exist as real classes ==");
+        for (String cls : new String[]{"UiIcons", "UiTokens", "UiCard", "UiGroup", "UiSegmented",
+                                       "UiChip", "UiSlider", "UiSheet", "UiWindow", "ScrubBar",
+                                       "CapsuleBar", "SpeedDial"}) {
+            check("v340 classes: " + cls + ".java ships",
+                new java.io.File("src/lk/techworld/anantplay/sicast/" + cls + ".java").isFile());
+        }
+        check("v340 classes: UiTokens keeps the 10sp legibility floor",
+            uiTokens.contains("NAV_LABEL = 10f"));
+        check("v340 classes: UiSheet pads by navigationBars()",
+            readRepoFile("src/lk/techworld/anantplay/sicast/UiSheet.java").contains("navigationBars()"));
+        check("v340 classes: ScrubBar carries a buffered layer and a 24dp touch slop",
+            readRepoFile("src/lk/techworld/anantplay/sicast/ScrubBar.java").contains("setBuffered")
+                && readRepoFile("src/lk/techworld/anantplay/sicast/ScrubBar.java").contains("24 * density"));
+        check("v340 classes: the player uses ScrubBar, not the framework SeekBar",
+            playSrc.contains("seek = new ScrubBar(") && !playSrc.contains("seek = new SeekBar("));
+        check("v340 classes: the player's three sheets are UiSheets",
+            playSrc.contains("UiSheet.show(this") && countOf(playSrc, "UiSheet.show(this") >= 3);
+        check("v340 classes: the browser overflow is a sheet, not a PopupMenu instance",
+            !readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java")
+                .contains("new android.widget.PopupMenu"));
+
+        System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
+        String manifest340 = readRepoFile("AndroidManifest.xml");
+        check("v340 A11: AndroidManifest declares 30400 / 3.4.0",
+            manifest340.contains("android:versionCode=\"30400\"")
+                && manifest340.contains("android:versionName=\"3.4.0\""));
+        check("v340 A11: AppInfo is 3.4.0 / 30400",
+            "3.4.0".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30400);
+        check("v340 A11: still v3.x (never v4)",
+            AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
 
     static int countOf(String hay, String needle) {

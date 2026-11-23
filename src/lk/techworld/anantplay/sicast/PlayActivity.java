@@ -2315,9 +2315,16 @@ public class PlayActivity extends Activity {
      * change. setTypeface(tf, style) with a null family NEVER happens again. */
     private void applyLangStyle() {
         if (subView == null) return;
-        Typeface family = Langs.useBundledSinhalaFont(activeLang) ? siFont : Typeface.DEFAULT;
-        int style = AppPrefs.subBold(prefs) ? Typeface.BOLD : Typeface.NORMAL;
-        subView.setTypeface(Typeface.create(family, style));   // family + bold, ONE place
+        // v3.4.0 - REAL weights: the 600 face is a separate file, so "bold" is never a
+        // synthetic smear. Non-Sinhala languages keep the system face + its own bold.
+        boolean bold = AppPrefs.subBold(prefs);
+        Typeface tf;
+        if (Langs.useBundledSinhalaFont(activeLang)) {
+            tf = bold ? siFontSemi : siFont;                  // the two real instances
+        } else {
+            tf = Typeface.create(Typeface.DEFAULT, bold ? Typeface.BOLD : Typeface.NORMAL);
+        }
+        subView.setTypeface(tf);
         subView.setTextDirection(Langs.isRtl(activeLang)
             ? android.view.View.TEXT_DIRECTION_ANY_RTL : android.view.View.TEXT_DIRECTION_LTR);
     }
