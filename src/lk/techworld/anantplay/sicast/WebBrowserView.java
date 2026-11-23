@@ -25,6 +25,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -78,6 +79,16 @@ public class WebBrowserView extends FrameLayout {
     /** v3.2.0 — the custom-links quick launcher row (Settings → Web Player &
      *  Custom Links owns the list; this row renders it as 1-tap site chips). */
     private LinearLayout linksRow;
+    /** v3.4.0 - the stacked web area, the speed-dial start page and the light tab strip. */
+    private FrameLayout webHost;
+    private FrameLayout startPage;
+    private LinearLayout tabStrip;
+    private final java.util.List<String> tabUrls = new java.util.ArrayList<>();
+    private int activeTab;
+    private int blockedCount;
+    private FrameLayout shieldBtn;
+    private TextView shieldBadge;
+    private final java.util.List<String> blockedHosts = new java.util.ArrayList<>();
     /** v3.2.0 — the AnantPlay-style custom-fullscreen holder. */
     private View fullscreenView;
     private android.webkit.WebChromeClient.CustomViewCallback fullscreenCb;
@@ -104,13 +115,15 @@ public class WebBrowserView extends FrameLayout {
         column.setOrientation(LinearLayout.VERTICAL);
         addView(column, new FrameLayout.LayoutParams(-1, -1));
 
-        // ── the top bar ──
+        // ── v3.4.0 — THE OM NIBAR: one widget, two positions (K_OMNIBAR_POS).
+        //    Bottom is the default because it is the only reachable place on a 6.7" phone.
+        final boolean omnibarBottom = AppPrefs.omnibarBottom(prefs);
         LinearLayout bar = new LinearLayout(act);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackgroundColor(0xFF0E1526);
         bar.setPadding(dp(6), dp(6), dp(6), dp(6));
-        column.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        if (!omnibarBottom) column.addView(bar, new LinearLayout.LayoutParams(-1, -2));
 
         bar.addView(navBtn(R.drawable.ic_back, v -> goBack()), new LinearLayout.LayoutParams(dp(40), dp(40)));
         bar.addView(navBtn(R.drawable.ic_forward, v -> forward()), new LinearLayout.LayoutParams(dp(40), dp(40)));
@@ -132,26 +145,57 @@ public class WebBrowserView extends FrameLayout {
             return false;
         });
         bar.addView(urlBox, new LinearLayout.LayoutParams(0, -2, 1f));
+        // v3.4.0 - the ad-block shield + a live blocked count badge
+        shieldBtn = new FrameLayout(act);
+        ImageView shieldIcon = new ImageView(act);
+        shieldIcon.setImageDrawable(UiIcons.tinted(act, R.drawable.ic_shield_adblock, 0xFF22C55E, 19));
+        shieldIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        shieldBtn.addView(shieldIcon, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        shieldBadge = new TextView(act);
+        shieldBadge.setTextSize(8f);
+        shieldBadge.setTypeface(Typeface.DEFAULT_BOLD);
+        shieldBadge.setTextColor(0xFF04170B);
+        GradientDrawable sbg = new GradientDrawable();
+        sbg.setColor(0xFF22C55E);
+        sbg.setCornerRadius(dp(6));
+        shieldBadge.setBackground(sbg);
+        shieldBadge.setPadding(dp(3), 0, dp(3), 0);
+        shieldBadge.setVisibility(View.GONE);
+        FrameLayout.LayoutParams sbLp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        sbLp.topMargin = dp(2);
+        sbLp.rightMargin = dp(1);
+        shieldBtn.addView(shieldBadge, sbLp);
+        shieldBtn.setOnClickListener(v -> showBlockedSheet());
+        bar.addView(shieldBtn, new LinearLayout.LayoutParams(dp(34), dp(40)));
         bar.addView(navBtn(R.drawable.ic_refresh, v -> reload()), new LinearLayout.LayoutParams(dp(40), dp(40)));
         bar.addView(navBtn(R.drawable.ic_more_dots, v -> menu()), new LinearLayout.LayoutParams(dp(40), dp(40)));
 
-        // ── the loading progress strip ──
+        // ── the tab strip (v3.4.0: light tabs - one renderer, zero OOM risk) ──
+        tabStrip = new LinearLayout(act);
+        tabStrip.setOrientation(LinearLayout.HORIZONTAL);
+        tabStrip.setBackgroundColor(0xFF0B1020);
+        tabStrip.setPadding(dp(8), dp(4), dp(8), dp(6));
+        column.addView(tabStrip, new LinearLayout.LayoutParams(-1, -2));
+
+        // ── the web host: WebView + progress + start page + capture dock ALL stack here,
+        //    so every child uses FrameLayout.LayoutParams (the v3.3.1 static gate) ──
+        webHost = new FrameLayout(act);
+        column.addView(webHost, new LinearLayout.LayoutParams(-1, 0, 1f));
+
         progress = new ProgressBar(act, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
         progress.getProgressDrawable().setColorFilter(0xFF3B82F6, android.graphics.PorterDuff.Mode.SRC_IN);
-        column.addView(progress, new LinearLayout.LayoutParams(-1, dp(3)));
+        progress.setAlpha(0f);
+        FrameLayout.LayoutParams progLp = new FrameLayout.LayoutParams(-1, dp(2), Gravity.TOP);
+        webHost.addView(progress, progLp);
 
-        // ── v3.2.0 — THE CUSTOM-LINKS QUICK LAUNCHER (AnantPlay's quick-sites
-        // pattern): one horizontal chip row built from Settings → Web Player &
-        // Custom Links — 1 tap loads a saved streaming site (users edit the list
-        // any time; the row rebuilds whenever the Web tab is re-entered, so a
-        // link edit is live without any app update). ──
-        linksRow = new LinearLayout(act);
-        linksRow.setOrientation(LinearLayout.HORIZONTAL);
-        linksRow.setBackgroundColor(0xFF0E1526);
-        linksRow.setPadding(dp(6), dp(5), dp(6), dp(5));
-        column.addView(linksRow, new LinearLayout.LayoutParams(-1, -2));
-        rebuildLinks();
+        // ── v3.4.0 — THE VISUAL SPEED DIAL (replaces the clipped horizontal chip row):
+        //    a GridLayout with 2/3/4 columns in two groups, so link 5-8 can never fall
+        //    off the right edge again. ──
+        startPage = new FrameLayout(act);
+        startPage.setBackgroundColor(0xFF0B1020);
+        webHost.addView(startPage, new FrameLayout.LayoutParams(-1, -1));
+        rebuildStartPage();
 
         // ── the WebView ──
         web = new WebView(act);
@@ -180,7 +224,7 @@ public class WebBrowserView extends FrameLayout {
         // streaming sites die right here instead of covering the video.
         s.setSupportMultipleWindows(true);
         s.setJavaScriptCanOpenWindowsAutomatically(false);
-        s.setUserAgentString(prefs.getBoolean("webDesktopUa", false) ? UA_DESKTOP : null);
+        s.setUserAgentString(effectiveUa());
 
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
@@ -198,6 +242,9 @@ public class WebBrowserView extends FrameLayout {
                 }
                 if (StreamSniffer.isAdOrTracker(us)) {
                     Diag.i("web", "blocked navigation to ad/tracker host: " + StreamSniffer.hostOf(us));
+                    blockedCount++;
+                    if (blockedHosts.size() < 60) blockedHosts.add(StreamSniffer.hostOf(us));
+                    paintShield();
                     toast("blocked " + StreamSniffer.hostOf(us));
                     return true;   // refuse — never load it
                 }
@@ -253,6 +300,12 @@ public class WebBrowserView extends FrameLayout {
             }
 
             @Override public void onPageFinished(WebView v, String url) {
+                if (AppPrefs.readerDark(prefs)) {
+                    try {
+                        v.evaluateJavascript(
+                            "(function(){try{document.documentElement.style.colorScheme='dark';}catch(e){}})()", null);
+                    } catch (Throwable ignored) { }
+                }
                 urlBox.setText(url == null ? "" : url);
                 // clean dark-mode styling: color-scheme dark so sites that honour
                 // it render dark, and our own background shows through the rest
@@ -320,7 +373,7 @@ public class WebBrowserView extends FrameLayout {
             }
         });
         web.addJavascriptInterface(new JsBridge(), "SniJS");
-        column.addView(web, new LinearLayout.LayoutParams(-1, 0, 1f));
+        webHost.addView(web, new FrameLayout.LayoutParams(-1, -1));
 
         // ── the floating pill + ⚡Auto chip ──
         pillRow = new LinearLayout(act);
@@ -333,9 +386,10 @@ public class WebBrowserView extends FrameLayout {
         pillRow.setBackground(rowBg);
         pillRow.setPadding(dp(6), dp(4), dp(6), dp(4));
         pillRow.setVisibility(View.GONE);
-        LayoutParams pl = new LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        pl.bottomMargin = dp(20);
-        addView(pillRow, pl);
+        FrameLayout.LayoutParams pl = new FrameLayout.LayoutParams(-2, -2,
+            Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        pl.bottomMargin = dp(16);
+        webHost.addView(pillRow, pl);
 
         pill = new TextView(act);
         pill.setTextColor(0xFFE2E8F0);
@@ -357,8 +411,53 @@ public class WebBrowserView extends FrameLayout {
         pillRow.addView(autoChip, new LinearLayout.LayoutParams(-2, -2));
         paintAutoChip();
 
+        if (omnibarBottom) column.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        rebuildTabs();
+
         if (Build.VERSION.SDK_INT >= 19) web.setWebContentsDebuggingEnabled(false);
-        load(prefs.getString("webLastUrl", HOME_URL));
+        String last = prefs.getString("webLastUrl", "");
+        if (last != null && !last.isEmpty()) load(last); else showStartPage();
+    }
+
+    /** v3.4.0 - the shield badge: the live blocked count (hidden at zero). */
+    private void paintShield() {
+        if (shieldBadge == null) return;
+        boolean show = blockedCount > 0 && AppPrefs.showBlockCount(prefs) && AppPrefs.adBlock(prefs);
+        shieldBadge.setText(blockedCount > 99 ? "99+" : String.valueOf(blockedCount));
+        shieldBadge.setVisibility(show ? View.VISIBLE : View.GONE);
+    }
+
+    /** The blocked-host list (tap the shield). */
+    private void showBlockedSheet() {
+        ThemeEngine.Palette p = ThemeEngine.palette(AppPrefs.themeMode(prefs), 0,
+            AppPrefs.accent(prefs), AppPrefs.accentHex(prefs), AppPrefs.cardRadius(prefs));
+        LinearLayout body = new LinearLayout(act);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(UiSheet.header(act, p, "Blocked this session",
+            blockedCount + " requests stopped · tracker + popup shield"),
+            new LinearLayout.LayoutParams(-1, -2));
+        if (blockedHosts.isEmpty()) {
+            body.addView(UiGroup.empty(act, p, R.drawable.ic_shield_adblock,
+                "Nothing blocked yet", "Ad and tracker hosts are stopped before they load."),
+                new LinearLayout.LayoutParams(-1, -2));
+        } else {
+            for (String h : blockedHosts) {
+                TextView t = new TextView(act);
+                t.setText(h);
+                t.setTextColor(p.text);
+                UiTokens.bodySecondary(t);
+                t.setPadding(0, dp(5), 0, dp(5));
+                body.addView(t, new LinearLayout.LayoutParams(-1, -2));
+            }
+        }
+        UiSheet.show(act, p, prefs, body, 55, null);
+    }
+
+    /** v3.4.0 - custom UA > desktop UA > the WebView default. */
+    private String effectiveUa() {
+        String custom = AppPrefs.webCustomUa(prefs);
+        if (!custom.isEmpty()) return custom;
+        return AppPrefs.webDesktopUa(prefs) ? UA_DESKTOP : null;
     }
 
     private void paintAutoChip() {
@@ -397,7 +496,7 @@ public class WebBrowserView extends FrameLayout {
         boolean urlish = t.startsWith("http://") || t.startsWith("https://")
             || (t.contains(".") && !t.contains(" "));
         load(urlish ? (t.startsWith("http") ? t : "https://" + t)
-            : "https://duckduckgo.com/?q=" + android.net.Uri.encode(t));
+            : AppPrefs.searchUrl(AppPrefs.searchEngine(prefs), android.net.Uri.encode(t)));
     }
 
     void load(String url) {
@@ -410,7 +509,154 @@ public class WebBrowserView extends FrameLayout {
             return;
         }
         prefs.edit().putString("webLastUrl", url).apply();
+        if (startPage != null) startPage.setVisibility(View.GONE);
+        addTab(url);
         web.loadUrl(url);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // v3.4.0 - THE LIGHT TAB MODEL
+    //
+    // Multiple live WebViews cost 60-120 MB EACH on Android 16 (a full Chromium
+    // renderer process per view) and would OOM a 3 GB phone. So a "tab" here is a URL
+    // in a list plus one shared renderer: switching a tab calls loadUrl(). The user gets
+    // a visible strip and a switcher; the process keeps one renderer. Documented honestly
+    // in the sheet as "Tabs (light)".
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private void addTab(String url) {
+        if (url == null) return;
+        if (tabUrls.size() >= 5) {
+            if (tabUrls.contains(url)) { activeTab = tabUrls.indexOf(url); }
+            else { tabUrls.set(tabUrls.size() - 1, url); activeTab = tabUrls.size() - 1; }
+        } else if (!tabUrls.contains(url)) {
+            tabUrls.add(url);
+            activeTab = tabUrls.size() - 1;
+        } else {
+            activeTab = tabUrls.indexOf(url);
+        }
+        rebuildTabs();
+    }
+
+    private void rebuildTabs() {
+        if (tabStrip == null) return;
+        tabStrip.removeAllViews();
+        for (int i = 0; i < tabUrls.size(); i++) {
+            final int idx = i;
+            TextView t = new TextView(act);
+            t.setText(hostLabel(tabUrls.get(i)));
+            t.setTextSize(10.5f);
+            t.setSingleLine(true);
+            t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            t.setGravity(Gravity.CENTER_VERTICAL);
+            t.setPadding(dp(9), dp(5), dp(9), dp(5));
+            GradientDrawable g = new GradientDrawable();
+            boolean on = idx == activeTab;
+            g.setColor(on ? 0xFF1A2440 : 0xFF0E1526);
+            g.setCornerRadius(dp(9));
+            t.setBackground(g);
+            t.setTextColor(on ? 0xFFE2E8F0 : 0xFF94A3B8);
+            t.setOnClickListener(v -> {
+                activeTab = idx;
+                if (startPage != null) startPage.setVisibility(View.GONE);
+                web.loadUrl(tabUrls.get(idx));
+                rebuildTabs();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+            lp.rightMargin = dp(6);
+            tabStrip.addView(t, lp);
+        }
+        TextView plus = new TextView(act);
+        plus.setText("+");
+        plus.setTextSize(13f);
+        plus.setTextColor(0xFF94A3B8);
+        plus.setGravity(Gravity.CENTER);
+        plus.setPadding(dp(10), dp(4), dp(10), dp(4));
+        GradientDrawable pg = new GradientDrawable();
+        pg.setColor(0xFF0E1526);
+        pg.setCornerRadius(dp(9));
+        plus.setBackground(pg);
+        plus.setOnClickListener(v -> showStartPage());
+        tabStrip.addView(plus, new LinearLayout.LayoutParams(-2, -2));
+    }
+
+    private static String hostLabel(String url) {
+        try {
+            String h = android.net.Uri.parse(url).getHost();
+            if (h == null) return url;
+            return h.startsWith("www.") ? h.substring(4) : h;
+        } catch (Throwable t) {
+            return url;
+        }
+    }
+
+    /** v3.4.0 - back to the speed dial. */
+    void showStartPage() {
+        if (startPage == null) return;
+        rebuildStartPage();
+        startPage.setVisibility(View.VISIBLE);
+    }
+
+    /** v3.4.0 - the visual speed dial (two groups, 2/3/4 columns, add + long-press edit). */
+    private void rebuildStartPage() {
+        if (startPage == null) return;
+        startPage.removeAllViews();
+        ThemeEngine.Palette p = ThemeEngine.palette(AppPrefs.themeMode(prefs), 0,
+            AppPrefs.accent(prefs), AppPrefs.accentHex(prefs), AppPrefs.cardRadius(prefs));
+        View dial = SpeedDial.build(act, p, prefs, AppPrefs.webLinks(prefs),
+            new SpeedDial.OnOpen() {
+                @Override public void open(String url) { load(url); }
+                @Override public void add() { editLinks(); }
+                @Override public void edit(AppPrefs.Link link, int index) { linkSheet(link, index); }
+            });
+        startPage.addView(dial, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    /** The edit sheet for one speed-dial tile (move up / move down / delete). */
+    private void linkSheet(final AppPrefs.Link link, final int index) {
+        ThemeEngine.Palette p = ThemeEngine.palette(AppPrefs.themeMode(prefs), 0,
+            AppPrefs.accent(prefs), AppPrefs.accentHex(prefs), AppPrefs.cardRadius(prefs));
+        LinearLayout body = new LinearLayout(act);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(UiSheet.header(act, p, link.name, link.url),
+            new LinearLayout.LayoutParams(-1, -2));
+        body.addView(UiChip.make(act, p, prefs, R.drawable.ic_plus,
+            act.getString(R.string.web_hint).isEmpty() ? "Open" : "Open", true,
+            v -> { load(link.url); }));
+        LinearLayout row = UiChip.stripRow(act);
+        row.addView(UiChip.make(act, p, prefs, R.drawable.ic_back, "Move up", false,
+            v -> moveLink(index, -1)));
+        row.addView(UiChip.make(act, p, prefs, R.drawable.ic_forward, "Move down", false,
+            v -> moveLink(index, 1)));
+        row.addView(UiChip.make(act, p, prefs, R.drawable.ic_close, "Delete", false,
+            v -> deleteLink(index)));
+        body.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        UiSheet.show(act, p, prefs, body, 42, null);
+    }
+
+    private void moveLink(int index, int dir) {
+        List<AppPrefs.Link> links = AppPrefs.webLinks(prefs);
+        int to = index + dir;
+        if (index < 0 || index >= links.size() || to < 0 || to >= links.size()) return;
+        AppPrefs.Link a = links.get(index), b = links.get(to);
+        links.set(index, b);
+        links.set(to, a);
+        prefs.edit().putString(AppPrefs.K_WEB_LINKS, AppPrefs.serializeLinks(links)).apply();
+        rebuildStartPage();
+    }
+
+    private void deleteLink(int index) {
+        List<AppPrefs.Link> links = AppPrefs.webLinks(prefs);
+        if (index < 0 || index >= links.size()) return;
+        links.remove(index);
+        prefs.edit().putString(AppPrefs.K_WEB_LINKS, AppPrefs.serializeLinks(links)).apply();
+        rebuildStartPage();
+        toast("removed");
+    }
+
+    /** Opens the Customize → Browser page where the link list is edited. */
+    private void editLinks() {
+        toast("Add sites in Customize → Browser → Custom links");
     }
 
     void reload() { try { web.reload(); } catch (Throwable ignored) { } }
@@ -427,37 +673,81 @@ public class WebBrowserView extends FrameLayout {
 
     // ── the ⋮ menu ─────────────────────────────────────────────────────────────
 
+    /**
+     * v3.4.0 - THE OVERFLOW SHEET (was a PopupMenu anchored to the address box, which
+     * covered the omnibar itself on a small screen). Every item is a vector row.
+     */
     private void menu() {
-        android.widget.PopupMenu m = new android.widget.PopupMenu(act, urlBox);
-        final boolean desktop = prefs.getBoolean("webDesktopUa", false);
-        m.getMenu().add(0, 1, 0, "Desktop mode: " + (desktop ? "ON" : "OFF"));
-        m.getMenu().add(0, 2, 1, "★ Add bookmark for this page");
-        m.getMenu().add(0, 3, 2, "Bookmarks…");
-        m.getMenu().add(0, 4, 3, "Paste link from clipboard");
-        m.getMenu().add(0, 5, 4, "Browser home");
-        m.setOnMenuItemClickListener(item -> {
-            switch (item.getItemId()) {
-                case 1:
-                    prefs.edit().putBoolean("webDesktopUa", !desktop).apply();
-                    web.getSettings().setUserAgentString(!desktop ? UA_DESKTOP : null);
-                    toast(!desktop ? "Desktop mode ON (reload)" : "Mobile mode ON (reload)");
-                    reload();
-                    return true;
-                case 2:
-                    addBookmark(web.getUrl(), web.getTitle());
-                    return true;
-                case 3:
-                    showBookmarks();
-                    return true;
-                case 4:
-                    pasteFromClipboard();
-                    return true;
-                default:
-                    load(HOME_URL);
-                    return true;
-            }
-        });
-        m.show();
+        ThemeEngine.Palette p = ThemeEngine.palette(AppPrefs.themeMode(prefs), 0,
+            AppPrefs.accent(prefs), AppPrefs.accentHex(prefs), AppPrefs.cardRadius(prefs));
+        LinearLayout body = new LinearLayout(act);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(UiSheet.header(act, p, "Browser",
+            hostLabel(web.getUrl() == null ? "" : web.getUrl())), new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout g = UiCard.make(act, p, prefs);
+        UiGroup.row(act, g, p, prefs, R.drawable.ic_desktop, "Desktop mode",
+            AppPrefs.webDesktopUa(prefs) ? "On" : "Off", null, false, v -> {
+                prefs.edit().putBoolean(AppPrefs.K_WEB_DESKTOP_UA, !AppPrefs.webDesktopUa(prefs)).apply();
+                web.getSettings().setUserAgentString(effectiveUa());
+                toast(AppPrefs.webDesktopUa(prefs) ? "Desktop mode ON" : "Mobile mode ON");
+                reload();
+            });
+        UiGroup.divider(act, g, p, prefs);
+        UiGroup.row(act, g, p, prefs, R.drawable.ic_bookmark, "Bookmark this page", null, null, false,
+            v -> addBookmark(web.getUrl(), web.getTitle()));
+        UiGroup.divider(act, g, p, prefs);
+        UiGroup.row(act, g, p, prefs, R.drawable.ic_history, "Bookmarks", null, null, true,
+            v -> showBookmarks());
+        UiGroup.divider(act, g, p, prefs);
+        UiGroup.row(act, g, p, prefs, R.drawable.ic_copy, "Paste a link", null, null, false,
+            v -> pasteFromClipboard());
+        UiGroup.divider(act, g, p, prefs);
+        UiGroup.row(act, g, p, prefs, R.drawable.ic_search, "Find on page", null, null, false,
+            v -> findOnPage());
+        UiGroup.divider(act, g, p, prefs);
+        UiGroup.row(act, g, p, prefs, R.drawable.ic_nav_home, "Browser home", null, null, false,
+            v -> showStartPage());
+        UiGroup.divider(act, g, p, prefs);
+        UiGroup.row(act, g, p, prefs, R.drawable.ic_close, "Clear cache & cookies",
+            null, null, false, v -> clearWebData());
+        body.addView(g, new LinearLayout.LayoutParams(-1, -2));
+        UiSheet.show(act, p, prefs, body, 62, null);
+    }
+
+    /** A simple find-on-page prompt that injects the browser's own find highlight. */
+    private void findOnPage() {
+        final EditText in = new EditText(act);
+        in.setHint("Find text on this page");
+        in.setTextSize(14f);
+        in.setSingleLine(true);
+        new android.app.AlertDialog.Builder(act)
+            .setTitle("Find on page")
+            .setView(in)
+            .setPositiveButton("Find", (d, w) -> {
+                String q = in.getText().toString();
+                if (q.isEmpty()) return;
+                try {
+                    web.findAllAsync(q);
+                } catch (Throwable t) {
+                    Diag.w("web", "find: " + t);
+                }
+            })
+            .setNegativeButton(android.R.string.cancel, null)
+            .show();
+    }
+
+    /** Clear the WebView's own storage - never the app's settings. */
+    private void clearWebData() {
+        try {
+            android.webkit.CookieManager.getInstance().removeAllCookies(null);
+            android.webkit.WebStorage.getInstance().deleteAllData();
+            web.clearCache(true);
+            web.clearHistory();
+            toast("cache & cookies cleared");
+        } catch (Throwable t) {
+            Diag.w("web", "clear: " + t);
+        }
     }
 
     private void pasteFromClipboard() {
@@ -581,7 +871,7 @@ public class WebBrowserView extends FrameLayout {
     // ── lifecycle ──────────────────────────────────────────────────────────────
 
     public void onPauseWeb() { try { web.onPause(); } catch (Throwable ignored) { } }
-    public void onResumeWeb() { try { web.onResume(); rebuildLinks(); } catch (Throwable ignored) { } }
+    public void onResumeWeb() { try { web.onResume(); rebuildStartPage(); } catch (Throwable ignored) { } }
 
     /** v3.2.0 — rebuild the quick-links chip row from the CURRENT prefs list
      *  (so an edit in Settings lands the next time the Web tab is shown). */

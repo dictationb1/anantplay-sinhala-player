@@ -289,11 +289,27 @@ public final class AppPrefs {
     public static final class Link {
         public final String name;
         public final String url;
-        Link(String name, String url) { this.name = name; this.url = url; }
+        /** v3.4.0 - "streaming" (default) or "subtitle"; drives the two speed-dial groups. */
+        public final String group;
+        Link(String name, String url) { this(name, url, "streaming"); }
+        Link(String name, String url, String group) {
+            this.name = name;
+            this.url = url;
+            this.group = normalizeLinkGroup(group);
+        }
+        /** True when this link belongs in the Sri Lankan subtitle group. */
+        public boolean isSubtitle() { return "subtitle".equals(group); }
     }
 
-    /** Parse the stored "name|url\nname|url" list → clean entries (https-only
-     *  URLs, trimmed names, ≤8 entries, deduped by URL). */
+    public static final String GROUP_STREAMING = "streaming", GROUP_SUBTITLE = "subtitle";
+
+    public static String normalizeLinkGroup(String v) {
+        return GROUP_SUBTITLE.equals(v) ? GROUP_SUBTITLE : GROUP_STREAMING;
+    }
+
+    /** Parse the stored "name|url|group" list → clean entries (https-only URLs, trimmed
+     *  names, ≤8 entries, deduped by URL). A two-field "name|url" line from a v3.3.1
+     *  backup still parses and defaults to the streaming group (backwards compatible). */
     public static List<Link> parseLinks(String stored) {
         List<Link> out = new ArrayList<>();
         if (stored == null || stored.trim().isEmpty()) return out;
@@ -304,13 +320,20 @@ public final class AppPrefs {
             int bar = t.indexOf('|');
             if (bar < 0) continue;
             String name = t.substring(0, bar).trim();
-            String url = t.substring(bar + 1).trim();
+            String rest = t.substring(bar + 1).trim();
+            String group = GROUP_STREAMING;
+            int bar2 = rest.indexOf('|');
+            String url = rest;
+            if (bar2 >= 0) {
+                url = rest.substring(0, bar2).trim();
+                group = normalizeLinkGroup(rest.substring(bar2 + 1).trim());
+            }
             if (name.isEmpty() || name.length() > 64) continue;
             if (!(url.startsWith("https://") || url.startsWith("http://"))) continue;
             if (url.length() > 300) continue;
             boolean dup = false;
             for (Link l : out) if (l.url.equals(url)) { dup = true; break; }
-            if (!dup) out.add(new Link(name, url));
+            if (!dup) out.add(new Link(name, url, group));
         }
         return out;
     }
@@ -321,7 +344,8 @@ public final class AppPrefs {
         if (links != null) {
             for (Link l : links) {
                 if (sb.length() > 0) sb.append('\n');
-                sb.append(l.name.replace('|', ' ')).append('|').append(l.url);
+                sb.append(l.name.replace('|', ' ')).append('|').append(l.url)
+                  .append('|').append(normalizeLinkGroup(l.group));
             }
         }
         return sb.toString();
@@ -571,6 +595,9 @@ public final class AppPrefs {
     public static boolean mdnsEnabled(SharedPreferences p) { return p.getBoolean(K_MDNS, true); }
     public static String workerUrl(SharedPreferences p) { return normalizeWorkerUrl(p.getString(K_WORKER_URL, BridgeApi.DEFAULT_WORKER_URL)); }
     public static boolean adBlock(SharedPreferences p) { return p.getBoolean(K_AD_BLOCK, true); }
+    /** v3.4.0 - the desktop user-agent switch (was read inline before). */
+    public static boolean webDesktopUa(SharedPreferences p) { return p.getBoolean(K_WEB_DESKTOP_UA, false); }
+    public static boolean autoOpenSniffed(SharedPreferences p) { return p.getBoolean(K_AUTO_OPEN_SNIFFED, false); }
     public static boolean freeTranslator(SharedPreferences p) { return p.getBoolean(K_FREE_TRANSLATOR, true); }
     public static List<Link> webLinks(SharedPreferences p) { return parseLinks(p.getString(K_WEB_LINKS, "")); }
 
