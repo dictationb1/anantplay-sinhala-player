@@ -123,6 +123,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve and verify the app version
+        id: app-version
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^VERSION_NAME=${VERSION_NAME:-\([^}]*\)}$/\1/p' build.sh | head -1)
+          CODE=$(sed -n 's/^VERSION_CODE=${VERSION_CODE:-\([^}]*\)}$/\1/p' build.sh | head -1)
+          MANIFEST_VERSION=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
+          MANIFEST_CODE=$(sed -n 's/.*android:versionCode="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
+          test "$VERSION" = "3.4.4"
+          test "$CODE" = "30404"
+          test "$MANIFEST_VERSION" = "$VERSION"
+          test "$MANIFEST_CODE" = "$CODE"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
