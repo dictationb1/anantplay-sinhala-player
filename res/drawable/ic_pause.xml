@@ -11,14 +11,14 @@
         android:pathData="M9.2 5.8V18.2"
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.4"
+        android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
     <path
         android:pathData="M14.8 5.8V18.2"
         android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="2.4"
+        android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
 </vector>

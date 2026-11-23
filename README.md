@@ -1,4 +1,17 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v3.4.3
+# AnantPlay Player (SI Cast Receiver) v3.4.4
+
+> **v3.4.4 — MORNYE UI REFINEMENT · 10 ACCENT SWATCHES · FIXED FIVE-ICON PLAYER DOCK ·
+> CLEAN ENGLISH CHROME · TONAL SURFACES.**
+> The player now has a fixed five-action dock with 48dp touch targets, a compact
+> speed readout, a subtitle-ready indicator, and accessible controls; PiP, rotate,
+> and external playback stay in the top HUD. Subtitle tools open focused, with
+> secondary providers and AI actions collapsed by default. The Home screen removes
+> duplicate setup guidance, Settings adds visual surface/navigation previews and
+> ten accent swatches, and outlined vectors use a consistent 1.75–1.85dp stroke family.
+> Existing playback, subtitle, backup, privacy, and permission behavior is retained.
+
+> The signed release metadata (`docs/latest.json`) is written by the release workflow
+> after it builds the permanent-key APK, so its checksum always matches the published file.
 
 > **v3.4.3 — ZERO-DEFECT HARDENING: 5-STAGE FIRST-LAUNCH ONBOARDING · P0 MEDIA3/WEBVIEW
 > SECURITY · WATCH-HISTORY CREDENTIAL HYGIENE · SIMPLE/ADVANCED SETTINGS ·

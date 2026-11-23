@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f0e8">
+  <title>Frame / Android UI Studio</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f3f0e8;
+      --paper-deep: #e8e3d8;
+      --surface: #fbfaf6;
+      --ink: #202a29;
+      --muted: #75807a;
+      --line: #d9d7cc;
+      --line-dark: #bfc4ba;
+      --green: #386a59;
+      --green-dark: #264d40;
+      --mint: #d9e9df;
+      --coral: #d4775c;
+      --coral-pale: #f1dfd5;
+      --yellow: #e8c87e;
+      --blue: #a7c3cb;
+      --shadow: 0 18px 40px rgba(43, 54, 47, .08);
+      --sans: 'Avenir Next', 'Trebuchet MS', system-ui, sans-serif;
+      --display: 'Trebuchet MS', 'Avenir Next', system-ui, sans-serif;
+      --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; min-height: 100dvh; background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 14px; }
+    button, input, select, textarea { font: inherit; }
+    button, a, select, input { -webkit-tap-highlight-color: transparent; }
+    button { color: inherit; }
+    a { color: inherit; }
+    :focus-visible { outline: 3px solid #d4775c; outline-offset: 3px; }
+    .shell { min-height: 100dvh; display: grid; grid-template-columns: 242px minmax(0, 1fr); }
+    .rail { background: #e8e6dc; border-right: 1px solid var(--line); padding: 25px 15px 20px; display: flex; flex-direction: column; position: sticky; top: 0; height: 100dvh; }
+    .brand { display: flex; align-items: center; gap: 11px; padding: 1px 10px 27px; }
+    .brand-mark { width: 34px; height: 34px; background: var(--green); color: #f3f0e8; display: grid; place-items: center; border-radius: 11px 11px 11px 3px; }
+    .brand-mark svg { width: 20px; height: 20px; }
+    .brand-name { font: 800 16px var(--display); letter-spacing: -.7px; }
+    .brand-caption { color: var(--muted); font: 10px var(--mono); letter-spacing: .07em; margin-top: 2px; }
+    .rail-label, .eyebrow { color: var(--muted); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .13em; }
+    .rail-label { padding: 8px 11px 9px; }
+    .nav { display: grid; gap: 4px; }
+    .nav button { border: 0; background: transparent; color: #616b65; border-radius: 8px; padding: 10px 11px; text-align: left; display: flex; align-items: center; gap: 11px; cursor: pointer; transition: background .18s, color .18s, transform .18s; }
+    .nav button:hover { background: rgba(255,255,255,.45); color: var(--ink); transform: translateX(2px); }
+    .nav button.active { color: var(--green-dark); background: #f7f5ef; font-weight: 700; box-shadow: inset 3px 0 var(--green); }
+    .nav svg { width: 17px; height: 17px; flex: 0 0 auto; }
+    .nav-count { margin-left: auto; background: var(--coral-pale); color: #93513b; border-radius: 20px; padding: 2px 7px; font: 10px var(--mono); }
+    .rail-bottom { margin-top: auto; }
+    .project-card { margin: 13px 4px 14px; padding: 13px; background: #f4f2eb; border: 1px solid var(--line); border-radius: 10px; }
+    .project-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .project-title { font-weight: 700; font-size: 12px; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; }
+    .project-meta { font: 10px/1.6 var(--mono); color: var(--muted); }
+    .rail-footer { border-top: 1px solid var(--line); padding: 14px 10px 0; display: flex; align-items: center; justify-content: space-between; color: var(--muted); font: 10px var(--mono); }
+    .main { min-width: 0; }
+    .topbar { position: sticky; z-index: 5; top: 0; height: 69px; display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(18px, 4vw, 52px); border-bottom: 1px solid var(--line); background: rgba(243,240,232,.94); backdrop-filter: blur(14px); }
+    .crumb { color: var(--muted); font-size: 12px; }
+    .crumb strong { color: var(--ink); font-weight: 700; }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .sync-label { font: 10px var(--mono); color: var(--muted); display: flex; align-items: center; gap: 7px; }
+    .avatar { width: 30px; height: 30px; display: grid; place-items: center; background: var(--yellow); border-radius: 50%; font: 11px var(--mono); color: #5c4a24; }
+    .content { max-width: 1510px; margin: 0 auto; padding: 29px clamp(18px, 4vw, 52px) 54px; }
+    .page-heading { display: flex; justify-content: space-between; gap: 20px; align-items: flex-end; margin: 4px 0 24px; }
+    h1 { margin: 7px 0 0; font: 800 clamp(26px, 3.5vw, 40px)/1.1 var(--display); letter-spacing: -1.8px; }
+    .page-subtitle { color: var(--muted); margin: 8px 0 0; max-width: 660px; line-height: 1.6; }
+    .button { min-height: 37px; border: 1px solid var(--line-dark); background: var(--surface); border-radius: 7px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; text-decoration: none; font-size: 12px; font-weight: 700; transition: transform .17s, background .17s, border-color .17s; }
+    .button:hover { transform: translateY(-1px); border-color: #89968b; background: #fffdf8; }
+    .button.primary { color: #fffdf7; background: var(--green); border-color: var(--green); }
+    .button.primary:hover { background: var(--green-dark); }
+    .button.danger { color: #99523e; }
+    .button.small { min-height: 31px; padding: 0 10px; font-size: 11px; }
+    .button:disabled { cursor: not-allowed; opacity: .48; transform: none; }
+    .button svg { width: 14px; height: 14px; }
+    .section { display: none; animation: arrive .28s ease both; }
+    .section.active { display: block; }
+    @keyframes arrive { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 3px 12px rgba(43,54,47,.025); }
+    .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 18px 20px 15px; border-bottom: 1px solid #e7e5dc; }
+    .panel-head h2 { margin: 0; font: 700 16px var(--display); letter-spacing: -.4px; }
+    .panel-head p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .panel-body { padding: 18px 20px 20px; }
+    .audit-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .filter-pill { border: 1px solid var(--line); background: transparent; color: #66716b; border-radius: 18px; padding: 7px 12px; cursor: pointer; font-size: 11px; }
+    .filter-pill.active { background: var(--green); color: white; border-color: var(--green); }
+    .search { min-height: 36px; min-width: 205px; padding: 0 11px; border: 1px solid var(--line); background: #fffefa; border-radius: 7px; outline: none; color: var(--ink); }
+    .search:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(56,106,89,.1); }
+    .audit-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 17px; }
+    .audit-list { display: grid; gap: 9px; }
+    .audit-item { border: 1px solid #e5e3da; border-radius: 9px; display: grid; grid-template-columns: 62px minmax(0,1fr) auto; gap: 14px; align-items: start; padding: 13px 14px; }
+    .audit-severity { font: 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; padding-top: 3px; }
+    .sev-high { color: #a34e39; }
+    .sev-medium { color: #98713b; }
+    .sev-low { color: var(--green); }
+    .audit-copy { min-width: 0; }
+    .audit-copy strong { font: 600 12px/1.45 var(--display); }
+    .audit-copy p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+    .audit-ref { color: #87918a; font: 10px/1.4 var(--mono); white-space: normal; overflow-wrap: anywhere; max-width: 220px; text-align: right; }
+    .audit-footer { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-top: 1px solid #e7e5dc; margin-top: 15px; padding-top: 14px; color: var(--muted); font: 10px var(--mono); }
+    .download-row { display: flex; gap: 7px; }
+    .empty-state { padding: 30px 18px; border: 1px dashed var(--line-dark); border-radius: 9px; text-align: center; color: var(--muted); line-height: 1.55; }
+    .studio-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(275px, .75fr); gap: 16px; align-items: start; }
+    .sim-head { align-items: center; }
+    .segmented { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--line); border-radius: 8px; background: #f1efe8; }
+    .segmented button { border: 0; border-radius: 5px; background: transparent; color: var(--muted); padding: 6px 10px; cursor: pointer; font-size: 11px; }
+    .segmented button.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 4px #25312818; font-weight: 700; }
+    .sim-body { padding: 18px; }
+    .sim-toolbar { display: flex; gap: 7px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding-bottom: 15px; border-bottom: 1px solid #e7e5dc; }
+    .screen-tabs { display: flex; flex-wrap: wrap; gap: 5px; }
+    .screen-tabs button { border: 0; background: transparent; border-radius: 6px; padding: 7px 9px; cursor: pointer; color: var(--muted); font-size: 11px; }
+    .screen-tabs button.active { background: var(--mint); color: var(--green-dark); font-weight: 700; }
+    .device-stage { min-height: 520px; padding: 23px 16px; display: grid; place-items: center; position: relative; overflow: hidden; background: #edebe3; border-radius: 8px; margin-top: 16px; }
+    .device-stage:before, .device-stage:after { content: ""; position: absolute; width: 190px; height: 190px; border: 1px solid rgba(74,107,89,.12); border-radius: 50%; }
+    .device-stage:before { top: -110px; right: -50px; }
+    .device-stage:after { bottom: -130px; left: -75px; width: 260px; height: 260px; }
+    .device-wrap { z-index: 1; transition: transform .25s ease; }
+    .phone { width: 258px; height: 486px; border-radius: 34px; border: 8px solid #272f2d; padding: 0; overflow: hidden; background: var(--phone-bg, #f5f1e6); box-shadow: 0 20px 36px rgba(27,36,31,.24), inset 0 0 0 1px rgba(255,255,255,.3); display: flex; flex-direction: column; color: var(--phone-ink, #26322c); position: relative; }
+    .phone.landscape { width: 444px; height: 252px; border-radius: 29px; }
+    .phone-status { height: 23px; flex: 0 0 auto; padding: 6px 13px 0; font: 8px var(--mono); display: flex; justify-content: space-between; }
+    .phone-body { flex: 1; overflow: hidden; padding: 8px 13px 9px; display: flex; flex-direction: column; }
+    .phone-brand { display: flex; align-items: center; justify-content: space-between; margin: 1px 0 12px; }
+    .phone-brand b { font: 800 13px var(--display); letter-spacing: -.5px; }
+    .phone-brand .brand-mini { font: 8px var(--mono); color: var(--phone-accent, #386a59); }
+    .hero-tile { background: var(--phone-accent, #386a59); color: #fffdf6; min-height: 100px; padding: 12px; border-radius: 13px; display: flex; flex-direction: column; justify-content: flex-end; position: relative; overflow: hidden; }
+    .hero-tile:after { content: ""; position: absolute; width: 92px; height: 92px; right: 12px; top: 7px; border: 1px solid rgba(255,255,255,.29); border-radius: 50%; box-shadow: 0 0 0 13px rgba(255,255,255,.07), 0 0 0 27px rgba(255,255,255,.06); }
+    .hero-kicker { font: 7px var(--mono); letter-spacing: .13em; opacity: .76; z-index: 1; }
+    .hero-title { font: 700 16px/1.2 var(--display); max-width: 150px; margin-top: 4px; z-index: 1; }
+    .phone-label { margin: 13px 0 7px; display: flex; justify-content: space-between; align-items: baseline; font: 700 10px var(--display); }
+    .phone-label small { color: var(--phone-muted, #7b847a); font: 7px var(--mono); }
+    .station-list { display: grid; gap: 5px; }
+    .station { display: flex; gap: 8px; align-items: center; background: rgba(255,255,255,.62); border: 1px solid rgba(82,103,87,.12); padding: 6px; border-radius: 9px; }
+    .station-cover { width: 31px; height: 31px; border-radius: 7px; background: #d77c5f; display: grid; place-items: center; color: #fff8ec; }
+    .station:nth-child(2) .station-cover { background: #68869a; }
+    .station:nth-child(3) .station-cover { background: #d0a94e; }
+    .station-cover svg { width: 15px; height: 15px; }
+    .station-name { font: 700 8px var(--display); }
+    .station-sub { color: var(--phone-muted, #7b847a); font: 7px var(--sans); margin-top: 2px; }
+    .play-mark { margin-left: auto; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--phone-accent, #386a59); color: white; }
+    .play-mark svg { width: 9px; height: 9px; }
+    .phone-nav { height: 39px; flex: 0 0 auto; background: rgba(255,255,255,.75); display: flex; align-items: center; justify-content: space-around; border-top: 1px solid rgba(70,83,74,.13); }
+    .phone-nav svg { width: 14px; height: 14px; stroke: #8c958c; }
+    .phone-nav span { font: 6px var(--sans); display: flex; flex-direction: column; align-items: center; gap: 2px; color: #858f86; }
+    .phone-nav span.selected { color: var(--phone-accent, #386a59); }
+    .browser-title { font: 700 13px var(--display); margin: 2px 0 9px; }
+    .browser-search { border: 1px solid rgba(62,82,66,.19); padding: 7px 9px; border-radius: 8px; font: 7px var(--sans); margin-bottom: 10px; color: #69756c; background: rgba(255,255,255,.45); }
+    .browser-feature { height: 108px; border-radius: 10px; background: linear-gradient(135deg,#b9d1c0,#e2d1ae); margin-bottom: 9px; position: relative; overflow: hidden; }
+    .browser-feature:before { content: "රේඩියෝ"; position: absolute; bottom: 9px; left: 10px; font: 700 14px var(--display); color: #345547; }
+    .browser-row { border-bottom: 1px solid rgba(70,83,74,.15); padding: 7px 1px; font-size: 8px; display: flex; justify-content: space-between; }
+    .customize-title { font: 700 14px var(--display); margin: 2px 0 12px; }
+    .theme-choice { background: rgba(255,255,255,.62); border: 1px solid rgba(70,83,74,.15); border-radius: 9px; padding: 9px; margin-bottom: 7px; font-size: 8px; display: flex; align-items: center; justify-content: space-between; }
+    .theme-swatches { display: flex; gap: 4px; }
+    .theme-swatches i { width: 12px; height: 12px; border-radius: 50%; background: #386a59; }
+    .theme-swatches i:nth-child(2) { background: #d4775c; }
+    .theme-swatches i:nth-child(3) { background: #6988a0; }
+    .player-art { width: 126px; aspect-ratio: 1; margin: 5px auto 12px; border-radius: 18px; background: linear-gradient(145deg,#e4bd6e,#d4775c); display: grid; place-items: center; position: relative; overflow: hidden; }
+    .player-art:before,.player-art:after { content: ""; position: absolute; width: 80px; height: 80px; border: 1px solid rgba(255,255,255,.55); border-radius: 50%; }
+    .player-art:after { width: 54px; height: 54px; }
+    .player-art svg { width: 30px; height: 30px; color: white; z-index: 1; }
+    .track-name { text-align: center; font: 700 11px var(--display); }
+    .track-meta { text-align: center; color: var(--phone-muted,#7b847a); font: 7px var(--sans); margin-top: 3px; }
+    .track-progress { height: 3px; background: #d8d9cc; border-radius: 5px; margin: 11px 4px 5px; overflow: hidden; }
+    .track-progress i { display: block; width: 38%; height: 100%; background: var(--phone-accent,#386a59); }
+    .player-controls { display: flex; justify-content: center; align-items: center; gap: 18px; margin-top: 9px; }
+    .player-controls span { font: 7px var(--mono); }
+    .player-controls b { width: 32px; height: 32px; display: grid; place-items: center; background: var(--phone-accent,#386a59); color: white; border-radius: 50%; }
+    .player-controls svg { width: 12px; height: 12px; }
+    .player-dock { display: flex; justify-content: space-between; align-items: center; gap: 4px; margin-top: auto; padding-top: 9px; }
+    .player-dock span { display: grid; place-items: center; min-width: 22px; min-height: 22px; font: 6px var(--mono); color: var(--phone-muted,#7b847a); }
+    .player-dock.current span { border-radius: 10px; padding: 0 4px; background: rgba(255,255,255,.68); white-space: nowrap; }
+    .player-dock.proposed span { border-radius: 50%; background: rgba(255,255,255,.54); }
+    .player-dock svg { width: 12px; height: 12px; }
+    .icon-preview { display: grid; place-items: center; flex: 1; }
+    .app-icon-art { width: 118px; height: 118px; background: var(--phone-accent,#386a59); border-radius: 29px; display: grid; place-items: center; box-shadow: 0 8px 18px rgba(28,42,32,.2); color: #fff8e9; position: relative; }
+    .app-icon-art:before { content: ""; position: absolute; inset: 17px; border: 1px solid rgba(255,255,255,.4); border-radius: 50%; }
+    .app-icon-art svg { width: 49px; height: 49px; }
+    .icon-caption { margin-top: 14px; text-align: center; font: 700 11px var(--display); }
+    .sim-caption { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--muted); font: 10px var(--mono); padding-top: 12px; }
+    .config-panel .panel-body { display: grid; gap: 18px; }
+    .control-group label, .field-label { display: block; font: 700 11px var(--display); margin-bottom: 8px; }
+    .select, .text-input { width: 100%; height: 38px; border: 1px solid var(--line); border-radius: 7px; background: #fffefa; padding: 0 10px; color: var(--ink); }
+    .accent-row { display: flex; gap: 9px; }
+    .swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line-dark); cursor: pointer; }
+    .swatch.selected { box-shadow: 0 0 0 2px var(--green), inset 0 0 0 2px var(--surface); }
+    .range-row { display: flex; gap: 12px; align-items: center; }
+    input[type=range] { width: 100%; accent-color: var(--green); }
+    .density-read { font: 10px var(--mono); color: var(--muted); min-width: 36px; text-align: right; }
+    .note-card { padding: 13px; background: #f3f0e7; border: 1px solid var(--line); border-radius: 8px; font-size: 11px; line-height: 1.55; color: #66716a; }
+    .note-card b { color: var(--ink); }
+    .workspace-grid { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(290px,.8fr); gap: 16px; align-items: start; }
+    .connection-status { display: flex; align-items: center; gap: 9px; font-size: 11px; font-weight: 700; }
+    .status-badge { width: 8px; height: 8px; border-radius: 50%; background: #c3a35e; }
+    .status-badge.connected { background: var(--green); }
+    .status-badge.error { background: var(--coral); }
+    .connection-banner { padding: 13px 14px; border: 1px solid #e5dfca; background: #f7f2df; border-radius: 8px; display: flex; gap: 11px; align-items: flex-start; font-size: 11px; line-height: 1.55; color: #69644e; }
+    .connection-banner strong { color: #514b36; }
+    .connection-banner svg { width: 16px; height: 16px; flex: 0 0 auto; margin-top: 1px; }
+    .connection-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 13px; }
+    .callback-box { border: 1px solid #e5e3da; border-radius: 8px; padding: 13px; margin-top: 15px; }
+    .callback-url { font: 10px/1.6 var(--mono); color: var(--green-dark); overflow-wrap: anywhere; padding: 8px; background: #f0f2eb; border-radius: 5px; margin-top: 7px; }
+    .callback-state { font-size: 10px; margin-top: 7px; color: var(--muted); }
+    .workspace-stack { display: grid; gap: 16px; }
+    .design-search-row { display: flex; gap: 7px; }
+    .design-search-row .search { flex: 1; min-width: 0; }
+    .design-list { display: grid; gap: 7px; margin-top: 12px; }
+    .design-option { display: flex; align-items: center; gap: 10px; border: 1px solid #e5e3da; background: transparent; border-radius: 8px; padding: 8px; text-align: left; cursor: pointer; }
+    .design-option:hover,.design-option.selected { border-color: var(--green); background: #f1f5ef; }
+    .design-thumb { width: 40px; height: 40px; flex: 0 0 auto; border-radius: 6px; background: var(--mint); display: grid; place-items: center; overflow: hidden; color: var(--green); }
+    .design-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .design-name { font-size: 11px; font-weight: 700; }
+    .design-date { color: var(--muted); font: 9px var(--mono); margin-top: 4px; }
+    .format-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 11px; }
+    .format-chip { border: 1px solid var(--line); border-radius: 20px; padding: 5px 9px; color: var(--muted); font: 10px var(--mono); }
+    .format-chip.available { background: var(--mint); color: var(--green-dark); border-color: #c6ddd0; }
+    .dropzone { border: 1px dashed #aeb9ac; border-radius: 9px; padding: 17px 12px; text-align: center; background: #f8f7f1; cursor: pointer; transition: background .15s, border-color .15s; }
+    .dropzone:hover,.dropzone.dragging { border-color: var(--green); background: #eef4ed; }
+    .dropzone svg { width: 24px; height: 24px; color: var(--green); margin-bottom: 6px; }
+    .dropzone strong { display: block; font: 700 11px var(--display); }
+    .dropzone span { color: var(--muted); font-size: 10px; display: block; margin-top: 4px; }
+    .file-name { color: var(--green-dark) !important; font: 10px var(--mono); }
+    .converter-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 13px; }
+    .converter-controls label { font: 700 10px var(--display); color: #68736b; }
+    .converter-controls input,.converter-controls select { width: 100%; margin-top: 5px; height: 35px; border: 1px solid var(--line); background: #fffefa; border-radius: 6px; padding: 0 8px; color: var(--ink); font-size: 11px; }
+    .convert-buttons { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+    .result-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 14px; }
+    .preview-pair { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+    .preview-card { min-width: 0; }
+    .preview-label { font: 700 10px var(--display); margin-bottom: 6px; color: #68736b; }
+    .source-preview { min-height: 120px; background: #f3f0e8; border: 1px solid var(--line); border-radius: 8px; display: grid; place-items: center; overflow: hidden; }
+    .source-preview img { width: 80px; height: 80px; object-fit: contain; }
+    .vector-preview { min-height: 120px; background: #26312d; border-radius: 8px; display: grid; place-items: center; overflow: hidden; }
+    .vector-preview img { width: 80px; height: 80px; object-fit: contain; }
+    .vector-preview[data-theme="light"] { background: #f3f0e8; }
+    .vector-preview[data-theme="amoled"] { background: #000; }
+    .vector-preview[data-theme="material"] { background: #dce7f7; }
+    .vector-preview[data-theme="light"] img { filter: brightness(0) saturate(100%) opacity(.84); }
+    .vector-preview[data-theme="material"] img { filter: brightness(0) saturate(100%) invert(35%) sepia(22%) saturate(1080%) hue-rotate(105deg); }
+    .vector-preview[data-theme="dark"] img,.vector-preview[data-theme="amoled"] img { filter: grayscale(1) brightness(0) invert(1); }
+    .xml-output { min-width: 0; }
+    .xml-output label { font: 700 10px var(--display); display: flex; justify-content: space-between; margin-bottom: 6px; }
+    .xml-output textarea { width: 100%; height: 120px; resize: vertical; border: 1px solid #38443e; background: #26312d; color: #d8e5da; border-radius: 7px; padding: 9px; font: 9px/1.5 var(--mono); }
+    .log-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .log-meta { color: var(--muted); font: 10px var(--mono); margin-left: auto; align-self: center; }
+    .log-window { background: #26312d; border-radius: 9px; min-height: 240px; max-height: 530px; overflow: auto; padding: 14px; color: #d5e0d6; font: 10px/1.8 var(--mono); }
+    .log-line { display: grid; grid-template-columns: 73px 47px minmax(0,1fr); gap: 9px; border-bottom: 1px solid rgba(255,255,255,.055); padding: 3px 0; overflow-wrap: anywhere; }
+    .log-time { color: #829188; }
+    .log-level { color: #9dcaad; }
+    .log-level.warn { color: #e6c27c; }
+    .log-level.error { color: #e28d75; }
+    .log-empty { color: #94a39a; padding: 35px 10px; text-align: center; }
+    .toast-region { position: fixed; z-index: 20; right: 18px; bottom: 18px; display: grid; gap: 8px; width: min(360px, calc(100vw - 36px)); }
+    .toast { background: #26312d; color: #f7f4eb; padding: 12px 14px; border-radius: 8px; box-shadow: var(--shadow); font-size: 12px; line-height: 1.5; animation: arrive .2s ease; }
+    .toast.bad { background: #8f4838; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    @media (max-width: 950px) {
+      .shell { grid-template-columns: 66px minmax(0,1fr); }
+      .rail { padding: 18px 8px; align-items: center; }
+      .brand { padding: 0 0 24px; }
+      .brand-copy,.rail-label,.nav-text,.nav-count,.project-card,.rail-footer { display: none; }
+      .nav { width: 100%; }
+      .nav button { justify-content: center; padding: 11px 0; }
+      .nav button.active { box-shadow: inset 3px 0 var(--green); }
+      .nav svg { width: 19px; height: 19px; }
+      .rail-bottom { display: none; }
+    }
+    @media (max-width: 760px) {
+      .shell { display: block; padding-bottom: 67px; }
+      .rail { position: fixed; z-index: 10; top: auto; bottom: 0; left: 0; right: 0; width: 100%; height: 65px; padding: 7px 8px max(7px, env(safe-area-inset-bottom)); border: 0; border-top: 1px solid var(--line); flex-direction: row; background: rgba(232,230,220,.96); backdrop-filter: blur(14px); }
+      .brand,.rail-bottom { display: none; }
+      .nav { display: flex; justify-content: space-around; align-items: center; gap: 2px; }
+      .nav button { flex: 1; min-width: 0; height: 48px; display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 4px 2px; font-size: 8px; }
+      .nav button.active { box-shadow: inset 0 3px var(--green); }
+      .nav-text { display: block; }
+      .nav svg { width: 17px; height: 17px; }
+      .topbar { height: 57px; padding: 0 16px; }
+      .content { padding: 22px 15px 32px; }
+      .page-heading { align-items: flex-start; flex-direction: column; margin-bottom: 18px; }
+      .page-heading > .button { align-self: flex-start; }
+      .sync-label { display: none; }
+      .studio-grid,.workspace-grid { grid-template-columns: 1fr; }
+      .config-panel { order: -1; }
+      .config-panel .panel-body { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
+      .config-panel .note-card { grid-column: 1 / -1; }
+      .device-stage { min-height: 515px; padding: 16px 8px; }
+      .phone.landscape { width: min(444px, calc(100vw - 74px)); height: min(252px, calc((100vw - 74px) * .57)); min-height: 210px; }
+      .panel-head,.panel-body { padding-left: 14px; padding-right: 14px; }
+      .audit-item { grid-template-columns: 52px minmax(0,1fr); gap: 9px; }
+      .audit-ref { grid-column: 2; }
+      .audit-tools { width: 100%; }
+      .search { min-width: 0; flex: 1; }
+      .preview-pair { gap: 7px; }
+      .vector-preview { min-height: 100px; }
+    }
+    @media (max-width: 420px) {
+      .nav button { font-size: 7px; }
+      .nav svg { width: 15px; height: 15px; }
+      .segmented button { padding: 6px 7px; }
+      .phone { transform: scale(.92); }
+      .device-stage { min-height: 470px; }
+      .audit-toolbar { align-items: flex-start; }
+      .filter-group { display: flex; flex-wrap: wrap; }
+      .download-row { width: 100%; }
+      .download-row .button { flex: 1; }
+      .log-line { grid-template-columns: 60px 38px minmax(0,1fr); gap: 6px; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *:before, *:after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail" aria-label="Studio navigation">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 5.5h14v13H5zM9 5.5v13m6-13v13M5 10h14m-14 4h14" stroke="currentColor" stroke-width="1.5"/><path d="M9 10h6v4H9z" fill="currentColor" opacity=".7"/></svg></div>
+        <div class="brand-copy"><div class="brand-name">Frame / Studio</div><div class="brand-caption">ANDROID UI WORKBENCH</div></div>
+      </div>
+      <div class="rail-label">Workspace</div>
+      <nav class="nav" id="mainNav">
+        <button class="active" data-section="audit" aria-current="page" aria-label="UI audit"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4.5h12v15H6zM9 8h6M9 12h6M9 16h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="nav-text">UI audit</span><span class="nav-count" id="auditCount">—</span></button>
+        <button data-section="simulator" aria-label="Phone simulator"><svg viewBox="0 0 24 24" fill="none"><rect x="6.5" y="2.8" width="11" height="18.4" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M10 5.5h4M11 18.2h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="nav-text">Simulator</span></button>
+        <button data-section="assets" aria-label="Canva and vector assets"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7.5h6l1.5 2H20v9H4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 15.5l2.2-2.2 2.2 2.2 3.6-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="nav-text">Canva & assets</span></button>
+        <button data-section="logs" aria-label="Debug log"><svg viewBox="0 0 24 24" fill="none"><path d="M5 5h14v14H5zM8 9h8M8 12h8M8 15h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="nav-text">Debug log</span></button>
+      </nav>
+      <div class="rail-bottom">
+        <div class="project-card"><div class="project-card-top"><span class="project-title">AnantPlay</span><span class="status-dot"></span></div><div class="project-meta">ANDROID · V3.4.3 REVIEW<br>Last audit · <span id="lastAudit">Loading</span></div></div>
+        <div class="rail-footer"><span>STUDIO V1.4</span><span>LOCAL SESSION</span></div>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <div class="crumb">Workspace <span aria-hidden="true">/</span> <strong id="crumbCurrent">UI audit</strong></div>
+        <div class="top-actions"><span class="sync-label"><span class="status-dot"></span><span id="syncText">Connecting to studio…</span></span><div class="avatar" aria-label="UI Studio">UI</div></div>
+      </header>
+      <div class="content">
+        <section class="section active" id="section-audit">
+          <div class="page-heading"><div><div class="eyebrow">01 / Inspect the existing app</div><h1>UI audit</h1><p class="page-subtitle">A focused read of the current Sinhala media-player experience. Filter findings, then hand off the source audit or redesign blueprint.</p></div><button class="button primary" id="rerunAudit"><svg viewBox="0 0 24 24" fill="none"><path d="M20 11a8 8 0 0 0-14.9-3M4 4v4h4m-4 5a8 8 0 0 0 14.9 3M20 20v-4h-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Rerun audit</button></div>
+          <div class="panel">
+            <div class="panel-head"><div><h2>Findings from the current build</h2><p id="auditSummary">Loading audit log…</p></div><span class="eyebrow" id="auditUpdated">SOURCE: STATIC AUDIT</span></div>
+            <div class="panel-body">
+              <div class="audit-toolbar">
+                <div class="audit-tools filter-group" role="group" aria-label="Filter audit findings">
+                  <button class="filter-pill active" data-filter="all">All findings</button><button class="filter-pill" data-filter="high">High</button><button class="filter-pill" data-filter="medium">Medium</button><button class="filter-pill" data-filter="low">Notes</button>
+                </div>
+                <input class="search" id="auditSearch" type="search" placeholder="Search findings…" aria-label="Search audit findings">
+              </div>
+              <div class="audit-list" id="auditList" aria-live="polite"><div class="empty-state">Reading the audit log…</div></div>
+              <div class="audit-footer"><span id="auditFootnote">AUDIT SOURCE · REPLIT_UI_ONLY_AUDIT_LOG.TXT</span>
+                <div class="download-row"><a class="button small" href="/deliverables/audit.txt" download>TXT audit</a><a class="button small" href="/deliverables/blueprint.md" download>MD blueprint</a><a class="button small" href="/deliverables/blueprint.pdf" download>PDF brief</a></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-simulator">
+          <div class="page-heading"><div><div class="eyebrow">02 / Recompose the experience</div><h1>Phone simulator</h1><p class="page-subtitle">Compare the current interface with an icon-first direction. Tune the palette and density while moving across the core app surfaces.</p></div><div class="segmented" role="group" aria-label="Compare current and proposed design"><button class="active" data-version="proposed">Proposed</button><button data-version="current">Current</button></div></div>
+          <div class="studio-grid">
+            <div class="panel">
+              <div class="panel-head sim-head"><div><h2 id="simTitle">Home</h2><p id="simDescription">A warmer, more legible listening home.</p></div><div class="segmented" id="orientationToggle" role="group" aria-label="Player orientation"><button class="active" data-orientation="portrait">Portrait</button><button data-orientation="landscape">Landscape</button></div></div>
+              <div class="sim-body">
+                <div class="sim-toolbar"><div class="screen-tabs" role="tablist" aria-label="Simulator screens">
+                  <button class="active" data-screen="home" role="tab" aria-selected="true">Home</button><button data-screen="browser" role="tab" aria-selected="false">Browser</button><button data-screen="customize" role="tab" aria-selected="false">Customize</button><button data-screen="player" role="tab" aria-selected="false">Player</button><button data-screen="icon" role="tab" aria-selected="false">App icon</button>
+                </div><span class="eyebrow">DEVICE / 360 × 800</span></div>
+                <div class="device-stage"><div class="device-wrap"><div class="phone" id="phone" aria-label="Interactive Android phone preview"></div></div></div>
+                <div class="sim-caption"><span id="simStatus">PROPOSED DIRECTION · MATERIAL-INSPIRED</span><span>PREVIEW ONLY</span></div>
+              </div>
+            </div>
+            <div class="panel config-panel">
+              <div class="panel-head"><div><h2>Preview controls</h2><p>Changes apply to the proposed preview.</p></div></div>
+              <div class="panel-body">
+                <div class="control-group"><label for="themeSelect">Theme</label><select class="select" id="themeSelect"><option value="light">Light</option><option value="dark">Dark</option><option value="amoled">AMOLED</option></select></div>
+                <div class="control-group"><label>Accent color</label><div class="accent-row" role="group" aria-label="Accent color"><button class="swatch selected" data-accent="#386a59" style="background:#386a59" aria-label="Fern green" aria-pressed="true"></button><button class="swatch" data-accent="#d4775c" style="background:#d4775c" aria-label="Clay coral" aria-pressed="false"></button><button class="swatch" data-accent="#64869a" style="background:#64869a" aria-label="Slate blue" aria-pressed="false"></button><button class="swatch" data-accent="#a9823e" style="background:#a9823e" aria-label="Ochre" aria-pressed="false"></button></div></div>
+                <div class="control-group"><label for="densityRange">Interface density</label><div class="range-row"><input id="densityRange" type="range" min="0" max="2" value="1" aria-label="Interface density"><span class="density-read" id="densityRead">Regular</span></div></div>
+                <div class="note-card"><b>Design note</b><br>Keep Sinhala labels first. The proposed system gives station art a stronger visual anchor and keeps playback controls within thumb reach.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-assets">
+          <div class="page-heading"><div><div class="eyebrow">03 / Move artwork into Android</div><h1>Canva &amp; vector assets</h1><p class="page-subtitle">Connect Canva when credentials are configured, browse source designs, or safely convert an SVG into a VectorDrawable and Android-ready bundle.</p></div></div>
+          <div class="workspace-grid">
+            <div class="panel">
+              <div class="panel-head"><div><h2>Canva connection</h2><p>Authorization stays server-side. Tokens and secrets are never displayed.</p></div><div class="connection-status"><span class="status-badge" id="canvaDot"></span><span id="canvaStatus">Checking status</span></div></div>
+              <div class="panel-body">
+                <div class="connection-banner" id="canvaMessage" role="status"><svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5m0 3h.01M10 3h4l7 17H3z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><div><strong>Checking Canva setup.</strong><br>Connection status will appear here.</div></div>
+                <div class="connection-actions">
+                  <a class="button primary" href="/auth/canva/login" id="connectCanva">Connect Canva</a>
+                  <button class="button" id="refreshCanva">Refresh session</button><button class="button" id="testCanva">Test connection</button><button class="button danger" id="disconnectCanva">Disconnect</button>
+                </div>
+                <div class="callback-box"><div class="eyebrow">OAuth callback URL</div><div class="callback-url" id="callbackUrl">Loading callback status…</div><div class="callback-state" id="callbackState"></div></div>
+              </div>
+            </div>
+            <div class="workspace-stack">
+              <div class="panel">
+                <div class="panel-head"><div><h2>Design library</h2><p>Find a design, inspect its export formats, then request an SVG conversion.</p></div></div>
+                <div class="panel-body">
+                  <form class="design-search-row" id="designSearchForm"><label class="sr-only" for="designQuery">Search Canva designs</label><input class="search" id="designQuery" type="search" placeholder="Search Canva designs"><button class="button small" type="submit">Search</button></form>
+                  <div class="design-list" id="designList"><div class="empty-state">Connect Canva to browse your designs.</div></div>
+                  <div id="formatBox" hidden><div class="eyebrow" style="margin-top:12px">Available formats</div><div class="format-row" id="formatList"></div><button class="button small primary" id="exportCanva" style="margin-top:11px" disabled>Export selected as SVG</button></div>
+                </div>
+              </div>
+              <div class="panel">
+                <div class="panel-head"><div><h2>SVG to Android vector</h2><p>Upload safe, path-based SVG artwork. Maximum file size: 1 MB.</p></div></div>
+                <div class="panel-body">
+                  <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Choose an SVG file or drop it here"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 15v4h14v-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><strong>Drop an SVG here or choose a file</strong><span>Only SVG files · paths, flat colors and simple shapes</span><span class="file-name" id="fileName">No file selected</span></div>
+                  <input class="sr-only" id="svgFile" type="file" accept=".svg,image/svg+xml">
+                  <div class="converter-controls"><label>Android resource name<input id="iconName" value="ic_custom" maxlength="64" autocomplete="off"></label><label>Target format<select id="iconKind"><option value="icon">24 dp vector icon</option><option value="adaptive">108 dp adaptive icon</option></select></label></div>
+                  <div class="convert-buttons"><button class="button primary small" id="convertSvg" disabled>Convert to XML</button><button class="button small" id="bundleSvg" disabled>Build ZIP bundle</button></div>
+                  <div class="result-grid" id="conversionResult" hidden>
+                    <div class="control-group"><label for="vectorTheme">Android preview surface</label><select class="select" id="vectorTheme"><option value="dark">Dark</option><option value="amoled">AMOLED</option><option value="light">Light</option><option value="material">Material tint sample</option></select></div>
+                    <div class="preview-pair"><div class="preview-card"><div class="preview-label">Source SVG</div><div class="source-preview" id="sourcePreview"></div></div><div class="preview-card"><div class="preview-label">Android vector preview</div><div class="vector-preview" id="vectorPreview" data-theme="dark" aria-label="Sanitized Android vector preview"></div></div></div>
+                    <div class="xml-output"><label>Android VectorDrawable XML <button class="button small" id="copyXml" type="button">Copy XML</button></label><textarea id="xmlCode" readonly spellcheck="false" aria-label="Generated Android XML"></textarea></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-logs">
+          <div class="page-heading"><div><div class="eyebrow">04 / Inspect the audit</div><h1>Debug log</h1><p class="page-subtitle">Search and copy the saved UI-only audit. Session request events stay local to this browser.</p></div><button class="button" id="clearLogs">Clear session log</button></div>
+          <div class="panel">
+            <div class="panel-head"><div><h2 id="logHeading">UI-only audit file</h2><p id="logDescription">REPLIT_UI_ONLY_AUDIT_LOG.txt · read-only source findings</p></div><button class="button small" id="copyLogs">Copy visible log</button></div>
+            <div class="panel-body"><div class="log-toolbar"><label class="sr-only" for="logSearch">Search debug log</label><input class="search" type="search" id="logSearch" placeholder="Search lines, source files, labels…"><label class="sr-only" for="logSource">Log source</label><select class="select" id="logSource" style="width:150px"><option value="audit">UI audit file</option><option value="session">Session activity</option></select><select class="select" id="logLevel" style="width:120px" hidden><option value="all">All levels</option><option value="info">Info</option><option value="warn">Warning</option><option value="error">Error</option></select><span class="log-meta" id="logCount">0 LINES</span></div><div class="log-window" id="logWindow" role="log" aria-live="polite"><div class="log-empty">Loading the UI audit file…</div></div></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div class="toast-region" id="toasts" aria-live="polite" aria-atomic="true"></div>
+  <script>
+  (() => {
+    "use strict";
+    const $ = (selector, root = document) => root.querySelector(selector);
+    const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+    const state = { csrf: "", connected: false, configured: false, callbackState: "", designs: [], selectedDesign: "", svg: "", conversion: null, logs: [], audit: [], auditText: "", filter: "all", logSource: "audit", screen: "home", version: "proposed", orientation: "portrait", accent: "#386a59", theme: "light", density: 1 };
+    const icon = (name) => {
+      const paths = {
+        note: '<path d="M7 4h10v16H7zM10 8h4m-4 4h4m-4 4h2"/>',
+        music: '<path d="M10 18V5l10-2v13"/><circle cx="7" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+        play: '<path d="m8 5 11 7-11 7z" fill="currentColor" stroke="none"/>',
+        home: '<path d="m3 10 9-7 9 7v10h-6v-6H9v6H3z"/>',
+        search: '<circle cx="10.8" cy="10.8" r="6.3"/><path d="m16 16 4.5 4.5"/>',
+        tune: '<path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+        film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4m-4 6h4m10-6h4m-4 6h4"/>',
+        cc: '<path d="M4 6h16v12H4z"/><path d="M10 10H8a2 2 0 1 0 0 4h2m6-4h-2a2 2 0 1 0 0 4h2"/>',
+        track: '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1.5" fill="currentColor"/><circle cx="15" cy="12" r="1.5" fill="currentColor"/>',
+        aspect: '<path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3"/>',
+        speed: '<circle cx="12" cy="12" r="8.5"/><path d="m12 7 0 5 3 2"/>',
+        external: '<path d="M14 4h6v6m0-6-9 9"/><path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/>',
+        rewind: '<path d="M4 8V4m0 4h4M4.7 8a8 8 0 1 1-.2 7"/><path d="m13 8-4 4 4 4"/>',
+        forward: '<path d="M20 8V4m0 4h-4m3.3 0a8 8 0 1 0 .2 7"/><path d="m11 8 4 4-4 4"/>',
+        pause: '<path d="M8 5h3v14H8zm5 0h3v14h-3z" fill="currentColor" stroke="none"/>',
+        rotate: '<path d="M4 8V4m0 4h4M4.8 8A8 8 0 1 1 5 16"/>',
+        settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.7 2.9-.2-.1a1.7 1.7 0 0 0-1.9.3l-.1.1h-3.4l-.1-.2a1.7 1.7 0 0 0-1.6-1.1 1.7 1.7 0 0 0-.9.3l-.2.1L7 17.6l.1-.2A1.7 1.7 0 0 0 7.4 16c0-.7-.4-1.3-1-1.6l-.2-.1v-3.4l.2-.1a1.7 1.7 0 0 0 1-1.6c0-.3-.1-.6-.3-.9L7 8.1l2.7-2 .2.1a1.7 1.7 0 0 0 2.5-.8l.1-.2h3.4l.1.2a1.7 1.7 0 0 0 2.5.8l.2-.1 1.7 2.9-.1.1a1.7 1.7 0 0 0-.3 1.9l.1.2v3.4z"/>',
+        more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>'
+      };
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.note}</svg>`;
+    };
+    function log(level, message) {
+      const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      state.logs.unshift({ time, level, message: String(message).replace(/(access_token|refresh_token|client_secret|code_verifier|state|code)=?[^&\s]*/gi, "$1=[redacted]") });
+      state.logs = state.logs.slice(0, 250); renderLogs();
+    }
+    function toast(message, bad = false) {
+      const node = document.createElement("div"); node.className = `toast${bad ? " bad" : ""}`; node.textContent = message;
+      $("#toasts").append(node); window.setTimeout(() => node.remove(), 4300);
+    }
+    async function request(path, options = {}) {
+      const method = options.method || "GET";
+      const headers = { ...(options.headers || {}) };
+      if (method !== "GET") {
+        headers["Content-Type"] = "application/json";
+        if (state.csrf) headers["X-CSRF-Token"] = state.csrf;
+      }
+      let response;
+      try {
+        response = await fetch(path, { method, headers, credentials: "same-origin", cache: "no-store", body: options.body === undefined ? undefined : JSON.stringify(options.body) });
+      } catch (error) {
+        log("error", `${method} ${path} — network unavailable`);
+        throw new Error("The studio server could not be reached. Check your connection and try again.");
+      }
+      const contentType = response.headers.get("content-type") || "";
+      if (!response.ok) {
+        let reason = `Request failed (${response.status}).`;
+        if (contentType.includes("application/json")) { try { const data = await response.json(); if (data.error) reason = data.error; } catch (_) {} }
+        log(response.status >= 500 ? "error" : "warn", `${method} ${path} — ${reason}`);
+        throw new Error(reason);
+      }
+      log("info", `${method} ${path} — ${response.status}`);
+      if (contentType.includes("application/json")) return response.json();
+      return response;
+    }
+    function setBusy(button, busy, label) {
+      if (!button) return;
+      button.disabled = busy;
+      if (label) { if (busy) { button.dataset.originalHtml = button.innerHTML; button.textContent = label; } else if (button.dataset.originalHtml) { button.innerHTML = button.dataset.originalHtml; delete button.dataset.originalHtml; } }
+    }
+    function openSection(name) {
+      $$(".section").forEach(section => section.classList.toggle("active", section.id === `section-${name}`));
+      $$("#mainNav button").forEach(button => { const active = button.dataset.section === name; button.classList.toggle("active", active); if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
+      const titles = { audit: "UI audit", simulator: "Phone simulator", assets: "Canva & assets", logs: "Debug log" };
+      $("#crumbCurrent").textContent = titles[name] || "UI audit";
+      if (name === "assets" && state.connected && !state.designs.length) loadDesigns();
+    }
+    $$("#mainNav button").forEach(button => button.addEventListener("click", () => openSection(button.dataset.section)));
+    async function loadAudit() {
+      const list = $("#auditList"); list.innerHTML = '<div class="empty-state">Loading audit findings…</div>';
+      try {
+        const response = await request("/api/audit");
+        const text = await response.text();
+        state.auditText = text;
+        state.audit = parseAudit(text);
+        $("#auditUpdated").textContent = "SOURCE: LIVE AUDIT LOG";
+        $("#lastAudit").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        renderAudit(); renderLogs();
+      } catch (error) {
+        state.audit = [];
+        $("#auditSummary").textContent = "The audit log could not be loaded.";
+        list.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}<br><button class="button small" id="retryAudit" style="margin-top:10px">Try again</button></div>`;
+        $("#retryAudit").addEventListener("click", loadAudit);
+      }
+    }
+    function parseAudit(text) {
+      const lines = text.split(/\r?\n/);
+      const result = [];
+      const start = lines.findIndex(line => line.trim() === "PRIORITIZED, EXACT SOURCE FINDINGS");
+      const end = lines.findIndex((line, index) => index > start && line.trim() === "ICON AND LAYOUT INVENTORY");
+      if (start < 0) return result;
+      let current = null;
+      const finish = () => { if (current) result.push(current); current = null; };
+      for (const line of lines.slice(start + 1, end > start ? end : undefined)) {
+        const match = line.match(/^(P[1-3])\s+—\s+(.*)$/);
+        if (match) {
+          finish();
+          current = { severity: match[1] === "P1" ? "high" : match[1] === "P2" ? "medium" : "low", title: match[2], detail: "", refs: [] };
+          continue;
+        }
+        if (!current || !line.trim()) continue;
+        const source = line.match(/^([\w/.-]+\.java:\d+)\s+\|\s+(.*)$/);
+        if (source) current.refs.push(source[1]);
+        else if (!/^(P[1-3]\s+—)/.test(line)) current.detail += `${current.detail ? " " : ""}${line.trim()}`;
+      }
+      finish();
+      result.forEach((item, index) => { item.detail = item.detail.slice(0, 700); item.ref = item.refs.join(", ") || `Audit note ${index + 1}`; });
+      return result;
+    }
+    function renderAudit() {
+      const query = $("#auditSearch").value.trim().toLowerCase();
+      const items = state.audit.filter(item => (state.filter === "all" || item.severity === state.filter) && (!query || `${item.title} ${item.detail}`.toLowerCase().includes(query)));
+      $("#auditCount").textContent = String(state.audit.length);
+      $("#auditSummary").textContent = `${state.audit.length} finding${state.audit.length === 1 ? "" : "s"} · filter by severity or search the source log.`;
+      $("#auditList").innerHTML = items.length ? items.map(item => `<article class="audit-item"><div class="audit-severity sev-${item.severity}">${item.severity}</div><div class="audit-copy"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.detail)}</p></div><div class="audit-ref">${escapeHtml(item.ref)}</div></article>`).join("") : '<div class="empty-state">No findings match this filter. Try another severity or search phrase.</div>';
+    }
+    $$(".filter-pill").forEach(button => button.addEventListener("click", () => { $$(".filter-pill").forEach(b => b.classList.remove("active")); button.classList.add("active"); state.filter = button.dataset.filter; renderAudit(); }));
+    $("#auditSearch").addEventListener("input", renderAudit);
+    $("#rerunAudit").addEventListener("click", async event => {
+      const button = event.currentTarget; setBusy(button, true, "Running audit…");
+      try { const data = await request("/api/audit/rerun", { method: "POST", body: {} }); toast(data.message || "Audit refreshed."); await loadAudit(); }
+      catch (error) { toast(error.message, true); }
+      finally { setBusy(button, false); }
+    });
+    function escapeHtml(value) { return String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char])); }
+    function safeCanvaImage(value) {
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" && (url.hostname === "canva.com" || url.hostname.endsWith(".canva.com")) ? url.href : "";
+      } catch (_) { return ""; }
+    }
+
+    const screenCopy = {
+      home: ["Home", "A clearer Cast receiver and continue-watching view."],
+      browser: ["Browser", "Find video sources without losing playback context."],
+      customize: ["Customize", "Preview themes and make the interface your own."],
+      player: ["Player", "Compare the current text-heavy dock with a compact icon dock."],
+      icon: ["App icon", "An icon-first launcher direction, ready for vector refinement."]
+    };
+    function navBar(selected) {
+      return `<div class="phone-nav"><span class="${selected === "home" ? "selected" : ""}">${icon("home")}Home</span><span class="${selected === "browser" ? "selected" : ""}">${icon("search")}Browse</span><span class="${selected === "customize" ? "selected" : ""}">${icon("tune")}Style</span><span>${icon("more")}More</span></div>`;
+    }
+    function renderPhone() {
+      const phone = $("#phone");
+      const isCurrent = state.version === "current";
+      const accent = isCurrent ? "#8b483c" : state.accent;
+      const dark = (state.theme === "dark" || state.theme === "amoled") && !isCurrent;
+      phone.style.setProperty("--phone-accent", accent);
+      phone.style.setProperty("--phone-bg", state.theme === "amoled" && !isCurrent ? "#050706" : dark ? "#202b2a" : isCurrent ? "#fffdf9" : "#f5f1e6");
+      phone.style.setProperty("--phone-ink", dark ? "#e9eee8" : "#26322c");
+      phone.style.setProperty("--phone-muted", dark ? "#a8b4aa" : "#7b847a");
+      phone.classList.toggle("landscape", state.screen === "player" && state.orientation === "landscape");
+      const heading = isCurrent ? "Cast receiver" : "දැන් නරඹන්න";
+      const footer = navBar(state.screen);
+      let body = "";
+      if (state.screen === "home") body = `<div class="phone-brand"><b>${isCurrent ? "SRI RADIO" : "රේඩියෝ"}</b><span class="brand-mini">LIVE · FM</span></div><div class="hero-tile"><span class="hero-kicker">NOW LISTENING · 01</span><span class="hero-title">${heading}</span></div><div class="phone-label">විශේෂ නාලිකා <small>සියල්ල බලන්න</small></div><div class="station-list"><div class="station"><div class="station-cover">${icon("music")}</div><div><div class="station-name">සිංහල සේවය</div><div class="station-sub">Colombo · 91.7 FM</div></div><div class="play-mark">${icon("play")}</div></div><div class="station"><div class="station-cover">${icon("music")}</div><div><div class="station-name">රන් FM</div><div class="station-sub">Music · 92.7 FM</div></div><div class="play-mark">${icon("play")}</div></div><div class="station"><div class="station-cover">${icon("music")}</div><div><div class="station-name">නෙත් FM</div><div class="station-sub">News · 95.0 FM</div></div><div class="play-mark">${icon("play")}</div></div></div>`;
+      if (state.screen === "browser") body = `<div class="phone-brand"><b>ගවේෂණය</b>${icon("search")}</div><div class="browser-title">ඔබේ හඬ සොයාගන්න</div><div class="browser-search">⌕ &nbsp; නාලිකා හෝ වැඩසටහන් සොයන්න</div><div class="browser-feature"></div><div class="browser-row"><span>පුවත් සහ කාලීන</span><span>12 නාලිකා &nbsp; ›</span></div><div class="browser-row"><span>සංගීතය</span><span>28 නාලිකා &nbsp; ›</span></div><div class="browser-row"><span>සංස්කෘතිය</span><span>09 නාලිකා &nbsp; ›</span></div>`;
+      if (state.screen === "customize") body = `<div class="phone-brand"><b>පෙනුම තෝරන්න</b>${icon("tune")}</div><div class="customize-title">ඔබේ අත්දැකීම</div><div class="theme-choice"><span>සැහැල්ලු තේමාව</span><span>●</span></div><div class="theme-choice"><span>රාත්‍රී සවන්දීම</span><span>○</span></div><div class="phone-label">උද්දීපන වර්ණය</div><div class="theme-choice"><span>ස්වභාවික කොළ</span><span class="theme-swatches"><i></i><i></i><i></i></span></div><div class="phone-label">පෙළ ප්‍රමාණය</div><div class="theme-choice"><span>අතුරු මුහුණතේ ඝනත්වය</span><span>− &nbsp; A &nbsp; +</span></div>`;
+      if (state.screen === "player") body = `<div class="phone-brand"><span class="brand-mini">‹ &nbsp; දැන් වාදනය වේ</span>${icon("more")}</div><div class="player-art">${icon("music")}</div><div class="track-name">සඳ එළියෙන්</div><div class="track-meta">සිංහල සේවය · සජීවී ගුවන් විදුලිය</div><div class="track-progress"><i></i></div><div class="sim-caption" style="padding:0 4px;font-size:7px"><span>12:38</span><span>− 24:00</span></div><div class="player-controls"><span>◖</span><b>${icon("play")}</b><span>◗</span></div>`;
+      if (state.screen === "icon") body = `<div class="phone-brand"><b>APP ICON</b><span class="brand-mini">ADAPTIVE</span></div><div class="icon-preview"><div><div class="app-icon-art">${icon("music")}</div><div class="icon-caption">Sinhala Radio</div></div></div><div style="font:7px var(--mono);text-align:center;color:var(--phone-muted)">24 DP · VECTOR READY</div>`;
+      if (state.screen === "home") {
+        body = `<div class="phone-brand"><b>ANANTPLAY</b><span class="brand-mini">${isCurrent ? "V3.4.3" : "CAST READY"}</span></div><div class="hero-tile"><span class="hero-kicker">${isCurrent ? "CAST RECEIVER" : "PICK UP WHERE YOU LEFT OFF"}</span><span class="hero-title">${heading}</span></div><div class="phone-label">Continue watching <small>${isCurrent ? "History" : "View all"}</small></div><div class="station-list"><div class="station"><div class="station-cover">${icon("film")}</div><div><div class="station-name">The Sea Between Us</div><div class="station-sub">${isCurrent ? "32 min left · Sinhala subs" : "32 min left"}</div></div><div class="play-mark">${icon("play")}</div></div><div class="station"><div class="station-cover">${icon("film")}</div><div><div class="station-name">Colombo at Dusk</div><div class="station-sub">${isCurrent ? "Last played yesterday" : "Sinhala subtitles"}</div></div><div class="play-mark">${icon("play")}</div></div></div>`;
+        if (isCurrent) body += `<div class="theme-choice">Choose “Sinhala Player” in Cast to start.</div>`;
+      }
+      if (state.screen === "browser") body = `<div class="phone-brand"><b>Browser</b>${icon("search")}</div><div class="browser-title">Find a video</div><div class="browser-search">Search or enter a video URL</div><div class="browser-feature"></div><div class="browser-row"><span>${isCurrent ? "Paste a media link" : "Recent"}</span><span>›</span></div><div class="browser-row"><span>${isCurrent ? "Recent pages" : "Saved links"}</span><span>›</span></div><div class="browser-row"><span>${isCurrent ? "Downloads and files" : "Downloads"}</span><span>›</span></div>`;
+      if (state.screen === "customize") body = isCurrent
+        ? `<div class="phone-brand"><b>Customize</b>${icon("tune")}</div><div class="customize-title">Appearance settings</div><div class="theme-choice"><span>Theme mode · System</span><span>›</span></div><div class="theme-choice"><span>Dynamic Color</span><span>On</span></div><div class="phone-label">Accent color</div><div class="theme-choice"><span>Custom #RRGGBB</span><span class="theme-swatches"><i></i><i></i><i></i></span></div><div class="theme-choice"><span>Card corner radius · Rounded</span><span>›</span></div><div class="theme-choice"><span>Layout density · Compact</span><span>›</span></div>`
+        : `<div class="phone-brand"><b>Customize</b>${icon("tune")}</div><div class="customize-title">Make it yours</div><div class="theme-choice"><span>Theme</span><span class="theme-swatches"><i></i><i></i><i></i></span></div><div class="phone-label">Accent <small>Fern</small></div><div class="theme-choice"><span>Pick a color</span><span class="theme-swatches"><i></i><i></i><i></i></span></div><div class="phone-label">Navigation</div><div class="theme-choice"><span>Icon style</span><span>${icon("more")}</span></div><div class="theme-choice"><span>Advanced settings</span><span>›</span></div>`;
+      if (state.screen === "player") {
+        const dock = isCurrent
+          ? `<div class="player-dock current"><span>CC Subs</span><span>Audio / Quality</span><span>Fit</span><span>1.0×</span><span>VLC</span><span>Title</span></div>`
+          : `<div class="player-dock proposed"><span title="Subtitles">${icon("cc")}</span><span title="Audio tracks">${icon("track")}</span><span title="Aspect">${icon("aspect")}</span><span title="Speed">${icon("speed")}</span><span title="Search title">${icon("search")}</span></div>`;
+        body = `<div class="phone-brand"><span class="brand-mini">${isCurrent ? "‹ &nbsp; Now playing" : `${icon("home")} &nbsp; Player`}</span>${icon("more")}</div><div class="player-art">${icon("film")}</div><div class="track-name">The Sea Between Us</div><div class="track-meta">Sinhala subtitles · 1080p</div><div class="track-progress"><i></i></div><div class="sim-caption" style="padding:0 4px;font-size:7px"><span>0:42:15</span><span>1:58:00</span></div><div class="player-controls"><span>${icon("rewind")}</span><b>${icon("play")}</b><span>${icon("forward")}</span></div>${dock}`;
+      }
+      if (state.screen === "icon") body = `<div class="phone-brand"><b>APP ICON</b><span class="brand-mini">ADAPTIVE</span></div><div class="icon-preview"><div><div class="app-icon-art">${icon("film")}</div><div class="icon-caption">AnantPlay</div></div></div><div style="font:7px var(--mono);text-align:center;color:var(--phone-muted)">108 DP · MONOCHROME</div>`;
+      $("#phone").style.transform = ["scale(1.04)", "scale(1)", "scale(.94)"][state.density];
+      $("#simStatus").textContent = `${isCurrent ? "V3.4.3 REFERENCE SCHEMATIC" : "V3.4.4 DESIGN DIRECTION"} · ${state.theme === "amoled" && !isCurrent ? "AMOLED" : dark ? "DARK" : "LIGHT"}`;
+      phone.innerHTML = `<div class="phone-status"><span>9:41</span><span>● &nbsp; ▰ ▰</span></div><div class="phone-body">${body}</div>${state.screen === "player" || state.screen === "icon" ? "" : footer}`;
+      $("#simTitle").textContent = screenCopy[state.screen][0];
+      $("#simDescription").textContent = screenCopy[state.screen][1];
+      $("#simStatus").textContent = `${isCurrent ? "CURRENT BUILD" : "PROPOSED DIRECTION"} · ${dark ? "NIGHT THEME" : "MATERIAL-INSPIRED"}`;
+      $("#orientationToggle").hidden = state.screen !== "player";
+      $$(".screen-tabs button").forEach(button => { const active = button.dataset.screen === state.screen; button.classList.toggle("active", active); button.setAttribute("aria-selected", String(active)); });
+      $$(".segmented [data-version]").forEach(button => { button.classList.toggle("active", button.dataset.version === state.version); });
+      $$("#orientationToggle button").forEach(button => button.classList.toggle("active", button.dataset.orientation === state.orientation));
+    }
+    $$(".screen-tabs button").forEach(button => button.addEventListener("click", () => { state.screen = button.dataset.screen; renderPhone(); }));
+    $$(".segmented [data-version]").forEach(button => button.addEventListener("click", () => { state.version = button.dataset.version; renderPhone(); }));
+    $$("#orientationToggle button").forEach(button => button.addEventListener("click", () => { state.orientation = button.dataset.orientation; renderPhone(); }));
+    $("#themeSelect").addEventListener("change", event => { state.theme = event.target.value; renderPhone(); });
+    $$(".swatch").forEach(button => button.addEventListener("click", () => { state.accent = button.dataset.accent; $$(".swatch").forEach(item => { item.classList.toggle("selected", item === button); item.setAttribute("aria-pressed", String(item === button)); }); renderPhone(); }));
+    $("#densityRange").addEventListener("input", event => {
+      state.density = Number(event.target.value);
+      $("#densityRead").textContent = ["Comfortable", "Regular", "Compact"][state.density];
+      $("#phone").style.transform = ["scale(1.04)", "scale(1)", "scale(.94)"][state.density];
+    });
+
+    function showCanvaStatus(data) {
+      state.configured = Boolean(data.configured); state.connected = Boolean(data.connected); state.csrf = data.csrfToken || state.csrf; state.callbackState = data.callbackState || "";
+      $("#canvaDot").className = `status-badge${state.connected ? " connected" : ""}`;
+      $("#canvaStatus").textContent = state.connected ? "Connected" : state.configured ? "Not connected" : "Credentials absent";
+      $("#connectCanva").setAttribute("aria-disabled", String(!state.configured));
+      $("#connectCanva").classList.toggle("disabled-link", !state.configured);
+      $("#connectCanva").style.opacity = state.configured ? "" : ".55";
+      $("#connectCanva").title = state.configured ? "Authorize Canva" : "Add Canva credentials in Replit Secrets before connecting";
+      $("#connectCanva").onclick = state.configured ? null : event => { event.preventDefault(); toast("Canva credentials are not configured. Add CANVA_CLIENT_ID and CANVA_CLIENT_SECRET in Replit Secrets.", true); };
+      $("#refreshCanva").disabled = !state.connected; $("#testCanva").disabled = !state.connected; $("#disconnectCanva").disabled = !state.connected;
+      $("#canvaMessage").innerHTML = state.connected
+        ? '<svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><div><strong>Canva is connected for this session.</strong><br>Design metadata and SVG exports are requested through the studio server.</div>'
+        : state.configured
+          ? '<svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5m0 3h.01M10 3h4l7 17H3z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><div><strong>Canva is ready to connect.</strong><br>Authorize this browser session to browse and export designs.</div>'
+          : '<svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5m0 3h.01M10 3h4l7 17H3z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><div><strong>Canva credentials are not configured.</strong><br>Add CANVA_CLIENT_ID and CANVA_CLIENT_SECRET in Replit Secrets. SVG upload and conversion work without Canva.</div>';
+      const callback = data.callbackUrl || "No callback URL is configured.";
+      $("#callbackUrl").textContent = callback;
+      const callbackNotes = { production: "Production callback configured.", configured: "Explicit callback configured. Confirm it exactly matches Canva's Developer Portal.", development: "Development-only callback. Set CANVA_REDIRECT_URI or publish the studio before production authorization.", unavailable: "Callback unavailable. Set CANVA_REDIRECT_URI after publishing.", invalid: "Callback URL is invalid. Configure an HTTPS callback URL." };
+      $("#callbackState").textContent = callbackNotes[data.callbackState] || "";
+      $("#callbackState").style.color = data.callbackState === "production" ? "var(--green)" : "#98713b";
+      if (state.connected) loadDesigns();
+      else $("#designList").innerHTML = `<div class="empty-state">${state.configured ? "Connect Canva to browse your designs." : "Canva is optional. Use the SVG upload below to continue without credentials."}</div>`;
+    }
+    async function loadCanvaStatus() {
+      try { const data = await request("/api/canva/status"); showCanvaStatus(data); $("#syncText").textContent = state.connected ? "Canva connected" : "Studio ready"; }
+      catch (error) { $("#syncText").textContent = "Studio offline"; $("#canvaStatus").textContent = "Status unavailable"; $("#canvaMessage").innerHTML = `<div><strong>Could not check Canva status.</strong><br>${escapeHtml(error.message)}</div>`; $("#callbackUrl").textContent = "Callback status unavailable."; }
+    }
+    async function postCanva(path, successText, refresh = false) {
+      const buttons = { "/api/canva/refresh": $("#refreshCanva"), "/api/canva/test": $("#testCanva"), "/api/canva/disconnect": $("#disconnectCanva") };
+      const button = buttons[path]; setBusy(button, true, path.endsWith("refresh") ? "Refreshing…" : path.endsWith("test") ? "Testing…" : "Disconnecting…");
+      try {
+        const data = await request(path, { method: "POST", body: {} });
+        toast(data.message || successText);
+        if (path.endsWith("disconnect")) { state.connected = false; state.designs = []; showCanvaStatus({ configured: state.configured, connected: false, callbackUrl: $("#callbackUrl").textContent, callbackState: state.callbackState, csrfToken: state.csrf }); }
+        else if (refresh) await loadCanvaStatus();
+      } catch (error) { toast(error.message, true); }
+      finally { setBusy(button, false); }
+    }
+    $("#refreshCanva").addEventListener("click", () => postCanva("/api/canva/refresh", "Canva session refreshed.", true));
+    $("#testCanva").addEventListener("click", () => postCanva("/api/canva/test", "Canva connection is working."));
+    $("#disconnectCanva").addEventListener("click", () => { if (window.confirm("Disconnect Canva from this browser session?")) postCanva("/api/canva/disconnect", "Canva disconnected."); });
+    $("#designSearchForm").addEventListener("submit", event => { event.preventDefault(); loadDesigns($("#designQuery").value.trim()); });
+    async function loadDesigns(query = "") {
+      if (!state.connected) return;
+      const list = $("#designList"); list.innerHTML = '<div class="empty-state">Loading Canva designs…</div>';
+      try {
+        const data = await request(`/api/canva/designs?query=${encodeURIComponent(query)}`);
+        state.designs = Array.isArray(data.items) ? data.items : [];
+        list.innerHTML = state.designs.length ? state.designs.map(item => { const thumbnail = safeCanvaImage(item.thumbnail); return `<button class="design-option${item.id === state.selectedDesign ? " selected" : ""}" data-design="${escapeHtml(item.id)}"><span class="design-thumb">${thumbnail ? `<img src="${escapeHtml(thumbnail)}" alt="" loading="lazy">` : icon("note")}</span><span><span class="design-name">${escapeHtml(item.title || "Untitled design")}</span><span class="design-date">${item.updatedAt ? `UPDATED ${escapeHtml(new Date(item.updatedAt).toLocaleDateString())}` : "CANVA DESIGN"}</span></span></button>`; }).join("") : '<div class="empty-state">No designs found. Try another search phrase.</div>';
+        $$(".design-option", list).forEach(button => button.addEventListener("click", () => selectDesign(button.dataset.design)));
+      } catch (error) { list.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}<br><button class="button small" id="retryDesigns" style="margin-top:10px">Try again</button></div>`; $("#retryDesigns").addEventListener("click", () => loadDesigns(query)); }
+    }
+    async function selectDesign(id) {
+      state.selectedDesign = id;
+      $$(".design-option").forEach(button => button.classList.toggle("selected", button.dataset.design === id));
+      $("#formatBox").hidden = false; $("#exportCanva").disabled = true; $("#formatList").innerHTML = '<span class="format-chip">Checking formats…</span>';
+      try {
+        const data = await request(`/api/canva/designs/${encodeURIComponent(id)}/formats`);
+        const formats = data.formats || {};
+        const entries = Object.entries(formats);
+        $("#formatList").innerHTML = entries.length ? entries.map(([key, value]) => `<span class="format-chip${key.toLowerCase() === "svg" ? " available" : ""}">${escapeHtml(key.toUpperCase())}${value ? " · available" : ""}</span>`).join("") : '<span class="format-chip">No formats listed</span>';
+        $("#exportCanva").disabled = !formats.svg;
+        if (!formats.svg) toast("This design does not list SVG export. Try downloading an SVG in Canva and upload it here.", true);
+      } catch (error) { $("#formatList").innerHTML = `<span class="format-chip">${escapeHtml(error.message)}</span>`; }
+    }
+    $("#exportCanva").addEventListener("click", async event => {
+      const button = event.currentTarget; if (!state.selectedDesign) return;
+      setBusy(button, true, "Exporting SVG…");
+      try {
+        const data = await request("/api/canva/export-svg", { method: "POST", body: { design_id: state.selectedDesign } });
+        state.svg = data.svg || ""; state.conversion = data.conversion || null; displayConversion(state.conversion);
+        toast("Canva SVG exported and converted.");
+        document.querySelector("#section-assets .panel:last-child").scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch (error) { toast(error.message, true); }
+      finally { setBusy(button, false); }
+    });
+    const dropzone = $("#dropzone"), fileInput = $("#svgFile");
+    dropzone.addEventListener("click", () => fileInput.click());
+    dropzone.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); fileInput.click(); } });
+    fileInput.addEventListener("change", () => { if (fileInput.files[0]) readSvg(fileInput.files[0]); });
+    ["dragenter", "dragover"].forEach(name => dropzone.addEventListener(name, event => { event.preventDefault(); dropzone.classList.add("dragging"); }));
+    ["dragleave", "drop"].forEach(name => dropzone.addEventListener(name, event => { event.preventDefault(); dropzone.classList.remove("dragging"); }));
+    dropzone.addEventListener("drop", event => { const file = event.dataTransfer.files[0]; if (file) readSvg(file); });
+    function readSvg(file) {
+      if (!/\.svg$/i.test(file.name) && file.type !== "image/svg+xml") { toast("Choose an SVG file.", true); return; }
+      if (file.size > 1_000_000) { toast("SVG files must be smaller than 1 MB.", true); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        state.svg = String(reader.result || ""); state.conversion = null;
+        $("#fileName").textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KB`;
+        $("#iconName").value = file.name.replace(/\.svg$/i, "").replace(/[^a-z0-9_]+/gi, "_").replace(/^ic_?/i, "ic_").toLowerCase().slice(0, 64) || "ic_custom";
+        $("#convertSvg").disabled = false; $("#bundleSvg").disabled = false;
+        $("#conversionResult").hidden = true; log("info", `SVG selected — ${file.name}`);
+      };
+      reader.onerror = () => toast("The selected SVG could not be read.", true);
+      reader.readAsText(file);
+    }
+    async function convertSvg(bundle = false) {
+      if (!state.svg) { toast("Choose an SVG file first.", true); return; }
+      const button = bundle ? $("#bundleSvg") : $("#convertSvg"); setBusy(button, true, bundle ? "Building ZIP…" : "Converting…");
+      const body = { svg: state.svg, name: $("#iconName").value.trim() || "ic_custom", kind: $("#iconKind").value };
+      try {
+        if (bundle) {
+          const response = await fetch("/api/svg/bundle", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "Content-Type": "application/json", ...(state.csrf ? { "X-CSRF-Token": state.csrf } : {}) }, body: JSON.stringify(body) });
+          if (!response.ok) { let message = `Request failed (${response.status}).`; try { const data = await response.json(); message = data.error || message; } catch (_) {} log("error", `POST /api/svg/bundle — ${message}`); throw new Error(message); }
+          log("info", "POST /api/svg/bundle — ZIP ready");
+          const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `${body.name.replace(/[^a-z0-9_-]/gi, "_")}-android-vector.zip`; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+          toast("Android vector ZIP downloaded.");
+          if (!state.conversion) await convertSvg(false);
+        } else {
+          const data = await request("/api/svg/convert", { method: "POST", body });
+          state.conversion = data; displayConversion(data); toast("VectorDrawable XML created.");
+        }
+      } catch (error) { toast(error.message, true); }
+      finally { setBusy(button, false); }
+    }
+    $("#convertSvg").addEventListener("click", () => convertSvg(false));
+    $("#bundleSvg").addEventListener("click", () => convertSvg(true));
+    function displayConversion(data) {
+      if (!data) return;
+      $("#conversionResult").hidden = false;
+      $("#xmlCode").value = data.xml || "";
+      const preview = $("#vectorPreview"); preview.innerHTML = "";
+      if (data.previewSvg) {
+        const img = document.createElement("img"); img.alt = "Sanitized SVG artwork preview"; img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(data.previewSvg)}`; preview.append(img);
+      }
+      const source = $("#sourcePreview"); source.innerHTML = "";
+      if (state.svg) {
+        const img = document.createElement("img"); img.alt = "Original SVG source artwork"; img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(state.svg)}`; source.append(img);
+      }
+      preview.dataset.theme = $("#vectorTheme").value;
+      $("#conversionResult").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    $("#vectorTheme").addEventListener("change", event => { $("#vectorPreview").dataset.theme = event.target.value; });
+    $("#copyXml").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("#xmlCode").value); toast("XML copied to clipboard."); }
+      catch (_) { $("#xmlCode").select(); document.execCommand("copy"); toast("XML copied."); }
+    });
+
+    function renderLogs() {
+      const query = $("#logSearch").value.trim().toLowerCase(), level = $("#logLevel").value;
+      const auditMode = $("#logSource").value === "audit";
+      $("#logLevel").hidden = auditMode;
+      $("#clearLogs").hidden = auditMode;
+      $("#logHeading").textContent = auditMode ? "UI-only audit file" : "Studio activity";
+      $("#logDescription").textContent = auditMode ? "REPLIT_UI_ONLY_AUDIT_LOG.txt · read-only source findings" : "Session-only events. Refreshing the page starts a fresh local trace.";
+      if (auditMode) {
+        const lines = state.auditText.split(/\r?\n/).map((text, index) => ({ number: index + 1, text })).filter(item => !query || `${item.number} ${item.text}`.toLowerCase().includes(query));
+        $("#logCount").textContent = `${lines.length} LINES`;
+        $("#logWindow").innerHTML = lines.length ? lines.map(item => `<div class="log-line"><span class="log-time">${String(item.number).padStart(4, "0")}</span><span class="log-level">AUDIT</span><span>${escapeHtml(item.text || " ")}</span></div>`).join("") : '<div class="log-empty">No audit lines match this search.</div>';
+        return;
+      }
+      const items = state.logs.filter(item => (level === "all" || level === item.level) && (!query || `${item.time} ${item.level} ${item.message}`.toLowerCase().includes(query)));
+      $("#logCount").textContent = `${items.length} EVENT${items.length === 1 ? "" : "S"}`;
+      $("#logWindow").innerHTML = items.length ? items.map(item => `<div class="log-line"><span class="log-time">${escapeHtml(item.time)}</span><span class="log-level ${item.level}">${item.level.toUpperCase()}</span><span>${escapeHtml(item.message)}</span></div>`).join("") : '<div class="log-empty">No log events match this search.</div>';
+    }
+    $("#logSearch").addEventListener("input", renderLogs);
+    $("#logLevel").addEventListener("change", renderLogs);
+    $("#logSource").addEventListener("change", renderLogs);
+    $("#clearLogs").addEventListener("click", () => { state.logs = []; renderLogs(); toast("Session log cleared."); });
+    $("#copyLogs").addEventListener("click", async () => {
+      const query = $("#logSearch").value.trim().toLowerCase(), level = $("#logLevel").value;
+      const lines = $("#logSource").value === "audit"
+        ? state.auditText.split(/\r?\n/).map((text, index) => `${String(index + 1).padStart(4, "0")} ${text}`).filter(text => !query || text.toLowerCase().includes(query)).join("\n")
+        : state.logs.filter(item => (level === "all" || item.level === level) && (!query || `${item.time} ${item.level} ${item.message}`.toLowerCase().includes(query))).map(item => `${item.time} ${item.level.toUpperCase()} ${item.message}`).join("\n");
+      try { await navigator.clipboard.writeText(lines); toast(lines ? "Visible log copied." : "There are no visible log entries to copy."); }
+      catch (_) { toast("Clipboard access is not available in this browser.", true); }
+    });
+    renderPhone(); renderLogs();
+    loadAudit();
+    loadCanvaStatus();
+    const callbackResult = new URLSearchParams(location.search).get("canva");
+    if (callbackResult) {
+      const messages = { connected: "Canva authorization completed.", cancelled: "Canva authorization was cancelled.", failed: "Canva authorization did not complete." };
+      toast(messages[callbackResult] || "Canva authorization returned.");
+      if (callbackResult === "connected") openSection("assets");
+      history.replaceState({}, "", location.pathname);
+    }
+  })();
+  </script>
+</body>
+</html>

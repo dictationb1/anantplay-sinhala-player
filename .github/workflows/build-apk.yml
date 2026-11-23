@@ -1,6 +1,6 @@
 name: Build Sinhala Player APK
 
-# v3.4.3 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
+# v3.4.4 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
 # this keeps the runner clock interpretable (the same commit → the same SHA-256).
 env:
   TZ: UTC
@@ -26,6 +26,21 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve and verify the app version
+        id: app-version
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^VERSION_NAME=${VERSION_NAME:-\([^}]*\)}$/\1/p' build.sh | head -1)
+          CODE=$(sed -n 's/^VERSION_CODE=${VERSION_CODE:-\([^}]*\)}$/\1/p' build.sh | head -1)
+          MANIFEST_VERSION=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
+          MANIFEST_CODE=$(sed -n 's/.*android:versionCode="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
+          test "$VERSION" = "3.4.4"
+          test "$CODE" = "30404"
+          test "$MANIFEST_VERSION" = "$VERSION"
+          test "$MANIFEST_CODE" = "$CODE"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-java@v5
         with:
@@ -168,33 +183,35 @@ jobs:
           chmod +x build.sh
           bash build.sh
 
-      - name: Assert the artifact is a real, signed, installable v3.4.3 APK
+      - name: Assert the artifact is a real, signed, installable v3.4.4 APK
         run: |
           set -euo pipefail
+          VERSION='${{ steps.app-version.outputs.version }}'
+          CODE='${{ steps.app-version.outputs.code }}'
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           SRC=dist/AnantPlay-Sinhala-Player.apk
           test -s "$SRC"
           # the artifact users download carries the version in its name
-          cp "$SRC" dist/AnantPlay-Sinhala-Player-v3.4.3.apk
-          APK=dist/AnantPlay-Sinhala-Player-v3.4.3.apk
+          cp "$SRC" "dist/AnantPlay-Sinhala-Player-v${VERSION}.apk"
+          APK="dist/AnantPlay-Sinhala-Player-v${VERSION}.apk"
           test -s "$APK"
           echo "size: $(stat -c %s "$APK") bytes"
           "$BT/apksigner" verify --verbose --print-certs "$APK"
           "$BT/zipalign" -c 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)"
-          # the release identity is part of the contract: 3.4.3 / 30403
-          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionCode='30403'"
-          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionName='3.4.3'"
+          # the release identity is part of the contract
+          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionCode='${CODE}'"
+          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionName='${VERSION}'"
           unzip -l "$APK" | grep -E "classes.*dex|AndroidManifest.xml|assets/fonts/NotoSansSinhala-Regular.ttf"
           sha256sum "$APK" | tee dist/sha256.txt
-          echo "::notice title=APK version::3.4.3 (versionCode 30403)"
+          echo "::notice title=APK version::${VERSION} (versionCode ${CODE})"
 
       - name: Upload the installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: AnantPlay-Sinhala-Player-v3.4.2-apk
+          name: AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}-apk
           path: |
-            dist/AnantPlay-Sinhala-Player-v3.4.3.apk
+            dist/AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}.apk
             dist/sha256.txt
           if-no-files-found: error
           retention-days: 90
@@ -202,9 +219,10 @@ jobs:
       - name: Publish the APK facts as run annotations
         if: always()
         run: |
-          APK=dist/AnantPlay-Sinhala-Player-v3.4.3.apk
+          VERSION='${{ steps.app-version.outputs.version }}'
+          APK="dist/AnantPlay-Sinhala-Player-v${VERSION}.apk"
           if [ -s "$APK" ]; then
-            echo "::notice title=APK bytes (AnantPlay-Sinhala-Player-v3.4.3.apk)::$(stat -c %s "$APK")"
+            echo "::notice title=APK bytes (AnantPlay-Sinhala-Player-v${VERSION}.apk)::$(stat -c %s "$APK")"
           fi
           if [ -f dist/sha256.txt ]; then
             echo "::notice title=APK sha256::$(cut -d' ' -f1 dist/sha256.txt)"
@@ -213,15 +231,18 @@ jobs:
       - name: APK summary
         if: always()
         run: |
+          VERSION='${{ steps.app-version.outputs.version }}'
+          CODE='${{ steps.app-version.outputs.code }}'
+          APK="dist/AnantPlay-Sinhala-Player-v${VERSION}.apk"
           {
             echo '### Signed APK'
             echo ''
             echo '| item | value |'
             echo '| --- | --- |'
-            echo "| file | AnantPlay-Sinhala-Player-v3.4.3.apk |"
-            echo "| version | 3.4.3 (versionCode 30403) |"
-            if [ -f dist/AnantPlay-Sinhala-Player-v3.4.3.apk ]; then
-              echo "| bytes | $(stat -c %s dist/AnantPlay-Sinhala-Player-v3.4.3.apk) |"
+            echo "| file | AnantPlay-Sinhala-Player-v${VERSION}.apk |"
+            echo "| version | ${VERSION} (versionCode ${CODE}) |"
+            if [ -f "$APK" ]; then
+              echo "| bytes | $(stat -c %s "$APK") |"
             fi
             if [ -f dist/sha256.txt ]; then
               echo "| sha256 | $(cut -d' ' -f1 dist/sha256.txt) |"

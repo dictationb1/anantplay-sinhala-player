@@ -250,8 +250,10 @@ public class PlayActivity extends Activity {
      *  FrameLayout. This was a LinearLayout.LayoutParams in v3.3.0: every
      *  measure pass died in FrameLayout.onMeasure(FrameLayout.java:195). */
     private FrameLayout.LayoutParams pillLp;
-    /** The 📐 / ⏩ chips whose labels track the live mode. */
-    private TextView aspectChip, speedChip;
+    /** The five fixed, accessible bottom-dock controls. */
+    private View aspectDockButton, speedDockButton;
+    private View subtitleDockDot;
+    private TextView speedChip;
     /** The compact "සිංහල ✓" badge in the top bar (ONE, never duplicated). */
     private TextView badgeSub;
     /** The gesture feedback pill + the double-tap ⏪/⏩ ripples. */
@@ -673,6 +675,20 @@ public class PlayActivity extends Activity {
                 .setAutoEnterEnabled(true).build());
         } catch (Throwable t) {
             Diag.w("pip", "auto-enter: " + t);
+        }
+    }
+
+    /** Explicit PiP action; the separate Auto-PiP preference still controls auto-entry. */
+    private void enterPictureInPicture() {
+        if (Build.VERSION.SDK_INT < 26) {
+            flash("Picture-in-picture requires Android 8 or later");
+            return;
+        }
+        try {
+            enterPictureInPictureMode(new android.app.PictureInPictureParams.Builder().build());
+        } catch (Throwable t) {
+            Diag.w("pip", "manual PiP: " + t);
+            flash("Picture-in-picture is unavailable");
         }
     }
 
@@ -1521,6 +1537,7 @@ public class PlayActivity extends Activity {
         cues = sorted;
         // a fresh track always resets the "first cue rendered" proof + the offset guard
         firstCueRendered = false;
+        paintSubtitleDock();
         cueRangeWarned = false;
         boolean hasEn = false;
         for (Cue c : sorted) if (c.en != null && !c.en.isEmpty()) { hasEn = true; break; }
@@ -1628,6 +1645,7 @@ public class PlayActivity extends Activity {
             subView.setVisibility(show.isEmpty() ? View.GONE : View.VISIBLE);
             if (!firstCueRendered && !show.isEmpty()) {
                 firstCueRendered = true;
+                paintSubtitleDock();
                 Diag.i("subs", "first cue rendered \u2713 (layer 4, stream CC)");
                 Troubleshooter.record("SUBS", "[SUBS] first cue rendered \u2713 · source=layer4 stream CC");
             }
@@ -1787,6 +1805,7 @@ public class PlayActivity extends Activity {
                     // v3.4.1 — the first painted cue is a PROOF, not an assumption
                     if (!firstCueRendered && text != null && !text.trim().isEmpty()) {
                         firstCueRendered = true;
+                        paintSubtitleDock();
                         if (subView != null && (subView.getAlpha() < 1f
                                 || (subLayer != null && subLayer.getVisibility() != View.VISIBLE))) {
                             main.post(PlayActivity.this::repairSubtitleView);
@@ -2051,7 +2070,7 @@ public class PlayActivity extends Activity {
         unlockIcon.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_lock, 0xFFE2E8F0, 14));
         unlockPill.addView(unlockIcon, new LinearLayout.LayoutParams(-2, -2));
         TextView unlockText = new TextView(this);
-        unlockText.setText("  Tap to unlock · අගුළු හරින්න");
+        unlockText.setText(Chrome.pick("Tap to unlock · අගුළු හරින්න"));
         unlockText.setTextColor(0xFFE2E8F0);
         unlockText.setTextSize(11.5f);
         unlockPill.addView(unlockText, new LinearLayout.LayoutParams(-2, -2));
@@ -2137,7 +2156,8 @@ public class PlayActivity extends Activity {
         hudTopBar.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
 
         badgeSub = new TextView(this);
-        badgeSub.setText("සිංහල");
+        badgeSub.setText("CC");
+        badgeSub.setContentDescription("Sinhala subtitles loaded");
         badgeSub.setTextColor(0xFF86EFAC);
         badgeSub.setTextSize(10.5f);
         badgeSub.setPadding(dp(7), dp(3), dp(7), dp(3));
@@ -2148,13 +2168,13 @@ public class PlayActivity extends Activity {
         badgeSub.setVisibility(View.GONE);
         hudTopBar.addView(badgeSub, new LinearLayout.LayoutParams(-2, -2));
 
-        // v3.4.2 — every top-right plate is 40dp with 10dp internal padding around a
-        // 20dp vector (screenshot 1's giant, edge-to-edge icons are gone), and the
-        // 3dp gutters keep the row from touching the screen edge.
+        // Every top-right control has a 44dp touch target with a small vector glyph.
         View lock = icon(R.drawable.ic_lock, 20, v -> setLocked(true));
         hudTopBar.addView(lock, topIconParams());
         View rotate = icon(R.drawable.ic_rotate, 20, v -> showOrientationSheet());
         hudTopBar.addView(rotate, topIconParams());
+        View pip = icon(R.drawable.ic_pip, 20, v -> enterPictureInPicture());
+        hudTopBar.addView(pip, topIconParams());
         View vlc = icon(R.drawable.ic_vlc_external, 20, v -> openExternalPlayer());
         hudTopBar.addView(vlc, topIconParams());
         View gear = icon(R.drawable.ic_settings, 20, v -> toggleSheet());
@@ -2259,31 +2279,28 @@ public class PlayActivity extends Activity {
         times.addView(timeTotal, new LinearLayout.LayoutParams(0, -2, 1f));
         hudBottomBar.addView(times, new LinearLayout.LayoutParams(-1, -2));
 
-        // the chips: horizontally scrollable, so a narrow phone never clips one
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        LinearLayout chips = new LinearLayout(this);
-        chips.setOrientation(LinearLayout.HORIZONTAL);
-        chips.setPadding(0, dp(4), 0, dp(2));
-
-        chips.addView(pillBtn(R.drawable.ic_subtitles, "Subtitles", v -> togglePanel()));
-        chips.addView(pillBtn(R.drawable.ic_audio_track, "Audio / Quality", v -> showTrackSheet()));
-        aspectChip = chip(R.drawable.ic_aspect_fit, VideoViewport.modeLabel(aspectMode), v -> cycleAspect());
-        chips.addView(aspectChip);
-        speedChip = chip(R.drawable.ic_speed, "1.0x", v -> cycleSpeed());
-        chips.addView(speedChip);
-        chips.addView(pillBtn(R.drawable.ic_rotate, "Rotate", v -> rotateScreen()));
-        chips.addView(pillBtn(R.drawable.ic_vlc_external, "VLC", v -> openExternalPlayer()));
-        chips.addView(pillBtn(R.drawable.ic_search, "Title", v -> openTitleSearch()));
-        // v3.3.1 — a HorizontalScrollView IS a FrameLayout: its child must carry
-        // FrameLayout.LayoutParams (LinearLayout.LayoutParams died in onMeasure).
-        hs.addView(chips, new FrameLayout.LayoutParams(-2, -2));
-        hudBottomBar.addView(hs, new LinearLayout.LayoutParams(-1, -2));
+        // Fixed five-icon dock: each action keeps a 48dp touch target and no
+        // horizontal scrolling or duplicate rotate/external-player controls.
+        LinearLayout dock = new LinearLayout(this);
+        dock.setOrientation(LinearLayout.HORIZONTAL);
+        dock.setGravity(Gravity.CENTER);
+        dock.setPadding(dp(2), dp(2), dp(2), dp(2));
+        dock.addView(dockIcon(R.drawable.ic_subtitles, "Subtitles", v -> togglePanel()),
+            dockWeight());
+        dock.addView(dockIcon(R.drawable.ic_audio_track, "Audio tracks and video quality",
+            v -> showTrackSheet()), dockWeight());
+        aspectDockButton = dockIcon(R.drawable.ic_aspect_fit,
+            "Aspect ratio: " + VideoViewport.modeLabel(aspectMode), v -> cycleAspect());
+        dock.addView(aspectDockButton, dockWeight());
+        dock.addView(speedDockControl(), dockWeight());
+        dock.addView(dockIcon(R.drawable.ic_search, "Search for a title",
+            v -> openTitleSearch()), dockWeight());
+        hudBottomBar.addView(dock, new LinearLayout.LayoutParams(-1, dp(52)));
         box.addView(hudBottomBar, new LinearLayout.LayoutParams(-1, -2));
         return box;
     }
 
-    /** A chip whose label changes with the live mode (📐 / ⏩). */
+    /** Legacy helper retained for the scrollable in-sheet tool rows. */
     private TextView chip(String text, View.OnClickListener click) {
         TextView t = new TextView(this);
         t.setText(text);
@@ -2342,10 +2359,11 @@ public class PlayActivity extends Activity {
         // v3.2.0 — the URL-pasted .srt/.zip loader (Baiscope/Zoom/SubDL links:
         // auto-download → auto-unzip → script check → auto-translate → attach).
         final EditText urlIn = new EditText(this);
-        urlIn.setHint("subtitle URL (.srt/.zip) paste · සබ් URL");
+        urlIn.setHint(Chrome.pick("subtitle URL (.srt/.zip) paste · සබ් URL"));
         urlIn.setTextSize(13);
         p.addView(urlIn, new LinearLayout.LayoutParams(-1, -2));
-        Button loadUrl = btn(R.drawable.ic_link, "URL උපසිරැසි එක ලබාගන්න");
+        Button loadUrl = btn(R.drawable.ic_link,
+            Chrome.pick("Load subtitles from URL · URL උපසිරැසි එක ලබාගන්න"));
         loadUrl.setOnClickListener(v -> {
             String u = urlIn.getText().toString().trim();
             if (u.startsWith("http://") || u.startsWith("https://")) {
@@ -2356,11 +2374,11 @@ public class PlayActivity extends Activity {
         p.addView(loadUrl);
 
         final EditText in = new EditText(this);
-        in.setHint("title override · නම අතින්");
+        in.setHint(Chrome.pick("Title override · නම අතින්"));
         in.setTextSize(13);
         in.setText(title);
         p.addView(in, new LinearLayout.LayoutParams(-1, -2));
-        Button go = btn("Go — worker එකෙන් හාන්ගතකරන්න");
+        Button go = btn(Chrome.pick("Search for subtitles · Go — worker එකෙන් හාන්ගතකරන්න"));
         go.setOnClickListener(v -> {
             String t = in.getText().toString().trim();
             if (t.length() >= 2) { panel.setVisibility(View.GONE); manualFetch(t, season, episode); }
@@ -2393,15 +2411,20 @@ public class PlayActivity extends Activity {
     private LinearLayout buildSettingsSheet() {
         LinearLayout s = new LinearLayout(this);
         s.setOrientation(LinearLayout.VERTICAL);
+        ThemeEngine.Palette p = palette();
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(radiusSheet());
-        bg.setColor(0xF20E1424);
-        bg.setStroke(dp(1), 0x33FFFFFF);
+        bg.setColor(ThemeEngine.cardFill(p, AppPrefs.glass(prefs)));
+        if (AppPrefs.glass(prefs)) {
+            bg.setStroke(dp(1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)));
+        } else {
+            bg.setStroke(0, 0);
+        }
         s.setBackground(bg);
         s.setPadding(dp(16), dp(12), dp(16), dp(16));
 
         TextView head = new TextView(this);
-        head.setText("Player settings · ධාවක සැකසුම්");
+        head.setText(Chrome.pick("Player settings · ධාවක සැකසුම්"));
         UiIcons.setCompound(head, R.drawable.ic_settings, 0xFFE2E8F0, 15, Gravity.START);
         head.setTextColor(0xFFE2E8F0);
         head.setTextSize(14);
@@ -2420,12 +2443,13 @@ public class PlayActivity extends Activity {
         final float curSpeed = cur;
         speedVal.setText(String.format(Locale.US, "%.2fx", curSpeed));
         s.addView(speedVal, new LinearLayout.LayoutParams(-1, -2));
-        for (final float f : new float[]{0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f}) {
+        for (final float f : new float[]{0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 2.5f}) {
             Button b = btn(f == 1f ? "1x" : String.format(Locale.US, "%.2gx", f));
             b.setTextSize(11.5f);
             b.setOnClickListener(v -> {
                 try {
                     if (player != null) player.setPlaybackSpeed(f);
+                    prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, Math.round(f * 100)).apply();
                     speedVal.setText(String.format(Locale.US, "%.02fx", f));
                     flash(String.format(Locale.US, "%.02fx", f));
                 } catch (Throwable t) { Diag.w("sheet", "speed: " + t); }
@@ -2436,13 +2460,22 @@ public class PlayActivity extends Activity {
         }
         s.addView(speedRow, new LinearLayout.LayoutParams(-1, -2));
 
-        // aspect ratio quick cycle (fit → fill → zoom)
+        // Exact aspect modes, available in one touch.
         s.addView(label(Chrome.pick("රූප පරිමාණය · Aspect")));
-        Button aspect = btn("Fit ⇄ Fill ⇄ Zoom");
-        aspect.setOnClickListener(v -> {
-            cycleAspect();      // v3.3.0 — Fit → Fill → 16:9 → Stretch, applied live
-        });
-        s.addView(aspect);
+        s.addView(UiSegmented.make(this, p, prefs,
+            new String[]{"Fit", "Fill", "16:9", "Stretch"}, aspectMode,
+            this::setAspect), new LinearLayout.LayoutParams(-1, -2));
+
+        s.addView(label(Chrome.pick("නිදාගැනීමේ කාලය · Sleep timer")));
+        long sleepMs = AppPrefs.sleepTimerMs(prefs);
+        int sleepChoice = sleepMs >= 3600000L ? 3 : (sleepMs >= 1800000L ? 2
+            : (sleepMs >= 900000L ? 1 : 0));
+        s.addView(UiSegmented.make(this, p, prefs,
+            new String[]{"Off", "15m", "30m", "60m"}, sleepChoice, i -> {
+                long[] values = {0L, 900000L, 1800000L, 3600000L};
+                prefs.edit().putLong(AppPrefs.K_SLEEP_TIMER_MS, values[i]).apply();
+                armSleepTimer(values[i]);
+            }), new LinearLayout.LayoutParams(-1, -2));
 
         // LIVE subtitle style sliders (the same studio knobs, applied instantly)
         s.addView(label(Chrome.pick("අකුරු ප්‍රමාණය · Font size")));
@@ -2506,7 +2539,7 @@ public class PlayActivity extends Activity {
                 prefs.edit().putString(AppPrefs.K_ASPECT_MODE, mode).apply();
                 aspectMode = VideoViewport.modeFrom(mode);
                 applyVideoSize();
-                if (aspectChip != null) aspectChip.setText(VideoViewport.modeLabel(aspectMode));
+                paintAspectDock();
             }), new LinearLayout.LayoutParams(-1, -2));
 
         body.addView(UiSegmented.row(this, p, prefs, "නිදාගැනීමේ කාලය", "Sleep timer",
@@ -2576,7 +2609,7 @@ public class PlayActivity extends Activity {
     private void cycleAspect() {
         aspectMode = VideoViewport.next(aspectMode);
         prefs.edit().putString(AppPrefs.K_ASPECT_MODE, VideoViewport.modeName(aspectMode)).apply();
-        if (aspectChip != null) aspectChip.setText(VideoViewport.modeLabel(aspectMode));
+        paintAspectDock();
         applyVideoSize();
         flash(VideoViewport.modeLabel(aspectMode));
     }
@@ -2593,6 +2626,7 @@ public class PlayActivity extends Activity {
         try { if (player != null) player.setPlaybackSpeed(f); } catch (Throwable ignored) { }
         prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, Math.round(f * 100)).apply();
         if (speedChip != null) speedChip.setText(String.format(Locale.US, "%.2gx", f));
+        paintSpeedDock();
         flash(String.format(Locale.US, "%.2gx", f));
     }
 
@@ -2709,7 +2743,7 @@ public class PlayActivity extends Activity {
     }
 
     /** The tiny bilingual helper (PlayActivity has no AppPrefs.pick dependency loop). */
-    private String t2(String s) { return s; }
+    private String t2(String s) { return Chrome.pick(s); }
 
     // ── v3.2.0 — THE URL SUBTITLE LOADER (paste a .srt/.zip/.gz link) ──────────
 
@@ -2776,26 +2810,128 @@ public class PlayActivity extends Activity {
      * <p>v3.4.1 drew a 24dp-intrinsic vector into a 36dp plate with <b>zero padding</b>:
      * the glyph touched the plate's edge and read as "icons bursting out of their
      * circles". Every HUD icon is now a {@value #ICON_BOX_DP}dp container with
-     * {@code (40 - size)/2}dp of real internal padding, so a 20dp vector sits crisply
-     * centred inside a 40dp plate — exactly the optical ratio the brief specifies.
+     * {@code (44 - size)/2}dp of real internal padding, so a 20dp vector sits crisply
+     * centred inside an accessible 44dp touch target.
      */
-    private static final int ICON_BOX_DP = 40;
+    private static final int ICON_BOX_DP = 44;
 
     private View icon(int resId, float sizeDp, View.OnClickListener click) {
         ImageView iv = new ImageView(this);
         int size = Math.round(sizeDp);
         iv.setImageDrawable(UiIcons.tinted(this, resId, Color.WHITE, size));
         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        int pad = dp(Math.max(0, (ICON_BOX_DP - size) / 2f));   // 20dp glyph → 10dp padding
+        int pad = dp(Math.max(0, (ICON_BOX_DP - size) / 2f));
         iv.setPadding(pad, pad, pad, pad);
         GradientDrawable g = new GradientDrawable();
         g.setColor(0x26FFFFFF);
-        g.setCornerRadius(dp(20));                              // a true circle at 40dp
+        g.setCornerRadius(dp(22));
         iv.setBackground(g);
         iv.setClickable(true);
         iv.setFocusable(true);
+        iv.setContentDescription(iconDescription(resId));
         iv.setOnClickListener(click);
         return iv;
+    }
+
+    private String iconDescription(int resId) {
+        if (resId == R.drawable.ic_back) return "Back";
+        if (resId == R.drawable.ic_lock) return "Lock player controls";
+        if (resId == R.drawable.ic_rotate) return "Change screen orientation";
+        if (resId == R.drawable.ic_pip) return "Enter picture-in-picture";
+        if (resId == R.drawable.ic_vlc_external) return "Open in external player";
+        if (resId == R.drawable.ic_settings) return "Player settings";
+        if (resId == R.drawable.ic_replay_10) return "Seek back";
+        if (resId == R.drawable.ic_forward_10) return "Seek forward";
+        if (resId == R.drawable.ic_play_filled) return "Play";
+        if (resId == R.drawable.ic_pause_filled) return "Pause";
+        return "Player control";
+    }
+
+    private LinearLayout.LayoutParams dockWeight() {
+        return new LinearLayout.LayoutParams(0, dp(48), 1f);
+    }
+
+    private View dockIcon(int resId, String description, View.OnClickListener click) {
+        FrameLayout button = new FrameLayout(this);
+        button.setMinimumWidth(dp(48));
+        button.setMinimumHeight(dp(48));
+        button.setFocusable(true);
+        button.setClickable(true);
+        button.setContentDescription(description);
+        button.setOnClickListener(click);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0x1AFFFFFF);
+        bg.setCornerRadius(dp(14));
+        button.setBackground(bg);
+
+        ImageView glyph = new ImageView(this);
+        glyph.setImageDrawable(UiIcons.tinted(this, resId, Color.WHITE, 20));
+        glyph.setScaleType(ImageView.ScaleType.CENTER);
+        glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        button.addView(glyph, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        if (resId == R.drawable.ic_subtitles) {
+            subtitleDockDot = new View(this);
+            GradientDrawable dot = new GradientDrawable();
+            dot.setShape(GradientDrawable.OVAL);
+            dot.setColor(0xFF4ADE80);
+            subtitleDockDot.setBackground(dot);
+            subtitleDockDot.setVisibility(firstCueRendered ? View.VISIBLE : View.GONE);
+            FrameLayout.LayoutParams dotLp = new FrameLayout.LayoutParams(dp(7), dp(7),
+                Gravity.END | Gravity.BOTTOM);
+            dotLp.rightMargin = dotLp.bottomMargin = dp(9);
+            button.addView(subtitleDockDot, dotLp);
+        }
+        return button;
+    }
+
+    private View speedDockControl() {
+        LinearLayout control = new LinearLayout(this);
+        control.setOrientation(LinearLayout.VERTICAL);
+        control.setGravity(Gravity.CENTER);
+        control.setMinimumWidth(dp(48));
+        control.setMinimumHeight(dp(48));
+        control.setFocusable(true);
+        control.setClickable(true);
+        control.setOnClickListener(v -> cycleSpeed());
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0x1AFFFFFF);
+        bg.setCornerRadius(dp(14));
+        control.setBackground(bg);
+        ImageView glyph = new ImageView(this);
+        glyph.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_speed, Color.WHITE, 18));
+        glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        control.addView(glyph, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        speedChip = new TextView(this);
+        speedChip.setTextColor(Color.WHITE);
+        speedChip.setGravity(Gravity.CENTER);
+        speedChip.setTextSize(10.5f);
+        speedChip.setTypeface(Typeface.DEFAULT_BOLD);
+        float initial = 1f;
+        try { if (player != null) initial = player.getPlaybackParameters().speed; }
+        catch (Throwable ignored) { }
+        speedChip.setText(String.format(Locale.US, "%.2gx", initial));
+        control.addView(speedChip, new LinearLayout.LayoutParams(-1, -2));
+        speedDockButton = control;
+        paintSpeedDock();
+        return control;
+    }
+
+    private void paintSubtitleDock() {
+        if (subtitleDockDot != null) {
+            subtitleDockDot.setVisibility(firstCueRendered ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void paintAspectDock() {
+        if (aspectDockButton != null) {
+            aspectDockButton.setContentDescription("Aspect ratio: " + VideoViewport.modeLabel(aspectMode));
+        }
+    }
+
+    private void paintSpeedDock() {
+        if (speedDockButton == null) return;
+        String value = speedChip == null ? "1x" : speedChip.getText().toString();
+        speedDockButton.setContentDescription("Playback speed: " + value);
     }
 
     /** The transport disc swaps between play and pause - it never did before v3.4.0. */
@@ -2805,6 +2941,7 @@ public class PlayActivity extends Activity {
         // v3.4.0 drew it at 26dp and the first play/pause swap silently resized it.
         ((ImageView) playPause).setImageDrawable(UiIcons.tinted(this,
             playing ? R.drawable.ic_pause_filled : R.drawable.ic_play_filled, Color.WHITE, 24));
+        playPause.setContentDescription(playing ? "Pause playback" : "Play playback");
     }
 
     /** A pill button with a leading vector (replaces pillBtn("\uD83D\uDCAC Subtitles")). */
@@ -2953,11 +3090,11 @@ public class PlayActivity extends Activity {
     //          watch history, midnight dimmer and the AI subtitle helpers
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /** A 40dp top-bar plate with a 3dp gutter — the crisp icon container. */
+    /** A 44dp top-bar touch target with a 3dp gutter. */
     private LinearLayout.LayoutParams topIconParams() {
         LinearLayout.LayoutParams lp =
             new LinearLayout.LayoutParams(dp(ICON_BOX_DP), dp(ICON_BOX_DP));
-        lp.leftMargin = lp.rightMargin = dp(3);
+        lp.leftMargin = lp.rightMargin = dp(1);
         return lp;
     }
 
@@ -3069,6 +3206,7 @@ public class PlayActivity extends Activity {
         } catch (Throwable ignored) { }
         prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, Math.round(f * 100)).apply();
         if (speedChip != null) speedChip.setText(String.format(Locale.US, "%.2g×", f));
+        paintSpeedDock();
         flash(String.format(Locale.US, "%.2g×", f));
     }
 
@@ -3396,7 +3534,7 @@ public class PlayActivity extends Activity {
     private void setAspect(int mode) {
         aspectMode = mode;
         prefs.edit().putString(AppPrefs.K_ASPECT_MODE, VideoViewport.modeName(mode)).apply();
-        if (aspectChip != null) aspectChip.setText(VideoViewport.modeLabel(mode));
+        paintAspectDock();
         applyVideoSize();
         flash(VideoViewport.modeLabel(mode));
     }
@@ -3553,67 +3691,21 @@ public class PlayActivity extends Activity {
             t2("SL Sub Sites"), true, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openLkFinder(); }));
         slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_folder_zip,
             "Local .srt", false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; pickLocal(); }));
-        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate,
-            t2("Free translate"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; manualFreeTranslate(); }));
         slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_search,
             t2("Title search"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openTitleSearch(); }));
         android.widget.HorizontalScrollView hs2 = UiChip.strip(this);
         hs2.addView(slRow, new FrameLayout.LayoutParams(-2, -2));
         body.addView(hs2, new LinearLayout.LayoutParams(-1, -2));
 
-        // ── v3.4.2 — THE RELOCATED CONTROLS ──────────────────────────────────────
-        // Retry / Provider / sync nudge / Spoken-Formal / AI Studio used to float over
-        // the video and collide with the transport (screenshot 3). They live here now,
-        // as clean horizontally-scrolling chips with WRAP_CONTENT widths — so no chip
-        // can ever be squashed into a vertical box again.
-        LinearLayout toolsRow = UiChip.stripRow(this);
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_refresh,
-            t2("Retry"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
-                fetchGen++; fetching = false; fetchSinhala(); }));
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_globe,
-            t2("Provider"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
-                fetchGen++; fetching = false;
-                prefs.edit().putBoolean("preferCastSubs", true).apply(); fetchSinhala(); }));
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_speed,
-            "−0.25s", false, v -> nudge(-250)));
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_speed,
-            "+0.25s", false, v -> nudge(250)));
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate,
-            t2("Spoken/Formal"), false, v -> toggleRegister()));
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_sun,
-            "AI Studio", false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
-                openAiStudioBridge(); }));
-        android.widget.HorizontalScrollView hs3 = UiChip.strip(this);
-        hs3.addView(toolsRow, new FrameLayout.LayoutParams(-2, -2));
-        body.addView(hs3, new LinearLayout.LayoutParams(-1, -2));
+        // Keep the sync strip and live style controls visible in the primary sheet.
+        LinearLayout syncRow = UiChip.stripRow(this);
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_replay_10, "−0.25s", false, v -> nudge(-250)));
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_forward_10, "+0.25s", false, v -> nudge(250)));
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_replay_10, "−1s", false, v -> nudge(-1000)));
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_forward_10, "+1s", false, v -> nudge(1000)));
+        body.addView(syncRow, new LinearLayout.LayoutParams(-1, -2));
 
-        // ── v3.4.2 — the NewZone translator + the audio-to-SRT AI fallback ───────
-        LinearLayout aiRow = UiChip.stripRow(this);
-        aiRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_globe,
-            t2("NewZone translator"), false, v -> {
-                subtitleSheet.dismiss(); subtitleSheet = null; openNewZoneTranslator(); }));
-        aiRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_audio_track,
-            t2("Audio → SRT (AI)"), false, v -> {
-                subtitleSheet.dismiss(); subtitleSheet = null; showAudioToSrtHelper(); }));
-        android.widget.HorizontalScrollView hs4 = UiChip.strip(this);
-        hs4.addView(aiRow, new FrameLayout.LayoutParams(-2, -2));
-        body.addView(hs4, new LinearLayout.LayoutParams(-1, -2));
-
-        // ── v3.4.2 — the clean speed picker (0.5× – 2.5×) ────────────────────────
-        LinearLayout speedRow = UiChip.stripRow(this);
-        for (final float f : new float[]{0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 2.5f}) {
-            float cur = 1f;
-            try { cur = player == null ? 1f : player.getPlaybackParameters().speed; }
-            catch (Throwable ignored) { }
-            speedRow.addView(UiChip.make(this, p, prefs, 0,
-                String.format(Locale.US, "%.2g×", f), Math.abs(cur - f) < 0.01f,
-                v -> setSpeed(f)));
-        }
-        android.widget.HorizontalScrollView hs5 = UiChip.strip(this);
-        hs5.addView(speedRow, new FrameLayout.LayoutParams(-2, -2));
-        body.addView(hs5, new LinearLayout.LayoutParams(-1, -2));
-
-        // live style studio - every change repaints the subtitle behind the sheet
+        // Live style studio — every change repaints the subtitle behind the sheet.
         body.addView(UiSlider.make(this, p, prefs, "අකුරේ ප්‍රමාණය", "Font size",
             12, 36, AppPrefs.fontSp(prefs), "sp", v -> {
                 prefs.edit().putInt(AppPrefs.K_FONT_SP, v).apply();
@@ -3629,14 +3721,78 @@ public class PlayActivity extends Activity {
                 prefs.edit().putInt(AppPrefs.K_SUB_LINE_SPACING, v).apply();
                 applyStudioStyle();
             }), new LinearLayout.LayoutParams(-1, -2));
-        body.addView(UiSlider.make(this, p, prefs, "සමමුහුර්තකරණය", "Sync nudge (ms)",
-            -2000, 2000, 0, "ms", v -> { }));
-        LinearLayout syncRow = UiChip.stripRow(this);
-        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_replay_10, "−0.25s", false, v -> nudge(-250)));
-        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_forward_10, "+0.25s", false, v -> nudge(250)));
-        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_refresh, "−1s", false, v -> nudge(-1000)));
-        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_refresh, "+1s", false, v -> nudge(1000)));
-        body.addView(syncRow, new LinearLayout.LayoutParams(-1, -2));
+
+        // Secondary providers, AI helpers and speed choices stay available but are
+        // collapsed on first open so the subtitle sheet remains short and focused.
+        LinearLayout moreWrap = new LinearLayout(this);
+        moreWrap.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout moreHeader = new LinearLayout(this);
+        moreHeader.setGravity(Gravity.CENTER_VERTICAL);
+        moreHeader.setPadding(dp(4), dp(8), dp(4), dp(4));
+        TextView moreTitle = new TextView(this);
+        moreTitle.setText(t2("තවත් මෙවලම් · More tools"));
+        moreTitle.setTextColor(p.title);
+        UiTokens.cardTitle(moreTitle);
+        moreHeader.addView(moreTitle, new LinearLayout.LayoutParams(0, -2, 1f));
+        ImageView moreChevron = new ImageView(this);
+        moreChevron.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_chevron_down, p.desc, 18));
+        moreChevron.setContentDescription("Expand more subtitle tools");
+        moreHeader.addView(moreChevron, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout moreBody = new LinearLayout(this);
+        moreBody.setOrientation(LinearLayout.VERTICAL);
+        moreBody.setVisibility(View.GONE);
+
+        LinearLayout toolsRow = UiChip.stripRow(this);
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_refresh, t2("Retry"),
+            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
+                fetchGen++; fetching = false; fetchSinhala(); }));
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_globe, t2("Provider"),
+            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
+                fetchGen++; fetching = false;
+                prefs.edit().putBoolean("preferCastSubs", true).apply(); fetchSinhala(); }));
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate, t2("Spoken/Formal"),
+            false, v -> toggleRegister()));
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate, t2("Free translate"),
+            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; manualFreeTranslate(); }));
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_sun, "AI Studio",
+            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openAiStudioBridge(); }));
+        android.widget.HorizontalScrollView toolsScroll = UiChip.strip(this);
+        toolsScroll.addView(toolsRow, new FrameLayout.LayoutParams(-2, -2));
+        moreBody.addView(toolsScroll, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout aiRow = UiChip.stripRow(this);
+        aiRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_globe, t2("NewZone translator"),
+            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openNewZoneTranslator(); }));
+        aiRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_audio_track, t2("Audio → SRT (AI)"),
+            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; showAudioToSrtHelper(); }));
+        android.widget.HorizontalScrollView aiScroll = UiChip.strip(this);
+        aiScroll.addView(aiRow, new FrameLayout.LayoutParams(-2, -2));
+        moreBody.addView(aiScroll, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout speedRow = UiChip.stripRow(this);
+        for (final float f : new float[]{0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 2.5f}) {
+            float cur = 1f;
+            try { cur = player == null ? 1f : player.getPlaybackParameters().speed; }
+            catch (Throwable ignored) { }
+            speedRow.addView(UiChip.make(this, p, prefs, 0,
+                String.format(Locale.US, "%.2g×", f), Math.abs(cur - f) < 0.01f,
+                v -> setSpeed(f)));
+        }
+        android.widget.HorizontalScrollView speedScroll = UiChip.strip(this);
+        speedScroll.addView(speedRow, new FrameLayout.LayoutParams(-2, -2));
+        moreBody.addView(speedScroll, new LinearLayout.LayoutParams(-1, -2));
+
+        moreHeader.setOnClickListener(v -> {
+            boolean open = moreBody.getVisibility() != View.VISIBLE;
+            moreBody.setVisibility(open ? View.VISIBLE : View.GONE);
+            moreChevron.setImageDrawable(UiIcons.tinted(this,
+                open ? R.drawable.ic_chevron_up : R.drawable.ic_chevron_down, p.desc, 18));
+            moreChevron.setContentDescription(open
+                ? "Collapse more subtitle tools" : "Expand more subtitle tools");
+        });
+        moreWrap.addView(moreHeader, new LinearLayout.LayoutParams(-1, -2));
+        moreWrap.addView(moreBody, new LinearLayout.LayoutParams(-1, -2));
+        body.addView(moreWrap, new LinearLayout.LayoutParams(-1, -2));
 
         subtitleSheet = UiSheet.show(this, p, prefs, body, 66, () -> subtitleSheet = null);
         showStatus();

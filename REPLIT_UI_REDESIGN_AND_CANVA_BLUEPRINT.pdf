@@ -1,0 +1,273 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R 11 0 R 13 0 R] /Count 5 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 4197 >>
+stream
+BT /F2 9 Tf 42 808 Td (ANANTPLAY UI STUDIO - V3.4.4 BLUEPRINT) Tj ET
+0.75 w 42 798 m 553 798 l S
+BT /F2 12 Tf 42 780 Td (AnantPlay UI Studio - v3.4.4 Design Handoff) Tj ET
+BT /F2 12 Tf 42 755 Td (Scope and baseline) Tj ET
+BT /F1 9 Tf 42 730 Td (This is a design-only handoff for the next v3.4.x Android release. The audit) Tj ET
+BT /F1 9 Tf 42 717 Td (source is the imported v3.4.3 app \(versionCode 30403\). Android production) Tj ET
+BT /F1 9 Tf 42 704 Td (sources, manifests, icons, and resources were inspected read-only and are not) Tj ET
+BT /F1 9 Tf 42 691 Td (changed by the studio. Keep the eventual Android work in pure Java 8, minSdk 26,) Tj ET
+BT /F1 9 Tf 42 678 Td (targetSdk 36, under 5 MB, with no Compose/Flutter/AAR expansion, no) Tj ET
+BT /F1 9 Tf 42 665 Td (AccessibilityService, and the existing safe LayoutParams discipline.) Tj ET
+BT /F1 9 Tf 42 644 Td (This audit is a source review plus a static inventory, not a device screenshot) Tj ET
+BT /F1 9 Tf 42 631 Td (audit. No Android emulator is installed. The simulator in the web studio is a) Tj ET
+BT /F1 9 Tf 42 618 Td (design schematic, not a rendering of the running Android app.) Tj ET
+BT /F2 12 Tf 42 597 Td (Audit findings and evidence) Tj ET
+BT /F1 9 Tf 42 572 Td (The accompanying REPLIT_UI_ONLY_AUDIT_LOG.txt has the line-numbered evidence,) Tj ET
+BT /F1 9 Tf 42 559 Td (all 64 ic_*.xml drawable summaries, every UiIcons call site in the Java) Tj ET
+BT /F1 9 Tf 42 546 Td (package, and a literal-text candidate inventory for MainActivity,) Tj ET
+BT /F1 9 Tf 42 533 Td (PlayActivity, WebBrowserView, and OnboardingWizard. The audit's text-size) Tj ET
+BT /F1 9 Tf 42 520 Td (locator is a static nearest-call heuristic; dynamic strings, inherited styles,) Tj ET
+BT /F1 9 Tf 42 507 Td (helper defaults, and Sinhala/English alternatives are identified as such) Tj ET
+BT /F1 9 Tf 42 494 Td (rather than represented as proven measurements.) Tj ET
+BT /F2 12 Tf 42 473 Td (Player label-to-symbol plan) Tj ET
+BT /F1 9 Tf 42 448 Td (Current control  |  Current source  |  Proposed dock  |  Label/value retained) Tj ET
+BT /F1 9 Tf 42 435 Td (---  |  ---  |  ---  |  ---) Tj ET
+BT /F1 9 Tf 42 422 Td (Subtitles  |  PlayActivity.java:2269  |  Closed-caption glyph  |  CC accessibility) Tj ET
+BT /F1 9 Tf 42 409 Td (name) Tj ET
+BT /F1 9 Tf 42 396 Td (Audio / Quality  |  PlayActivity.java:2270  |  Audio-track glyph  |  Spoken) Tj ET
+BT /F1 9 Tf 42 383 Td (accessibility name) Tj ET
+BT /F1 9 Tf 42 370 Td (Aspect mode label  |  PlayActivity.java:2271  |  Crop/aspect glyph  |  Compact value) Tj ET
+BT /F1 9 Tf 42 357 Td (such as Fit only when changed) Tj ET
+BT /F1 9 Tf 42 344 Td (1.0x  |  PlayActivity.java:2273  |  Speed glyph  |  Current multiplier, formatted 1.0x) Tj ET
+BT /F1 9 Tf 42 331 Td (Rotate  |  PlayActivity.java:2275  |  Rotate glyph  |  Spoken accessibility name) Tj ET
+BT /F1 9 Tf 42 318 Td (VLC  |  PlayActivity.java:2276  |  External-player glyph  |  No brand text in the dock) Tj ET
+BT /F1 9 Tf 42 305 Td (Title  |  PlayActivity.java:2277  |  Search glyph  |  Spoken accessibility name) Tj ET
+BT /F1 9 Tf 42 292 Td (Fit  Fill  Zoom  |  PlayActivity.java:2441  |  Aspect selector  |  Short selected) Tj ET
+BT /F1 9 Tf 42 279 Td (mode, not the full cycle description) Tj ET
+BT /F1 9 Tf 42 266 Td (Playback speed  |  PlayActivity.java:2493  |  Speed section  |  Current value adjacent) Tj ET
+BT /F1 9 Tf 42 253 Td (to a segmented picker) Tj ET
+BT /F1 9 Tf 42 240 Td (SL Sub Sites / Local .srt  |  PlayActivity.java:3553-3555  |  Source / file icons  |) Tj ET
+BT /F1 9 Tf 42 227 Td (Short labels in the sheet only) Tj ET
+BT /F1 9 Tf 42 214 Td (Free translate, Title search  |  PlayActivity.java:3557-3559  |  Translate / search) Tj ET
+BT /F1 9 Tf 42 201 Td (icons  |  Move to the secondary More section) Tj ET
+BT /F1 9 Tf 42 188 Td (Spoken/Formal, AI Studio  |  PlayActivity.java:3582-3584  |  Language / tune icons  |) Tj ET
+BT /F1 9 Tf 42 175 Td (Keep language choice visible; move AI tools to More) Tj ET
+BT /F1 9 Tf 42 162 Td (NewZone translator, Audio to SRT \(AI\)  |  PlayActivity.java:3593-3596  |  Translate /) Tj ET
+0.75 w 42 34 m 553 34 l S
+BT /F1 8 Tf 42 19 Td (UI-only design handoff - page 1 of 5) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 4196 >>
+stream
+BT /F2 9 Tf 42 808 Td (ANANTPLAY UI STUDIO - V3.4.4 BLUEPRINT) Tj ET
+0.75 w 42 798 m 553 798 l S
+BT /F1 9 Tf 42 780 Td (audio icons  |  Secondary actions, not primary dock items) Tj ET
+BT /F1 9 Tf 42 767 Td (Retry, Provider  |  PlayActivity.java:3571-3574  |  Refresh / source icons  |  State-) Tj ET
+BT /F1 9 Tf 42 754 Td (dependent actions in the sheet) Tj ET
+BT /F1 9 Tf 42 733 Td (Icons must remain real accessible controls: give each a meaningful content) Tj ET
+BT /F1 9 Tf 42 720 Td (description, a minimum 44dp touch target, visible pressed/selected state, and a) Tj ET
+BT /F1 9 Tf 42 707 Td (subtle active dot or selected tint. Do not remove text that is needed for) Tj ET
+BT /F1 9 Tf 42 694 Td (discoverability without providing a screen-reader label or a first-use hint.) Tj ET
+BT /F2 12 Tf 42 673 Td (Player architecture) Tj ET
+BT /F1 9 Tf 42 648 Td (Retain the existing three-zone HUD and its safe-area inset behavior. Redesign) Tj ET
+BT /F1 9 Tf 42 635 Td (the zones rather than replacing the player:) Tj ET
+BT /F1 9 Tf 42 614 Td (1. Top: Back, title, and a compact overflow group for Lock, Rotate, PiP,) Tj ET
+BT /F1 9 Tf 42 601 Td (External, and Settings. Keep the title to one ellipsized line. Show status) Tj ET
+BT /F1 9 Tf 42 588 Td (only when useful.) Tj ET
+BT /F1 9 Tf 42 575 Td (2. Center: Rewind, Play/Pause, and Forward; preserve the 64dp control) Tj ET
+BT /F1 9 Tf 42 562 Td (targets and the 2x hold behavior. Keep temporary gesture feedback transient.) Tj ET
+BT /F1 9 Tf 42 549 Td (3. Bottom: Scrub bar, tabular timestamps, then a fixed-width icon dock:) Tj ET
+BT /F1 9 Tf 42 536 Td (Subtitles, Tracks, Aspect, Speed, Search. Do not put seven wide chips in a) Tj ET
+BT /F1 9 Tf 42 523 Td (horizontal scroller. Portrait and landscape use the same control order;) Tj ET
+BT /F1 9 Tf 42 510 Td (landscape may reduce spacing, not remove accessibility.) Tj ET
+BT /F1 9 Tf 42 497 Td (4. Sheets: Subtitle sheet is a short task list: language/source/sync/style,) Tj ET
+BT /F1 9 Tf 42 484 Td (then a collapsed More group for provider retry, site search, translation, and) Tj ET
+BT /F1 9 Tf 42 471 Td (AI actions. Tracks sheet separates audio and video quality and marks the) Tj ET
+BT /F1 9 Tf 42 458 Td (selected item. Settings sheet uses segmented controls and inline values.) Tj ET
+BT /F2 12 Tf 42 437 Td (Home, browser, onboarding, and settings) Tj ET
+BT /F1 9 Tf 42 412 Td (- Home: Keep one primary receiver-state card and one action. Put the) Tj ET
+BT /F1 9 Tf 42 399 Td (auto-open permission explanation behind a short, dismissible disclosure.) Tj ET
+BT /F1 9 Tf 42 386 Td (Move the setup checklist to an optional compact checklist, not a second) Tj ET
+BT /F1 9 Tf 42 373 Td (paragraph card competing with the receiver action.) Tj ET
+BT /F1 9 Tf 42 360 Td (- Browser: Keep the omnibar and suggestion hierarchy. Raise the 8sp shield) Tj ET
+BT /F1 9 Tf 42 347 Td (count to at least 10sp and use a shield icon plus count. Replace the Auto ON) Tj ET
+BT /F1 9 Tf 42 334 Td (sentence with an icon/state switch whose accessible name says Automatic) Tj ET
+BT /F1 9 Tf 42 321 Td (refresh, on/off. Keep URL suggestions readable at the user's system font) Tj ET
+BT /F1 9 Tf 42 308 Td (scale.) Tj ET
+BT /F1 9 Tf 42 295 Td (- Onboarding: Preserve its permission and safety explanations. Remove) Tj ET
+BT /F1 9 Tf 42 282 Td (duplicated instructions only after the related step is complete. Validate) Tj ET
+BT /F1 9 Tf 42 269 Td (bilingual copy at narrow widths; 20sp and 17sp titles are hierarchy roles,) Tj ET
+BT /F1 9 Tf 42 256 Td (not automatic font-reduction targets.) Tj ET
+BT /F1 9 Tf 42 243 Td (- Settings: Retain Simple and Advanced modes. In Simple mode, make theme,) Tj ET
+BT /F1 9 Tf 42 230 Td (accent, surface, bottom-bar style, and icon style visual preview tiles.) Tj ET
+BT /F1 9 Tf 42 217 Td (Advanced remains an expandable list of all current controls; do not hide or) Tj ET
+BT /F1 9 Tf 42 204 Td (discard preferences. Put hex editing, fine sliders, and rare integrations in) Tj ET
+BT /F1 9 Tf 42 191 Td (Advanced.) Tj ET
+BT /F2 12 Tf 42 170 Td (Typography and layout system) Tj ET
+0.75 w 42 34 m 553 34 l S
+BT /F1 8 Tf 42 19 Td (UI-only design handoff - page 2 of 5) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 10 0 R >>
+endobj
+10 0 obj
+<< /Length 4082 >>
+stream
+BT /F2 9 Tf 42 808 Td (ANANTPLAY UI STUDIO - V3.4.4 BLUEPRINT) Tj ET
+0.75 w 42 798 m 553 798 l S
+BT /F1 9 Tf 42 772 Td (Keep the existing UiTokens scale as the starting point. It already has a) Tj ET
+BT /F1 9 Tf 42 759 Td (4dp spacing grid, named roles, and Sinhala font weights. The problem is local) Tj ET
+BT /F1 9 Tf 42 746 Td (copy density and repeated ad-hoc rows, not a globally oversized type scale.) Tj ET
+BT /F1 9 Tf 42 733 Td (For v3.4.4:) Tj ET
+BT /F1 9 Tf 42 712 Td (- Use the shared roles for headings/body/captions; no new 8sp labels.) Tj ET
+BT /F1 9 Tf 42 699 Td (- Keep utility metadata at 10-11sp and interactive labels at 12-14sp.) Tj ET
+BT /F1 9 Tf 42 686 Td (- Prefer one short line plus a disclosure to multi-sentence card descriptions.) Tj ET
+BT /F1 9 Tf 42 673 Td (- Keep bilingual mode, but controls show one language at a time as the existing) Tj ET
+BT /F1 9 Tf 42 660 Td (preference contract intends.) Tj ET
+BT /F1 9 Tf 42 647 Td (- Use 4/8/12/16/24dp spacing and the current palette tiers; reduce stacked) Tj ET
+BT /F1 9 Tf 42 634 Td (strokes and borders. Reserve borders for focus/selection, not every card.) Tj ET
+BT /F1 9 Tf 42 621 Td (- Maintain 48dp recommended minimum control height, safe-area insets, text) Tj ET
+BT /F1 9 Tf 42 608 Td (scaling, and contrast in Dark, AMOLED, Light, and Dynamic Color.) Tj ET
+BT /F2 12 Tf 42 587 Td (Vector icon and app-mark direction) Tj ET
+BT /F1 9 Tf 42 562 Td (All 64 drawable XMLs are listed in the audit log with viewport, path count, and) Tj ET
+BT /F1 9 Tf 42 549 Td (observed stroke widths. The set is mostly 24x24, but outlined symbols span) Tj ET
+BT /F1 9 Tf 42 536 Td (approximately 1.6-2.4 viewport units and mixed filled/outlined metaphors remain.) Tj ET
+BT /F1 9 Tf 42 523 Td (Unify the outline family around a consistent apparent 1.75-1.85 stroke at) Tj ET
+BT /F1 9 Tf 42 510 Td (24dp, use a shared optical safe area, and reserve filled forms for selected) Tj ET
+BT /F1 9 Tf 42 497 Td (navigation/playback states. Inspect optical balance at 20dp and 24dp; equal XML) Tj ET
+BT /F1 9 Tf 42 484 Td (viewports do not guarantee equal visual weight. Replace remaining text) Tj ET
+BT /F1 9 Tf 42 471 Td (chevrons/arrows used as icons with existing vectors.) Tj ET
+BT /F1 9 Tf 42 450 Td (The launcher already has Android adaptive foreground/background and monochrome) Tj ET
+BT /F1 9 Tf 42 437 Td (resources. For a new editable Canva source, create one simple cinema-frame or) Tj ET
+BT /F1 9 Tf 42 424 Td (play-window mark with a distinct center cutout, centered inside the adaptive) Tj ET
+BT /F1 9 Tf 42 411 Td (safe area. Avoid wordmarks, hairlines, gradients, tiny perforations, and a) Tj ET
+BT /F1 9 Tf 42 398 Td (second outer rounded-square \(Android applies the mask\). The monochrome variant) Tj ET
+BT /F1 9 Tf 42 385 Td (must preserve the same silhouette and negative space; use a single white) Tj ET
+BT /F1 9 Tf 42 372 Td (foreground path so Android 13+ themed icons can tint it.) Tj ET
+BT /F2 12 Tf 42 351 Td (Mornye comparison) Tj ET
+BT /F1 9 Tf 42 326 Td (The read-only reference checkout is /tmp/mornye-ref. The strongest) Tj ET
+BT /F1 9 Tf 42 313 Td (transferable patterns are connected settings surfaces and measured player) Tj ET
+BT /F1 9 Tf 42 300 Td (groups, not copied colors or Flutter code:) Tj ET
+BT /F1 9 Tf 42 279 Td (- lib/widgets/settings_group.dart separates connected rows from section) Tj ET
+BT /F1 9 Tf 42 266 Td (containers and uses surface-container tones for hierarchy.) Tj ET
+BT /F1 9 Tf 42 253 Td (- lib/widgets/player_playback_controls.dart measures a compact transport) Tj ET
+BT /F1 9 Tf 42 240 Td (group and centers the play action rather than making every action a separate) Tj ET
+BT /F1 9 Tf 42 227 Td (word pill.) Tj ET
+BT /F1 9 Tf 42 214 Td (- lib/widgets/mornye_player_layout.dart composes the player around explicit) Tj ET
+BT /F1 9 Tf 42 201 Td (surfaces and control groups.) Tj ET
+BT /F1 9 Tf 42 188 Td (- lib/theme/app_tokens.dart centralizes spacing/radius roles.) Tj ET
+0.75 w 42 34 m 553 34 l S
+BT /F1 8 Tf 42 19 Td (UI-only design handoff - page 3 of 5) Tj ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 12 0 R >>
+endobj
+12 0 obj
+<< /Length 4327 >>
+stream
+BT /F2 9 Tf 42 808 Td (ANANTPLAY UI STUDIO - V3.4.4 BLUEPRINT) Tj ET
+0.75 w 42 798 m 553 798 l S
+BT /F1 9 Tf 42 780 Td (AnantPlay already has theme modes, accent presets, an 8/12/16/24 radius) Tj ET
+BT /F1 9 Tf 42 767 Td (language, and a shared text scale. The remaining gap is how screens compose) Tj ET
+BT /F1 9 Tf 42 754 Td (those primitives: local labels, stacked chip rows, and explanation-heavy cards) Tj ET
+BT /F1 9 Tf 42 741 Td (still dominate some surfaces. Transfer the hierarchy and grouping, not the) Tj ET
+BT /F1 9 Tf 42 728 Td (framework.) Tj ET
+BT /F2 12 Tf 42 707 Td (Canva OAuth and API behavior) Tj ET
+BT /F1 9 Tf 42 682 Td (The studio uses a server-side Authorization Code + PKCE flow. It reads) Tj ET
+BT /F1 9 Tf 42 669 Td (CANVA_CLIENT_ID and CANVA_CLIENT_SECRET at runtime only; neither is embedded) Tj ET
+BT /F1 9 Tf 42 656 Td (in the page, returned by status endpoints, or written into reports. OAuth state) Tj ET
+BT /F1 9 Tf 42 643 Td (and PKCE verifiers are one-time server memory values. The session cookie is) Tj ET
+BT /F1 9 Tf 42 630 Td (HttpOnly, SameSite=Lax, and Secure when the HTTPS proxy is detected. Access and) Tj ET
+BT /F1 9 Tf 42 617 Td (refresh tokens are saved per session under ui_studio/.canva_store/, outside) Tj ET
+BT /F1 9 Tf 42 604 Td (the served directory, with a private directory and 0600 files; this path is) Tj ET
+BT /F1 9 Tf 42 591 Td (ignored by Git.) Tj ET
+BT /F1 9 Tf 42 570 Td (The default minimum scopes are design:meta:read design:content:read. Override) Tj ET
+BT /F1 9 Tf 42 557 Td (with CANVA_SCOPES only when the Canva Developer app has those scopes enabled.) Tj ET
+BT /F1 9 Tf 42 544 Td (Register the exact callback shown by the studio in Canva's Developer Portal.) Tj ET
+BT /F1 9 Tf 42 531 Td (The callback setting can be provided explicitly as CANVA_REDIRECT_URI; after) Tj ET
+BT /F1 9 Tf 42 518 Td (publishing, set it to the production URL. This imported project has no) Tj ET
+BT /F1 9 Tf 42 505 Td (production deployment yet, so its current development callback is not a) Tj ET
+BT /F1 9 Tf 42 492 Td (production callback and may be inaccessible to Canva while the Replit preview) Tj ET
+BT /F1 9 Tf 42 479 Td (is private.) Tj ET
+BT /F1 9 Tf 42 458 Td (Canva's API exposes per-design export formats and export jobs. SVG may be) Tj ET
+BT /F1 9 Tf 42 445 Td (available for some designs, but Canva can reject an SVG job as unavailable.) Tj ET
+BT /F1 9 Tf 42 432 Td (The studio therefore checks each design's formats, attempts SVG only when) Tj ET
+BT /F1 9 Tf 42 419 Td (listed, and keeps manual SVG upload as the reliable path. It does not claim that) Tj ET
+BT /F1 9 Tf 42 406 Td (every Canva Pro design can be exported to SVG through the API.) Tj ET
+BT /F2 12 Tf 42 385 Td (SVG-to-VectorDrawable limits and bundle) Tj ET
+BT /F1 9 Tf 42 360 Td (The converter accepts SVG path data and common flat primitives \(rectangles,) Tj ET
+BT /F1 9 Tf 42 347 Td (circles, ellipses, lines, polylines, polygons\), simple groups, and one) Tj ET
+BT /F1 9 Tf 42 334 Td (translate/scale/rotate transform per group. It normalizes opaque fill/stroke) Tj ET
+BT /F1 9 Tf 42 321 Td (paint to white, retains supported stroke styling, checks XML, and rejects) Tj ET
+BT /F1 9 Tf 42 308 Td (scripts, entities, CSS, text, gradients, opacity, external content, unsupported) Tj ET
+BT /F1 9 Tf 42 295 Td (elements, and unsupported transform composition explicitly. Convert text to) Tj ET
+BT /F1 9 Tf 42 282 Td (paths and flatten complex effects in Canva before upload.) Tj ET
+BT /F1 9 Tf 42 261 Td (XML-valid means well-formed XML and supported VectorDrawable constructs; it) Tj ET
+BT /F1 9 Tf 42 248 Td (does not mean this workspace ran aapt2. No Android SDK build tools or emulator) Tj ET
+BT /F1 9 Tf 42 235 Td (were installed as part of this read-only Android audit. Validate downloaded XML) Tj ET
+BT /F1 9 Tf 42 222 Td (with the Android build before merging it into res/.) Tj ET
+BT /F1 9 Tf 42 201 Td (The 24dp icon ZIP contains res/drawable/ic_*.xml. The 108dp adaptive bundle) Tj ET
+BT /F1 9 Tf 42 188 Td (contains foreground and monochrome vector drawables, a background drawable,) Tj ET
+BT /F1 9 Tf 42 175 Td (and adaptive icon resources under res/mipmap-anydpi-v26/. Rename the generated) Tj ET
+0.75 w 42 34 m 553 34 l S
+BT /F1 8 Tf 42 19 Td (UI-only design handoff - page 4 of 5) Tj ET
+endstream
+endobj
+13 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 14 0 R >>
+endobj
+14 0 obj
+<< /Length 841 >>
+stream
+BT /F2 9 Tf 42 808 Td (ANANTPLAY UI STUDIO - V3.4.4 BLUEPRINT) Tj ET
+0.75 w 42 798 m 553 798 l S
+BT /F1 9 Tf 42 780 Td (resources if the app uses a different launcher resource name.) Tj ET
+BT /F2 12 Tf 42 759 Td (Canva callback) Tj ET
+BT /F1 9 Tf 42 734 Td (The production callback format is:) Tj ET
+BT /F1 9 Tf 42 713 Td (https://<published-production-host>/auth/canva/callback) Tj ET
+BT /F1 9 Tf 42 692 Td (No production host is available until this Repl is published. The studio) Tj ET
+BT /F1 9 Tf 42 679 Td (currently shows its exact development callback separately. Do not register that) Tj ET
+BT /F1 9 Tf 42 666 Td (development URL as the production callback for an app that needs a stable) Tj ET
+BT /F1 9 Tf 42 653 Td (public endpoint.) Tj ET
+0.75 w 42 34 m 553 34 l S
+BT /F1 8 Tf 42 19 Td (UI-only design handoff - page 5 of 5) Tj ET
+endstream
+endobj
+xref
+0 15
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000147 00000 n 
+0000000217 00000 n 
+0000000292 00000 n 
+0000000428 00000 n 
+0000004677 00000 n 
+0000004813 00000 n 
+0000009061 00000 n 
+0000009198 00000 n 
+0000013333 00000 n 
+0000013471 00000 n 
+0000017851 00000 n 
+0000017989 00000 n 
+trailer
+<< /Size 15 /Root 1 0 R >>
+startxref
+18882
+%%EOF

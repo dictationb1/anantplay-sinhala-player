@@ -309,8 +309,9 @@ public final class OnboardingWizard {
             hero.setGravity(Gravity.CENTER_HORIZONTAL);
             hero.setPadding(0, dp(10), 0, dp(12));
             android.widget.ImageView icon = new android.widget.ImageView(act);
-            icon.setImageDrawable(UiIcons.tinted(act, R.mipmap.ic_launcher, p.accent, 40));
-            hero.addView(icon, new LinearLayout.LayoutParams(dp(64), dp(64)));
+            icon.setImageDrawable(act.getDrawable(R.mipmap.ic_launcher));
+            icon.setContentDescription("AnantPlay Player");
+            hero.addView(icon, new LinearLayout.LayoutParams(dp(56), dp(56)));
             TextView name = new TextView(act);
             name.setText("AnantPlay Player");
             name.setTextColor(p.title);

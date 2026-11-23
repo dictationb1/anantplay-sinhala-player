@@ -1,5 +1,17 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.3)
+# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.4)
 
+> **v3.4.4 අලුත් දේ (Sinhala):**
+>
+> 1. **Player එකේ පහසු පාලක තීරුව** — උපසිරැසි, tracks, aspect, වේගය සහ title search සඳහා
+>    සමාන ඉඩ සහිත අයිකන 5ක්; සියලු බොත්තම්වල ප්‍රවේශ විස්තර ඇත.
+> 2. **සැකසුම් පිරිසිදුයි** — ප්‍රධාන උපසිරැසි පාලක ඉදිරියෙන්; අමතර provider සහ AI මෙවලම්
+>    “More tools” තුළ වසා තබයි. Aspect සහ sleep timer සඳහා segmented controls ඇත.
+> 3. **Quick Settings පෙරදසුන්** — Flat/Glass මතුපිට සහ Docked/Floating පහළ තීරුව සෘජුව
+>    තෝරාගත හැක; accent වර්ණ 10ක් ඇත.
+> 4. **අයිකන හා වර්ණ** — outlined vector icons 1.8dp stroke එකකට සකස් කර ඇත; Flat cards වල
+>    අනවශ්‍ය මායිම් ඉවත් කර Glass mode එකේ hairline සුරකියි; stroke පළල 1.75–1.85dp අතරය.
+> 5. **English UI default** — Sinhala subtitle preview සහ subtitle language names එලෙසම පවතී.
+>
 > **v3.4.3 අලුත් දේ (Sinhala):**
 >
 > 1. **පළමු වරට යෙදුම විවෘත කළ විට පියවර 5ක සැකසුම් විශාරදය** — සාදරයෙන් පිළිගැනීම → දැනුම්දීම් → Cast කළ විට ඉබේ විවෘත වීම → පසුබිම ස්ථාවරත්වය → AnantPlay සම්බන්ධ කිරීම සහ ජීව ස්වයං-පරීක්ෂාව. සෑම පියවරක්ම Skip කළ හැක.

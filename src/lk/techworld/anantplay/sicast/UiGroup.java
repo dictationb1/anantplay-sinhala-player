@@ -55,8 +55,8 @@ final class UiGroup {
         LinearLayout r = new LinearLayout(c);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setMinimumHeight(UiCard.dp(c, 48));
-        r.setPadding(0, UiCard.dp(c, 8), 0, UiCard.dp(c, 8));
+        r.setMinimumHeight(UiCard.dp(c, 52));
+        r.setPadding(0, UiCard.dp(c, 10), 0, UiCard.dp(c, 10));
 
         if (iconRes != 0) {
             ImageView ic = new ImageView(c);
@@ -100,11 +100,11 @@ final class UiGroup {
             r.addView(v, lp);
         }
         if (chevron) {
-            TextView ch = new TextView(c);
-            ch.setText("\u203A");
-            ch.setTextColor(p.desc);
-            ch.setTextSize(18);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+            ImageView ch = new ImageView(c);
+            ch.setImageDrawable(UiIcons.tinted(c, R.drawable.ic_forward, p.desc, 16));
+            ch.setContentDescription("Open " + en);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                UiCard.dp(c, 24), UiCard.dp(c, 40));
             lp.leftMargin = UiCard.dp(c, 8);
             r.addView(ch, lp);
         }
@@ -152,7 +152,7 @@ final class UiGroup {
         return primary;
     }
 
-    /** A hairline divider indented to the text column (56dp from the card edge). */
+    /** A quiet hairline divider inset to the text column. */
     static void divider(Context c, LinearLayout card, ThemeEngine.Palette p, SharedPreferences prefs) {
         View line = new View(c);
         line.setBackgroundColor(ThemeEngine.hairline(p, Math.max(6, AppPrefs.borderAlpha(prefs) / 2)));

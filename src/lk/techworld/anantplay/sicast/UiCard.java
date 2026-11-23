@@ -31,19 +31,23 @@ final class UiCard {
     /** The card background itself (also used by panels and sheets). */
     static GradientDrawable drawable(Context c, ThemeEngine.Palette p, SharedPreferences prefs) {
         GradientDrawable g = new GradientDrawable();
-        g.setColor(ThemeEngine.cardFill(p, AppPrefs.glass(prefs)));
+        boolean glass = AppPrefs.glass(prefs);
+        g.setColor(ThemeEngine.cardFill(p, glass));
         int[] radii = ThemeEngine.radii(AppPrefs.cardRadius(prefs));
         g.setCornerRadius(dp(c, radii[0]));
-        g.setStroke(dp(c, 1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)));
+        if (glass) g.setStroke(dp(c, 1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)));
+        else g.setStroke(0, 0);
         return g;
     }
 
-    /** A sheet surface: always the sheet radius, always translucent. */
+    /** A sheet surface that follows the selected flat/glass surface style. */
     static GradientDrawable sheetDrawable(Context c, ThemeEngine.Palette p, SharedPreferences prefs) {
         GradientDrawable g = new GradientDrawable();
-        g.setColor(ThemeEngine.cardFill(p, true));
+        boolean glass = AppPrefs.glass(prefs);
+        g.setColor(ThemeEngine.cardFill(p, glass));
         g.setCornerRadii(new float[]{dp(c, 28), dp(c, 28), dp(c, 28), dp(c, 28), 0, 0, 0, 0});
-        g.setStroke(dp(c, 1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)));
+        if (glass) g.setStroke(dp(c, 1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)));
+        else g.setStroke(0, 0);
         return g;
     }
 
