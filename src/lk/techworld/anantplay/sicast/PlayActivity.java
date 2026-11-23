@@ -191,14 +191,14 @@ public class PlayActivity extends Activity {
     private LinearLayout hudTopBar, hudBottomBar;
     private TextView errorBox;
     /** v2.2: the language chip row + register/Option-C row (shown with the pill). */
-    private LinearLayout langChips;
-    private LinearLayout extraActions;
+    // v3.4.2 — langChips / extraActions / subActions are DELETED: their content moved
+    // into the Subtitles sheet, off the video surface entirely.
 
     /** v2.1: the never-silent subtitle status pill + its 1-tap action row.
      *  v3.2.0: the pill is also the JUNK-TITLE search entry (tapping it on a
      *  junk-title state opens the movie-title search dialog). */
     private TextView statusPill;
-    private LinearLayout subActions;
+
     private Typeface siFont;
     /** v3.4.0 - the REAL 600 weight (was a synthetic bold of the 400 face). */
     private Typeface siFontSemi;
@@ -229,6 +229,9 @@ public class PlayActivity extends Activity {
     private volatile String polishWatchToken = null;
     private volatile boolean polishHotSwapped = false;
     private boolean hudVisible = true;
+    // v3.4.2 — Continue watching: the millisecond to resume at, applied once on ready
+    private long resumeMs = 0;
+    private boolean resumeApplied = false;
     private boolean finished;
     private volatile boolean expectTakeover = true;   // cleared ~3 s after open: PiP waits for the hand-over
     /** v3.2.0 — the junk-title verdict for THIS playback (cached at parse). */
@@ -377,6 +380,7 @@ public class PlayActivity extends Activity {
         testMode = i.getBooleanExtra("test", false);
         title = i.getStringExtra("title");
         url = i.getStringExtra("url");
+        resumeMs = Math.max(0, i.getLongExtra("startMs", 0));   // v3.4.2 Continue watching
         if (testMode) {
             url = TEST_URL;
             if (title == null) title = "Sinhala Player Test";
@@ -467,6 +471,14 @@ public class PlayActivity extends Activity {
         }
     }
 
+    /** v3.4.2 — persist the playhead whenever the player leaves the foreground. */
+    @Override
+    protected void onPause() {
+        super.onPause();
+        saveHistory();
+        if (boosting) boostOff();
+    }
+
     @Override
     protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
@@ -522,6 +534,7 @@ public class PlayActivity extends Activity {
     protected void onDestroy() {
         finished = true;
         saveResumePoint();   // v3.1.0 — Auto-Resume: keep the last position before teardown
+        saveHistory();       // v3.4.2 — the Home Continue-watching row learns this title
         // v2.2 leak fix: the two-stage Cinema Polish re-check (and the 4 Hz ticker,
         // the HUD/pill hide timers, the delayed PiP arming) all live on `main`.
         // Clearing the queue here is what makes the re-check "cancelled in
@@ -817,6 +830,16 @@ public class PlayActivity extends Activity {
         hudTitle.setText(title);
         showStatus();
         scheduleHudHide();
+        // v3.4.2 — 1-tap resume from Continue watching: seek to the saved millisecond
+        // exactly once, as soon as the real duration is known.
+        if (resumeMs > 0 && !resumeApplied) {
+            resumeApplied = true;
+            long to = dur > 0 ? Math.min(resumeMs, dur - 1000) : resumeMs;
+            if (to > 0) {
+                player.seekTo(to);
+                flash("Resumed · " + WatchHistory.clock(to));
+            }
+        }
     }
 
     /** v3.1.2 — Media3 state int → the exact name for the timeline. */
@@ -1684,7 +1707,11 @@ public class PlayActivity extends Activity {
             statusPill.setText(stateDetail);
             statusPill.setTextColor(good ? 0xFF8CFF8C : "fetching".equals(state) ? 0xFFFDE68A : 0xFFFFB3B3);
             statusPill.setVisibility(View.VISIBLE);
-            if (good) main.postDelayed(pillHide, 3000);
+            statusPill.setAlpha(1f);
+            // v3.4.2 — the pill auto-fades after 2.5 s (screenshot 2: it was stuck over
+            // an actor's forehead forever because nothing ever faded it).
+            main.removeCallbacks(pillHide);
+            if (good) main.postDelayed(pillHide, 2500);
         }
     }
 
@@ -1695,7 +1722,8 @@ public class PlayActivity extends Activity {
     private final Runnable pillHide = new Runnable() {
         @Override public void run() {
             if (statusPill != null && ("ready".equals(state) || "local".equals(state))) {
-                statusPill.setVisibility(View.GONE);
+                statusPill.animate().alpha(0f).setDuration(220)
+                    .withEndAction(() -> statusPill.setVisibility(View.GONE)).start();
             }
         }
     };
@@ -1725,18 +1753,9 @@ public class PlayActivity extends Activity {
     private void buildUi() {
         if (AppPrefs.keepScreenOn(prefs))
             getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        // v3.4.0 - the user's default orientation (auto / landscape / portrait)
-        String orient = AppPrefs.orientation(prefs);
-        try {
-            if (AppPrefs.ORIENT_LANDSCAPE.equals(orient))
-                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-            else if (AppPrefs.ORIENT_PORTRAIT.equals(orient))
-                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
-            else
-                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-        } catch (Throwable t) {
-            Diag.w("player", "orientation: " + t);
-        }
+        // v3.4.2 — the orientation mode (auto sensor / lock landscape / lock portrait).
+        // "Auto" is FULL_SENSOR, so the picture genuinely follows the phone.
+        applyOrientation();
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
         if (Build.VERSION.SDK_INT >= 28) {
@@ -1765,7 +1784,10 @@ public class PlayActivity extends Activity {
         root.addView(subLayer, new FrameLayout.LayoutParams(-1, -1));
         subView = new TextView(this);
         applyLangStyle();
-        subView.setGravity(Gravity.CENTER);
+        // v3.4.2 — CENTER_HORIZONTAL only: the line is centred horizontally and anchored
+        // by subLayoutParams() at Gravity.BOTTOM. The v3.4.1 Gravity.CENTER here is part
+        // of why screenshot 2's subtitle rendered across the actors' faces.
+        subView.setGravity(Gravity.CENTER_HORIZONTAL);
         subView.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY);
         subView.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NONE);
         subView.setLineSpacing(dp(2), 1.2f);   // v3.2.0 contract; applyStudioStyle() refines it
@@ -1801,46 +1823,15 @@ public class PlayActivity extends Activity {
 
         // the pill's 1-tap fixes (they STACK under the pill — v3.2.0 floated them at a
         // fixed 64dp top margin, which is exactly how "< Back" ended up on top of them)
-        subActions = new LinearLayout(this);
-        subActions.setOrientation(LinearLayout.HORIZONTAL);
-        subActions.setGravity(Gravity.CENTER);
-        subActions.setPadding(dp(6), dp(6), dp(6), dp(6));
-        GradientDrawable rowBg = new GradientDrawable();
-        rowBg.setColor(0xE60E1424);
-        rowBg.setCornerRadius(dp(16));
-        subActions.setBackground(rowBg);
-        subActions.setVisibility(View.GONE);
-        subActions.addView(pillBtn("↻ Retry", v -> { subActions.setVisibility(View.GONE); fetchGen++; fetching = false; fetchSinhala(); }));
-        subActions.addView(pillBtn("⇄ Provider", v -> { subActions.setVisibility(View.GONE); fetchGen++; fetching = false; prefs.edit().putBoolean("preferCastSubs", true).apply(); fetchSinhala(); }));
-        subActions.addView(pillBtn(R.drawable.ic_folder_zip, "Local .srt", v -> { subActions.setVisibility(View.GONE); pickLocal(); }));
-        subActions.addView(pillBtn(R.drawable.ic_speed, "±0.25s", v -> nudge(250)));
-        pillBox.addView(subActions, new LinearLayout.LayoutParams(-2, -2));
-
-        langChips = new LinearLayout(this);
-        langChips.setOrientation(LinearLayout.HORIZONTAL);
-        langChips.setGravity(Gravity.CENTER);
-        langChips.setPadding(dp(4), dp(4), dp(4), dp(4));
-        GradientDrawable langBg = new GradientDrawable();
-        langBg.setColor(0xE60E1424);
-        langBg.setCornerRadius(dp(16));
-        langChips.setBackground(langBg);
-        for (final Langs.Lang l : Langs.chips()) langChips.addView(pillBtn(l.nativeName, v -> switchLang(l.code)));
-        langChips.addView(pillBtn("+ More", v -> showLangSheet()));
-        langChips.setVisibility(View.GONE);
-        pillBox.addView(langChips, new LinearLayout.LayoutParams(-2, -2));
-
-        extraActions = new LinearLayout(this);
-        extraActions.setOrientation(LinearLayout.HORIZONTAL);
-        extraActions.setGravity(Gravity.CENTER);
-        extraActions.setPadding(dp(4), dp(4), dp(4), dp(4));
-        GradientDrawable extraBg = new GradientDrawable();
-        extraBg.setColor(0xE60E1424);
-        extraBg.setCornerRadius(dp(16));
-        extraActions.setBackground(extraBg);
-        extraActions.addView(pillBtn(R.drawable.ic_translate, "Spoken/Formal", v -> toggleRegister()));
-        extraActions.addView(pillBtn(R.drawable.ic_sun, "AI Studio", v -> openAiStudioBridge()));
-        extraActions.setVisibility(View.GONE);
-        pillBox.addView(extraActions, new LinearLayout.LayoutParams(-2, -2));
+        // ── v3.4.2 — THE OVERLAPPING-FLOATING-ROWS DELETION (screenshot 3) ──────
+        //
+        // v3.4.1 built three absolutely-positioned pill rows here (Retry / Provider /
+        // Local .srt / ±0.25s, the language chips with the squished vertical box, and
+        // Spoken/Formal + AI Studio). They sat in the same overlay band as the centre
+        // −10 / Pause / +10 transport and collided with it on every phone. They are
+        // GONE from the video surface: every one of those controls now lives inside the
+        // Subtitles sheet (showSubtitleToolsSheet()), which is opened from the Subtitles
+        // chip. ONE status indicator remains — the pill above — never two.
 
         // v3.1.2 CRASH FIX, KEPT FOREVER (the audit trail the lab asserts): the notice
         // background used to be View.setBackgroundResource(0x88000000), which treats a
@@ -1936,6 +1927,8 @@ public class PlayActivity extends Activity {
 
         wireGestures(root);
         setContentView(root);
+        applyMidnightDimmer();          // v3.4.2 — the dark-room veil, if enabled
+        applyImmersive(false);          // bars visible while the HUD is up
         if (AppPrefs.lockOnStart(prefs)) setLocked(true);
     }
 
@@ -1962,8 +1955,8 @@ public class PlayActivity extends Activity {
             new int[]{0xB3000000, 0x00000000});
         hudTopBar.setBackground(topBg);
 
-        View back = icon(R.drawable.ic_back, 20, v -> finish());   // v3.4.1 — HUD top bar = 20dp
-        hudTopBar.addView(back, new LinearLayout.LayoutParams(dp(40), dp(38)));
+        View back = icon(R.drawable.ic_back, 20, v -> finish());   // v3.4.2 — 20dp glyph, 40dp plate
+        hudTopBar.addView(back, new LinearLayout.LayoutParams(dp(ICON_BOX_DP), dp(ICON_BOX_DP)));
 
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
@@ -1995,14 +1988,17 @@ public class PlayActivity extends Activity {
         badgeSub.setVisibility(View.GONE);
         hudTopBar.addView(badgeSub, new LinearLayout.LayoutParams(-2, -2));
 
-        View lock = icon(R.drawable.ic_lock, 20, v -> setLocked(true));   // v3.4.1 — 20dp, matching the bar
-        hudTopBar.addView(lock, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        View rotate = icon(R.drawable.ic_rotate, 20, v -> rotateScreen());   // v3.4.1
-        hudTopBar.addView(rotate, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        View vlc = icon(R.drawable.ic_vlc_external, 20, v -> openExternalPlayer());   // v3.4.1
-        hudTopBar.addView(vlc, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        View gear = icon(R.drawable.ic_settings, 20, v -> toggleSheet());   // v3.4.1
-        hudTopBar.addView(gear, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        // v3.4.2 — every top-right plate is 40dp with 10dp internal padding around a
+        // 20dp vector (screenshot 1's giant, edge-to-edge icons are gone), and the
+        // 3dp gutters keep the row from touching the screen edge.
+        View lock = icon(R.drawable.ic_lock, 20, v -> setLocked(true));
+        hudTopBar.addView(lock, topIconParams());
+        View rotate = icon(R.drawable.ic_rotate, 20, v -> showOrientationSheet());
+        hudTopBar.addView(rotate, topIconParams());
+        View vlc = icon(R.drawable.ic_vlc_external, 20, v -> openExternalPlayer());
+        hudTopBar.addView(vlc, topIconParams());
+        View gear = icon(R.drawable.ic_settings, 20, v -> toggleSheet());
+        hudTopBar.addView(gear, topIconParams());
         box.addView(hudTopBar, new LinearLayout.LayoutParams(-1, -2));
 
         // ══ ZONE 2 — CENTRE (transport + gesture feedback) ═════════════════════
@@ -2427,7 +2423,8 @@ public class PlayActivity extends Activity {
 
     /** The ⏩ chip: 0.75x → 1.0x → 1.25x → 1.5x → 2.0x → 0.75x. */
     private void cycleSpeed() {
-        float[] steps = {0.75f, 1f, 1.25f, 1.5f, 2f};
+        // v3.4.2 — 0.5× … 2.5× (the brief's range), not the old 0.75–2.0
+        float[] steps = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 2.5f};
         float cur = 1f;
         try { if (player != null) cur = player.getPlaybackParameters().speed; } catch (Throwable ignored) { }
         int next = 1;
@@ -2613,14 +2610,27 @@ public class PlayActivity extends Activity {
     }
 
     /** A plain text icon-button (the project's zero-asset idiom). */
-    /** v3.4.0 - a HUD icon button: tinted vector on the same translucent rounded plate. */
+    /**
+     * v3.4.2 — THE GIANT-ICON FIX (screenshots 1 and 3).
+     *
+     * <p>v3.4.1 drew a 24dp-intrinsic vector into a 36dp plate with <b>zero padding</b>:
+     * the glyph touched the plate's edge and read as "icons bursting out of their
+     * circles". Every HUD icon is now a {@value #ICON_BOX_DP}dp container with
+     * {@code (40 - size)/2}dp of real internal padding, so a 20dp vector sits crisply
+     * centred inside a 40dp plate — exactly the optical ratio the brief specifies.
+     */
+    private static final int ICON_BOX_DP = 40;
+
     private View icon(int resId, float sizeDp, View.OnClickListener click) {
         ImageView iv = new ImageView(this);
-        iv.setImageDrawable(UiIcons.tinted(this, resId, Color.WHITE, Math.round(sizeDp)));
+        int size = Math.round(sizeDp);
+        iv.setImageDrawable(UiIcons.tinted(this, resId, Color.WHITE, size));
         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        int pad = dp(Math.max(0, (ICON_BOX_DP - size) / 2f));   // 20dp glyph → 10dp padding
+        iv.setPadding(pad, pad, pad, pad);
         GradientDrawable g = new GradientDrawable();
         g.setColor(0x26FFFFFF);
-        g.setCornerRadius(dp(12));
+        g.setCornerRadius(dp(20));                              // a true circle at 40dp
         iv.setBackground(g);
         iv.setClickable(true);
         iv.setFocusable(true);
@@ -2678,17 +2688,17 @@ public class PlayActivity extends Activity {
         return t;
     }
 
-    /** v2.1: show the pill's action row (called on error / long-press states). */
+    /**
+     * v3.4.2 — the old floating action rows are deleted, so "expose the 1-tap fixes" now
+     * means exactly two things: the single status pill stays readable, and the
+     * Subtitles chip is one tap away. Nothing is ever laid over the transport.
+     */
     private void showSubActions() {
-        if (subActions != null) subActions.setVisibility(View.VISIBLE);
-        if (statusPill != null) statusPill.setVisibility(View.VISIBLE);
-        if (langChips != null) langChips.setVisibility(View.VISIBLE);
-        if (extraActions != null) extraActions.setVisibility(View.VISIBLE);
-        main.postDelayed(() -> {
-            if (subActions != null) subActions.setVisibility(View.GONE);
-            if (langChips != null) langChips.setVisibility(View.GONE);
-            if (extraActions != null) extraActions.setVisibility(View.GONE);
-        }, 12000);
+        if (statusPill != null) {
+            statusPill.setVisibility(View.VISIBLE);
+            main.removeCallbacks(pillHide);
+            main.postDelayed(pillHide, 6000);   // failures stay a little longer
+        }
     }
 
     /**
@@ -2754,16 +2764,258 @@ public class PlayActivity extends Activity {
         subView.setLayoutParams(sl);
     }
 
-    /** The subtitle view's bottom position: 4–28% of the screen height. */
+    /**
+     * v3.4.2 — THE SUBTITLE GEOMETRY (screenshot 2).
+     *
+     * <p>THE FIELD BUG: the Sinhala line rendered DEAD-CENTRE, straight across the
+     * actors' faces, because the view's own gravity and the layer padding fought each
+     * other. It is now anchored strictly {@code Gravity.BOTTOM | CENTER_HORIZONTAL} with
+     * a compact cinema margin: <b>5%</b> of the height in landscape and <b>8%</b> in
+     * portrait (the studio's own slider still overrides it), and it is never allowed
+     * above 20% so a subtitle can never climb into the picture.
+     */
     private FrameLayout.LayoutParams subLayoutParams() {
-        FrameLayout.LayoutParams sl = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        FrameLayout.LayoutParams sl = new FrameLayout.LayoutParams(-2, -2,
+            Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         int h = Math.max(1, getResources().getDisplayMetrics().heightPixels);
-        // v3.3.0 — the studio's 4–28% position, capped at 12% so the line always sits
-        // inside the padded subtitle layer (above the chips, below the top bar).
-        int pct = Math.min(12, AppPrefs.subBottomPct(prefs));
+        boolean land = getResources().getConfiguration().orientation
+            == Configuration.ORIENTATION_LANDSCAPE;
+        int stored = AppPrefs.subBottomPct(prefs);
+        // 10 is the untouched default → use the clean cinema pair (5% / 8%).
+        int pct = stored == 10 ? (land ? 5 : 8) : Math.min(20, stored);
         sl.bottomMargin = Math.round(h * pct / 100f);
         sl.leftMargin = sl.rightMargin = dp(8);
         return sl;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // v3.4.2 — HUD plates, immersive fullscreen, orientation, speed boost,
+    //          watch history, midnight dimmer and the AI subtitle helpers
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /** A 40dp top-bar plate with a 3dp gutter — the crisp icon container. */
+    private LinearLayout.LayoutParams topIconParams() {
+        LinearLayout.LayoutParams lp =
+            new LinearLayout.LayoutParams(dp(ICON_BOX_DP), dp(ICON_BOX_DP));
+        lp.leftMargin = lp.rightMargin = dp(3);
+        return lp;
+    }
+
+    // ── TRUE IMMERSIVE FULLSCREEN (screenshot 2: the status bar and the gesture bar) ──
+
+    /**
+     * Hide BOTH system bars while the HUD is hidden (the only honest "fullscreen" on
+     * Android 16), and bring them back the moment the HUD is tapped. A swipe from the
+     * edge still reveals them transiently, so nothing is ever unreachable.
+     */
+    private void applyImmersive(boolean immersive) {
+        try {
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.view.WindowInsetsController c = getWindow().getInsetsController();
+                if (c == null) return;
+                if (immersive) {
+                    c.setSystemBarsBehavior(
+                        android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    c.hide(android.view.WindowInsets.Type.statusBars()
+                        | android.view.WindowInsets.Type.navigationBars());
+                } else {
+                    c.show(android.view.WindowInsets.Type.statusBars()
+                        | android.view.WindowInsets.Type.navigationBars());
+                }
+            } else {
+                int flags = immersive
+                    ? (View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                       | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
+                    : 0;
+                getWindow().getDecorView().setSystemUiVisibility(flags);
+            }
+        } catch (Throwable t) {
+            Diag.w("player", "immersive: " + t);
+        }
+    }
+
+    // ── ORIENTATION: auto-rotate (sensor) vs locked ───────────────────────────
+
+    /**
+     * The 1-tap orientation sheet: Auto sensor / Lock landscape / Lock portrait.
+     * "Auto" uses SCREEN_ORIENTATION_FULL_SENSOR so the phone genuinely turns with the
+     * device even when the system rotation lock is on — a video player is the one place
+     * that behaviour is wanted.
+     */
+    private void showOrientationSheet() {
+        final String[] vals = {AppPrefs.ORIENT_AUTO, AppPrefs.ORIENT_LANDSCAPE, AppPrefs.ORIENT_PORTRAIT};
+        String cur = AppPrefs.orientation(prefs);
+        int sel = AppPrefs.ORIENT_LANDSCAPE.equals(cur) ? 1
+            : (AppPrefs.ORIENT_PORTRAIT.equals(cur) ? 2 : 0);
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Orientation")
+            .setSingleChoiceItems(new String[]{"Auto-rotate (sensor)", "Lock landscape", "Lock portrait"},
+                sel, (d, which) -> {
+                    prefs.edit().putString(AppPrefs.K_ORIENTATION, vals[which]).apply();
+                    applyOrientation();
+                    d.dismiss();
+                    flash(which == 0 ? "Auto-rotate" : (which == 1 ? "Locked landscape" : "Locked portrait"));
+                })
+            .setNegativeButton(android.R.string.cancel, null)
+            .show();
+    }
+
+    /** Apply the stored orientation mode to the window (never throws). */
+    private void applyOrientation() {
+        try {
+            String o = AppPrefs.orientation(prefs);
+            if (AppPrefs.ORIENT_LANDSCAPE.equals(o))
+                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            else if (AppPrefs.ORIENT_PORTRAIT.equals(o))
+                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+            else
+                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR);
+        } catch (Throwable t) {
+            Diag.w("player", "orientation: " + t);
+        }
+    }
+
+    // ── HOLD-TO-2x SPEED BOOST (YouTube / VLC) ────────────────────────────────
+
+    private boolean boosting;
+    private float speedBeforeBoost = 1f;
+
+    private final Runnable boostStart = new Runnable() {
+        @Override public void run() {
+            if (locked || player == null) return;
+            try {
+                speedBeforeBoost = player.getPlaybackParameters().speed;
+                player.setPlaybackSpeed(2f);
+                boosting = true;
+                flash("2.0× Speed");
+            } catch (Throwable t) { Diag.w("player", "boost: " + t); }
+        }
+    };
+
+    /** Release the boost and restore exactly the speed the user had. */
+    private void boostOff() {
+        if (!boosting) return;
+        boosting = false;
+        try {
+            if (player != null) player.setPlaybackSpeed(speedBeforeBoost);
+        } catch (Throwable ignored) { }
+        if (gesturePill != null) gesturePill.setVisibility(View.GONE);
+    }
+
+    /** One speed setter for the picker AND the chip cycle (0.5× … 2.5×). */
+    private void setSpeed(float f) {
+        try {
+            if (player != null) player.setPlaybackSpeed(f);
+        } catch (Throwable ignored) { }
+        prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, Math.round(f * 100)).apply();
+        if (speedChip != null) speedChip.setText(String.format(Locale.US, "%.2g×", f));
+        flash(String.format(Locale.US, "%.2g×", f));
+    }
+
+    // ── WATCH HISTORY ─────────────────────────────────────────────────────────
+
+    /**
+     * Persist the current position. Called on pause/stop/close, on every seek and when
+     * the player goes to the background — the Continue-watching row on Home is always
+     * accurate to the last second the user actually watched.
+     */
+    void saveHistory() {
+        try {
+            if (player == null) return;
+            String u = url == null ? "" : url.trim();
+            String tt = title == null ? "" : title.trim();
+            if (u.isEmpty() && tt.isEmpty()) return;
+            long pos = Math.max(0, player.getCurrentPosition());
+            long dur = player.getDuration();
+            if (dur == C.TIME_UNSET || dur < 0) dur = 0;
+            if (pos < 3000) return;                       // 3 s of a title is not a watch
+            if (dur > 0 && pos > dur - 5000) pos = dur;   // finished → the row drops away
+            WatchHistory.record(prefs, new WatchHistory.Item(
+                tt.isEmpty() ? u : tt, u, headersJson, testMode ? "test" : "player", pos, dur,
+                System.currentTimeMillis()));
+        } catch (Throwable t) {
+            Diag.w("player", "history: " + t);
+        }
+    }
+
+    // ── MIDNIGHT NIGHT DIMMER (in the player) ─────────────────────────────────
+
+    private View dimView;
+
+    /** The same dark-room veil the shell uses, laid over the video (taps still pass). */
+    private void applyMidnightDimmer() {
+        try {
+            if (rootView == null) return;
+            if (dimView != null) { rootView.removeView(dimView); dimView = null; }
+            boolean on = AppPrefs.midnightDimmer(prefs);
+            int pct = AppPrefs.midnightDimPct(prefs);
+            if (!on) return;
+            View v = new View(this);
+            v.setBackgroundColor(Color.argb(Math.round(pct * 2.55f), 0, 0, 0));
+            v.setClickable(false);
+            v.setFocusable(false);
+            rootView.addView(v, new FrameLayout.LayoutParams(-1, -1));
+            if (hud != null) hud.bringToFront();
+            dimView = v;
+        } catch (Throwable t) {
+            Diag.w("player", "dimmer: " + t);
+        }
+    }
+
+    // ── the AI subtitle helpers ───────────────────────────────────────────────
+
+    /** The 1-tap NewZone batch translator (opens in the app's own Chromium tab). */
+    private void openNewZoneTranslator() {
+        try {
+            startActivity(new Intent(this, MainActivity.class)
+                .putExtra("openWeb", true)
+                .putExtra("webUrl", "https://tools.newzone.top/en/subtitle-translator"));
+            flash("NewZone translator");
+        } catch (Throwable t) {
+            Diag.w("player", "newzone: " + t);
+            flash("Could not open the translator");
+        }
+    }
+
+    /**
+     * THE AUDIO → SRT AI FALLBACK, as a 1-tap helper (never a 100 MB on-device model).
+     *
+     * <p>When no subtitle exists anywhere, the honest options are: (1) the user's own
+     * Cloudflare Worker running {@code @cf/openai/whisper}, (2) the user's AI Studio / Gemini
+     * workflow with the prompt pre-filled, or (3) a local file the user brings back. All
+     * three end in the SAME place: a timestamped {@code .srt} attached live to this player.
+     */
+    private void showAudioToSrtHelper() {
+        final String[] items = {
+            "1 · Whisper via my Worker (auto)",
+            "2 · Copy the AI Studio transcript prompt",
+            "3 · Pick a finished .srt file"
+        };
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Audio → SRT (AI fallback)")
+            .setItems(items, (d, which) -> {
+                if (which == 0) {
+                    fetchGen++;
+                    fetching = false;
+                    fetchSinhala();          // the Worker path already speaks Whisper
+                    flash("Trying Whisper via the Worker");
+                } else if (which == 1) {
+                    try {
+                        android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                            getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                        String prompt = "Transcribe the attached audio into a timestamped SRT"
+                            + " subtitle file. Keep the original timing, one cue per sentence,"
+                            + " then translate each cue into Sinhala. Output ONLY the .srt file."
+                            + " Movie: " + (title == null ? "" : title);
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("subtitle-prompt", prompt));
+                        flash("Prompt copied — paste it in AI Studio");
+                    } catch (Throwable t) { Diag.w("player", "prompt: " + t); }
+                } else {
+                    pickLocal();
+                }
+            })
+            .setNegativeButton(android.R.string.cancel, null)
+            .show();
     }
 
     /** The panel's font-size steppers now clamp through the studio model (14–36). */
@@ -2795,9 +3047,7 @@ public class PlayActivity extends Activity {
         cues = new ArrayList<>();
         setState("fetching", Langs.nativeOf(code) + " උපසිරැසි ලබාගනිමින්… · fetching " + Langs.englishOf(code) + " subtitles…");
         fetchSinhala();
-        if (subActions != null) subActions.setVisibility(View.GONE);
-        if (langChips != null) langChips.setVisibility(View.GONE);
-        if (extraActions != null) extraActions.setVisibility(View.GONE);
+        // v3.4.2 — the floating rows are gone; nothing to hide any more.
     }
 
     /** v2.2: the full registry sheet (the "+ More" chip). */
@@ -2936,6 +3186,9 @@ public class PlayActivity extends Activity {
                     previewTo[0] = -1;
                     mode[0] = 0;
                     scheduleHudHide();
+                    // v3.4.2 — arm the YouTube/VLC-style HOLD-TO-2x speed boost
+                    main.removeCallbacks(boostStart);
+                    main.postDelayed(boostStart, 550);
                     return true;
                 case MotionEvent.ACTION_MOVE: {
                     float dx = e.getX() - startX[0], dy = e.getY() - startY[0];
@@ -2948,6 +3201,11 @@ public class PlayActivity extends Activity {
                         } else if (Math.abs(dx) > dp(24) && Math.abs(dx) > Math.abs(dy) * 1.4f) {
                             if (AppPrefs.swipeSeek(prefs)) mode[0] = 3;
                         }
+                    }
+                    // any real movement means the user is swiping, not holding
+                    if (Math.abs(dx) > dp(16) || Math.abs(dy) > dp(16)) {
+                        main.removeCallbacks(boostStart);
+                        boostOff();
                     }
                     if (mode[0] == 1) brightness(dy - dp(40));
                     else if (mode[0] == 2) volume(dy - dp(40));
@@ -2966,6 +3224,8 @@ public class PlayActivity extends Activity {
                     if (mode[0] == 3 && previewTo[0] >= 0 && player != null) player.seekTo(previewTo[0]);
                     if (mode[0] != 0) hideGesture();
                     mode[0] = 0;
+                    main.removeCallbacks(boostStart);
+                    boostOff();                       // v3.4.2 — release → normal speed
                     return true;
                 default:
                     return false;
@@ -3082,14 +3342,18 @@ public class PlayActivity extends Activity {
     void showControls() {
         hudVisible = true;
         hud.setVisibility(View.VISIBLE);
+        applyImmersive(false);          // v3.4.2 — bars come back with the HUD
         scheduleHudHide();
     }
 
     void toggleControls() {
         if (panel != null && panel.getVisibility() == View.VISIBLE) { panel.setVisibility(View.GONE); return; }
         if (sheet != null && sheet.getVisibility() == View.VISIBLE) { sheet.setVisibility(View.GONE); return; }
-        if (hudVisible) { hudVisible = false; hud.setVisibility(View.GONE); }
-        else showControls();
+        if (hudVisible) {
+            hudVisible = false;
+            hud.setVisibility(View.GONE);
+            applyImmersive(true);       // v3.4.2 — TRUE fullscreen once the HUD is gone
+        } else showControls();
     }
 
     /** v3.4.0 - the Subtitles sheet: the video (and the live subtitle) stay visible above it. */
@@ -3137,6 +3401,58 @@ public class PlayActivity extends Activity {
         hs2.addView(slRow, new FrameLayout.LayoutParams(-2, -2));
         body.addView(hs2, new LinearLayout.LayoutParams(-1, -2));
 
+        // ── v3.4.2 — THE RELOCATED CONTROLS ──────────────────────────────────────
+        // Retry / Provider / sync nudge / Spoken-Formal / AI Studio used to float over
+        // the video and collide with the transport (screenshot 3). They live here now,
+        // as clean horizontally-scrolling chips with WRAP_CONTENT widths — so no chip
+        // can ever be squashed into a vertical box again.
+        LinearLayout toolsRow = UiChip.stripRow(this);
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_refresh,
+            t2("Retry"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
+                fetchGen++; fetching = false; fetchSinhala(); }));
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_globe,
+            t2("Provider"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
+                fetchGen++; fetching = false;
+                prefs.edit().putBoolean("preferCastSubs", true).apply(); fetchSinhala(); }));
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_speed,
+            "−0.25s", false, v -> nudge(-250)));
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_speed,
+            "+0.25s", false, v -> nudge(250)));
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate,
+            t2("Spoken/Formal"), false, v -> toggleRegister()));
+        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_sun,
+            "AI Studio", false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
+                openAiStudioBridge(); }));
+        android.widget.HorizontalScrollView hs3 = UiChip.strip(this);
+        hs3.addView(toolsRow, new FrameLayout.LayoutParams(-2, -2));
+        body.addView(hs3, new LinearLayout.LayoutParams(-1, -2));
+
+        // ── v3.4.2 — the NewZone translator + the audio-to-SRT AI fallback ───────
+        LinearLayout aiRow = UiChip.stripRow(this);
+        aiRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_globe,
+            t2("NewZone translator"), false, v -> {
+                subtitleSheet.dismiss(); subtitleSheet = null; openNewZoneTranslator(); }));
+        aiRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_audio_track,
+            t2("Audio → SRT (AI)"), false, v -> {
+                subtitleSheet.dismiss(); subtitleSheet = null; showAudioToSrtHelper(); }));
+        android.widget.HorizontalScrollView hs4 = UiChip.strip(this);
+        hs4.addView(aiRow, new FrameLayout.LayoutParams(-2, -2));
+        body.addView(hs4, new LinearLayout.LayoutParams(-1, -2));
+
+        // ── v3.4.2 — the clean speed picker (0.5× – 2.5×) ────────────────────────
+        LinearLayout speedRow = UiChip.stripRow(this);
+        for (final float f : new float[]{0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 2.5f}) {
+            float cur = 1f;
+            try { cur = player == null ? 1f : player.getPlaybackParameters().speed; }
+            catch (Throwable ignored) { }
+            speedRow.addView(UiChip.make(this, p, prefs, 0,
+                String.format(Locale.US, "%.2g×", f), Math.abs(cur - f) < 0.01f,
+                v -> setSpeed(f)));
+        }
+        android.widget.HorizontalScrollView hs5 = UiChip.strip(this);
+        hs5.addView(speedRow, new FrameLayout.LayoutParams(-2, -2));
+        body.addView(hs5, new LinearLayout.LayoutParams(-1, -2));
+
         // live style studio - every change repaints the subtitle behind the sheet
         body.addView(UiSlider.make(this, p, prefs, "අකුරේ ප්‍රමාණය", "Font size",
             12, 36, AppPrefs.fontSp(prefs), "sp", v -> {
@@ -3178,6 +3494,7 @@ public class PlayActivity extends Activity {
                 && (sheet == null || sheet.getVisibility() != View.VISIBLE)) {
                 hudVisible = false;
                 hud.setVisibility(View.GONE);
+                applyImmersive(true);   // v3.4.2 — hide status + navigation bars too
             }
         }
     };

@@ -66,13 +66,214 @@ final class LkSubFinder {
      */
     static List<Site> sites() {
         List<Site> l = new ArrayList<>();
-        l.add(new Site("Baiscope", "https://baiscope.lk/", "https://baiscope.lk/?s={q}", true));
+        // ── Sri Lankan (human-verified Sinhala) — always tried first ──
+        l.add(new Site("Baiscope", "https://www.baiscope.lk/", "https://www.baiscope.lk/?s={q}", true));
         l.add(new Site("Zoom.lk", "https://zoom.lk/", "https://zoom.lk/?s={q}", true));
         l.add(new Site("PirateLK", "https://piratelk.com/", "https://piratelk.com/?s={q}", true));
+        l.add(new Site("Cineru.lk", "https://cineru.lk/", "https://cineru.lk/?s={q}", true));
+        l.add(new Site("Subz.lk", "https://subzlk.com/", "https://subzlk.com/?s={q}", true));
+        // ── global catalogues (English/other → auto-translate to Sinhala) ──
         l.add(new Site("SubDL", "https://subdl.com/", "https://subdl.com/search/{q}", false));
         l.add(new Site("OpenSubtitles", "https://www.opensubtitles.org/",
             "https://www.opensubtitles.org/en/search2/sublanguageid-sin/moviename-{q}", false));
+        l.add(new Site("Subsource", "https://subsource.net/", "https://subsource.net/search/{q}", false));
+        l.add(new Site("YIFY", "https://yifysubtitles.ch/", "https://yifysubtitles.ch/search?q={q}", false));
+        l.add(new Site("Podnapisi", "https://www.podnapisi.net/",
+            "https://www.podnapisi.net/subtitles/search/?keywords={q}", false));
         return l;
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // v3.4.2 — THE METADATA-RANKED PRIORITY ENGINE
+    //
+    // "Which subtitle is THE one?" is an arithmetic question, not a guess. Every
+    // candidate is scored by what the player actually KNOWS about the movie, in the
+    // exact priority order the brief specifies:
+    //
+    //   exact IMDb id match          +1000
+    //   exact cleaned title + year    +400 (+120 for the year)
+    //   season/episode match           +250
+    //   Sinhala human-verified         +300
+    //   English exact (auto-translate) +120
+    //   same site family tie-break      +10
+    //
+    // The lab drives score() and rank() directly, so a future refactor cannot quietly
+    // demote an IMDb-exact match below a fuzzy title hit.
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /** What the player knows about the movie being watched. All fields optional. */
+    static final class Meta {
+        String imdbId = "";
+        String title = "";
+        int year = 0;
+        int season = 0;
+        int episode = 0;
+
+        Meta() { }
+
+        Meta imdb(String id) { this.imdbId = id == null ? "" : id.trim(); return this; }
+        Meta title(String t) { this.title = t == null ? "" : t; return this; }
+        Meta year(int y) { this.year = y; return this; }
+        Meta episode(int s, int e) { this.season = s; this.episode = e; return this; }
+    }
+
+    /** One candidate subtitle as the sites hand it back. */
+    static final class Candidate {
+        String site = "";
+        String label = "";        // the page's own title
+        String imdbId = "";
+        String lang = "";          // "si" / "en" / ""
+        int year = 0;
+        int season = 0;
+        int episode = 0;
+        boolean humanVerified;      // a human-translated Sinhala release
+        String url = "";
+        int score;
+
+        Candidate() { }
+
+        Candidate site(String s) { this.site = s == null ? "" : s; return this; }
+        Candidate label(String s) { this.label = s == null ? "" : s; return this; }
+        Candidate imdb(String s) { this.imdbId = s == null ? "" : s.trim(); return this; }
+        Candidate lang(String s) { this.lang = s == null ? "" : s; return this; }
+        Candidate year(int y) { this.year = y; return this; }
+        Candidate season(int s, int e) { this.season = s; this.episode = e; return this; }
+        Candidate human(boolean b) { this.humanVerified = b; return this; }
+        Candidate url(String s) { this.url = s == null ? "" : s; return this; }
+    }
+
+    /** Score ONE candidate against what the player knows. Deterministic, side-effect free. */
+    static int score(Candidate c, Meta m) {
+        if (c == null) return -1;
+        if (m == null) m = new Meta();
+        int s = 0;
+        // 1. exact IMDb id — the single strongest signal there is
+        if (!m.imdbId.isEmpty() && !c.imdbId.isEmpty()
+            && m.imdbId.equalsIgnoreCase(c.imdbId)) s += 1000;
+        // 2. exact cleaned title (+ the year when both know it)
+        String mt = normTitle(m.title), ct = normTitle(c.label);
+        if (!mt.isEmpty() && !ct.isEmpty()) {
+            if (mt.equals(ct)) s += 400;
+            else if (ct.contains(mt) || mt.contains(ct)) s += 180;   // partial is weaker, not zero
+        }
+        if (m.year > 0 && c.year > 0 && m.year == c.year) s += 120;
+        // 3. season / episode (a series must not pick up another episode's file)
+        if (m.season > 0 && c.season == m.season && c.episode == m.episode) s += 250;
+        else if (m.season > 0 && (c.season != m.season || c.episode != m.episode)
+            && (c.season > 0 || c.episode > 0)) s -= 150;          // a WRONG episode is a penalty
+        // 4. language quality: human Sinhala beats machine English
+        if ("si".equalsIgnoreCase(c.lang)) s += c.humanVerified ? 300 : 60;
+        else if ("en".equalsIgnoreCase(c.lang)) s += 120;
+        c.score = s;
+        return s;
+    }
+
+    /** Score + sort every candidate, best first (stable: ties keep the site order). */
+    static List<Candidate> rank(List<Candidate> in, Meta m) {
+        List<Candidate> out = new ArrayList<>();
+        if (in != null) for (Candidate c : in) if (c != null) { score(c, m); out.add(c); }
+        java.util.Collections.sort(out, (a, b) -> Integer.compare(b.score, a.score));
+        return out;
+    }
+
+    /** The best candidate, or null when the list is empty. */
+    static Candidate best(List<Candidate> in, Meta m) {
+        List<Candidate> r = rank(in, m);
+        return r.isEmpty() ? null : r.get(0);
+    }
+
+    /** Lower-case, punctuation-free, year-free title for comparison. */
+    static String normTitle(String t) {
+        if (t == null) return "";
+        String s = TitleCleaner.clean(t).title;
+        if (s == null) s = t;
+        s = s.toLowerCase(Locale.ROOT)
+             .replaceAll("\\((?:19|20)\\d{2}\\)", " ")
+             .replaceAll("[^a-z0-9\u0D80-\u0DFF ]+", " ")
+             .replaceAll("\\s+", " ").trim();
+        return s;
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // v3.4.2 — SMART TITLE DISCOVERY (never nag "tap to search" first)
+    // ───────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The title hidden in a URL slug: {@code /influencers-2026-sinhala-subtitles/} →
+     * "influencers 2026". Returns "" when the path carries nothing usable.
+     */
+    static String titleFromUrl(String url) {
+        if (url == null || url.isEmpty()) return "";
+        try {
+            String u = url.trim();
+            int q = u.indexOf('?');
+            if (q >= 0) u = u.substring(0, q);
+            int hash = u.indexOf('#');
+            if (hash >= 0) u = u.substring(0, hash);
+            int scheme = u.indexOf("://");
+            if (scheme >= 0) {
+                int slash = u.indexOf('/', scheme + 3);
+                u = slash >= 0 ? u.substring(slash) : "";
+            }
+            String[] parts = u.split("/");
+            String bestPart = "";
+            for (String part : parts) {
+                String p = part.trim();
+                if (p.length() < 3) continue;
+                if (p.matches("(?i)(index\\.php|index\\.html|watch|video|movie|movies|play|embed|stream|srt|zip)")) continue;
+                if (p.length() > bestPart.length()) bestPart = p;
+            }
+            String t = bestPart.replaceAll("(?i)\\.(html?|php|mp4|m3u8|srt|zip)$", "")
+                .replace('-', ' ').replace('_', ' ').replace('+', ' ')
+                .replaceAll("\\s+", " ").trim();
+            if (t.length() < 3) return "";
+            // drop the trailing noise every streaming slug carries
+            t = t.replaceAll("(?i)\\b(with |full |watch |online |free |download |sinhala |subtitles?\\b)", " ")
+                 .replaceAll("\\s+", " ").trim();
+            return t;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    /**
+     * The title from a page's HTML: {@code <meta property="og:title">} first, then
+     * {@code <title>}. Pure string work, so the lab can prove it on a captured page.
+     */
+    static String titleFromHtml(String html) {
+        if (html == null || html.isEmpty()) return "";
+        try {
+            String og = firstGroup(html, "(?is)<meta[^>]+property\\s*=\\s*[\"']og:title[\"'][^>]*content\\s*=\\s*[\"']([^\"']{2,200})[\"']");
+            if (og.isEmpty()) og = firstGroup(html, "(?is)<meta[^>]+content\\s*=\\s*[\"']([^\"']{2,200})[\"'][^>]*property\\s*=\\s*[\"']og:title[\"']");
+            if (!og.isEmpty()) return og.trim();
+            String t = firstGroup(html, "(?is)<title[^>]*>(.{2,200}?)</title>");
+            return t.replaceAll("(?i)\\s*[|\\-–]\\s*(?:watch|stream|arrowtv|anantplay|player).*$", "").trim();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static String firstGroup(String text, String regex) {
+        try {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile(regex).matcher(text);
+            if (m.find()) {
+                String g = m.group(1);
+                return g == null ? "" : g;
+            }
+        } catch (Throwable ignored) { }
+        return "";
+    }
+
+    /**
+     * Is a "playhead is OUTSIDE cue range" warning actually a problem?
+     *
+     * <p>During the opening credits (playhead under 3 minutes, before the first cue) this
+     * is completely normal and must never be shown as an alarm.
+     */
+    static boolean isNormalPreRollGap(long playheadMs, long firstCueStartMs) {
+        if (playheadMs < 0) return false;
+        if (playheadMs < 180000L) return true;      // first 3 minutes: pre-roll, always normal
+        return firstCueStartMs > 0 && playheadMs < firstCueStartMs;
     }
 
     /** The Sri Lankan sites only (the 🇱🇰 button). */

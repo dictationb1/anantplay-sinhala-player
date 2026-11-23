@@ -67,6 +67,9 @@ public class WebBrowserView extends FrameLayout {
     private final SharedPreferences prefs;
     private WebView web;
     private EditText urlBox;
+    // v3.4.2 — the omnibar host (IME inset target) + the live suggestion dropdown
+    private LinearLayout omnibar;
+    private LinearLayout suggestBox;
     private ProgressBar progress;
     private TextView pill, autoChip;
     private LinearLayout pillRow;
@@ -124,6 +127,7 @@ public class WebBrowserView extends FrameLayout {
         bar.setBackgroundColor(0xFF0E1526);
         bar.setPadding(dp(6), dp(6), dp(6), dp(6));
         if (!omnibarBottom) column.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        omnibar = bar;   // v3.4.2 — the host the IME inset is applied to
 
         bar.addView(navBtn(R.drawable.ic_back, v -> goBack()), new LinearLayout.LayoutParams(dp(40), dp(40)));
         bar.addView(navBtn(R.drawable.ic_forward, v -> forward()), new LinearLayout.LayoutParams(dp(40), dp(40)));
@@ -145,6 +149,23 @@ public class WebBrowserView extends FrameLayout {
             return false;
         });
         bar.addView(urlBox, new LinearLayout.LayoutParams(0, -2, 1f));
+        // ── v3.4.2 — LIVE SEARCH SUGGESTIONS (debounced 250 ms, HTTPS, off-main) ──
+        // The dropdown is a plain LinearLayout inside the same column, so it can never
+        // float over the keyboard: it is part of the layout that the IME inset pushes.
+        suggestBox = new LinearLayout(act);
+        suggestBox.setOrientation(LinearLayout.VERTICAL);
+        suggestBox.setBackgroundColor(0xFF101A30);
+        suggestBox.setVisibility(View.GONE);
+        urlBox.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void afterTextChanged(android.text.Editable e) {
+                scheduleSuggestions(e == null ? "" : e.toString());
+            }
+        });
+        urlBox.setOnFocusChangeListener((v, has) -> {
+            if (!has) suggestBox.setVisibility(View.GONE);
+        });
         // v3.4.0 - the ad-block shield + a live blocked count badge
         shieldBtn = new FrameLayout(act);
         ImageView shieldIcon = new ImageView(act);
@@ -412,8 +433,15 @@ public class WebBrowserView extends FrameLayout {
         pillRow.addView(autoChip, new LinearLayout.LayoutParams(-2, -2));
         paintAutoChip();
 
-        if (omnibarBottom) column.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        if (omnibarBottom) {
+            // the dropdown sits ABOVE the omnibar, in the same linear column
+            column.addView(suggestBox, new LinearLayout.LayoutParams(-1, -2));
+            column.addView(bar, new LinearLayout.LayoutParams(-1, -2));
+        } else {
+            column.addView(suggestBox, new LinearLayout.LayoutParams(-1, -2));
+        }
         rebuildTabs();
+        applyImeInsets();          // v3.4.2 — the omnibar rides above the keyboard
 
         if (Build.VERSION.SDK_INT >= 19) web.setWebContentsDebuggingEnabled(false);
         String last = prefs.getString("webLastUrl", "");
@@ -599,6 +627,144 @@ public class WebBrowserView extends FrameLayout {
     }
 
     /** v3.4.0 - the visual speed dial (two groups, 2/3/4 columns, add + long-press edit). */
+    // ── v3.4.2 — the keyboard fix + live suggestions ──────────────────────────
+
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable suggestPending;
+
+    /**
+     * THE IME FIX (field bug: tapping the search bar brought up a keyboard that covered
+     * the bar itself). Two things were missing and both are here now:
+     * <ol>
+     *   <li>{@code adjustResize} on MainActivity (AndroidManifest.xml),</li>
+     *   <li>the REAL {@code WindowInsets.Type.ime()} bottom inset applied to the omnibar
+     *       host, so the bar rides on top of the keyboard instead of under it.</li>
+     * </ol>
+     */
+    private void applyImeInsets() {
+        setOnApplyWindowInsetsListener((v, insets) -> {
+            try {
+                int ime = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom;
+                int nav = insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom;
+                int lift = Math.max(0, ime - nav);
+                if (omnibar != null) omnibar.setPadding(dp(6), dp(6), dp(6), dp(6) + lift);
+                if (lift > 0 && urlBox != null && urlBox.hasFocus()) {
+                    urlBox.requestRectangleOnScreen(new android.graphics.Rect(
+                        0, 0, urlBox.getWidth(), urlBox.getHeight() + lift), false);
+                }
+            } catch (Throwable t) {
+                Diag.w("web", "ime insets: " + t);
+            }
+            return insets;
+        });
+        requestApplyInsets();
+    }
+
+    /** Debounce 250 ms, then fetch the engine's own autocomplete JSON off the UI thread. */
+    private void scheduleSuggestions(final String q) {
+        if (suggestBox == null) return;
+        if (suggestPending != null) ui.removeCallbacks(suggestPending);
+        final String query = q == null ? "" : q.trim();
+        if (query.length() < 2 || query.contains("://") || query.contains(".")) {
+            suggestBox.setVisibility(View.GONE);
+            suggestBox.removeAllViews();
+            return;
+        }
+        suggestPending = () -> new Thread(() -> {
+            final java.util.List<String> out = fetchSuggestions(query);
+            ui.post(() -> paintSuggestions(query, out));
+        }, "suggest").start();
+        ui.postDelayed(suggestPending, 250);
+    }
+
+    /**
+     * The autocomplete endpoint — HTTPS only, 4 s timeout, never throws. DuckDuckGo is the
+     * default (no key, no account, no tracking cookie); Google's endpoint is used when the
+     * user picked Google as the search engine in Settings.
+     */
+    private java.util.List<String> fetchSuggestions(String q) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            String enc = java.net.URLEncoder.encode(q, "UTF-8");
+            String url = AppPrefs.SEARCH_GOOGLE.equals(AppPrefs.searchEngine(prefs))
+                ? "https://suggestqueries.google.com/complete/search?client=firefox&q=" + enc
+                : "https://duckduckgo.com/ac/?type=list&q=" + enc;
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setConnectTimeout(4000);
+            c.setReadTimeout(4000);
+            c.setRequestProperty("User-Agent", "AnantPlay-Player/3.4.2");
+            java.io.InputStream in = c.getInputStream();
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[2048];
+            int n;
+            while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+            in.close();
+            c.disconnect();
+            Object parsed = MiniJson.parse(new String(bos.toByteArray(), "UTF-8"));
+            // DDG: ["q",["a","b"]]  ·  Google: ["q",["a","b"]]
+            java.util.List<Object> arr = MiniJson.arr(parsed);
+            if (arr != null && arr.size() > 1) {
+                java.util.List<Object> items = MiniJson.arr(arr.get(1));
+                if (items != null) for (Object o : items) {
+                    if (o instanceof String && out.size() < 6) out.add((String) o);
+                    else if (o instanceof java.util.List && !((java.util.List<?>) o).isEmpty()
+                        && ((java.util.List<?>) o).get(0) instanceof String && out.size() < 6)
+                        out.add((String) ((java.util.List<?>) o).get(0));
+                }
+            }
+        } catch (Throwable t) {
+            Diag.w("web", "suggest: " + t);
+        }
+        return out;
+    }
+
+    /** Render the dropdown (only if the query is still the one the user is typing). */
+    private void paintSuggestions(String query, java.util.List<String> items) {
+        if (suggestBox == null || urlBox == null) return;
+        String now = urlBox.getText() == null ? "" : urlBox.getText().toString().trim();
+        if (!query.equals(now)) return;                       // a stale response is dropped
+        suggestBox.removeAllViews();
+        if (items == null || items.isEmpty()) { suggestBox.setVisibility(View.GONE); return; }
+        for (final String s : items) {
+            LinearLayout row = new LinearLayout(act);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(12), dp(9), dp(12), dp(9));
+            row.setClickable(true);
+            ImageView ic = new ImageView(act);
+            ic.setImageDrawable(UiIcons.tinted(act, R.drawable.ic_search, 0xFF94A3B8, 15));
+            ic.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            row.addView(ic, new LinearLayout.LayoutParams(dp(22), dp(22)));
+            TextView tv = new TextView(act);
+            tv.setText(s);
+            tv.setTextColor(0xFFE2E8F0);
+            tv.setTextSize(13f);
+            tv.setPadding(dp(10), 0, 0, 0);
+            tv.setMaxLines(1);
+            tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.addView(tv, new LinearLayout.LayoutParams(0, -2, 1f));
+            row.setOnClickListener(v -> {
+                urlBox.setText(s);
+                urlBox.setSelection(s.length());
+                suggestBox.setVisibility(View.GONE);
+                hideIme();
+                go(s);
+            });
+            suggestBox.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        suggestBox.setVisibility(View.VISIBLE);
+    }
+
+    /** Put the keyboard away without losing the page. */
+    private void hideIme() {
+        try {
+            android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager) act.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null && urlBox != null) imm.hideSoftInputFromWindow(urlBox.getWindowToken(), 0);
+            if (urlBox != null) urlBox.clearFocus();
+        } catch (Throwable ignored) { }
+    }
+
     private void rebuildStartPage() {
         if (startPage == null) return;
         startPage.removeAllViews();

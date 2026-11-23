@@ -1425,9 +1425,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30401 strictly > 30400 (v3.4.0) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30401 && AppInfo.VERSION_CODE > 30400 && AppInfo.VERSION_CODE < 40000
-              && "3.4.1".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30402 strictly > 30401 (v3.4.1) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30402 && AppInfo.VERSION_CODE > 30401 && AppInfo.VERSION_CODE < 40000
+              && "3.4.2".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1459,9 +1459,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.4.1 / 30401 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.1}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30401}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.4.2 / 30402 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.2}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30402}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -2428,9 +2428,12 @@ public class ReceiverLab {
         check("v31 prefs: theme modes whitelist",
             AppPrefs.normalizeThemeMode("amoled").equals("amoled") && AppPrefs.normalizeThemeMode("light").equals("light")
                 && AppPrefs.normalizeThemeMode("system").equals("system") && AppPrefs.normalizeThemeMode("garbage").equals("dark"));
-        check("v31 prefs: uiLang whitelist (bi default)",
+        // v3.4.2 — the DEFAULT is clean English; si/bi remain valid choices.
+        check("v31 prefs: uiLang whitelist (v3.4.2: en default, si/bi optional)",
             AppPrefs.normalizeUiLang("si").equals("si") && AppPrefs.normalizeUiLang("en").equals("en")
-                && AppPrefs.normalizeUiLang("xx").equals("bi"));
+                && AppPrefs.normalizeUiLang("bi").equals("bi")
+                && AppPrefs.normalizeUiLang("xx").equals("en")
+                && AppPrefs.normalizeUiLang(null).equals("en"));
         check("v31 prefs: accent clamp (v3.2.0: 8 presets)",
             AppPrefs.normalizeAccent(-1) == 0 && AppPrefs.normalizeAccent(8) == 0 && AppPrefs.normalizeAccent(7) == 7 && AppPrefs.normalizeAccent(3) == 3);
         check("v31 prefs: font size clamps to the 12–36 bounds (v3.3.0 cinema range)",
@@ -2604,17 +2607,17 @@ public class ReceiverLab {
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
         check("v31 sec: both workflows carry versionCode 30401 / 3.4.1",
-            buildYml.contains("30401") && buildYml.contains("3.4.1") && relYml.contains("3.4.1"));
+            buildYml.contains("30402") && buildYml.contains("3.4.2") && relYml.contains("3.4.2"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
         check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30401 + versionName 3.4.1",
-            srcManifest.contains("android:versionCode=\"30401\"")
-                && srcManifest.contains("android:versionName=\"3.4.1\"")
-                && "30401".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.1".equals(AppInfo.VERSION_NAME));
+            srcManifest.contains("android:versionCode=\"30402\"")
+                && srcManifest.contains("android:versionName=\"3.4.2\"")
+                && "30402".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.2".equals(AppInfo.VERSION_NAME));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -2624,10 +2627,10 @@ public class ReceiverLab {
         // that survived the 3.1.0 bump: the build job still uploaded
         // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
         check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.1.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.2.apk")
                 && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
         check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.1.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.2.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
         // v3.1.1 — REPRODUCIBILITY GUARD: the pre-merge build and the post-merge
         // release build of the SAME commit used to differ only by the ZIP entry
@@ -2852,7 +2855,7 @@ public class ReceiverLab {
         check("v312 tsr: the report's crash section leads with the EXCEPTION line",
             rep.contains("EXCEPTION android.content.res.Resources$NotFoundException"));
         check("v312 tsr: the report header stamps the app version + SDK only (no model)",
-            rep.contains("app v3.4.1") && rep.contains("Android SDK"));
+            rep.contains("app v3.4.2") && rep.contains("Android SDK"));
         check("v312 tsr: the report is zero-PII end-to-end (the whole bundle re-scrubbed)",
             !rep.contains("24117RN76G") && !rep.contains("192.168.1.39"));
     }
@@ -3650,8 +3653,10 @@ public class ReceiverLab {
         String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
         check("v320 probe: the Troubleshoot tab ships the Run Full App Troubleshoot hero",
             mainSrc.contains("Run Full App Troubleshoot (All Features)") || mainSrc.contains("සම්පූර්ණ ඇප් පරීක්ෂණය"));
+        // v3.4.2 — the builder now passes a snapshot that falls back to FeatureProbe.
         check("v320 probe: the report builder appends the probe section",
-            mainSrc.contains("Troubleshooter.probeSection(probeOutcomes)"));
+            mainSrc.contains("Troubleshooter.probeSection(probes)")
+                && mainSrc.contains("FeatureProbe.lastResults()"));
     }
 
     /** The 10 probe names (the matrix's identity, checked against FeatureProbe). */
@@ -3953,11 +3958,12 @@ public class ReceiverLab {
         check("v330 subzip: the SL site list leads with Baiscope / Zoom.lk / PirateLK",
             sites.size() >= 5 && "Baiscope".equals(sites.get(0).name)
                 && "Zoom.lk".equals(sites.get(1).name) && "PirateLK".equals(sites.get(2).name));
-        check("v330 subzip: the 🇱🇰 list is exactly the Sri Lankan three",
-            LkSubFinder.sriLankanSites().size() == 3);
+        // v3.4.2 — five Sri Lankan sources: Baiscope, Zoom.lk, PirateLK, Cineru.lk, Subz.lk
+        check("v330 subzip: the SL list is exactly the Sri Lankan five",
+            LkSubFinder.sriLankanSites().size() == 5);
         String baiscope = LkSubFinder.searchUrl("Baiscope", "The Odyssey (2026) 1080p WEB-DL");
         check("v330 subzip: a search URL is built and the junk noise is cleaned",
-            baiscope.startsWith("https://baiscope.lk/?s=") && baiscope.contains("Odyssey")
+            baiscope.startsWith("https://www.baiscope.lk/?s=") && baiscope.contains("Odyssey")
                 && !baiscope.contains("1080p") && !baiscope.contains("WEB-DL"), baiscope);
         check("v330 subzip: the query is URL-encoded (spaces become %20)",
             LkSubFinder.searchUrl("SubDL", "Kung Fu Panda").contains("Kung%20Fu%20Panda"));
@@ -4088,31 +4094,31 @@ public class ReceiverLab {
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
         check("v331 parity: AndroidManifest.xml says 3.4.1 / 30401",
-            manifest.contains("android:versionCode=\"30401\"") && manifest.contains("android:versionName=\"3.4.1\""));
+            manifest.contains("android:versionCode=\"30402\"") && manifest.contains("android:versionName=\"3.4.2\""));
         check("v331 parity: AppInfo says 3.4.1 / 30401",
-            "3.4.1".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30401);
+            "3.4.2".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30402);
         check("v331 parity: 30401 strictly > 30400 (v3.4.0) — an in-place update, no downgrade",
-            AppInfo.VERSION_CODE == 30401 && AppInfo.VERSION_CODE > 30400);
+            AppInfo.VERSION_CODE == 30402 && AppInfo.VERSION_CODE > 30400);
         String build = readRepoFile("build.sh");
-        check("v331 parity: build.sh defaults to 3.4.1 / 30401 (previous 30400)",
-            build.contains("VERSION_NAME:-3.4.1") && build.contains("VERSION_CODE:-30401")
-                && build.contains("PREV_VERSION_CODE:-30400"));
+        check("v331 parity: build.sh defaults to 3.4.2 / 30402 (previous 30401)",
+            build.contains("VERSION_NAME:-3.4.2") && build.contains("VERSION_CODE:-30402")
+                && build.contains("PREV_VERSION_CODE:-30401"));
         String latest = readRepoFile("docs/latest.json");
-        check("v331 parity: docs/latest.json carries 3.4.1 / 30401",
-            latest.contains("\"version\":\"3.4.1\"") && latest.contains("\"code\":30401"));
-        check("v331 parity: docs/latest.json apkUrl points at the v3.4.1 asset",
-            latest.contains("/download/v3.4.1/AnantPlay-Sinhala-Player-v3.4.1.apk"));
-        check("v331 parity: README.md announces v3.4.1",
-            readRepoFile("README.md").contains("3.4.1"));
-        check("v331 parity: SETUP-SI.md announces v3.4.1",
-            readRepoFile("SETUP-SI.md").contains("3.4.1"));
+        check("v331 parity: docs/latest.json carries 3.4.2 / 30402",
+            latest.contains("\"version\":\"3.4.2\"") && latest.contains("\"code\":30402"));
+        check("v331 parity: docs/latest.json apkUrl points at the v3.4.2 asset",
+            latest.contains("/download/v3.4.2/AnantPlay-Sinhala-Player-v3.4.2.apk"));
+        check("v331 parity: README.md announces v3.4.2",
+            readRepoFile("README.md").contains("3.4.2"));
+        check("v331 parity: SETUP-SI.md announces v3.4.2",
+            readRepoFile("SETUP-SI.md").contains("3.4.2"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v331 parity: build-apk.yml asserts 30401 / 3.4.1",
-            buildWf.contains("versionCode='30401'") && buildWf.contains("versionName='3.4.1'")
-                && buildWf.contains("AnantPlay-Sinhala-Player-v3.4.1.apk"));
+        check("v331 parity: build-apk.yml asserts 30402 / 3.4.2",
+            buildWf.contains("versionCode='30402'") && buildWf.contains("versionName='3.4.2'")
+                && buildWf.contains("AnantPlay-Sinhala-Player-v3.4.2.apk"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v331 parity: release-apk.yml defaults to 3.4.1",
-            relWf.contains("default: '3.4.1'"));
+        check("v331 parity: release-apk.yml defaults to 3.4.2",
+            relWf.contains("default: '3.4.2'"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
             !manifest.contains("versionName=\"4.") && !"4".equals(AppInfo.VERSION_NAME.substring(0, 1)));
         check("v331 parity: the v3.4.0 report ships inside the repo",
@@ -4515,11 +4521,11 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v341 A11: AndroidManifest declares 30401 / 3.4.1",
-            manifest340.contains("android:versionCode=\"30401\"")
-                && manifest340.contains("android:versionName=\"3.4.1\""));
-        check("v341 A11: AppInfo is 3.4.1 / 30401",
-            "3.4.1".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30401);
+        check("v341 A11: AndroidManifest declares 30402 / 3.4.2",
+            manifest340.contains("android:versionCode=\"30402\"")
+                && manifest340.contains("android:versionName=\"3.4.2\""));
+        check("v341 A11: AppInfo is 3.4.2 / 30402",
+            "3.4.2".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30402);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -4842,10 +4848,10 @@ public class ReceiverLab {
 
         // ── the live update channel's own manifest ────────────────────────────
         String latest = readRepoFile("docs/latest.json");
-        check("v331 customize: docs/latest.json announces 3.4.1 / 30401",
-            latest.contains("\"version\":\"3.4.1\"") && latest.contains("\"code\":30401"), latest);
-        check("v331 customize: docs/latest.json points at the v3.4.0 release asset",
-            latest.contains("/download/v3.4.1/AnantPlay-Sinhala-Player-v3.4.1.apk"));
+        check("v331 customize: docs/latest.json announces 3.4.2 / 30402",
+            latest.contains("\"version\":\"3.4.2\"") && latest.contains("\"code\":30402"), latest);
+        check("v331 customize: docs/latest.json points at the v3.4.2 release asset",
+            latest.contains("/download/v3.4.2/AnantPlay-Sinhala-Player-v3.4.2.apk"));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
 
@@ -4857,6 +4863,423 @@ public class ReceiverLab {
 
         // ── v3.4.1 — THE SUBTITLE TRUTH LAB (defect #4) ──────────────────────
         subsLab();
+
+        // ── v3.4.2 — THE PRIVACY / HISTORY / PLAYER / SUBS LABS ───────────────
+        v342PrivacyChecks();
+        v342HistoryChecks();
+        v342PlayerLayoutChecks();
+        v342SubsChecks();
+    }
+
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.2 — THE PRIVACY LAB
+    //
+    // The field log shipped `imdb=<phone-model>` and `cue t0=<phone-model>`:
+    // the v3.4.1 hardware-token regex ate IMDb ids and millisecond numbers.
+    // These checks pin BOTH directions — the technical numbers SURVIVE and the
+    // real hardware identifiers are still scrubbed.
+    // ═════════════════════════════════════════════════════════════════════════
+    static void v342PrivacyChecks() throws Exception {
+        String line = "subs: imdb=tt33764258 · cue t0=141776 · playhead=832031";
+        String out = PrivacyScrubber.scrub(line);
+        check("v342 privacy: the IMDb id tt33764258 SURVIVES scrubbing",
+            out.contains("tt33764258"), out);
+        check("v342 privacy: the millisecond t0=141776 SURVIVES scrubbing",
+            out.contains("t0=141776"), out);
+        check("v342 privacy: the millisecond playhead=832031 SURVIVES scrubbing",
+            out.contains("playhead=832031"), out);
+        check("v342 privacy: the whole technical line is byte-identical", line.equals(out), out);
+
+        String ranges = PrivacyScrubber.scrub("cues 90956-6842000 window");
+        check("v342 privacy: a cue RANGE (90956-6842000) is never mangled",
+            ranges.contains("90956-6842000"), ranges);
+
+        String tech = PrivacyScrubber.scrub("codec h264 1080p · SDK 36 · port 8765 · 30402 · http 403 · EXO-1");
+        check("v342 privacy: codec/resolution/port/version/HTTP tokens are untouched",
+            tech.contains("h264") && tech.contains("1080p") && tech.contains("SDK 36")
+                && tech.contains("8765") && tech.contains("30402") && tech.contains("403")
+                && tech.contains("EXO-1"), tech);
+
+        // …and every REAL identifier is still scrubbed
+        check("v342 privacy: Xiaomi 24117RN76G is scrubbed",
+            PrivacyScrubber.scrub("device Xiaomi 24117RN76G").contains(PrivacyScrubber.PHONE_MODEL));
+        check("v342 privacy: the bare model 24117RN76G is scrubbed",
+            PrivacyScrubber.scrub("model 24117RN76G").contains(PrivacyScrubber.PHONE_MODEL));
+        check("v342 privacy: M2101K6G / SM-S928B / CPH2451 are all scrubbed",
+            PrivacyScrubber.scrub("M2101K6G").contains(PrivacyScrubber.PHONE_MODEL)
+                && PrivacyScrubber.scrub("SM-S928B").contains(PrivacyScrubber.PHONE_MODEL)
+                && PrivacyScrubber.scrub("CPH2451").contains(PrivacyScrubber.PHONE_MODEL));
+        check("v342 privacy: 'Pixel 9' (a SHORT retail name) is scrubbed too",
+            PrivacyScrubber.scrub("Pixel 9").contains(PrivacyScrubber.PHONE_MODEL),
+            PrivacyScrubber.scrub("Pixel 9"));
+        check("v342 privacy: the EUI-64 link-local IPv6 is scrubbed",
+            PrivacyScrubber.scrub("fe80::f84a:81ff:feac:e2f8").contains(PrivacyScrubber.LOCAL_V6));
+        check("v342 privacy: the LAN IP is scrubbed",
+            PrivacyScrubber.scrub("192.168.1.39").contains(PrivacyScrubber.LAN_PEER));
+        check("v342 privacy: a cookie value is masked",
+            !PrivacyScrubber.scrub("Cookie: session=abc123").contains("abc123"));
+        check("v342 privacy: Build.MODEL= is scrubbed",
+            PrivacyScrubber.scrub("Build.MODEL=24117RN76G").contains(PrivacyScrubber.PHONE_MODEL));
+
+        // the classifier itself
+        check("v342 privacy: isHwModel(24117RN76G) is true", PrivacyScrubber.isHwModel("24117RN76G"));
+        check("v342 privacy: isHwModel(tt33764258) is FALSE (an IMDb id is not hardware)",
+            !PrivacyScrubber.isHwModel("tt33764258"));
+        check("v342 privacy: isHwModel(141776) is FALSE (a millisecond count is not hardware)",
+            !PrivacyScrubber.isHwModel("141776"));
+        check("v342 privacy: isHwModel(6842000) is FALSE", !PrivacyScrubber.isHwModel("6842000"));
+        check("v342 privacy: isHwModel(SDK-36) is FALSE (app technology, not hardware)",
+            !PrivacyScrubber.isHwModel("SDK-36"));
+        // idempotence: scrubbing twice never changes the result
+        String once = PrivacyScrubber.scrub(line);
+        check("v342 privacy: scrub() is idempotent", once.equals(PrivacyScrubber.scrub(once)));
+        // and the canonical leak set is still 100% gone
+        boolean anyLeak = false;
+        for (String leak : PrivacyScrubber.canaryLeaks()) {
+            if (PrivacyScrubber.leaked(PrivacyScrubber.scrub("x " + leak + " y"), leak)) anyLeak = true;
+        }
+        check("v342 privacy: every canary leak is still scrubbed (0 survivors)", !anyLeak);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.2 — THE WATCH-HISTORY + PREFERENCES LAB
+    // ═════════════════════════════════════════════════════════════════════════
+    static void v342HistoryChecks() throws Exception {
+        // ── formatting ──
+        check("v342 history: clock(2535000) is 42:15", "42:15".equals(WatchHistory.clock(2535000)));
+        check("v342 history: clock(7080000) is 1:58:00", "1:58:00".equals(WatchHistory.clock(7080000)));
+        check("v342 history: the exact brief label 0:42:15 / 1:58:00",
+            "0:42:15 / 1:58:00".equals(WatchHistory.progressLabel(2535000, 7080000)),
+            WatchHistory.progressLabel(2535000, 7080000));
+        check("v342 history: percentOf(2535000, 7080000) is 36%",
+            WatchHistory.percentOf(2535000, 7080000) == 36);
+        check("v342 history: an unknown duration prints one clock, not a fake total",
+            "42:15".equals(WatchHistory.progressLabel(2535000, 0)));
+
+        // ── add / dedupe / cap ──
+        List<WatchHistory.Item> list = new ArrayList<>();
+        list = WatchHistory.upsert(list, new WatchHistory.Item("Movie A", "http://a/1.mp4", "", "cast", 1000, 600000, 1L));
+        check("v342 history: add → 1 entry", list.size() == 1);
+        list = WatchHistory.upsert(list, new WatchHistory.Item("Movie A", "http://a/1.mp4", "", "cast", 5000, 600000, 2L));
+        check("v342 history: the same URL is DEDUPED (still 1 entry)", list.size() == 1);
+        check("v342 history: the dedupe UPDATED the position to 5000 ms", list.get(0).pos == 5000);
+        list = WatchHistory.upsert(list, new WatchHistory.Item("Movie B", "http://b/2.mp4", "", "web", 9000, 600000, 3L));
+        check("v342 history: a new title goes to the FRONT (newest first)",
+            list.size() == 2 && "Movie B".equals(list.get(0).title));
+        check("v342 history: resume-ms survives the reorder", list.get(0).pos == 9000);
+
+        for (int i = 0; i < 40; i++) {
+            list = WatchHistory.upsert(list, new WatchHistory.Item(
+                "Bulk " + i, "http://bulk/" + i + ".mp4", "", "cast", 1000 + i, 600000, 100L + i));
+        }
+        check("v342 history: the list is CAPPED at 20 entries", list.size() == WatchHistory.MAX,
+            "size=" + list.size());
+        check("v342 history: the cap keeps the NEWEST 20", "Bulk 39".equals(list.get(0).title));
+
+        // ── JSON round-trip ──
+        String json = WatchHistory.toJson(list);
+        List<WatchHistory.Item> back = WatchHistory.fromJson(json);
+        check("v342 history: JSON round-trip keeps every entry", back.size() == list.size());
+        check("v342 history: JSON round-trip keeps title/url/pos/dur",
+            back.get(0).title.equals(list.get(0).title)
+                && back.get(0).url.equals(list.get(0).url)
+                && back.get(0).pos == list.get(0).pos
+                && back.get(0).dur == list.get(0).dur);
+        check("v342 history: a corrupt blob yields an empty list (never a crash)",
+            WatchHistory.fromJson("{{{not json").isEmpty());
+        check("v342 history: JSON escaping survives a quote in the title",
+            WatchHistory.fromJson(WatchHistory.toJson(java.util.Collections.singletonList(
+                new WatchHistory.Item("A \"quoted\" title", "u", "", "s", 1, 2, 3)))).get(0).title
+                .equals("A \"quoted\" title"));
+
+        // ── continue watching / clear ──
+        List<WatchHistory.Item> cw = new ArrayList<>();
+        cw.add(new WatchHistory.Item("Started", "u1", "", "cast", 60000, 600000, 10L));
+        cw.add(new WatchHistory.Item("Finished", "u2", "", "cast", 600000, 600000, 20L));
+        cw.add(new WatchHistory.Item("Untouched", "u3", "", "cast", 0, 600000, 30L));
+        List<WatchHistory.Item> rows = WatchHistory.continueWatching(cw, 5);
+        check("v342 history: Continue-watching lists ONLY resumable titles",
+            rows.size() == 1 && "Started".equals(rows.get(0).title), "rows=" + rows.size());
+        check("v342 history: a finished title is not resumable", !cw.get(1).resumable());
+        List<WatchHistory.Item> cleared = WatchHistory.remove(cw, "u1");
+        check("v342 history: remove(key) clears exactly one entry",
+            cleared.size() == 2 && !cleared.get(0).key().equals("u1"));
+        check("v342 history: clear-all is an empty list", WatchHistory.remove(cw, null).size() == cw.size());
+
+        // ── persistence through the (stub) SharedPreferences ──
+        MapPrefs mp = new MapPrefs();
+        WatchHistory.record(mp, new WatchHistory.Item("Persisted", "http://p/1.mp4", "", "cast", 42000, 600000, 99L));
+        check("v342 history: record() persists through SharedPreferences",
+            WatchHistory.load(mp).size() == 1 && WatchHistory.load(mp).get(0).pos == 42000);
+
+        // ── AppPrefs: the clean-English default + the dimmer ──
+        MapPrefs fresh = new MapPrefs();
+        check("v342 prefs: a fresh install defaults to CLEAN ENGLISH (uiLang == en)",
+            "en".equals(AppPrefs.uiLang(fresh)), AppPrefs.uiLang(fresh));
+        check("v342 prefs: normalizeUiLang(null) is \"en\"", "en".equals(AppPrefs.normalizeUiLang(null)));
+        check("v342 prefs: Sinhala is still an OPTION", "si".equals(AppPrefs.normalizeUiLang("si")));
+        check("v342 prefs: bilingual is still an OPTION", "bi".equals(AppPrefs.normalizeUiLang("bi")));
+        check("v342 prefs: the Midnight Dimmer is OFF by default",
+            !AppPrefs.midnightDimmer(fresh));
+        check("v342 prefs: the dimmer clamps to 10..70%",
+            AppPrefs.normalizeDimPct(0) == 10 && AppPrefs.normalizeDimPct(99) == 70
+                && AppPrefs.normalizeDimPct(45) == 45);
+        check("v342 prefs: both dimmer keys round-trip through Backup & Restore",
+            AppPrefs.normalizeValue(AppPrefs.K_MIDNIGHT_DIMMER, "true") == Boolean.TRUE
+                && Integer.valueOf(55).equals(AppPrefs.normalizeValue(AppPrefs.K_MIDNIGHT_DIM_PCT, "55")));
+        int missing = 0;
+        for (String k : new String[]{AppPrefs.K_MIDNIGHT_DIMMER, AppPrefs.K_MIDNIGHT_DIM_PCT}) {
+            if (!AppPrefs.BACKUP_KEYS.contains(k)) missing++;
+        }
+        check("v342 prefs: the dimmer keys are in BACKUP_KEYS (0 missing)", missing == 0);
+        check("v342 prefs: the subtitle default is 16 sp (compact cinema)",
+            AppPrefs.fontSp(fresh) == 16 && AppPrefs.fontSpFor(fresh, true) == 18);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.2 — THE PLAYER + LAYOUT LAB (the three field screenshots)
+    // ═════════════════════════════════════════════════════════════════════════
+    static void v342PlayerLayoutChecks() throws Exception {
+        String play = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        String main = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
+        String web = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
+        String manifest = readRepoFile("AndroidManifest.xml");
+
+        // ── the giant-icon fix: 40dp plate, real padding, 20dp glyph ──
+        check("v342 player: the HUD icon plate is 40dp (ICON_BOX_DP = 40)",
+            play.contains("ICON_BOX_DP = 40"));
+        check("v342 player: icon() applies REAL internal padding around the glyph",
+            play.contains("int pad = dp(Math.max(0, (ICON_BOX_DP - size) / 2f))")
+                && play.contains("iv.setPadding(pad, pad, pad, pad)"));
+        check("v342 player: every top-bar plate is added at ICON_BOX_DP (never a bare 36dp)",
+            !play.contains("new LinearLayout.LayoutParams(dp(36), dp(36))"));
+        check("v342 player: the top bar uses topIconParams() for all four right-side plates",
+            countOf(play, "hudTopBar.addView(") == 7
+                && countOf(play, "topIconParams()") == 5,     // 4 call sites + the definition
+            "addView=" + countOf(play, "hudTopBar.addView(") + " params=" + countOf(play, "topIconParams()"));
+
+        // ── subtitles at the BOTTOM, never the centre ──
+        check("v342 player: subView's layout gravity is Gravity.BOTTOM | CENTER_HORIZONTAL",
+            play.contains("new FrameLayout.LayoutParams(-2, -2,\n            Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL)"));
+        check("v342 player: the subtitle view never sets Gravity.CENTER as its own gravity",
+            !play.contains("subView.setGravity(Gravity.CENTER);"));
+        check("v342 player: the cinema bottom margin is 5% landscape / 8% portrait",
+            play.contains("stored == 10 ? (land ? 5 : 8)"));
+        check("v342 player: the subtitle margin is capped at 20% (never mid-screen)",
+            play.contains("Math.min(20, stored)"));
+
+        // ── the stuck status pill now fades ──
+        check("v342 player: the status pill auto-fades after 2500 ms",
+            play.contains("main.postDelayed(pillHide, 2500)"));
+        check("v342 player: the fade is a real alpha animation, not an instant GONE",
+            play.contains("statusPill.animate().alpha(0f).setDuration(220)"));
+
+        // ── the overlapping floating rows are GONE ──
+        check("v342 player: the legacy subActions / langChips / extraActions fields are deleted",
+            !play.contains("private LinearLayout subActions;")
+                && !play.contains("private LinearLayout langChips;")
+                && !play.contains("private LinearLayout extraActions;"));
+        check("v342 player: no pillBox.addView(subActions|langChips|extraActions) survives",
+            !play.contains("pillBox.addView(subActions") && !play.contains("pillBox.addView(langChips")
+                && !play.contains("pillBox.addView(extraActions"));
+        check("v342 player: the deleted controls live in the Subtitles sheet instead",
+            play.contains("Retry") && play.contains("Provider") && play.contains("Spoken/Formal")
+                && play.contains("AI Studio") && play.contains("toolsRow"));
+
+        // ── true immersive fullscreen ──
+        check("v342 player: immersive mode hides statusBars() | navigationBars()",
+            play.contains("WindowInsets.Type.statusBars()")
+                && play.contains("WindowInsets.Type.navigationBars()")
+                && play.contains("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE"));
+        check("v342 player: the HUD hide path actually calls applyImmersive(true)",
+            countOf(play, "applyImmersive(true)") >= 2);
+        check("v342 player: showing the HUD brings the bars back",
+            play.contains("applyImmersive(false)"));
+
+        // ── orientation + speed boost ──
+        check("v342 player: auto-rotate uses FULL_SENSOR (a real sensor turn)",
+            play.contains("SCREEN_ORIENTATION_FULL_SENSOR"));
+        check("v342 player: the orientation sheet offers Auto / Lock landscape / Lock portrait",
+            play.contains("Auto-rotate (sensor)") && play.contains("Lock landscape")
+                && play.contains("Lock portrait"));
+        check("v342 player: the hold-to-2x boost exists and restores the previous speed",
+            play.contains("player.setPlaybackSpeed(2f)") && play.contains("speedBeforeBoost"));
+        check("v342 player: the speed picker reaches 2.5x",
+            play.contains("2.5f") && play.contains("0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 2.5f"));
+
+        // ── watch history is wired into the player ──
+        check("v342 player: the player records history on pause and on destroy",
+            play.contains("saveHistory();") && play.contains("WatchHistory.record("));
+        check("v342 player: a startMs extra resumes at the saved millisecond",
+            play.contains("getLongExtra(\"startMs\", 0)") && play.contains("resumeMs > 0 && !resumeApplied"));
+
+        // ── the Settings stay-in-place fix ──
+        check("v342 main: themeChanged() no longer calls closeSubPage()",
+            !main.contains("private void themeChanged() {\n        closeSubPage();"));
+        check("v342 main: themeChanged() remembers the place before recreate()",
+            main.contains("rememberPlace();\n        toast(") && main.contains("pendingTab = currentTab;"));
+        check("v342 main: the place is restored once and the slots are cleared",
+            main.contains("private void restorePlace()") && main.contains("pendingReopen = null;"));
+        check("v342 main: the open sub-page is re-openable across recreate()",
+            main.contains("lastSubOpener = () -> openSub(title, builder);"));
+        check("v342 main: Continue watching renders on Home",
+            main.contains("continueWatchingCard()") && main.contains("resumeFrom(it)"));
+        check("v342 main: the 1-tap overlay banner exists and hides once granted",
+            main.contains("canDrawOverlays(this)") && main.contains("ACTION_MANAGE_OVERLAY_PERMISSION"));
+        check("v342 main: the Midnight Dimmer is applied to the shell window",
+            main.contains("applyMidnightDimmer()") && main.contains("BRIGHTNESS_OVERRIDE_NONE"));
+        check("v342 main: the 10/10 probe snapshot is re-seeded from FeatureProbe",
+            main.contains("seedProbeOutcomes()") && main.contains("FeatureProbe.lastResults()"));
+
+        // ── the browser keyboard fix ──
+        check("v342 browser: MainActivity declares adjustResize",
+            manifest.contains("android:windowSoftInputMode=\"adjustResize\""));
+        check("v342 browser: WebBrowserView applies WindowInsets.Type.ime()",
+            web.contains("WindowInsets.Type.ime()"));
+        check("v342 browser: the omnibar host is the inset target", web.contains("omnibar.setPadding("));
+        check("v342 browser: the nav bar hides while the keyboard is up",
+            main.contains("bottomBar.setVisibility(ime > 0 ? View.GONE : View.VISIBLE)"));
+        check("v342 browser: live suggestions are debounced 250 ms",
+            web.contains("ui.postDelayed(suggestPending, 250)"));
+        // NOTE: read RAW (stripComments would eat the "//" inside the URL itself)
+        String webRaw = readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java");
+        check("v342 browser: the suggestion endpoint is HTTPS DuckDuckGo/Google",
+            webRaw.contains("https://duckduckgo.com/ac/?type=list&q=")
+                && webRaw.contains("https://suggestqueries.google.com/complete/search"), "raw");
+        check("v342 browser: a stale suggestion response is dropped",
+            web.contains("if (!query.equals(now)) return;"));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.2 — THE SUBTITLE-SOURCES + PROBE-REPORT LAB
+    // ═════════════════════════════════════════════════════════════════════════
+    static void v342SubsChecks() throws Exception {
+        // every Sri Lankan + global site the brief names is really wired in
+        String names = "";
+        for (LkSubFinder.Site s : LkSubFinder.sites()) names += s.name + "|";
+        for (String must : new String[]{"Baiscope", "Zoom.lk", "PirateLK", "Cineru.lk", "Subz.lk",
+                                        "SubDL", "OpenSubtitles", "Subsource", "YIFY"}) {
+            check("v342 subs: " + must + " is wired into LkSubFinder", names.contains(must + "|"), names);
+        }
+        check("v342 subs: Podnapisi is wired in too", names.contains("Podnapisi|"));
+        check("v342 subs: the Sri Lankan sites are listed FIRST (5 of them)",
+            LkSubFinder.sriLankanSites().size() == 5, "count=" + LkSubFinder.sriLankanSites().size());
+        check("v342 subs: every site template carries the {q} placeholder",
+            LkSubFinder.searchUrl("Baiscope", "The Odyssey 2026").contains("The%20Odyssey")
+                && LkSubFinder.searchUrl("Zoom.lk", "The Odyssey 2026").contains("The%20Odyssey"));
+
+        // the metadata ranking engine, in the exact priority the brief specifies
+        LkSubFinder.Meta meta = new LkSubFinder.Meta()
+            .imdb("tt33764258").title("Influencers").year(2026);
+        LkSubFinder.Candidate imdbExact = new LkSubFinder.Candidate()
+            .site("SubDL").label("Some Other Title").imdb("tt33764258").lang("en").year(2026);
+        LkSubFinder.Candidate titleExact = new LkSubFinder.Candidate()
+            .site("Baiscope").label("Influencers").lang("si").human(true).year(2026);
+        LkSubFinder.Candidate wrongYear = new LkSubFinder.Candidate()
+            .site("YIFY").label("Influencers").lang("en").year(2019);
+        List<LkSubFinder.Candidate> ranked = LkSubFinder.rank(
+            java.util.Arrays.asList(wrongYear, titleExact, imdbExact), meta);
+        check("v342 subs: an EXACT IMDb id wins the ranking",
+            "tt33764258".equals(ranked.get(0).imdbId), "top=" + ranked.get(0).label + " score=" + ranked.get(0).score);
+        check("v342 subs: the ranking is score-descending",
+            ranked.get(0).score >= ranked.get(1).score && ranked.get(1).score >= ranked.get(2).score);
+        check("v342 subs: a human Sinhala release beats a plain English one at equal title",
+            LkSubFinder.score(titleExact, meta) > LkSubFinder.score(wrongYear, meta));
+        check("v342 subs: best() returns the top candidate",
+            LkSubFinder.best(java.util.Arrays.asList(wrongYear, titleExact), meta) == titleExact);
+        check("v342 subs: an empty candidate list yields null (never an exception)",
+            LkSubFinder.best(new ArrayList<>(), meta) == null);
+
+        // a series must not pick up another episode's file
+        LkSubFinder.Meta ep = new LkSubFinder.Meta().title("Rings of Power").episode(3, 4);
+        LkSubFinder.Candidate right = new LkSubFinder.Candidate().label("Rings of Power S03E04").season(3, 4).lang("si");
+        LkSubFinder.Candidate wrong = new LkSubFinder.Candidate().label("Rings of Power S03E01").season(3, 1).lang("si");
+        check("v342 subs: the matching S/E scores higher than a wrong episode",
+            LkSubFinder.score(right, ep) > LkSubFinder.score(wrong, ep));
+
+        // smart title discovery — no "tap to search" nagging
+        check("v342 subs: the movie title is recovered from a URL slug",
+            LkSubFinder.titleFromUrl("https://arrowtv.example/influencers-2026-sinhala-subtitles/")
+                .toLowerCase(java.util.Locale.ROOT).contains("influencers"),
+            LkSubFinder.titleFromUrl("https://arrowtv.example/influencers-2026-sinhala-subtitles/"));
+        check("v342 subs: og:title is preferred over <title>",
+            "The Odyssey (2026)".equals(LkSubFinder.titleFromHtml(
+                "<html><head><meta property=\"og:title\" content=\"The Odyssey (2026)\">"
+                    + "<title>Player | Stream</title></head></html>")),
+            LkSubFinder.titleFromHtml("<html><head><meta property=\"og:title\" content=\"The Odyssey (2026)\">"
+                + "<title>Player | Stream</title></head></html>"));
+        check("v342 subs: <title> is the fallback when there is no og:title",
+            LkSubFinder.titleFromHtml("<html><head><title>The Body</title></head></html>").equals("The Body"));
+        check("v342 subs: an empty/garbage page yields \"\" (no crash)",
+            LkSubFinder.titleFromHtml(null).isEmpty() && LkSubFinder.titleFromHtml("<html></html>").isEmpty());
+
+        // the pre-roll false alarm is suppressed
+        check("v342 subs: a playhead before the first cue during the first 3 min is NORMAL",
+            LkSubFinder.isNormalPreRollGap(45000, 240000));
+        check("v342 subs: a 40-minute gap past the first cue is NOT normal",
+            !LkSubFinder.isNormalPreRollGap(2400000, 240000));
+
+        // the NewZone translator + the audio-to-SRT helper are really wired
+        String playRaw = readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java");
+        String play = stripComments(playRaw);
+        check("v342 subs: the NewZone translator is one tap from the Subtitles sheet",
+            playRaw.contains("tools.newzone.top/en/subtitle-translator")
+                && play.contains("openNewZoneTranslator()"));
+        check("v342 subs: the Audio→SRT AI helper offers Worker / AI Studio prompt / local file",
+            play.contains("showAudioToSrtHelper()") && play.contains("Whisper via my Worker")
+                && play.contains("AI Studio transcript prompt"));
+
+        // ── the 10/10 report can never say "(not run yet)" after a run ──
+        List<FeatureProbe.Outcome> ten = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) ten.add(outcome(i, true));
+        FeatureProbe.remember(ten);                       // the static snapshot the app keeps
+        String section = Troubleshooter.probeSection(null);
+        check("v342 probes: probeSection(null) reads FeatureProbe.lastResults()",
+            !section.contains("not run yet"), section.split("\n")[0]);
+        check("v342 probes: the report prints all TEN rows after a run",
+            countOf(section, " ms — ") == 10, "rows=" + countOf(section, " ms — "));
+        check("v342 probes: the report carries the 10/10 verdict",
+            section.contains("10/10 PASS"), section);
+        check("v342 probes: FeatureProbe.lastResults() really holds the snapshot",
+            FeatureProbe.lastResults().size() == 10);
+        check("v342 probes: an empty instance list still prints the static run",
+            Troubleshooter.probeSection(new ArrayList<>()).contains("10/10 PASS"));
+    }
+
+    /** v3.4.2 — a tiny in-memory SharedPreferences for the lab (never shipped). */
+    static final class MapPrefs implements android.content.SharedPreferences {
+        final java.util.Map<String, Object> map = new java.util.HashMap<>();
+
+        @Override public String getString(String k, String d) {
+            Object v = map.get(k); return v instanceof String ? (String) v : d;
+        }
+        @Override public int getInt(String k, int d) {
+            Object v = map.get(k); return v instanceof Integer ? (Integer) v : d;
+        }
+        @Override public long getLong(String k, long d) {
+            Object v = map.get(k); return v instanceof Long ? (Long) v : d;
+        }
+        @Override public boolean getBoolean(String k, boolean d) {
+            Object v = map.get(k); return v instanceof Boolean ? (Boolean) v : d;
+        }
+        @Override public android.content.SharedPreferences.Editor edit() { return new Ed(); }
+
+        final class Ed implements android.content.SharedPreferences.Editor {
+            final java.util.Map<String, Object> pending = new java.util.HashMap<>();
+            final java.util.Set<String> removed = new java.util.HashSet<>();
+            @Override public android.content.SharedPreferences.Editor putString(String k, String v) { pending.put(k, v); return this; }
+            @Override public android.content.SharedPreferences.Editor putInt(String k, int v) { pending.put(k, v); return this; }
+            @Override public android.content.SharedPreferences.Editor putLong(String k, long v) { pending.put(k, v); return this; }
+            @Override public android.content.SharedPreferences.Editor putBoolean(String k, boolean v) { pending.put(k, v); return this; }
+            @Override public android.content.SharedPreferences.Editor remove(String k) { removed.add(k); return this; }
+            @Override public android.content.SharedPreferences.Editor clear() { map.clear(); return this; }
+            @Override public boolean commit() { apply(); return true; }
+            @Override public void apply() {
+                for (String k : removed) map.remove(k);
+                map.putAll(pending);
+            }
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════

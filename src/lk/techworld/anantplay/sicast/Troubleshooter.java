@@ -381,8 +381,15 @@ public final class Troubleshooter {
     public static String probeSection(java.util.List<FeatureProbe.Outcome> outcomes) {
         StringBuilder sb = new StringBuilder(1024);
         sb.append("## Full-Feature Self-Test (10 points)\n");
+        // v3.4.2 — THE "(not run yet)" FIX. The v3.4.1 report printed
+        // "(not run yet)" even after all ten probes had passed, because the list came
+        // from MainActivity's INSTANCE field: navigating to another tab or any
+        // recreate() emptied it. FeatureProbe already keeps the last immutable
+        // snapshot statically (FeatureProbe.lastResults()), so the report falls back
+        // to it and a completed run can never look like it never happened.
+        if (outcomes == null || outcomes.isEmpty()) outcomes = FeatureProbe.lastResults();
         if (outcomes == null || outcomes.isEmpty()) {
-            sb.append("(not run yet — tap 🩺 Run Full App Troubleshoot)\n");
+            sb.append("(not run yet — tap Run Full App Troubleshoot)\n");
         } else {
             for (FeatureProbe.Outcome o : outcomes) {
                 sb.append(String.format(java.util.Locale.US, "%s %d. %s — %d ms — %s\n",

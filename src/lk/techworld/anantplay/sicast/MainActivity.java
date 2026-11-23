@@ -122,6 +122,19 @@ public class MainActivity extends Activity {
     private volatile java.util.List<FeatureProbe.Outcome> probeOutcomes =
         java.util.Collections.emptyList();
 
+    /**
+     * v3.4.2 — re-read the last probe snapshot into this instance. FeatureProbe keeps
+     * it statically (the immutable 10/10 result), so a tab switch or a recreate()
+     * repopulates the Troubleshoot card and the copied report instead of showing
+     * "(not run yet)" after a perfectly good run.
+     */
+    private void seedProbeOutcomes() {
+        try {
+            java.util.List<FeatureProbe.Outcome> last = FeatureProbe.lastResults();
+            if (last != null && !last.isEmpty()) probeOutcomes = last;
+        } catch (Throwable ignored) { }
+    }
+
     // the web tab (created lazily — the first switch to it builds it)
     private WebBrowserView browser;
 
@@ -133,12 +146,29 @@ public class MainActivity extends Activity {
     // lifecycle + theme
     // ───────────────────────────────────────────────────────────────────────────
 
+    // ── v3.4.2 — STAY-IN-PLACE SETTINGS ────────────────────────────────────────
+    //
+    // THE FIELD BUG: changing ANY appearance setting called themeChanged(), which did
+    // closeSubPage() + recreate(). recreate() rebuilt the shell on TAB_HOME, so the
+    // user was thrown out of Settings (and out of the sub-page they were editing) on
+    // every single tap. These three volatile slots carry the exact place back across
+    // recreate(); they are consumed once and cleared, so a cold start still opens Home.
+    private static volatile int pendingTab = -1;
+    private static volatile int pendingScrollY = -1;
+    private static volatile Runnable pendingReopen = null;
+
+    /** The last opened sub-page, as a re-runnable builder (null = none open). */
+    private volatile Runnable lastSubOpener = null;
+
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = getSharedPreferences("sicast", MODE_PRIVATE);
+        seedProbeOutcomes();
         applyTheme();
         setContentView(buildUi());
+        restorePlace();
+        applyMidnightDimmer();
         ReceiverService.arm(this, "main");
         // Android 13+ runtime notification permission (sideloaded apps need the
         // "Allow restricted settings" unlock first — the setup checklist walks it).
@@ -431,10 +461,15 @@ public class MainActivity extends Activity {
                 android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.displayCutout());
             android.graphics.Insets bottom = insets.getInsets(
                 android.view.WindowInsets.Type.navigationBars() | android.view.WindowInsets.Type.displayCutout());
+            // v3.4.2 — THE KEYBOARD INSET. Without this the bottom nav bar sat ON TOP
+            // of the IME and the WebView omnibar could never rise above it.
+            int ime = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom;
             int left = Math.max(top.left, bottom.left), right = Math.max(top.right, bottom.right);
             topBar.setPadding(left, top.top + dp(4), right, dp(4));
             bottomBar.setPadding(left, dp(6), right, bottom.bottom + dp(6));
-            pages.setPadding(left, 0, right, 0);
+            pages.setPadding(left, 0, right, Math.max(0, ime - bottom.bottom));
+            // the nav bar steps aside while the keyboard is up (it would float on it)
+            bottomBar.setVisibility(ime > 0 ? View.GONE : View.VISIBLE);
             return insets;
         });
 
@@ -580,6 +615,161 @@ public class MainActivity extends Activity {
 
     private TextView chipReceiver, chipCast, chipSubs;
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // v3.4.2 — CONTINUE WATCHING + AUTO-OPEN ON CAST
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * The Home "Continue watching" card: the last few resumable titles with a real
+     * progress bar, the exact {@code 0:42:15 / 1:58:00} timestamp and 1-tap resume.
+     * Returns null (nothing rendered) when there is no history yet — a first run
+     * must never show an empty shell.
+     */
+    private View continueWatchingCard() {
+        List<WatchHistory.Item> items = WatchHistory.continueWatching(WatchHistory.load(prefs), 5);
+        if (items.isEmpty()) return null;
+        LinearLayout box = card(P.card);
+
+        LinearLayout head = row();
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this);
+        title.setText(t("නැවත බලන්න", "Continue watching"));
+        title.setTextColor(P.title);
+        title.setTextSize(14.5f);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        UiIcons.setCompound(title, R.drawable.ic_history, P.accent, 16, Gravity.START);
+        head.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView clear = new TextView(this);
+        clear.setText(t("හිස් කරන්න", "Clear"));
+        clear.setTextColor(P.desc);
+        clear.setTextSize(11.5f);
+        clear.setPadding(dp(10), dp(6), dp(2), dp(6));
+        clear.setOnClickListener(v -> {
+            WatchHistory.save(prefs, new ArrayList<>());
+            toast(t("ඉතිහාසය මකා දැමුවා", "watch history cleared"));
+            rememberPlace();
+            recreate();
+        });
+        head.addView(clear, new LinearLayout.LayoutParams(-2, -2));
+        box.addView(head, widen(0, 4));
+
+        for (final WatchHistory.Item it : items) box.addView(historyRow(it), widen(0, 0));
+        return box;
+    }
+
+    /** One history row: poster-less, weight-safe, one tap resumes at the exact ms. */
+    private View historyRow(final WatchHistory.Item it) {
+        LinearLayout r = row();
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(0, dp(8), 0, dp(8));
+
+        ImageView play = new ImageView(this);
+        play.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_play_filled, P.accent, 18));
+        play.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        play.setPadding(dp(9), dp(9), dp(9), dp(9));
+        play.setBackground(rounded(P.accentSoft, dp(18)));
+        r.addView(play, new LinearLayout.LayoutParams(dp(36), dp(36)));
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(10), 0, 0, 0);
+        TextView name = new TextView(this);
+        name.setText(it.title == null || it.title.trim().isEmpty() ? "Video" : it.title.trim());
+        name.setTextColor(P.title);
+        name.setTextSize(13f);
+        name.setMaxLines(1);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        col.addView(name, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout bar = row();
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        android.widget.ProgressBar pb = new android.widget.ProgressBar(this, null,
+            android.R.attr.progressBarStyleHorizontal);
+        pb.setMax(100);
+        pb.setProgress(it.percent());
+        try { pb.getProgressDrawable().setColorFilter(P.accent, android.graphics.PorterDuff.Mode.SRC_IN); }
+        catch (Throwable ignored) { }
+        bar.addView(pb, new LinearLayout.LayoutParams(0, dp(4), 1f));
+        TextView ts = new TextView(this);
+        ts.setText(it.progressLabel());
+        ts.setTextColor(P.desc);
+        ts.setTextSize(10.5f);
+        ts.setPadding(dp(8), 0, 0, 0);
+        bar.addView(ts, new LinearLayout.LayoutParams(-2, -2));
+        col.addView(bar, widen(4, 0));
+        r.addView(col, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        TextView go = new TextView(this);
+        go.setText(t("නැවත", "Resume"));
+        go.setTextColor(P.accent);
+        go.setTextSize(11.5f);
+        go.setTypeface(Typeface.DEFAULT_BOLD);
+        go.setPadding(dp(10), dp(6), dp(2), dp(6));
+        r.addView(go, new LinearLayout.LayoutParams(-2, -2));
+
+        View.OnClickListener resume = v -> resumeFrom(it);
+        r.setOnClickListener(resume);
+        go.setOnClickListener(resume);
+        return r;
+    }
+
+    /** Re-open the player at the saved millisecond (subtitles fetch exactly as before). */
+    private void resumeFrom(WatchHistory.Item it) {
+        try {
+            Intent i = new Intent(this, PlayActivity.class)
+                .putExtra("url", it.url)
+                .putExtra("title", it.title)
+                .putExtra("headers", it.headers)
+                .putExtra("startMs", it.pos)
+                .putExtra("source", it.source == null || it.source.isEmpty() ? "history" : it.source);
+            startActivity(i);
+        } catch (Throwable t) {
+            Diag.e("ui", "resume: " + t);
+            toast(t("නැවත විවෘත කළ නොහැක", "could not resume — please retry"));
+        }
+    }
+
+    /**
+     * The ONE-TAP overlay setup card. Without SYSTEM_ALERT_WINDOW every cast lands as a
+     * tap-to-open notification (the field log: {@code permissions: overlay=off →
+     * no overlay permission — tap-to-open notification posted}). Asking once, on Home,
+     * in plain words removes that friction forever.
+     */
+    private View autoOpenBanner() {
+        try {
+            if (android.provider.Settings.canDrawOverlays(this)) return null;   // already instant
+        } catch (Throwable t) { return null; }
+        LinearLayout box = card(P.accentSoft);
+        TextView head = new TextView(this);
+        head.setText(t("Cast කළ විට ඉබේ විවෘත කරන්න",
+            "Auto-Open Player on Cast"));
+        head.setTextColor(P.title);
+        head.setTextSize(14f);
+        head.setTypeface(Typeface.DEFAULT_BOLD);
+        UiIcons.setCompound(head, R.drawable.ic_cast, P.accent, 16, Gravity.START);
+        box.addView(head, widen(0, 2));
+        TextView body = new TextView(this);
+        body.setText(t("\"Display over other apps\" එක වරක් දෙන්න — ඊට පසු Cast කළ සැණින් player විවෘත වේ.",
+            "Allow \"Display over other apps\" once, and every cast opens the player"
+            + " by itself — no notification to tap."));
+        body.setTextColor(P.desc);
+        body.setTextSize(11.5f);
+        body.setLineSpacing(dp(2), 1f);
+        box.addView(body, widen(0, 8));
+        Button enable = btnPrimary(t("දැන් සක්‍රිය කරන්න", "Enable now"));
+        UiIcons.setCompound(enable, R.drawable.ic_check_circle, 0xFF0A0A14, 16, Gravity.START);
+        enable.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+            } catch (Throwable t) {
+                Miui.openAppDetails(this);
+            }
+        });
+        box.addView(enable, widen(0, 0));
+        return box;
+    }
+
     private View buildHomeTab() {
         ScrollView scroll = new ScrollView(this);
         scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
@@ -715,6 +905,14 @@ public class MainActivity extends Activity {
             paintChip(chipSubs, bridgeConfigured(), t("උපසිරැසි එන්ජිනය", "Subs Engine"),
                 bridgeConfigured() ? t("ලෑස්තියි", "ready") : t("worker බලන්න", "check worker"));
         });
+
+        // ── v3.4.2 — CONTINUE WATCHING (the history the user asked for) ──
+        View cw = continueWatchingCard();
+        if (cw != null) root.addView(cw, widen());
+
+        // ── v3.4.2 — the 1-tap "Auto-Open on Cast" setup banner ──
+        View overlayBanner = autoOpenBanner();
+        if (overlayBanner != null) root.addView(overlayBanner, widen());
 
         // ── the 2×2 quick-action grid ──
         root.addView(sectionTitle(t("ඉක්මන් ක්‍රියා", "Quick actions")));
@@ -1390,6 +1588,9 @@ public class MainActivity extends Activity {
             Diag.e("ui", "sub-page build: " + t);
         }
         subPage = page;
+        // v3.4.2 — remember how to rebuild THIS page, so a recreate() (theme/accent/
+        // language change) re-opens it instead of dropping the user back on Home.
+        lastSubOpener = () -> openSub(title, builder);
         pages.addView(page, pages.getChildCount(), new FrameLayout.LayoutParams(-1, -1));   // above every tab page
         page.setAlpha(0f);
         page.animate().alpha(1f).setDuration(160).start();
@@ -1399,6 +1600,7 @@ public class MainActivity extends Activity {
         if (subPage == null) return;
         View old = subPage;
         subPage = null;
+        lastSubOpener = null;
         old.animate().alpha(0f).setDuration(140).withEndAction(() -> pages.removeView(old)).start();
     }
 
@@ -1434,6 +1636,39 @@ public class MainActivity extends Activity {
                 });
             }
             content.addView(c1, widen());
+
+            // ── v3.4.2 — MIDNIGHT NIGHT DIMMER (dark-room watching) ──────────────
+            LinearLayout dimCard = card(P.card);
+            TextView dimHead = new TextView(this);
+            dimHead.setText(t("මධ්‍යම රාත්‍රී අඳුරු මාදිලිය", "Midnight Night Dimmer"));
+            dimHead.setTextColor(P.title);
+            dimHead.setTextSize(13.5f);
+            dimHead.setTypeface(Typeface.DEFAULT_BOLD);
+            UiIcons.setCompound(dimHead, R.drawable.ic_moon, P.accent, 16, Gravity.START);
+            dimCard.addView(dimHead, widen(0, 2));
+            dimCard.addView(caption(t(
+                "තිරයේ දීප්තිය අඩු කර අඳුරු ආවරණයක් යොදයි — අඳුරු කාමරයේ නැරඹීමට.",
+                "Lowers the screen backlight and lays a soft dark veil over the app and the"
+                + " player — comfortable in a pitch-dark room.")), widen(0, 4));
+            toggleRow(dimCard, t("සක්‍රියයි", "Enabled"), AppPrefs.K_MIDNIGHT_DIMMER, false,
+                this::applyMidnightDimmer);
+            final TextView pctLabel = settingRow(dimCard,
+                t("අඳුරු මට්ටම", "Dim strength"),
+                AppPrefs.midnightDimPct(prefs) + "%");
+            SeekBar dimBar = new SeekBar(this);
+            dimBar.setMax(60);                                   // 10..70 → 0..60
+            dimBar.setProgress(AppPrefs.midnightDimPct(prefs) - 10);
+            dimBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
+                    int pct = AppPrefs.normalizeDimPct(p + 10);
+                    pctLabel.setText(pct + "%");
+                    if (fromUser) prefs.edit().putInt(AppPrefs.K_MIDNIGHT_DIM_PCT, pct).apply();
+                }
+                @Override public void onStartTrackingTouch(SeekBar sb) { }
+                @Override public void onStopTrackingTouch(SeekBar sb) { applyMidnightDimmer(); }
+            });
+            dimCard.addView(dimBar, widen(0, 4));
+            content.addView(dimCard, widen());
 
             // the 6 accent color dots
             LinearLayout c2 = card(P.card);
@@ -1601,11 +1836,111 @@ public class MainActivity extends Activity {
         return 0;
     }
 
-    /** Appearance changes rebuild the themed shell instantly (no restart dialog). */
+    /**
+     * Appearance changes rebuild the themed shell instantly (no restart dialog) AND
+     * keep the user exactly where they were — same tab, same sub-page, same scroll
+     * position (v3.4.2). Before this, every toggle jumped back to Home.
+     */
     private void themeChanged() {
-        closeSubPage();
+        rememberPlace();
         toast(t("යෙදුණි", "applied"));
         recreate();
+    }
+
+    /** Capture tab + scroll + the open sub-page so recreate() can put them back. */
+    private void rememberPlace() {
+        pendingTab = currentTab;
+        pendingScrollY = currentScrollY();
+        pendingReopen = lastSubOpener;
+    }
+
+    /** The scroll offset of whichever scroll container is on screen. */
+    private int currentScrollY() {
+        try {
+            View target = subPage != null ? subPage : pageFor(currentTab);
+            ScrollView sv = findScroll(target);
+            return sv == null ? -1 : sv.getScrollY();
+        } catch (Throwable t) { return -1; }
+    }
+
+    private View pageFor(int tab) {
+        if (tab == TAB_HOME) return homePage;
+        if (tab == TAB_SETTINGS) return settingsPage;
+        if (tab == TAB_TROUBLE) return troublePage;
+        if (tab == TAB_WEB) return webPage;
+        return diagPage;
+    }
+
+    /** The first ScrollView inside a view tree (null when there is none). */
+    private ScrollView findScroll(View v) {
+        if (v == null) return null;
+        if (v instanceof ScrollView) return (ScrollView) v;
+        if (!(v instanceof ViewGroup)) return null;
+        ViewGroup g = (ViewGroup) v;
+        for (int i = 0; i < g.getChildCount(); i++) {
+            ScrollView found = findScroll(g.getChildAt(i));
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /** Put the user back where they were (once) — then clear the slots. */
+    private void restorePlace() {
+        final int tab = pendingTab;
+        final int y = pendingScrollY;
+        final Runnable reopen = pendingReopen;
+        pendingTab = -1;
+        pendingScrollY = -1;
+        pendingReopen = null;
+        if (tab < 0) return;                       // cold start → Home, as always
+        try {
+            if (tab != currentTab) selectTab(tab);
+            if (reopen != null) reopen.run();       // re-open the same Settings sub-page
+            final int sy = y;
+            main.post(() -> {
+                try {
+                    if (sy <= 0) return;
+                    View target = subPage != null ? subPage : pageFor(tab);
+                    ScrollView sv = findScroll(target);
+                    if (sv != null) sv.scrollTo(0, sy);
+                } catch (Throwable ignored) { }
+            });
+        } catch (Throwable t) {
+            Diag.w("ui", "restorePlace: " + t);
+        }
+    }
+
+    // ── v3.4.2 — MIDNIGHT NIGHT DIMMER ────────────────────────────────────────
+
+    private View dimView;
+
+    /**
+     * Dim the room without touching the content: the window's own backlight is lowered
+     * AND a non-touch-blocking black veil is laid over the shell. A plain View with no
+     * click listener returns false from onTouchEvent, so every tap still reaches the UI.
+     */
+    private void applyMidnightDimmer() {
+        try {
+            ViewGroup content = findViewById(android.R.id.content);
+            if (content == null) return;
+            if (dimView != null) { content.removeView(dimView); dimView = null; }
+            boolean on = AppPrefs.midnightDimmer(prefs);
+            int pct = AppPrefs.midnightDimPct(prefs);
+            android.view.WindowManager.LayoutParams wl = getWindow().getAttributes();
+            wl.screenBrightness = on ? Math.max(0.05f, 1f - pct / 100f)
+                                     : android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+            getWindow().setAttributes(wl);
+            if (!on) return;
+            View v = new View(this);
+            v.setBackgroundColor(android.graphics.Color.argb(Math.round(pct * 2.55f), 0, 0, 0));
+            v.setClickable(false);
+            v.setFocusable(false);
+            content.addView(v, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            dimView = v;
+        } catch (Throwable t) {
+            Diag.w("ui", "midnight dimmer: " + t);
+        }
     }
 
     // ── 💬 Subtitles & Style Studio (REAL-TIME live preview) ────────────────────
@@ -2751,10 +3086,13 @@ public class MainActivity extends Activity {
     /** The complete 1-tap report (Status Summary + Issues + Probes + Crash + Timeline). */
     private String troubleshootReport() {
         Troubleshooter.Facts f = collectFacts();
-        // v3.2.0 — the 10-point probe section rides IN the same payload (the
-        // run's results are permanent until the next run).
+        // v3.4.2 — the probe section reads FeatureProbe's static snapshot whenever this
+        // instance has none (tab switch / recreate), so "(not run yet)" can no longer
+        // appear after a completed 10/10 run.
+        java.util.List<FeatureProbe.Outcome> probes = probeOutcomes.isEmpty()
+            ? FeatureProbe.lastResults() : probeOutcomes;
         return Troubleshooter.buildReport(f, Diag.dump(), CrashLog.read(getFilesDir()))
-            + "\n" + Troubleshooter.probeSection(probeOutcomes);
+            + "\n" + Troubleshooter.probeSection(probes);
     }
 
     private void copyTroubleshootReport() {

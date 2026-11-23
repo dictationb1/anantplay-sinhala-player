@@ -40,17 +40,76 @@ public final class PrivacyScrubber {
 
     // ── 1. device / hardware identifiers ───────────────────────────────────────
 
-    /** "Xiaomi 24117RN76G", "Redmi Note 13", "Pixel 8a" style vendor+model pairs. */
+    /** "Xiaomi 24117RN76G", "Redmi Note 13", "Pixel 9" style vendor+model pairs.
+     *  v3.4.2 — the model tail accepts a SINGLE character ("Pixel 9", "Galaxy A52"):
+     *  the v3.4.1 pattern needed 3+ and silently leaked short retail names. */
     private static final Pattern VENDOR_MODEL = Pattern.compile(
         "(?i)\\b(xiaomi|redmi|poco|realme|oppo|vivo|oneplus|honor|huawei|samsung|google|"
-        + "infinix|tecno|itel|nokia|motorola|sony|asus|lenovo|meizu|zte|nothing)\\s+"
-        + "[a-z0-9][a-z0-9 \\-_.]{2,40}");
+        + "pixel|galaxy|infinix|tecno|itel|nokia|motorola|sony|asus|lenovo|meizu|zte|nothing)\\s+"
+        + "[a-z0-9][a-z0-9 \\-_.]{0,40}");
 
-    /** A bare retail hardware-model token ("24117RN76G", "25013PS27C", "M2101K6G"). */
+    /**
+     * v3.4.2 — THE OVER-SCRUBBING FIX (the field log's {@code imdb=<phone-model>} and
+     * {@code cue t0=<phone-model>}).
+     *
+     * <p>The v3.4.1 hardware-token regex was a blind digit-run matcher, so it ate
+     * IMDb ids ({@code tt33764258}), millisecond playhead numbers ({@code t0=141776},
+     * {@code playhead=832031}, {@code cues 90956-6842000}) and every other 7-digit
+     * technical number — destroying exactly the debuggable state the log exists for.
+     *
+     * <p>Now the regex only PROPOSES a candidate token; {@link #isHwModel(String)}
+     * decides. A real phone hardware model always carries <b>two or more upper-case
+     * letters and at least one digit</b> ({@code 24117RN76G}, {@code M2101K6G},
+     * {@code SM-S928B}, {@code CPH2451}), while an IMDb id, a millisecond count, a
+     * codec ({@code h264}), a resolution ({@code 1080p}) or a version never does.
+     */
     private static final Pattern HW_MODEL_TOKEN = Pattern.compile(
-        "\\b[a-z0-9]{3}\\d[a-z]?[0-9]{3,4}[a-z]{0,4}\\d?[a-z]?\\b|"
-        + "\\b[A-Z]{2}\\d{2,}[A-Z]{0,4}\\d{0,4}\\b|"
-        + "\\bM2[01][0-9]{3}[A-Z0-9]{2,6}\\b");
+        "(?<![A-Za-z0-9_\\-])[A-Za-z0-9][A-Za-z0-9_\\-]{3,17}(?![A-Za-z0-9_\\-])");
+
+    /** An IMDb id — never an identifier of the phone, always kept verbatim. */
+    private static final Pattern IMDB_ID = Pattern.compile("(?i)\\btt\\d{6,10}\\b");
+
+    /** Leading letter runs that are APP TECHNOLOGY, never a phone model. */
+    private static final java.util.Set<String> BENIGN_TOKENS = new java.util.HashSet<>(java.util.Arrays.asList(
+        "SDK", "API", "HTTP", "HTTPS", "HLS", "DASH", "DASHBOARD", "DLNA", "NSD", "MDNS",
+        "SSDP", "EXO", "EXOPLAYER", "MEDIA3", "WEBM", "WEBVTT", "SRT", "VTT", "ASS", "SSA",
+        "MP4", "MKV", "AVI", "MOV", "M4A", "WAV", "AAC", "OPUS", "FLAC", "MP3",
+        "H264", "H265", "AVC", "HEVC", "VP9", "AV1", "AAC2", "EAC3", "AC3", "DTS",
+        "URL", "URI", "JSON", "UTF", "UTF8", "UTF16", "BASE64", "JWT", "TLS", "SSL",
+        "RTMP", "HDR", "FPS", "GPU", "CPU", "RAM", "ROM", "APK", "PID", "UID", "GID",
+        "IPV4", "IPV6", "DNS", "DOH", "MIME", "CODEC", "GOP", "PTS", "DTS2", "SEI"));
+
+    /**
+     * Is this candidate token a real phone hardware model?
+     *
+     * <p>Kept deliberately narrow — a false NEGATIVE here can leak a model, a false
+     * POSITIVE destroys a debuggable number. The v3.4.2 rule: at least two upper-case
+     * letters, at least one digit, no dot (versions), not an IMDb id, not a pure
+     * digit run, and not a known app-technology token.
+     */
+    static boolean isHwModel(String tok) {
+        if (tok == null) return false;
+        String t = tok.trim();
+        if (t.length() < 5 || t.length() > 18) return false;
+        if (IMDB_ID.matcher(t).matches()) return false;          // tt33764258 — NEVER
+        int upper = 0, digit = 0, letter = 0;
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (c >= 'A' && c <= 'Z') upper++;
+            if (c >= 'a' && c <= 'z') letter++;
+            if (c >= '0' && c <= '9') digit++;
+        }
+        if (digit == 0 || upper < 2) return false;               // ms counts, 1080p, h264
+        if (letter == 0 && upper == 0) return false;
+        // the leading letter run: "SDK-36" / "EXO-1" / "HLS-2" are technology, not hardware
+        int i = 0;
+        StringBuilder lead = new StringBuilder();
+        while (i < t.length() && Character.isLetter(t.charAt(i))) lead.append(t.charAt(i++));
+        String leadUp = lead.toString().toUpperCase(java.util.Locale.ROOT);
+        if (BENIGN_TOKENS.contains(leadUp)) return false;
+        if (BENIGN_TOKENS.contains(t.toUpperCase(java.util.Locale.ROOT))) return false;
+        return true;
+    }
 
     /** Build.* fields quoted in text ("Build.MODEL=...", "fingerprint=..."). */
     private static final Pattern BUILD_FIELD = Pattern.compile(
@@ -209,7 +268,9 @@ public final class PrivacyScrubber {
         }
         sb.append(text, last, text.length());
         String out = VENDOR_MODEL.matcher(sb.toString()).replaceAll(PHONE_MODEL);
-        out = HW_MODEL_TOKEN.matcher(out).replaceAll(PHONE_MODEL);
+        // v3.4.2 — validate every candidate: only a REAL hardware model is replaced.
+        out = HW_MODEL_TOKEN.matcher(out).replaceAll(mr ->
+            isHwModel(mr.group()) ? PHONE_MODEL : mr.group());
         return out;
     }
 

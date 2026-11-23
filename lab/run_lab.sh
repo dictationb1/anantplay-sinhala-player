@@ -33,6 +33,7 @@ javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes \
   src/lk/techworld/anantplay/sicast/VideoViewport.java \
   src/lk/techworld/anantplay/sicast/StreamHttpConfig.java \
   src/lk/techworld/anantplay/sicast/LkSubFinder.java \
+  src/lk/techworld/anantplay/sicast/WatchHistory.java \
   src/lk/techworld/anantplay/sicast/MiniJson.java \
   src/lk/techworld/anantplay/sicast/SrtLoader.java \
   src/lk/techworld/anantplay/sicast/SubtitleStore.java \

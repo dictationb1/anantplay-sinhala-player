@@ -1,4 +1,21 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v3.4.1
+# AnantPlay Sinhala Player (SI Cast Receiver) v3.4.2
+
+> **v3.4.2 — CLEAN-ENGLISH FLAGSHIP UI · CONTINUE WATCHING · CINEMA PLAYER FIXES ·
+> 10 SOURCES FOR SINHALA SUBTITLES · 1,101/1,101 CI LAB.**
+> Everything the three real-device screenshots showed is fixed at the source: the
+> subtitle line is anchored at the bottom (5% landscape / 8% portrait) instead of
+> across the actors' faces, the "subtitles ready" pill fades in 2.5 s instead of
+> sitting on a forehead forever, the top-bar icons are 20 dp glyphs inside 40 dp
+> plates with real padding, the overlapping Retry/Provider/Language/Spoken/AI-Studio
+> rows are gone from the video surface (they live in the Subtitles sheet), and
+> landscape is TRUE immersive fullscreen. New: a Watch-History "Continue watching"
+> row with a progress bar, the exact `0:42:15 / 1:58:00` timestamp and 1-tap resume;
+> a Midnight Night Dimmer (10–70%); a one-tap "Auto-Open Player on Cast" overlay
+> banner; sensor auto-rotate with an orientation lock; hold-for-2.0× speed boost and
+> a 0.5×–2.5× picker. Settings no longer jump back to Home on every change, the
+> browser omnibar rides above the keyboard with live search suggestions, and the
+> PrivacyScrubber no longer mangles IMDb ids or millisecond numbers. UI is clean
+> English by default (Sinhala remains an option); movie subtitles stay Sinhala.
 
 > **v3.4.0 — THE VECTOR UI OVERHAUL · 63 VectorDrawables · NEW ADAPTIVE + MONOCHROME
 > ICON · REAL 400/600 SINHALA WEIGHTS (−742 KB) · MORNYE-GRADE SHELL WITH 75
