@@ -183,7 +183,8 @@ public class PlayActivity extends Activity {
     private TextView notice;          // transient toasts ("+10 s", "Brightness 40%")
     private TextView hudTitle, hudStatus;
     private TextView timeNow, timeTotal;
-    private SeekBar seek;
+    private ScrubBar seek;
+    private CapsuleBar brightCapsule, volCapsule;
     private View playPause;
     private View spinner;
     private LinearLayout hud, panel, sheet;
@@ -292,6 +293,8 @@ public class PlayActivity extends Activity {
         buildUi();
         startPlayback();
         startTicker();
+        applyVolumeBoost();
+        armSleepTimer(AppPrefs.sleepTimerMs(prefs));
         // v3.1.2 — the Troubleshooter timeline: the launch source + the open fact
         Troubleshooter.record("PLAYER", "launch source=" + launchSource()
             + " · title=\"" + (title == null ? "" : title) + "\" · state=open");
@@ -690,7 +693,7 @@ public class PlayActivity extends Activity {
             timeTotal.setText("● LIVE");
         } else {
             seek.setVisibility(View.VISIBLE);
-            seek.setMax((int) Math.max(1, dur));
+            seek.setDuration((long) Math.max(1, dur));
             timeTotal.setText(ReceiverServer.clock(dur));
         }
         hudTitle.setText(title);
@@ -1248,7 +1251,7 @@ public class PlayActivity extends Activity {
                 }
                 if (hudVisible) {
                     timeNow.setText(ReceiverServer.clock(player.getCurrentPosition()));
-                    if (!dragging) seek.setProgress((int) Math.max(0, player.getCurrentPosition()));
+                    if (!dragging) seek.setPosition(Math.max(0, player.getCurrentPosition()));
                 }
                 if (++tick % 4 == 0) saveResumePoint();   // v3.1.0: Auto-Resume
             }
@@ -1334,6 +1337,18 @@ public class PlayActivity extends Activity {
     private void buildUi() {
         if (AppPrefs.keepScreenOn(prefs))
             getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // v3.4.0 - the user's default orientation (auto / landscape / portrait)
+        String orient = AppPrefs.orientation(prefs);
+        try {
+            if (AppPrefs.ORIENT_LANDSCAPE.equals(orient))
+                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            else if (AppPrefs.ORIENT_PORTRAIT.equals(orient))
+                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+            else
+                setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        } catch (Throwable t) {
+            Diag.w("player", "orientation: " + t);
+        }
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
         if (Build.VERSION.SDK_INT >= 28) {
@@ -1641,6 +1656,24 @@ public class PlayActivity extends Activity {
         gpl.topMargin = dp(14);
         hudCenter.addView(gesturePill, gpl);
 
+        // v3.4.0 - the Apple-style capsules FLANK the transport inside zone 2, so they are
+        // always where the thumb already is and never need a second overlay parent.
+        hudCenter.removeView(transport);
+        LinearLayout capsuleRow = new LinearLayout(this);
+        capsuleRow.setOrientation(LinearLayout.HORIZONTAL);
+        capsuleRow.setGravity(Gravity.CENTER_VERTICAL);
+        capsuleRow.setPadding(dp(10), 0, dp(10), 0);
+        brightCapsule = new CapsuleBar(this, R.drawable.ic_brightness, 0xFF0A0A14, 26, 104);
+        brightCapsule.setVisibility(View.GONE);
+        capsuleRow.addView(brightCapsule, new LinearLayout.LayoutParams(-2, -2));
+        capsuleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        capsuleRow.addView(transport, new LinearLayout.LayoutParams(-2, -2));
+        capsuleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        volCapsule = new CapsuleBar(this, R.drawable.ic_volume, 0xFF0A0A14, 26, 104);
+        volCapsule.setVisibility(View.GONE);
+        capsuleRow.addView(volCapsule, new LinearLayout.LayoutParams(-2, -2));
+        hudCenter.addView(capsuleRow, new LinearLayout.LayoutParams(-1, -2));
+
         box.addView(hudCenter, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         // ══ ZONE 3 — BOTTOM (seek + times + the action chips) ══════════════════
@@ -1650,16 +1683,18 @@ public class PlayActivity extends Activity {
             new int[]{0xB3000000, 0x00000000});
         hudBottomBar.setBackground(botBg);
 
-        seek = new SeekBar(this);
-        seek.setPadding(dp(2), dp(2), dp(2), dp(2));
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int v, boolean user) {
-                if (user && player != null) timeNow.setText(ReceiverServer.clock(v));
+        // v3.4.0 - the custom cinema scrub bar (3dp -> 6dp, buffered layer, drag preview)
+        seek = new ScrubBar(this, ThemeEngine.palette(
+            AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
+            AppPrefs.cardRadius(prefs)).accent);
+        seek.setListener(new ScrubBar.Listener() {
+            @Override public void onScrubStart() { dragging = true; }
+            @Override public void onScrub(long positionMs) {
+                if (timeNow != null) timeNow.setText(ReceiverServer.clock(positionMs));
             }
-            @Override public void onStartTrackingTouch(SeekBar s) { dragging = true; }
-            @Override public void onStopTrackingTouch(SeekBar s) {
+            @Override public void onScrubEnd(long positionMs) {
                 dragging = false;
-                if (player != null) { player.seekTo(s.getProgress()); updateSnapshot(); }
+                if (player != null) { player.seekTo(positionMs); updateSnapshot(); }
             }
         });
         hudBottomBar.addView(seek, new LinearLayout.LayoutParams(-1, -2));
@@ -1893,11 +1928,69 @@ public class PlayActivity extends Activity {
         return s;
     }
 
+    private UiSheet.Handle settingsSheet;
+    private UiSheet.Handle trackSheet;
+    private UiSheet.Handle subtitleSheet;
+
+    /** v3.4.0 - Player settings as a real modal sheet (60% height: the video stays visible). */
     private void toggleSheet() {
-        if (sheet == null) return;
-        boolean open = sheet.getVisibility() == View.VISIBLE;
-        sheet.setVisibility(open ? View.GONE : View.VISIBLE);
-        if (!open) showStatus();
+        if (settingsSheet != null) { settingsSheet.dismiss(); settingsSheet = null; return; }
+        ThemeEngine.Palette p = ThemeEngine.palette(
+            AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
+            AppPrefs.cardRadius(prefs));
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(UiSheet.header(this, p, t2("Player settings"),
+            t2("වේගය · රූප පරිමාණය · නිදාගැනීම · හඬ")), new LinearLayout.LayoutParams(-1, -2));
+
+        // speed slider with detents
+        float cur = 1f;
+        try { cur = player == null ? 1f : player.getPlaybackParameters().speed; } catch (Throwable ignored) { }
+        body.addView(UiSlider.make(this, p, prefs, "ධාවන වේගය", "Playback speed",
+            25, 250, Math.round(cur * 100), "%", v -> {
+                try {
+                    if (player != null) player.setPlaybackSpeed(v / 100f);
+                    flash(String.format(Locale.US, "%.2fx", v / 100f));
+                } catch (Throwable t) { Diag.w("sheet", "speed: " + t); }
+            }), new LinearLayout.LayoutParams(-1, -2));
+
+        body.addView(UiSegmented.row(this, p, prefs, "රූප පරිමාණය", "Aspect",
+            new String[]{t2("Fit"), t2("Fill"), "16:9", t2("Stretch")},
+            aspectIndex(), i -> {
+                String mode = new String[]{AppPrefs.ASPECT_FIT, AppPrefs.ASPECT_FILL,
+                    AppPrefs.ASPECT_169, AppPrefs.ASPECT_STRETCH}[i];
+                prefs.edit().putString(AppPrefs.K_ASPECT_MODE, mode).apply();
+                aspectMode = VideoViewport.modeFrom(mode);
+                applyVideoSize();
+                if (aspectChip != null) aspectChip.setText(VideoViewport.modeLabel(aspectMode));
+            }), new LinearLayout.LayoutParams(-1, -2));
+
+        body.addView(UiSegmented.row(this, p, prefs, "නිදාගැනීමේ කාලය", "Sleep timer",
+            new String[]{t2("Off"), "15m", "30m", "60m"}, sleepIndex(), i -> {
+                long ms = new long[]{0L, 900000L, 1800000L, 3600000L}[i];
+                prefs.edit().putLong(AppPrefs.K_SLEEP_TIMER_MS, ms).apply();
+                armSleepTimer(ms);
+            }), new LinearLayout.LayoutParams(-1, -2));
+
+        body.addView(UiSlider.make(this, p, prefs, "හඬ වැඩි කිරීම", "Volume boost",
+            0, 150, AppPrefs.volumeBoost(prefs), "%", v -> {
+                prefs.edit().putInt(AppPrefs.K_VOLUME_BOOST, v).apply();
+                applyVolumeBoost();
+            }), new LinearLayout.LayoutParams(-1, -2));
+
+        UiGroup.switchRow(this, body, p, prefs, R.drawable.ic_speed,
+            "දෙවරක් තට්ටු", "Double-tap to seek", AppPrefs.K_DOUBLE_TAP_SEEK, true);
+        UiGroup.switchRow(this, body, p, prefs, R.drawable.ic_brightness,
+            "තිරය දැල්වී", "Keep the screen on", AppPrefs.K_KEEP_SCREEN_ON, true);
+
+        Button done = btn(R.drawable.ic_check_circle, t2("Done"));
+        done.setOnClickListener(v -> { if (settingsSheet != null) settingsSheet.dismiss(); settingsSheet = null; });
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-1, -2);
+        dlp.topMargin = dp(10);
+        body.addView(done, dlp);
+
+        settingsSheet = UiSheet.show(this, p, prefs, body, 62, () -> settingsSheet = null);
+        showStatus();
     }
 
     /**
@@ -1969,6 +2062,60 @@ public class PlayActivity extends Activity {
     }
 
     /** Lock every touch; the single unlock pill is the only way back. */
+    /** v3.4.0 - the sleep timer: 0 = off, -1 = end of video, else a one-shot pause. */
+    private void armSleepTimer(long ms) {
+        main.removeCallbacks(sleepRunnable);
+        if (ms > 0) {
+            main.postDelayed(sleepRunnable, ms);
+            flash("Sleep timer " + (ms / 60000L) + "m");
+        } else if (ms < 0) {
+            flash("Sleep at end of video");
+        } else {
+            flash("Sleep timer off");
+        }
+    }
+
+    private final Runnable sleepRunnable = new Runnable() {
+        @Override public void run() {
+            try {
+                if (player != null) player.pause();
+                flash("Sleep timer - paused");
+            } catch (Throwable t) {
+                Diag.w("player", "sleep: " + t);
+            }
+        }
+    };
+
+    /** v3.4.0 - the volume boost (0..150%) applied through player.setVolume. No FFmpeg. */
+    private void applyVolumeBoost() {
+        try {
+            if (player != null) player.setVolume(AppPrefs.volumeBoost(prefs) / 100f);
+        } catch (Throwable t) {
+            Diag.w("player", "volume boost: " + t);
+        }
+    }
+
+    private int aspectIndex() {
+        String v = AppPrefs.aspectMode(prefs);
+        if (AppPrefs.ASPECT_FILL.equals(v)) return 1;
+        if (AppPrefs.ASPECT_169.equals(v)) return 2;
+        if (AppPrefs.ASPECT_STRETCH.equals(v)) return 3;
+        return 0;
+    }
+
+    private int sleepIndex() {
+        long v = AppPrefs.sleepTimerMs(prefs);
+        if (v == 900000L) return 1;
+        if (v == 1800000L) return 2;
+        if (v >= 3600000L) return 3;
+        return 0;
+    }
+
+    private int registerIndex() {
+        String r = prefs.getString(AppPrefs.K_REGISTER, null);
+        return "spoken".equals(r) ? 1 : ("formal".equals(r) ? 2 : 0);
+    }
+
     private void setLocked(boolean on) {
         locked = on;
         if (unlockPill != null) unlockPill.setVisibility(on ? View.VISIBLE : View.GONE);
@@ -2190,7 +2337,8 @@ public class PlayActivity extends Activity {
             getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE));
         subView.setMaxWidth(Math.round(getResources().getDisplayMetrics().widthPixels * 0.88f));
         subView.setLineSpacing(dp(2), AppPrefs.subLineSpacing(prefs) / 100f);   // 100..150 % studio spacing
-        subView.setTextColor(ThemeEngine.SUB_COLORS[AppPrefs.subColor(prefs)]);
+        subView.setTextColor(AppPrefs.subColorArgb(prefs));
+        subView.setShadowLayer(dp(Math.max(1, AppPrefs.subOutline(prefs))), 0, 0, 0xFF000000);
         applyLangStyle();                                      // the ONE typeface setter
         if (AppPrefs.BG_OUTLINE.equals(AppPrefs.subBg(prefs))) {
             // crisp black edge/outline only — no pill background
@@ -2486,6 +2634,10 @@ public class PlayActivity extends Activity {
             int v = Math.max(0, Math.min(max, cur + step));
             if (v != cur) am.setStreamVolume(AudioManager.STREAM_MUSIC, v, 0);
             gesture("Volume " + Math.round(v * 100f / max) + "%");
+            if (volCapsule != null) {
+                volCapsule.setValue(max <= 0 ? 0 : v / max);
+                volCapsule.setVisibility(View.VISIBLE);
+            }
         } catch (Throwable ignored) { }
     }
 
@@ -2498,6 +2650,10 @@ public class PlayActivity extends Activity {
             lp.screenBrightness = v;
             getWindow().setAttributes(lp);
             gesture("Brightness " + Math.round(v * 100) + "%");
+            if (brightCapsule != null) {
+                brightCapsule.setValue(Math.max(0f, Math.min(1f, v / 255f)));
+                brightCapsule.setVisibility(View.VISIBLE);
+            }
         } catch (Throwable ignored) { }
     }
 
@@ -2539,10 +2695,78 @@ public class PlayActivity extends Activity {
         else showControls();
     }
 
+    /** v3.4.0 - the Subtitles sheet: the video (and the live subtitle) stay visible above it. */
     private void togglePanel() {
-        boolean open = panel.getVisibility() == View.VISIBLE;
-        panel.setVisibility(open ? View.GONE : View.VISIBLE);
-        if (!open) showStatus();
+        if (subtitleSheet != null) { subtitleSheet.dismiss(); subtitleSheet = null; return; }
+        ThemeEngine.Palette p = ThemeEngine.palette(
+            AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
+            AppPrefs.cardRadius(prefs));
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(UiSheet.header(this, p, t2("Subtitles"),
+            t2("භාෂාව · විලාසය · සමමුහුර්තකරණය")), new LinearLayout.LayoutParams(-1, -2));
+
+        // 18 language chips
+        LinearLayout langRow = UiChip.stripRow(this);
+        for (final Langs.Lang l : Langs.chips()) {
+            langRow.addView(UiChip.make(this, p, prefs, 0, l.nativeName,
+                l.code.equals(activeLang), v -> { switchLang(l.code); }));
+        }
+        langRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_plus, t2("More"),
+            false, v -> showLangSheet()));
+        android.widget.HorizontalScrollView hs = UiChip.strip(this);
+        hs.addView(langRow, new FrameLayout.LayoutParams(-2, -2));
+        body.addView(hs, new LinearLayout.LayoutParams(-1, -2));
+
+        body.addView(UiSegmented.row(this, p, prefs, "වහර", "Register",
+            new String[]{t2("Auto"), t2("Spoken"), t2("Formal")}, registerIndex(), i -> {
+                prefs.edit().putString(AppPrefs.K_REGISTER,
+                    i == 1 ? "spoken" : (i == 2 ? "formal" : null)).apply();
+                fetchGen++;
+                fetchSinhala();
+            }), new LinearLayout.LayoutParams(-1, -2));
+
+        // SL sub sites quick launch
+        LinearLayout slRow = UiChip.stripRow(this);
+        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_srilanka_sub,
+            t2("SL Sub Sites"), true, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openLkFinder(); }));
+        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_folder_zip,
+            "Local .srt", false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; pickLocal(); }));
+        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate,
+            t2("Free translate"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; manualFreeTranslate(); }));
+        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_search,
+            t2("Title search"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openTitleSearch(); }));
+        android.widget.HorizontalScrollView hs2 = UiChip.strip(this);
+        hs2.addView(slRow, new FrameLayout.LayoutParams(-2, -2));
+        body.addView(hs2, new LinearLayout.LayoutParams(-1, -2));
+
+        // live style studio - every change repaints the subtitle behind the sheet
+        body.addView(UiSlider.make(this, p, prefs, "අකුරේ ප්‍රමාණය", "Font size",
+            12, 36, AppPrefs.fontSp(prefs), "sp", v -> {
+                prefs.edit().putInt(AppPrefs.K_FONT_SP, v).apply();
+                applyStudioStyle();
+            }), new LinearLayout.LayoutParams(-1, -2));
+        body.addView(UiSlider.make(this, p, prefs, "පසුබිම් අඳුන", "Mask opacity",
+            0, 95, AppPrefs.subBgOpacity(prefs), "%", v -> {
+                prefs.edit().putInt(AppPrefs.K_SUB_BG_OPACITY, v).apply();
+                applyStudioStyle();
+            }), new LinearLayout.LayoutParams(-1, -2));
+        body.addView(UiSlider.make(this, p, prefs, "පේළි පරතරය", "Line spacing",
+            100, 150, AppPrefs.subLineSpacing(prefs), "%", v -> {
+                prefs.edit().putInt(AppPrefs.K_SUB_LINE_SPACING, v).apply();
+                applyStudioStyle();
+            }), new LinearLayout.LayoutParams(-1, -2));
+        body.addView(UiSlider.make(this, p, prefs, "සමමුහුර්තකරණය", "Sync nudge (ms)",
+            -2000, 2000, 0, "ms", v -> { }));
+        LinearLayout syncRow = UiChip.stripRow(this);
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_replay_10, "−0.25s", false, v -> nudge(-250)));
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_forward_10, "+0.25s", false, v -> nudge(250)));
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_refresh, "−1s", false, v -> nudge(-1000)));
+        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_refresh, "+1s", false, v -> nudge(1000)));
+        body.addView(syncRow, new LinearLayout.LayoutParams(-1, -2));
+
+        subtitleSheet = UiSheet.show(this, p, prefs, body, 66, () -> subtitleSheet = null);
+        showStatus();
     }
 
     private void scheduleHudHide() {
@@ -2821,7 +3045,8 @@ public class PlayActivity extends Activity {
         if (player == null) return;
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(14), dp(10), dp(14), dp(10));
+        box.addView(UiSheet.header(this, pal(), t2("Audio / Quality"),
+            t2("ධාවන පථ · විභේදනය · භාෂාව")), new LinearLayout.LayoutParams(-1, -2));
         boolean any = false;
         try {
             Tracks tracks = player.getCurrentTracks();
@@ -2847,14 +3072,19 @@ public class PlayActivity extends Activity {
         } catch (Throwable t) {
             Diag.w("tracks", "read: " + t);
         }
-        if (!any) box.addView(label("No alternate audio/quality tracks in this stream · මෙම ධාරාවේ වෙනත් ධාවන පථ නැත"));
-        ScrollView sc = new ScrollView(this);
-        sc.addView(box);
-        new android.app.AlertDialog.Builder(this)
-            .setTitle(t2("Audio / Quality"))
-            .setView(sc)
-            .setNegativeButton("Close", null)
-            .show();
+        if (!any) {
+            box.addView(UiGroup.empty(this, pal(),
+                R.drawable.ic_audio_track, t2("One track only"),
+                t2("This stream carries no alternate audio or quality tracks.")),
+                new LinearLayout.LayoutParams(-1, -2));
+        }
+        trackSheet = UiSheet.show(this, pal(), prefs, box, 60, () -> trackSheet = null);
+    }
+
+    /** The palette for a sheet (the player is always dark, so this is cheap and safe). */
+    private ThemeEngine.Palette pal() {
+        return ThemeEngine.palette(AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs),
+            AppPrefs.accentHex(prefs), AppPrefs.cardRadius(prefs));
     }
 
     /** A human label for one Media3 track (language + quality + bitrate). */
@@ -2911,7 +3141,14 @@ public class PlayActivity extends Activity {
             base.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             for (Map.Entry<String, String> e : extras.entrySet()) base.putExtra(e.getKey(), e.getValue());
             // 1. the preferred player, if installed; 2. any of the others; 3. the chooser.
-            for (String pkg : LkSubFinder.EXTERNAL_PLAYERS) {
+            java.util.List<String> order = new java.util.ArrayList<>();
+            String pref = AppPrefs.externalPlayer(prefs);
+            String want = AppPrefs.EXT_VLC.equals(pref) ? "org.videolan.vlc"
+                : (AppPrefs.EXT_MX.equals(pref) ? "com.mxtech.videoplayer.ad"
+                : (AppPrefs.EXT_MPV.equals(pref) ? "is.air.tv.mpv" : null));
+            if (want != null) order.add(want);
+            for (String pkg : LkSubFinder.EXTERNAL_PLAYERS) if (!order.contains(pkg)) order.add(pkg);
+            for (String pkg : order) {
                 try {
                     Intent i = new Intent(base);
                     i.setPackage(pkg);
