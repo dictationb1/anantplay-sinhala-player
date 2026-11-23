@@ -1424,9 +1424,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30301 strictly > 30300 (v3.3.0) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30301 && AppInfo.VERSION_CODE > 30300 && AppInfo.VERSION_CODE < 40000
-              && "3.3.1".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30400 strictly > 30400 (v3.4.0) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30400 && AppInfo.VERSION_CODE > 30301 && AppInfo.VERSION_CODE < 40000
+              && "3.4.0".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1458,9 +1458,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.3.1 / 30301 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.3.1}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30301}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.4.0 / 30400 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.0}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30400}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -1520,7 +1520,7 @@ public class ReceiverLab {
         System.out.println("== v3.3.0 version & pipeline parity ==");
         v330VersionParityChecks();
 
-        // ═════════ v3.3.1 — ZERO-CRASH HARDENING (the two field crashes) ═════════
+        // ═════════ v3.4.0 — ZERO-CRASH HARDENING (the two field crashes) ═════════
         v331ZeroCrashChecks();
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
@@ -2591,8 +2591,10 @@ public class ReceiverLab {
                 && main.contains("openBackup") && main.contains("openCastNetwork"));
         check("v31 sec: the Last Crash Captured card exists in Diagnostics",
             main.contains("paintCrashCard") && main.contains("CrashLog.read"));
-        check("v31 sec: the cast-ready confirmation toast is exactly the spec wording",
-            main.contains("🟢 සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න"));
+        // v3.4.0 - the toast keeps the exact wording but drops the emoji glyph (A1).
+        check("v340 sec: the cast-ready confirmation toast keeps the spec wording, emoji-free",
+            main.contains("සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න")
+                && !main.contains("🟢 සිංහල Player Cast"));
 
         String readMd = readRepoFile("README.md");
         check("v31 sec: the README carries the v3.1 story",
@@ -2600,18 +2602,18 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v31 sec: both workflows carry versionCode 30301 / 3.3.1",
-            buildYml.contains("30301") && buildYml.contains("3.3.1") && relYml.contains("3.3.1"));
+        check("v31 sec: both workflows carry versionCode 30400 / 3.4.0",
+            buildYml.contains("30400") && buildYml.contains("3.4.0") && relYml.contains("3.4.0"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
-        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30301 + versionName 3.3.1",
-            srcManifest.contains("android:versionCode=\"30301\"")
-                && srcManifest.contains("android:versionName=\"3.3.1\"")
-                && "30301".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.3.1".equals(AppInfo.VERSION_NAME));
+        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30400 + versionName 3.4.0",
+            srcManifest.contains("android:versionCode=\"30400\"")
+                && srcManifest.contains("android:versionName=\"3.4.0\"")
+                && "30400".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.0".equals(AppInfo.VERSION_NAME));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -2621,10 +2623,10 @@ public class ReceiverLab {
         // that survived the 3.1.0 bump: the build job still uploaded
         // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
         check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.3.1.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.0.apk")
                 && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
         check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.3.1.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.0.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
         // v3.1.1 — REPRODUCIBILITY GUARD: the pre-merge build and the post-merge
         // release build of the SAME commit used to differ only by the ZIP entry
@@ -2849,7 +2851,7 @@ public class ReceiverLab {
         check("v312 tsr: the report's crash section leads with the EXCEPTION line",
             rep.contains("EXCEPTION android.content.res.Resources$NotFoundException"));
         check("v312 tsr: the report header stamps the app version + SDK only (no model)",
-            rep.contains("app v3.3.1") && rep.contains("Android SDK"));
+            rep.contains("app v3.4.0") && rep.contains("Android SDK"));
         check("v312 tsr: the report is zero-PII end-to-end (the whole bundle re-scrubbed)",
             !rep.contains("24117RN76G") && !rep.contains("192.168.1.39"));
     }
@@ -3685,13 +3687,14 @@ public class ReceiverLab {
         check("v330 layout: the content host is height 0 + weight 1.0f (a bar pushed off-screen is now arithmetically impossible)",
             mainSrc.contains("new LinearLayout.LayoutParams(-1, 0, 1f)"));
         check("v330 layout: the bottom bar is REALLY added to the shell (the exact v3.2.0 defect)",
-            mainSrc.contains("shell.addView(bottomBar, new LinearLayout.LayoutParams(-1, -2))"));
+            mainSrc.contains("shell.addView(bottomBar, barLp)"));
         check("v330 layout: the top app bar is added to the shell",
             mainSrc.contains("shell.addView(topBar, new LinearLayout.LayoutParams(-1, -2))"));
         check("v330 layout: the old FrameLayout shell with a parentless bar is gone",
             !mainSrc.contains("root.addView(pages"));
-        check("v330 layout: the top bar carries 1-tap 🩺 Troubleshoot AND ⚙️ Settings",
-            mainSrc.contains("topBarIcon(\"\uD83E\uDE7A\"") && mainSrc.contains("topBarIcon(\"\u2699"));
+        check("v340 layout: the top bar carries 1-tap vector Troubleshoot AND Settings",
+            mainSrc.contains("topBarIcon(R.drawable.ic_nav_troubleshoot")
+                && mainSrc.contains("topBarIcon(R.drawable.ic_settings"));
         check("v330 layout: the top bar pads by statusBars()|displayCutout()",
             mainSrc.contains("WindowInsets.Type.statusBars()") && mainSrc.contains("WindowInsets.Type.displayCutout()"));
         check("v330 layout: the bottom bar pads by navigationBars()",
@@ -4070,38 +4073,38 @@ public class ReceiverLab {
         }
     }
 
-    /** The version/pipeline parity gate (3.3.1 / 30301 everywhere, never 4.x). */
+    /** The version/pipeline parity gate (3.4.0 / 30400 everywhere, never 4.x). */
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
-        check("v331 parity: AndroidManifest.xml says 3.3.1 / 30301",
-            manifest.contains("android:versionCode=\"30301\"") && manifest.contains("android:versionName=\"3.3.1\""));
-        check("v331 parity: AppInfo says 3.3.1 / 30301",
-            "3.3.1".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30301);
-        check("v331 parity: 30301 strictly > 30300 (v3.3.0) — an in-place update, no downgrade",
-            AppInfo.VERSION_CODE == 30301 && AppInfo.VERSION_CODE > 30300);
+        check("v331 parity: AndroidManifest.xml says 3.4.0 / 30400",
+            manifest.contains("android:versionCode=\"30400\"") && manifest.contains("android:versionName=\"3.4.0\""));
+        check("v331 parity: AppInfo says 3.4.0 / 30400",
+            "3.4.0".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30400);
+        check("v331 parity: 30400 strictly > 30400 (v3.4.0) — an in-place update, no downgrade",
+            AppInfo.VERSION_CODE == 30400 && AppInfo.VERSION_CODE > 30301);
         String build = readRepoFile("build.sh");
-        check("v331 parity: build.sh defaults to 3.3.1 / 30301 (previous 30300)",
-            build.contains("VERSION_NAME:-3.3.1") && build.contains("VERSION_CODE:-30301")
-                && build.contains("PREV_VERSION_CODE:-30200"));
+        check("v331 parity: build.sh defaults to 3.4.0 / 30400 (previous 30301)",
+            build.contains("VERSION_NAME:-3.4.0") && build.contains("VERSION_CODE:-30400")
+                && build.contains("PREV_VERSION_CODE:-30301"));
         String latest = readRepoFile("docs/latest.json");
-        check("v331 parity: docs/latest.json carries 3.3.1 / 30301",
-            latest.contains("\"version\":\"3.3.1\"") && latest.contains("\"code\":30301"));
-        check("v331 parity: docs/latest.json apkUrl points at the v3.3.1 asset",
-            latest.contains("/download/v3.3.1/AnantPlay-Sinhala-Player-v3.3.1.apk"));
-        check("v331 parity: README.md announces v3.3.1",
-            readRepoFile("README.md").contains("3.3.1"));
-        check("v331 parity: SETUP-SI.md announces v3.3.1",
-            readRepoFile("SETUP-SI.md").contains("3.3.1"));
+        check("v331 parity: docs/latest.json carries 3.4.0 / 30400",
+            latest.contains("\"version\":\"3.4.0\"") && latest.contains("\"code\":30400"));
+        check("v331 parity: docs/latest.json apkUrl points at the v3.4.0 asset",
+            latest.contains("/download/v3.4.0/AnantPlay-Sinhala-Player-v3.4.0.apk"));
+        check("v331 parity: README.md announces v3.4.0",
+            readRepoFile("README.md").contains("3.4.0"));
+        check("v331 parity: SETUP-SI.md announces v3.4.0",
+            readRepoFile("SETUP-SI.md").contains("3.4.0"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v331 parity: build-apk.yml asserts 30301 / 3.3.1",
-            buildWf.contains("versionCode='30301'") && buildWf.contains("versionName='3.3.1'")
-                && buildWf.contains("AnantPlay-Sinhala-Player-v3.3.1.apk"));
+        check("v331 parity: build-apk.yml asserts 30400 / 3.4.0",
+            buildWf.contains("versionCode='30400'") && buildWf.contains("versionName='3.4.0'")
+                && buildWf.contains("AnantPlay-Sinhala-Player-v3.4.0.apk"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v331 parity: release-apk.yml defaults to 3.3.1",
-            relWf.contains("default: '3.3.1'"));
+        check("v331 parity: release-apk.yml defaults to 3.4.0",
+            relWf.contains("default: '3.4.0'"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
             !manifest.contains("versionName=\"4.") && !"4".equals(AppInfo.VERSION_NAME.substring(0, 1)));
-        check("v331 parity: the v3.3.1 report ships inside the repo",
+        check("v331 parity: the v3.4.0 report ships inside the repo",
             new java.io.File("V3_3_1_ZERO_CRASH_AUDIT_AND_FIX_REPORT.md").isFile());
         check("v331 parity: the v3.3.0 report is preserved (history is never rewritten)",
             new java.io.File("V3_3_0_CINEMA_PLAYER_AND_403_FIX_REPORT.md").isFile());
@@ -4109,7 +4112,7 @@ public class ReceiverLab {
 
 
     // ══════════════════════════════════════════════════════════════════════════
-    // v3.3.1 — THE TWO REAL-DEVICE CRASHES OF 2026-11-23, MADE IMPOSSIBLE
+    // v3.4.0 — THE TWO REAL-DEVICE CRASHES OF 2026-11-23, MADE IMPOSSIBLE
     //
     //   crash #1 (02:03:40.645)  java.lang.ClassCastException:
     //        android.widget.LinearLayout$LayoutParams cannot be cast to
@@ -4159,7 +4162,7 @@ public class ReceiverLab {
         String webSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
         String probeSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/FeatureProbe.java"));
 
-        System.out.println("== v3.3.1 crash #1 — the LayoutParams static verifier (gating) ==");
+        System.out.println("== v3.4.0 crash #1 — the LayoutParams static verifier (gating) ==");
         String[] gate = runPython("lab/verify_layouts.py");
         check("v331 crash1: python3 lab/verify_layouts.py exits 0 — every addView/setLayoutParams "
             + "in src/ is type-correct", "0".equals(gate[0]), lastNonEmptyLine(gate[1]));
@@ -4192,10 +4195,10 @@ public class ReceiverLab {
             + "FrameLayout.LayoutParams",
             countOf(mainSrc, "pages.addView(") == countOf(mainSrc, "new FrameLayout.LayoutParams(-1, -1)"));
 
-        System.out.println("== v3.3.1 crash #2 — 8 threads × 1,000 writes + concurrent snapshot reads ==");
+        System.out.println("== v3.4.0 crash #2 — 8 threads × 1,000 writes + concurrent snapshot reads ==");
         v331ConcurrencyStress(probeSrc, mainSrc);
 
-        System.out.println("== v3.3.1 player, customize, privacy & updater invariants ==");
+        System.out.println("== v3.4.0 player, customize, privacy & updater invariants ==");
         v331PlayerCustomizeChecks();
     }
 
@@ -4365,7 +4368,7 @@ public class ReceiverLab {
         catch (Throwable t) { return false; }
     }
 
-    /** v3.3.1 — the player, the customization surface, privacy and the updater. */
+    /** v3.4.0 — the player, the customization surface, privacy and the updater. */
     static void v331PlayerCustomizeChecks() throws Exception {
         // ── the player: aspect math + the 403 header engine ───────────────────
         int[] fit = VideoViewport.compute(1920, 1080, 1f, 1080, 2400, VideoViewport.FIT);
@@ -4429,13 +4432,13 @@ public class ReceiverLab {
 
         // ── the updater: the 302 path + the derived asset URLs ────────────────
         check("v331 updater: a /releases/latest 302 Location resolves to the tag",
-            "v3.3.1".equals(SelfUpdateCore.tagFromLocation(
-                "https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.3.1")));
-        check("v331 updater: the derived APK asset URL is the v3.3.1 release asset",
-            SelfUpdateCore.derivedApkUrl("v3.3.1").endsWith(
-                "/download/v3.3.1/AnantPlay-Sinhala-Player-v3.3.1.apk"));
+            "v3.4.0".equals(SelfUpdateCore.tagFromLocation(
+                "https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.4.0")));
+        check("v331 updater: the derived APK asset URL is the v3.4.0 release asset",
+            SelfUpdateCore.derivedApkUrl("v3.4.0").endsWith(
+                "/download/v3.4.0/AnantPlay-Sinhala-Player-v3.4.0.apk"));
         check("v331 updater: the derived SHA256SUMS URL sits beside it",
-            SelfUpdateCore.derivedSumsUrl("v3.3.1").endsWith("/download/v3.3.1/SHA256SUMS.txt"));
+            SelfUpdateCore.derivedSumsUrl("v3.4.0").endsWith("/download/v3.4.0/SHA256SUMS.txt"));
         check("v331 updater: httpsOnly() refuses plain http (no downgrade path)",
             !SelfUpdateCore.httpsOnly("http://github.com/x/y") && SelfUpdateCore.httpsOnly("https://github.com/x/y"));
 
@@ -4517,10 +4520,10 @@ public class ReceiverLab {
 
         // ── the live update channel's own manifest ────────────────────────────
         String latest = readRepoFile("docs/latest.json");
-        check("v331 customize: docs/latest.json announces 3.3.1 / 30301",
-            latest.contains("\"version\":\"3.3.1\"") && latest.contains("\"code\":30301"), latest);
-        check("v331 customize: docs/latest.json points at the v3.3.1 release asset",
-            latest.contains("/download/v3.3.1/AnantPlay-Sinhala-Player-v3.3.1.apk"));
+        check("v331 customize: docs/latest.json announces 3.4.0 / 30400",
+            latest.contains("\"version\":\"3.4.0\"") && latest.contains("\"code\":30400"), latest);
+        check("v331 customize: docs/latest.json points at the v3.4.0 release asset",
+            latest.contains("/download/v3.4.0/AnantPlay-Sinhala-Player-v3.4.0.apk"));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
     }

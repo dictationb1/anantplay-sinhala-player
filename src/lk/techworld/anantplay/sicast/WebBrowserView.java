@@ -112,8 +112,8 @@ public class WebBrowserView extends FrameLayout {
         bar.setPadding(dp(6), dp(6), dp(6), dp(6));
         column.addView(bar, new LinearLayout.LayoutParams(-1, -2));
 
-        bar.addView(navBtn("‹", v -> goBack()), new LinearLayout.LayoutParams(dp(40), dp(40)));
-        bar.addView(navBtn("›", v -> forward()), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        bar.addView(navBtn(R.drawable.ic_back, v -> goBack()), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        bar.addView(navBtn(R.drawable.ic_forward, v -> forward()), new LinearLayout.LayoutParams(dp(40), dp(40)));
         urlBox = new EditText(act);
         urlBox.setTextSize(13f);
         urlBox.setTextColor(0xFFE2E8F0);
@@ -132,8 +132,8 @@ public class WebBrowserView extends FrameLayout {
             return false;
         });
         bar.addView(urlBox, new LinearLayout.LayoutParams(0, -2, 1f));
-        bar.addView(navBtn("↻", v -> reload()), new LinearLayout.LayoutParams(dp(40), dp(40)));
-        bar.addView(navBtn("⋮", v -> menu()), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        bar.addView(navBtn(R.drawable.ic_refresh, v -> reload()), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        bar.addView(navBtn(R.drawable.ic_more_dots, v -> menu()), new LinearLayout.LayoutParams(dp(40), dp(40)));
 
         // ── the loading progress strip ──
         progress = new ProgressBar(act, null, android.R.attr.progressBarStyleHorizontal);
@@ -198,7 +198,7 @@ public class WebBrowserView extends FrameLayout {
                 }
                 if (StreamSniffer.isAdOrTracker(us)) {
                     Diag.i("web", "blocked navigation to ad/tracker host: " + StreamSniffer.hostOf(us));
-                    toast("🚫 " + StreamSniffer.hostOf(us));
+                    toast("blocked " + StreamSniffer.hostOf(us));
                     return true;   // refuse — never load it
                 }
                 String scheme = u == null ? "" : (u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT));
@@ -274,7 +274,7 @@ public class WebBrowserView extends FrameLayout {
                 Diag.i("web", "subtitle download captured: " + StreamSniffer.hostOf(url));
                 captureSubtitle(url);
             } else {
-                toast("⬇ " + StreamSniffer.hostOf(url));
+                toast("saved " + StreamSniffer.hostOf(url));
             }
         });
 
@@ -352,7 +352,7 @@ public class WebBrowserView extends FrameLayout {
             boolean on = !prefs.getBoolean("autoOpenSniffed", false);
             prefs.edit().putBoolean("autoOpenSniffed", on).apply();
             paintAutoChip();
-            toast(on ? "⚡ Auto-Open ON — video එක හමු වූ විගස player එක ඇරේ" : "⚡ Auto-Open OFF");
+            toast(on ? "Auto-Open ON — video එක හමු වූ විගස player එක ඇරේ" : "Auto-Open OFF");
         });
         pillRow.addView(autoChip, new LinearLayout.LayoutParams(-2, -2));
         paintAutoChip();
@@ -363,19 +363,22 @@ public class WebBrowserView extends FrameLayout {
 
     private void paintAutoChip() {
         boolean on = prefs.getBoolean("autoOpenSniffed", false);
-        autoChip.setText("⚡ Auto " + (on ? "ON" : "OFF"));
+        autoChip.setText("Auto " + (on ? "ON" : "OFF"));
+        UiIcons.setCompound(autoChip, R.drawable.ic_refresh,
+            on ? 0xFF22C55E : 0xFF94A3B8, 12, Gravity.START);
         autoChip.setTextColor(on ? 0xFF22C55E : 0xFF94A3B8);
     }
 
-    private View navBtn(String glyph, OnClickListener click) {
-        TextView t = new TextView(act);
-        t.setText(glyph);
-        t.setTextColor(0xFFE2E8F0);
-        t.setTextSize(16f);
-        t.setGravity(Gravity.CENTER);
-        t.setBackground(rounded(0xFF101A30));
-        t.setOnClickListener(click);
-        return t;
+    /** v3.4.0 - a browser bar button: tinted vector, no glyph. */
+    private View navBtn(int resId, OnClickListener click) {
+        android.widget.ImageView iv = new android.widget.ImageView(act);
+        iv.setImageDrawable(UiIcons.tinted(act, resId, 0xFFE2E8F0, 20));
+        iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        iv.setBackground(rounded(0xFF101A30));
+        iv.setClickable(true);
+        iv.setFocusable(true);
+        iv.setOnClickListener(click);
+        return iv;
     }
 
     private GradientDrawable rounded(int color) {
@@ -427,17 +430,17 @@ public class WebBrowserView extends FrameLayout {
     private void menu() {
         android.widget.PopupMenu m = new android.widget.PopupMenu(act, urlBox);
         final boolean desktop = prefs.getBoolean("webDesktopUa", false);
-        m.getMenu().add(0, 1, 0, "🖥 Desktop mode: " + (desktop ? "ON" : "OFF"));
+        m.getMenu().add(0, 1, 0, "Desktop mode: " + (desktop ? "ON" : "OFF"));
         m.getMenu().add(0, 2, 1, "★ Add bookmark for this page");
-        m.getMenu().add(0, 3, 2, "☰ Bookmarks…");
-        m.getMenu().add(0, 4, 3, "📋 Paste link from clipboard");
-        m.getMenu().add(0, 5, 4, "🏠 Browser home");
+        m.getMenu().add(0, 3, 2, "Bookmarks…");
+        m.getMenu().add(0, 4, 3, "Paste link from clipboard");
+        m.getMenu().add(0, 5, 4, "Browser home");
         m.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
                 case 1:
                     prefs.edit().putBoolean("webDesktopUa", !desktop).apply();
                     web.getSettings().setUserAgentString(!desktop ? UA_DESKTOP : null);
-                    toast(!desktop ? "🖥 Desktop mode ON (reload)" : "📱 Mobile mode ON (reload)");
+                    toast(!desktop ? "Desktop mode ON (reload)" : "Mobile mode ON (reload)");
                     reload();
                     return true;
                 case 2:
@@ -493,7 +496,7 @@ public class WebBrowserView extends FrameLayout {
         new android.app.AlertDialog.Builder(act)
             .setTitle("★ Bookmarks (tap = open, long-press = remove)")
             .setItems(labels, (d, which) -> load(entries[which].substring(0, Math.max(0, entries[which].indexOf('|')))))
-            .setNeutralButton("🗑 Clear all", (d, w) -> prefs.edit().putString("webBookmarks", "").apply())
+            .setNeutralButton("Clear all", (d, w) -> prefs.edit().putString("webBookmarks", "").apply())
             .setNegativeButton(android.R.string.cancel, null)
             .show();
     }
@@ -588,7 +591,7 @@ public class WebBrowserView extends FrameLayout {
         List<AppPrefs.Link> links = AppPrefs.webLinks(prefs);
         if (links.isEmpty()) {
             TextView hint = new TextView(act);
-            hint.setText("⚡ " + act.getString(R.string.links_hint));
+            hint.setText(act.getString(R.string.links_hint));
             hint.setTextColor(0xFF94A3B8);
             hint.setTextSize(11.5f);
             hint.setPadding(dp(8), dp(2), dp(8), dp(2));
@@ -597,7 +600,8 @@ public class WebBrowserView extends FrameLayout {
         }
         for (final AppPrefs.Link l : links) {
             TextView chip = new TextView(act);
-            chip.setText("⚡ " + l.name);
+            chip.setText(l.name);
+            UiIcons.setCompound(chip, R.drawable.ic_nav_web, 0xFFE2E8F0, 12, Gravity.START);
             chip.setTextColor(0xFFE2E8F0);
             chip.setTextSize(12f);
             chip.setGravity(Gravity.CENTER);
@@ -642,7 +646,7 @@ public class WebBrowserView extends FrameLayout {
      * escape the cache dir.
      */
     private void captureSubtitle(final String url) {
-        if (capturing) { toast("💬 a subtitle is already downloading…"); return; }
+        if (capturing) { toast("a subtitle is already downloading…"); return; }
         capturing = true;
         toast(LkSubFinder.captureLabel(url));
         new Thread(() -> {
@@ -669,7 +673,7 @@ public class WebBrowserView extends FrameLayout {
                     try {
                         java.io.File f = new java.io.File(act.getCacheDir(), "captured-sub.bin");
                         try (java.io.FileOutputStream o = new java.io.FileOutputStream(f)) { o.write(b); }
-                        toast("💬 saved — open a movie, then 💬 → Local .srt");
+                        toast("saved — open a movie, then Subtitles → Local .srt");
                     } catch (Throwable t) {
                         toast("could not save the subtitle: " + t.getMessage());
                     }

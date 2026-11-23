@@ -17,9 +17,11 @@ import android.text.method.ScrollingMovementMethod;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.animation.ValueAnimator;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -85,8 +87,12 @@ public class MainActivity extends Activity {
     private FrameLayout pages;
     /** v3.3.0 — the fixed top app bar (Settings + Troubleshoot always 1 tap away). */
     private LinearLayout topBar;
-    private final List<TextView> tabIcons = new ArrayList<>();
+    /** v3.4.0 — vector tab icons (outline inactive / filled active). No emoji, ever. */
+    private final List<ImageView> tabIcons = new ArrayList<>();
     private final List<TextView> tabLabels = new ArrayList<>();
+    /** Per tab: {outlineRes, filledRes}. */
+    private final List<int[]> tabIconRes = new ArrayList<>();
+    private View tabIndicator;
     private View homePage, settingsPage, diagPage, webPage, troublePage;
     private LinearLayout bottomBar;
     /** v3.1.0 — the settings drill-down overlay (one sub-page at a time). */
@@ -149,7 +155,7 @@ public class MainActivity extends Activity {
         // throttled since v3.1.0 — the banner is the ONLY visible update noise)
         SelfUpdater.setUiListener(new SelfUpdater.UiListener() {
             @Override public void onUpdateAvailable(String version) {
-                main.post(() -> showUpdateBanner("🆕 v" + version + " — නිහඬව බාගැනෙමින්… · downloading quietly…", 0));
+                main.post(() -> showUpdateBanner("v" + version + " — නිහඬව බාගැනෙමින්… · downloading quietly…", 0));
             }
             @Override public void onDownloadProgress(int percent) {
                 main.post(() -> showUpdateBanner(null, percent));
@@ -181,6 +187,8 @@ public class MainActivity extends Activity {
         }
         P = ThemeEngine.palette(mode, dynamicSeed, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
             prefs.getString(AppPrefs.K_CARD_RADIUS, AppPrefs.RADIUS_ROUNDED));
+        // v3.4.0 - the WINDOW follows the palette too (no Midnight flash on AMOLED/Light).
+        UiWindow.apply(this, P);
     }
 
     /** The bilingual helper honoring the UI Language mode (Bilingual / si / en). */
@@ -193,7 +201,7 @@ public class MainActivity extends Activity {
         Diag.i("perm", "request " + req + " (" + (perms != null && perms.length > 0 ? perms[0] : "?")
             + ") → " + (granted == PackageManager.PERMISSION_GRANTED ? "GRANTED" : "denied"));
         if (req == 8 && granted == PackageManager.PERMISSION_GRANTED) {
-            toast("වීඩියෝ අවසරය ලැබුණි ✓ — AnantPlay එකෙන් නැවත Cast කරන්න");
+            toast("වීඩියෝ අවසරය ලැබුණි — AnantPlay එකෙන් නැවත Cast කරන්න");
         }
         refresh();
     }
@@ -204,7 +212,7 @@ public class MainActivity extends Activity {
     }
 
     private void requestMediaPermission() {
-        if (mediaGranted()) { toast("video access ✓"); return; }
+        if (mediaGranted()) { toast("video access granted"); return; }
         try { requestPermissions(new String[]{MEDIA_PERM}, 8); }
         catch (Throwable t) { Diag.w("perm", "media request: " + t); Miui.openAppDetails(this); }
     }
@@ -313,9 +321,9 @@ public class MainActivity extends Activity {
         brandLp.leftMargin = dp(14);
         topBar.addView(brand, brandLp);
 
-        View troubleBtn = topBarIcon("🩺", v -> selectTab(TAB_TROUBLE));
+        View troubleBtn = topBarIcon(R.drawable.ic_nav_troubleshoot, v -> selectTab(TAB_TROUBLE));
         topBar.addView(troubleBtn, new LinearLayout.LayoutParams(dp(42), dp(42)));
-        View settingsBtn = topBarIcon("⚙️", v -> selectTab(TAB_SETTINGS));
+        View settingsBtn = topBarIcon(R.drawable.ic_settings, v -> selectTab(TAB_SETTINGS));
         LinearLayout.LayoutParams sblp = new LinearLayout.LayoutParams(dp(42), dp(42));
         sblp.rightMargin = dp(8);
         sblp.leftMargin = dp(2);
@@ -333,44 +341,78 @@ public class MainActivity extends Activity {
         bottomBar.setMinimumHeight(dp(64));
         bottomBar.setGravity(Gravity.CENTER_VERTICAL);
         bottomBar.setBackgroundColor(P.card2);
-        boolean web = AppPrefs.showWebTab(prefs);
-        String[][] tabs = web ? new String[][]{
-            {"🏠", t("මුල", "Home")},
-            {"🌐", t("බ්‍රව්සර්", "Web")},
-            {"🎨", t("අභිරුචි", "Customize")},
-            {"🩺", t("දෝෂ", "Troubleshoot")},
-        } : new String[][]{
-            {"🏠", t("මුල", "Home")},
-            {"🎨", t("අභිරුචි", "Customize")},
-            {"🩺", t("දෝෂ", "Troubleshoot")},
-        };
+        final boolean web = AppPrefs.showWebTab(prefs);
+        final boolean troubleTab = AppPrefs.showTroubleTab(prefs);
+        // v3.4.0 — icon + label pairs. The filled twin is the ACTIVE state.
+        int[][] iconSet;
+        String[][] labels;
+        if (web && troubleTab) {
+            iconSet = new int[][]{{R.drawable.ic_nav_home, R.drawable.ic_nav_home_filled},
+                {R.drawable.ic_nav_web, R.drawable.ic_nav_web_filled},
+                {R.drawable.ic_nav_customize, R.drawable.ic_nav_customize_filled},
+                {R.drawable.ic_nav_troubleshoot, R.drawable.ic_nav_troubleshoot_filled}};
+            labels = new String[][]{{"මුල", "Home"}, {"බ්‍රව්සර්", "Web"},
+                {"අභිරුචි", "Customize"}, {"දෝෂ", "Troubleshoot"}};
+        } else if (troubleTab) {
+            iconSet = new int[][]{{R.drawable.ic_nav_home, R.drawable.ic_nav_home_filled},
+                {R.drawable.ic_nav_customize, R.drawable.ic_nav_customize_filled},
+                {R.drawable.ic_nav_troubleshoot, R.drawable.ic_nav_troubleshoot_filled}};
+            labels = new String[][]{{"මුල", "Home"}, {"අභිරුචි", "Customize"},
+                {"දෝෂ", "Troubleshoot"}};
+        } else {
+            iconSet = new int[][]{{R.drawable.ic_nav_home, R.drawable.ic_nav_home_filled},
+                {R.drawable.ic_nav_customize, R.drawable.ic_nav_customize_filled}};
+            labels = new String[][]{{"මුල", "Home"}, {"අභිරුචි", "Customize"}};
+        }
         int[] tabIds = tabIdsInOrder();
         tabIcons.clear();
         tabLabels.clear();
-        for (int i = 0; i < tabIds.length && i < tabs.length; i++) {
+        tabIconRes.clear();
+        final boolean showLabels = AppPrefs.bottomBarLabels(prefs);
+        final boolean floating = AppPrefs.floatingBar(prefs);
+        final int iconDp = showLabels ? 22 : 24;
+        for (int i = 0; i < tabIds.length && i < iconSet.length; i++) {
             final int idx = tabIds[i];
             LinearLayout tab = new LinearLayout(this);
             tab.setOrientation(LinearLayout.VERTICAL);
             tab.setGravity(Gravity.CENTER);
-            tab.setPadding(0, dp(7), 0, dp(7));
-            TextView icon = new TextView(this);
-            icon.setText(tabs[i][0]);
-            icon.setTextSize(18f);
-            icon.setGravity(Gravity.CENTER);
+            tab.setPadding(dp(2), dp(showLabels ? 7 : 10), dp(2), dp(showLabels ? 7 : 10));
+            tab.setClickable(true);
+            tab.setFocusable(true);
+
+            ImageView icon = UiIcons.view(this, iconSet[i][0], P.desc, iconDp);
             TextView label = new TextView(this);
-            label.setText(tabs[i][1]);
-            label.setTextSize(9.5f);
+            label.setText(UiTokens.label(prefs, labels[i][0], labels[i][1]));
+            UiTokens.navLabel(label);
+            label.setTextColor(P.desc);
             label.setGravity(Gravity.CENTER);
             label.setMaxLines(1);
             label.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            tab.addView(icon, new LinearLayout.LayoutParams(-1, -2));
-            tab.addView(label, new LinearLayout.LayoutParams(-1, -2));
+            label.setPadding(dp(1), dp(2), dp(1), 0);
+
+            tab.addView(icon, new LinearLayout.LayoutParams(-1, dp(iconDp + 2)));
+            if (showLabels) tab.addView(label, new LinearLayout.LayoutParams(-1, -2));
             tab.setOnClickListener(v -> selectTab(idx));
             tabIcons.add(icon);
             tabLabels.add(label);
+            tabIconRes.add(iconSet[i]);
             bottomBar.addView(tab, new LinearLayout.LayoutParams(0, -2, 1f));
         }
-        shell.addView(bottomBar, new LinearLayout.LayoutParams(-1, -2));
+        // docked = full-width bar with a hairline; floating = a 24dp-radius pill
+        if (floating) {
+            GradientDrawable pill = new GradientDrawable();
+            pill.setColor(P.card2);
+            pill.setCornerRadius(dp(24));
+            pill.setStroke(dp(1), ThemeEngine.hairline(P, AppPrefs.borderAlpha(prefs)));
+            bottomBar.setBackground(pill);
+        } else {
+            bottomBar.setBackgroundColor(P.card2);
+        }
+        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(-1, -2);
+        if (floating) {
+            barLp.setMargins(dp(12), 0, dp(12), dp(8));
+        }
+        shell.addView(bottomBar, barLp);
 
         // ══ the pages (built once, toggled by selectTab) ═══════════════════════
         homePage = buildHomeTab();
@@ -426,18 +468,19 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** A top-bar icon button (🩺 / ⚙️): always visible, always 1 tap. */
-    private View topBarIcon(String glyph, View.OnClickListener click) {
-        TextView t = new TextView(this);
-        t.setText(glyph);
-        t.setTextSize(17f);
-        t.setGravity(Gravity.CENTER);
+    /** v3.4.0 — a top-bar icon button (troubleshoot / settings): vector, 48dp target. */
+    private View topBarIcon(int resId, View.OnClickListener click) {
+        ImageView iv = new ImageView(this);
+        iv.setImageDrawable(UiIcons.tinted(this, resId, P.text, 20));
+        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
         GradientDrawable g = new GradientDrawable();
         g.setColor(P.chip);
         g.setCornerRadius(dp(12));
-        t.setBackground(g);
-        t.setOnClickListener(click);
-        return t;
+        iv.setBackground(g);
+        iv.setContentDescription(getString(resId == R.drawable.ic_settings
+            ? R.string.tab_settings : R.string.tab_diag));
+        iv.setOnClickListener(click);
+        return iv;
     }
 
     /** v3.3.0 — open the Web tab on a URL handed over by the Cinema Player. */
@@ -477,9 +520,16 @@ public class MainActivity extends Activity {
         int[] ids = tabIdsInOrder();
         for (int i = 0; i < tabIcons.size(); i++) {
             boolean on = ids[i] == idx;
-            tabIcons.get(i).setTextColor(on ? P.accent : P.desc);
+            // v3.4.0 — outline ⇄ filled, muted ⇄ accent. The state is legible, not just tinted.
+            int[] res = tabIconRes.get(i);
+            tabIcons.get(i).setImageDrawable(
+                UiIcons.tinted(this, on ? res[1] : res[0], on ? P.accent : P.desc, 22));
             tabLabels.get(i).setTextColor(on ? P.accentDim : P.desc);
-            tabIcons.get(i).setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT, Typeface.NORMAL);
+            tabLabels.get(i).setTypeface(UiTokens.ui(on ? 600 : 400));
+            if (on && AppPrefs.motionEnabled(prefs)) {
+                tabIcons.get(i).setAlpha(0.55f);
+                tabIcons.get(i).animate().alpha(1f).setDuration(UiTokens.MOTION_FAST).start();
+            }
         }
         if (idx == TAB_TROUBLE) refresh();
     }
@@ -506,6 +556,7 @@ public class MainActivity extends Activity {
         ub.setStroke(dp(1), P.accent);
         updateBanner.setBackground(ub);
         updateBanner.setVisibility(View.GONE);
+        UiIcons.setCompound(updateBanner, R.drawable.ic_update, P.accentDim, 14, Gravity.START);
         updateBanner.setOnClickListener(v -> checkForUpdates());
         root.addView(updateBanner, widen());
         updateBar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -529,7 +580,7 @@ public class MainActivity extends Activity {
         heroSub.setTextSize(11.5f);
         heroSub.setPadding(0, dp(4), 0, 0);
         hero.addView(heroSub, widen());
-        Button toggle = btnPrimary("⏻");
+        Button toggle = btnPrimary("");
         toggle.setTextSize(15f);
         toggle.setOnClickListener(v -> {
             if (ReceiverService.isUp()) {
@@ -566,14 +617,16 @@ public class MainActivity extends Activity {
             boolean castable = ReceiverService.castDiscoverable();
             boolean announced = ReceiverService.isAnnounced();
             heroPill.setText(up
-                ? (announced || castable ? "🟢 " + t("සිංහල Player සූදානම්", "සිංහල Player ready")
-                                         : "🟡 " + t("සූදානම් — announce වෙමින්…", "arming announcement…"))
-                : "⚪ " + t("ක්‍රියාත්මක නැත · Off", "Off"));
+                ? (announced || castable ? t("සිංහල Player සූදානම්", "Sinhala Player ready")
+                                         : t("සූදානම් — announce වෙමින්…", "arming announcement…"))
+                : t("ක්‍රියාත්මක නැත", "Off"));
+            statusDot(heroPill, up ? (announced || castable ? P.ok : P.warn) : P.desc);
             heroPill.setTextColor(up ? P.ok : P.desc);
             GradientDrawable hp = rounded(up ? P.accentSoft : P.chip, dp(20));
             heroPill.setBackground(hp);
-            toggle.setText(up ? "⏹ " + t("වසන්න · Stop", "Stop receiver")
-                              : "▶ " + t("අරඹන්න · Start", "Start receiver"));
+            toggle.setText(up ? t("වසන්න", "Stop receiver") : t("අරඹන්න", "Start receiver"));
+            UiIcons.setCompound(toggle, up ? R.drawable.ic_pause : R.drawable.ic_play,
+                0xFF0A0A14, 16, Gravity.START);
             paintChip(chipReceiver, up, t("රිසීවරය", "Receiver"), up ? "port " + ReceiverService.port() : "off");
             paintChip(chipCast, castable, t("Cast/DLNA", "Cast/DLNA"),
                 castable ? (announced ? "Nsd+Rsp+DLNA" : "Rsp+DLNA") : t("සක්‍රිය වෙමින්", "arming"));
@@ -584,28 +637,28 @@ public class MainActivity extends Activity {
         // ── the 2×2 quick-action grid ──
         root.addView(sectionTitle(t("ඉක්මන් ක්‍රියා", "Quick actions")));
         LinearLayout g1 = row();
-        g1.addView(actionBtn("▶", t("AnantPlay විවෘත කරන්න", "Open AnantPlay"), v -> {
+        g1.addView(actionBtn(R.drawable.ic_play, t("AnantPlay විවෘත කරන්න", "Open AnantPlay"), v -> {
             Miui.openAnantPlay(this);
             // v3.1.0 — the ONE smart non-intrusive cast confirmation (zero nagging)
-            toast("🟢 සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න");
+            toast("සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න");
         }), new LinearLayout.LayoutParams(0, -2, 1f));
         if (AppPrefs.showWebTab(prefs)) {
-            g1.addView(actionBtn("🌐", t("බ්‍රව්සරයෙන් බලන්න", "Watch in WebView"), v -> selectTab(TAB_WEB)),
+            g1.addView(actionBtn(R.drawable.ic_nav_web, t("බ්‍රව්සරයෙන් බලන්න", "Watch in WebView"), v -> selectTab(TAB_WEB)),
                 new LinearLayout.LayoutParams(0, -2, 1f));
         } else {
-            g1.addView(actionBtn("🔗", t("URL එකක් බලන්න", "Play Video URL"), v -> playUrlDialog()),
+            g1.addView(actionBtn(R.drawable.ic_link, t("URL එකක් බලන්න", "Play Video URL"), v -> playUrlDialog()),
                 new LinearLayout.LayoutParams(0, -2, 1f));
         }
         root.addView(g1, widen());
         LinearLayout g2 = row();
         if (AppPrefs.showWebTab(prefs)) {
-            g2.addView(actionBtn("🔗", t("URL එකක් බලන්න", "Play Video URL"), v -> playUrlDialog()),
+            g2.addView(actionBtn(R.drawable.ic_link, t("URL එකක් බලන්න", "Play Video URL"), v -> playUrlDialog()),
                 new LinearLayout.LayoutParams(0, -2, 1f));
         } else {
-            g2.addView(actionBtn("⚙️", t("සැකසුම්", "Settings"), v -> selectTab(TAB_SETTINGS)),
+            g2.addView(actionBtn(R.drawable.ic_settings, t("සැකසුම්", "Settings"), v -> selectTab(TAB_SETTINGS)),
                 new LinearLayout.LayoutParams(0, -2, 1f));
         }
-        g2.addView(actionBtn("🎬", t("පරීක්ෂණ වීඩියෝව", "Test Player"), v -> {
+        g2.addView(actionBtn(R.drawable.ic_movie, t("පරීක්ෂණ වීඩියෝව", "Test Player"), v -> {
             // v3.1.2 — belt-and-braces: the launch itself can never kill the app
             // (the v3.1.1 crash was inside PlayActivity.onCreate/buildUi — fixed
             // at the source; this guard catches any residual vendor quirk).
@@ -625,7 +678,8 @@ public class MainActivity extends Activity {
         LinearLayout guideHead = row();
         guideHead.setGravity(Gravity.CENTER_VERTICAL);
         TextView guideTitle = new TextView(this);
-        guideTitle.setText("❔ " + t("භාවිත කරන ආකාරය", "How to use"));
+        guideTitle.setText(t("භාවිත කරන ආකාරය", "How to use"));
+        UiIcons.setCompound(guideTitle, R.drawable.ic_info, P.accentDim, 14, Gravity.START);
         guideTitle.setTextColor(P.title);
         guideTitle.setTextSize(14.5f);
         guideTitle.setTypeface(Typeface.DEFAULT_BOLD);
@@ -687,7 +741,8 @@ public class MainActivity extends Activity {
         LinearLayout head2 = row();
         head2.setGravity(Gravity.CENTER_VERTICAL);
         TextView h = new TextView(this);
-        h.setText("⚠️ " + t("සැකසුම · අවසර අවශ්‍යයි (1-tap each)", "Setup · permissions needed (1-tap each)"));
+        h.setText(t("සැකසුම · අවසර අවශ්‍යයි (1-tap each)", "Setup · permissions needed (1-tap each)"));
+        UiIcons.setCompound(h, R.drawable.ic_alert, P.warn, 15, Gravity.START);
         h.setTextColor(P.warn);
         h.setTextSize(13.5f);
         h.setTypeface(Typeface.DEFAULT_BOLD);
@@ -711,11 +766,11 @@ public class MainActivity extends Activity {
                 default: stateNote = "?"; break;
             }
             setupCard.addView(setupRow("Autostart — MIUI " + t("ස්වයං ආරම්භය", "autostart") + " · " + stateNote,
-                "✓ Done · මම සක්‍රිය කළා",
+                t("මම සක්‍රිය කළා", "Done"),
                 v -> {
                     Miui.confirmAutostart(this, true);
-                    toast(t("සලකුණු කළා ✓ — මෙම අනතුරු ඇඟවීම ඉවත් වේ",
-                        "confirmed ✓ — this warning stays cleared"));
+                    toast(t("සලකුණු කළා — මෙම අනතුරු ඇඟවීම ඉවත් වේ",
+                        "confirmed — this warning stays cleared"));
                     setupCard.removeAllViews();
                     refresh();
                 },
@@ -763,15 +818,15 @@ public class MainActivity extends Activity {
         in.setPadding(dp(10), dp(10), dp(10), dp(10));
         box.addView(in, widen());
         new android.app.AlertDialog.Builder(this)
-            .setTitle("🔗 " + t("Play Video URL · සිංහල උපසිරැසි සමඟ", "Play Video URL · with Sinhala subtitles"))
+            .setTitle(t("Play Video URL · සිංහල උපසිරැසි සමඟ", "Play Video URL · with Sinhala subtitles"))
             .setView(box)
-            .setPositiveButton("▶ Play", (d, w) -> {
+            .setPositiveButton(t("වාදනය", "Play"), (d, w) -> {
                 String u = in.getText().toString().trim();
                 if (u.startsWith("http://") || u.startsWith("https://"))
                     startActivity(new Intent(this, PlayActivity.class).putExtra("url", u));
                 else toast(t("http(s) URL එකක් පමණයි", "http(s) URLs only"));
             })
-            .setNeutralButton("📋 " + t("Paste & Play", "Paste & Play"), (d, w) -> {
+            .setNeutralButton(t("Paste & Play", "Paste & Play"), (d, w) -> {
                 try {
                     android.content.ClipboardManager cm = (android.content.ClipboardManager)
                         getSystemService(Context.CLIPBOARD_SERVICE);
@@ -817,40 +872,40 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ViewGroup.LayoutParams(-1, -2));
         root.addView(sectionTitle(t("සැකසුම්", "Settings")));
         LinearLayout list = card(P.card);
-        list.addView(categoryRow("🎨", P.accent,
+        list.addView(categoryRow(R.drawable.ic_palette, P.accent,
             t("පෙනුම සහ තේමාව", "Appearance & Theme"),
             t("තේමාව · AMOLED · Dynamic Color · වර්ණ · භාෂාව · density",
               "Theme · AMOLED · Dynamic Color · accent · language · density"),
             v -> openAppearance()));
-        list.addView(categoryRow("💬", 0xFF8B5CF6,
+        list.addView(categoryRow(R.drawable.ic_subtitles, 0xFF8B5CF6,
             t("උපසිරැසි සහ විලුම් චිත්‍රාගාරය", "Subtitles & Style Studio"),
             t("සජීවී preview · අකුරු · වර්ණ · එන්ජිමේ ප්‍රමුඛතාව · පරිවර්තනය",
               "Live preview · font · color · engine priority · translate"),
             v -> openSubtitleStudio()));
-        list.addView(categoryRow("🎬", 0xFF3B82F6,
+        list.addView(categoryRow(R.drawable.ic_movie, 0xFF3B82F6,
             t("ධාවනය සහ gestures", "Playback & Gestures"),
             t("වේගය · aspect · seek පියවර · PiP · resume · HUD",
               "Speed · aspect · seek step · PiP · resume · HUD"),
             v -> openPlayback()));
-        list.addView(categoryRow("🌐", 0xFF38BDF8,
+        list.addView(categoryRow(R.drawable.ic_nav_web, 0xFF38BDF8,
             t("Web Player සහ Custom Links", "Web Player & Custom Links"),
             t("අඩවි URL add/edit/reorder · UA · Ad blocker · auto-open",
               "Site URLs add/edit/reorder · UA · Ad blocker · auto-open"),
             v -> openWebPlayer()));
-        list.addView(categoryRow("📡", 0xFF10B981,
+        list.addView(categoryRow(R.drawable.ic_cast, 0xFF10B981,
             t("Cast සහ ජාලය", "Cast & Network"),
             t("නම · DLNA · mDNS · Worker URL · DoH", "Name · DLNA · mDNS · Worker URL · DoH"),
             v -> openCastNetwork()));
-        list.addView(categoryRow("⬆️", 0xFFF59E0B,
+        list.addView(categoryRow(R.drawable.ic_update, 0xFFF59E0B,
             t("නිහඬ යාවත්කාලීන", "Silent Updates"),
             t("ස්වයංක්‍රීය · නිහඬ · throttled · Skip version",
               "Automatic · silent · throttled · Skip version"),
             v -> openUpdates()));
-        list.addView(categoryRow("💾", 0xFFEC4899,
+        list.addView(categoryRow(R.drawable.ic_backup, 0xFFEC4899,
             t("Backup & Restore", "Backup & Restore"),
             t("සියලු සැකසුම් JSON එකක් ලෙස — ඔබේමයි", "All settings as clean JSON — yours to keep"),
             v -> openBackup()));
-        list.addView(categoryRow("ℹ️", 0xFF94A3B8,
+        list.addView(categoryRow(R.drawable.ic_info, 0xFF94A3B8,
             t("පිළිබඳ සහ ආරක්ෂණය", "About & Security"),
             t("සංස්කරණය · ආරක්ෂණ විග්‍රහය · බලපත්‍ර", "Version · security audit · licenses"),
             v -> openAbout()));
@@ -861,14 +916,19 @@ public class MainActivity extends Activity {
     }
 
     /** One Mornye-style category row: big icon chip + bold title + 1-line subtitle + ›. */
-    private View categoryRow(String icon, int iconColor, String title, String subtitle, View.OnClickListener click) {
+    /** v3.4.0 - a category row whose leading icon is a tinted vector, not an emoji. */
+    private View categoryRow(int iconRes, int iconColor, String title, String subtitle, View.OnClickListener click) {
+        return categoryRow(iconRes, iconColor, title, subtitle, click, true);
+    }
+
+    private View categoryRow(int iconRes, int iconColor, String title, String subtitle,
+                             View.OnClickListener click, boolean unusedLegacy) {
         LinearLayout r = row();
         r.setGravity(Gravity.CENTER_VERTICAL);
         r.setPadding(0, dp(11), 0, dp(11));
-        TextView ic = new TextView(this);
-        ic.setText(icon);
-        ic.setTextSize(20f);
-        ic.setGravity(Gravity.CENTER);
+        ImageView ic = new ImageView(this);
+        ic.setImageDrawable(UiIcons.tinted(this, iconRes, iconColor, 20));
+        ic.setScaleType(ImageView.ScaleType.FIT_CENTER);
         GradientDrawable g = rounded(iconColor, dp(14));
         g.setAlpha(46);
         ic.setBackground(g);
@@ -956,7 +1016,7 @@ public class MainActivity extends Activity {
     // ── 🎨 Appearance ───────────────────────────────────────────────────────────
 
     private void openAppearance() {
-        openSub("🎨 " + t("පෙනුම සහ තේමාව", "Appearance & Theme"), content -> {
+        openSub(t("පෙනුම සහ තේමාව", "Appearance & Theme"), content -> {
             LinearLayout c1 = card(P.card);
             final TextView mode = settingRow(c1, t("තේමා ආකාරය", "Theme mode"), themeModeLabel());
             mode.setOnClickListener(v -> {
@@ -998,7 +1058,8 @@ public class MainActivity extends Activity {
                 TextView dot = new TextView(this);
                 dot.setGravity(Gravity.CENTER);
                 dot.setTextSize(13f);
-                dot.setText(idx == AppPrefs.accent(prefs) ? "✓" : "");
+                dot.setText("");
+                if (idx == AppPrefs.accent(prefs)) UiIcons.setIconOnly(dot, R.drawable.ic_check_circle, 0xFF0A0A14, 14);
                 dot.setTextColor(0xFFFFFFFF);
                 GradientDrawable dg = new GradientDrawable();
                 dg.setShape(GradientDrawable.OVAL);
@@ -1035,7 +1096,7 @@ public class MainActivity extends Activity {
                 new android.app.AlertDialog.Builder(this)
                     .setTitle(t("රිසි වර්ණය · Custom accent", "Custom accent"))
                     .setView(box)
-                    .setPositiveButton("✓", (d, w) -> {
+                    .setPositiveButton(t("හරි", "OK"), (d, w) -> {
                         String norm = AppPrefs.normalizeAccentHex(in.getText().toString());
                         prefs.edit().putString(AppPrefs.K_ACCENT_HEX, norm).apply();
                         if (!norm.isEmpty() && AppPrefs.dynamicColor(prefs)) {
@@ -1154,14 +1215,14 @@ public class MainActivity extends Activity {
     /** Appearance changes rebuild the themed shell instantly (no restart dialog). */
     private void themeChanged() {
         closeSubPage();
-        toast(t("✓ යෙදුණි", "✓ applied"));
+        toast(t("යෙදුණි", "applied"));
         recreate();
     }
 
     // ── 💬 Subtitles & Style Studio (REAL-TIME live preview) ────────────────────
 
     private void openSubtitleStudio() {
-        openSub("💬 " + t("උපසිරැසි සහ විලුම් චිත්‍රාගාරය", "Subtitles & Style Studio"), content -> {
+        openSub(t("උපසිරැසි සහ විලුම් චිත්‍රාගාරය", "Subtitles & Style Studio"), content -> {
             // ── THE LIVE CINEMA PREVIEW: re-renders as the sliders move ──
             LinearLayout previewCard = card(0xFF000000);
             GradientDrawable pv = rounded(0xFF05070D, dp(14));
@@ -1232,7 +1293,7 @@ public class MainActivity extends Activity {
                     .setItems(labels, (d, which) -> {
                         prefs.edit().putString(AppPrefs.K_DEFAULT_LANG, Langs.ALL.get(which).code).apply();
                         langBtn.setText(Langs.ALL.get(which).nativeName + " · " + Langs.ALL.get(which).english);
-                        toast(Langs.ALL.get(which).nativeName + " ✓");
+                        toast(Langs.ALL.get(which).nativeName);
                     })
                     .setNegativeButton(android.R.string.cancel, null)
                     .show();
@@ -1247,7 +1308,7 @@ public class MainActivity extends Activity {
             });
             final TextView autoBtn = toggleRow(c1, t("ස්වයංක්‍රීය උපසිරැසි ලබාගැනීම", "Auto-fetch subtitles"),
                 AppPrefs.K_AUTO_FETCH, true);
-            final TextView polishBtn = toggleRow(c1, "✨ Cinema Polish", AppPrefs.K_CINEMA_POLISH, true);
+            final TextView polishBtn = toggleRow(c1, R.drawable.ic_sun, "Cinema Polish", AppPrefs.K_CINEMA_POLISH, true);
             content.addView(c1, widen());
 
             // font size slider (v3.2.0: 14–40 sp)
@@ -1285,7 +1346,8 @@ public class MainActivity extends Activity {
                 TextView dot = new TextView(this);
                 dot.setGravity(Gravity.CENTER);
                 dot.setTextSize(12f);
-                dot.setText(idx == AppPrefs.subColor(prefs) ? "✓" : "");
+                dot.setText("");
+                if (idx == AppPrefs.subColor(prefs)) UiIcons.setIconOnly(dot, R.drawable.ic_check_circle, 0xFF0A0A14, 14);
                 dot.setTextColor(0xFF000000);
                 GradientDrawable dg = new GradientDrawable();
                 dg.setShape(GradientDrawable.OVAL);
@@ -1355,7 +1417,7 @@ public class MainActivity extends Activity {
                 AppPrefs.K_AUTO_TRANSLATE_NON_SI, true, null);
             toggleRow(c3, t(".zip ස්වයංක්‍රීයව extract + attach", "Auto-extract .zip subtitles"),
                 AppPrefs.K_AUTO_ZIP, true, null);
-            toggleRow(c3, t("🆓 නොමිලේ keyless පරිවර්තකය (Layer 3)", "Free keyless translator (Layer 3)"),
+            toggleRow(c3, R.drawable.ic_translate, t("නොමිලේ keyless පරිවර්තකය (Layer 3)", "Free keyless translator (Layer 3)"),
                 AppPrefs.K_FREE_TRANSLATOR, true, null);
             content.addView(c3, widen());
         });
@@ -1383,7 +1445,8 @@ public class MainActivity extends Activity {
     private Typeface previewSiFont() {
         if (siFontPreview == null) {
             try {
-                siFontPreview = Typeface.createFromAsset(getAssets(), "fonts/NotoSansSinhala-Regular.ttf");
+                // v3.4.0 - the real 400-weight instance (never faux bold, never a crash)
+                siFontPreview = UiTokens.si(this, false);
             } catch (Throwable t) {
                 siFontPreview = Typeface.DEFAULT;
             }
@@ -1404,7 +1467,7 @@ public class MainActivity extends Activity {
     // ── 🎬 Playback & Gestures (v3.2.0: speed · aspect · double-tap) ────────────
 
     private void openPlayback() {
-        openSub("🎬 " + t("ධාවනය සහ gestures", "Playback & Gestures"), content -> {
+        openSub(t("ධාවනය සහ gestures", "Playback & Gestures"), content -> {
             LinearLayout c0 = card(P.card);
             // v3.2.0 — DEFAULT PLAYBACK SPEED (0.5x–2.0x): a slider (per-mille),
             // applied by PlayActivity at every open.
@@ -1494,7 +1557,7 @@ public class MainActivity extends Activity {
      * reads the same list on every build, so a link edit is live on the next
      * Web tab open, zero app update needed. */
     private void openWebPlayer() {
-        openSub("🌐 " + t("Web Player සහ Custom Links", "Web Player & Custom Links"), content -> {
+        openSub(t("Web Player සහ Custom Links", "Web Player & Custom Links"), content -> {
             content.addView(caption(t("ඔබේම අඩවි ලැයිස්තුව — අලුත් link එකක් හදාගන්න, නම් කරන්න, අනුපිළැවෙන්න, මකන්න — app යාවත්කාලීනයක් අවශ්‍ය නැත.",
                 "Your own site list — add, rename, reorder or delete streaming links any time; no app update ever needed.")));
 
@@ -1517,7 +1580,7 @@ public class MainActivity extends Activity {
             urlIn.setTextColor(P.text);
             urlIn.setHintTextColor(P.desc);
             addCard.addView(urlIn, widen());
-            Button add = btnPrimary("➕ " + t("link එක එකතු කරන්න", "Add the link"));
+            Button add = iconPrimaryBtn(R.drawable.ic_plus, t("link එක එකතු කරන්න", "Add the link"));
             add.setOnClickListener(v -> {
                 String nm = nameIn.getText().toString().trim();
                 String ul = urlIn.getText().toString().trim();
@@ -1530,18 +1593,18 @@ public class MainActivity extends Activity {
                 prefs.edit().putString(AppPrefs.K_WEB_LINKS, AppPrefs.serializeLinks(links)).apply();
                 nameIn.setText(""); urlIn.setText("");
                 paintLinks(linkCard);
-                toast("➕ " + nm);
+                toast(nm + " " + t("එකතු විය", "added"));
             });
             addCard.addView(add, widen());
             content.addView(addCard, widen());
 
             // ── the WebView policy toggles ──
             LinearLayout c2 = card(P.card);
-            toggleRow(c2, t("🖥 Desktop User-Agent", "Desktop User-Agent"),
+            toggleRow(c2, R.drawable.ic_desktop, t("Desktop User-Agent", "Desktop User-Agent"),
                 AppPrefs.K_WEB_DESKTOP_UA, false, null);
-            toggleRow(c2, t("🚫 Ad/Popup Blocker", "Ad/Popup Blocker"),
+            toggleRow(c2, R.drawable.ic_shield_adblock, t("Ad/Popup Blocker", "Ad/Popup Blocker"),
                 AppPrefs.K_AD_BLOCK, true, null);
-            toggleRow(c2, t("⚡ Auto-Sniff & Auto-Open Cinema Player", "Auto-Sniff & Auto-Open Cinema Player"),
+            toggleRow(c2, R.drawable.ic_refresh, t("Auto-Sniff & Auto-Open Cinema Player", "Auto-Sniff & Auto-Open Cinema Player"),
                 AppPrefs.K_AUTO_OPEN_SNIFFED, false, null);
             content.addView(c2, widen());
         });
@@ -1552,8 +1615,8 @@ public class MainActivity extends Activity {
         linkCard.removeAllViews();
         final List<AppPrefs.Link> links = AppPrefs.webLinks(prefs);
         if (links.isEmpty()) {
-            linkCard.addView(caption(t("තව link නැත — පහළින් එකක් එකතු කරන්න. Web ටැබ් එකේ ⚡ launcher එක මෙයින් පිරේ.",
-                "No links yet — add one below. The Web tab's ⚡ quick launcher fills from here.")));
+            linkCard.addView(caption(t("තව link නැත — පහළින් එකක් එකතු කරන්න. Web ටැබ් එකේ launcher එක මෙයින් පිරේ.",
+                "No links yet — add one below. The Web tab's quick launcher fills from here.")));
             return;
         }
         for (int i = 0; i < links.size(); i++) {
@@ -1593,7 +1656,7 @@ public class MainActivity extends Activity {
                 paintLinks(linkCard);
             });
             r.addView(dn, dlp);
-            Button del = smallBtn("🗑");
+            Button del = iconOnlyBtn(R.drawable.ic_close, P.err);
             LinearLayout.LayoutParams delp = new LinearLayout.LayoutParams(dp(30), dp(30));
             delp.leftMargin = dp(4);
             del.setLayoutParams(delp);
@@ -1601,7 +1664,7 @@ public class MainActivity extends Activity {
                 links.remove(idx);
                 prefs.edit().putString(AppPrefs.K_WEB_LINKS, AppPrefs.serializeLinks(links)).apply();
                 paintLinks(linkCard);
-                toast("🗑 " + l.name);
+                toast(l.name + " " + t("ඉවත් කළා", "removed"));
             });
             r.addView(del, delp);
             // 1-tap rename
@@ -1616,7 +1679,7 @@ public class MainActivity extends Activity {
                 new android.app.AlertDialog.Builder(this)
                     .setTitle(t("නම වෙනස් කරන්න · rename", "Rename the link"))
                     .setView(box)
-                    .setPositiveButton("✓", (d, w) -> {
+                    .setPositiveButton(t("හරි", "OK"), (d, w) -> {
                         String nn = in.getText().toString().trim();
                         if (nn.isEmpty()) return;
                         List<AppPrefs.Link> cur = new ArrayList<>(AppPrefs.webLinks(prefs));
@@ -1639,7 +1702,7 @@ public class MainActivity extends Activity {
     // ── 📡 Cast & Network ──────────────────────────────────────────────────────
 
     private void openCastNetwork() {
-        openSub("📡 " + t("Cast සහ ජාලය", "Cast & Network"), content -> {
+        openSub(t("Cast සහ ජාලය", "Cast & Network"), content -> {
             LinearLayout c1 = card(P.card);
             final TextView name = settingRow(c1, t("රිසීවරයේ නම (DLNA)", "Receiver display name (DLNA)"),
                 AppPrefs.receiverName(prefs));
@@ -1688,14 +1751,14 @@ public class MainActivity extends Activity {
             Button save = smallBtn(t("සුරකින්න · Save", "Save"));
             save.setOnClickListener(v -> {
                 prefs.edit().putString(AppPrefs.K_WORKER_URL, url.getText().toString().trim()).apply();
-                toast(t("සුරැකිණි ✓", "saved ✓"));
+                toast(t("සුරැකිණි", "saved"));
             });
             srow.addView(save, new LinearLayout.LayoutParams(0, -2, 1f));
             Button reset = smallBtn("Reset");
             reset.setOnClickListener(v -> {
                 url.setText(BridgeApi.DEFAULT_WORKER_URL);
                 prefs.edit().putString(AppPrefs.K_WORKER_URL, BridgeApi.DEFAULT_WORKER_URL).apply();
-                toast("default ✓");
+                toast(t("පෙරනිමිය", "default"));
             });
             srow.addView(reset, new LinearLayout.LayoutParams(0, -2, 1f));
             c3.addView(srow, widen());
@@ -1712,7 +1775,7 @@ public class MainActivity extends Activity {
     private void applyCastPrefs() {
         try {
             startService(new Intent(this, ReceiverService.class).setAction(ReceiverService.ACTION_APPLY_PREFS));
-            toast(t("✓ receiver නැවත අරඹන ලදී", "✓ receiver re-armed"));
+            toast(t("receiver නැවත අරඹන ලදී", "receiver re-armed"));
         } catch (Throwable t) {
             Diag.w("ui", "apply cast prefs: " + t);
         }
@@ -1730,10 +1793,10 @@ public class MainActivity extends Activity {
                 int code = c.getResponseCode();
                 String body = code == 200 ? new String(readAll(c.getInputStream()), StandardCharsets.UTF_8) : "";
                 c.disconnect();
-                out = code == 200 ? "✓ HTTP 200 · " + BridgeApi.brief(body, 60) : "✗ HTTP " + code;
+                out = code == 200 ? "HTTP 200 · " + BridgeApi.brief(body, 60) : "HTTP " + code;
                 Diag.i("ping", "worker " + base + " → " + code);
             } catch (Exception e) {
-                out = "✗ " + e.getMessage();
+                out = String.valueOf(e.getMessage());
                 Diag.w("ping", "worker: " + e);
             }
             final String o = out;
@@ -1744,7 +1807,7 @@ public class MainActivity extends Activity {
     // ── ⬆️ Silent Updates ───────────────────────────────────────────────────────
 
     private void openUpdates() {
-        openSub("⬆️ " + t("නිහඬ යාවත්කාලීන", "Silent Updates"), content -> {
+        openSub(t("නිහඬ යාවත්කාලීන", "Silent Updates"), content -> {
             content.addView(caption(t("v3.1.0: යාවත්කාලීන 100% නිහඬයි — ශබ්දයක් නැත, vibration නැත, spam නැත. Progress දැනුම්දීම් තත්පරයට වරකට වඩා නොයයි.",
                 "v3.1.0: updates are 100% silent — no sound, no vibration, no spam. Progress posts at most once per second.")));
             LinearLayout c1 = card(P.card);
@@ -1752,13 +1815,13 @@ public class MainActivity extends Activity {
                 AppPrefs.K_AUTO_UPDATE, true, () -> SelfUpdater.checkOnLaunch(this));
             settingRow(c1, t("සංස්කරණය", "Current version"), "v" + AppInfo.VERSION_NAME + " (code " + AppInfo.VERSION_CODE + ")");
             final TextView installPerm = settingRow(c1, t("Install unknown apps", "Install unknown apps"),
-                canInstallApks() ? "✓ granted" : "✗ " + t("නැත (1-tap)", "not granted (1-tap)"));
+                canInstallApks() ? t("ලැබී ඇත", "granted") : t("නැත (1-tap)", "not granted (1-tap)"));
             installPerm.setTextColor(canInstallApks() ? P.ok : P.warn);
             installPerm.setOnClickListener(v -> openInstallPermission());
-            final TextView check = settingRow(c1, "🔎 " + t("දැන් පරීක්ෂා කරන්න", "Check now"), "GitHub Releases");
+            final TextView check = settingRow(c1, R.drawable.ic_search, t("දැන් පරීක්ෂා කරන්න", "Check now"), "GitHub Releases");
             check.setTextColor(P.accentDim);
             check.setOnClickListener(v -> checkForUpdates());
-            settingRow(c1, "🤖 Obtainium", t("ගැලපේ — එකම signing key", "compatible — same permanent key"));
+            settingRow(c1, R.drawable.ic_info, "Obtainium", t("ගැලපේ — එකම signing key", "compatible — same permanent key"));
             content.addView(c1, widen());
 
             // the Skip-this-version control (mirror of the notification action)
@@ -1769,7 +1832,7 @@ public class MainActivity extends Activity {
                 Button un = smallBtn(t("නැවත සලකුණු කරන්න", "un-skip"));
                 un.setOnClickListener(v -> {
                     getSharedPreferences("selfupdate", MODE_PRIVATE).edit().remove("skippedVersion").apply();
-                    toast(t("skip ඉවත් කළා", "un-skipped ✓"));
+                    toast(t("skip ඉවත් කළා", "un-skipped"));
                     closeSubPage();
                 });
                 c2.addView(un, widen());
@@ -1784,11 +1847,11 @@ public class MainActivity extends Activity {
     // ── 💾 Backup & Restore ─────────────────────────────────────────────────────
 
     private void openBackup() {
-        openSub("💾 " + t("Backup & Restore", "Backup & Restore"), content -> {
+        openSub(t("Backup & Restore", "Backup & Restore"), content -> {
             content.addView(caption(t("ඔබේ සියලු සැකසුම් එක පිරිසිදු JSON ගොනුවකින් — ගෙන යා හැක, නැවත දා හැක. \"Yours to Keep\" · your entire setup in one clean JSON file.",
                 "Every setting exports as one clean JSON file — carry it to a new phone and import it back. Yours to keep.")));
             LinearLayout c1 = card(P.card);
-            Button exportBtn = btnPrimary("📤 " + t("Export — ගොනුවකට සුරකින්න", "Export to a file"));
+            Button exportBtn = iconPrimaryBtn(R.drawable.ic_share, t("Export — ගොනුවකට සුරකින්න", "Export to a file"));
             exportBtn.setOnClickListener(v -> {
                 try {
                     Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
@@ -1801,10 +1864,10 @@ public class MainActivity extends Activity {
                 }
             });
             c1.addView(exportBtn, widen());
-            Button copyBtn = smallBtn("📋 " + t("JSON එක clipboard එකට", "Copy JSON to clipboard"));
+            Button copyBtn = iconBtn(R.drawable.ic_copy, t("JSON එක clipboard එකට", "Copy JSON to clipboard"));
             copyBtn.setOnClickListener(v -> copyBackupToClipboard());
             c1.addView(copyBtn, widen());
-            Button importBtn = smallBtn("📥 " + t("Import — ගොනුවකින්", "Import from a file"));
+            Button importBtn = iconBtn(R.drawable.ic_download, t("Import — ගොනුවකින්", "Import from a file"));
             importBtn.setOnClickListener(v -> {
                 try {
                     Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -1817,7 +1880,7 @@ public class MainActivity extends Activity {
                 }
             });
             c1.addView(importBtn, widen());
-            Button pasteBtn = smallBtn("📋 " + t("Clipboard JSON එක import කරන්න", "Paste JSON to import"));
+            Button pasteBtn = iconBtn(R.drawable.ic_copy, t("Clipboard JSON එක import කරන්න", "Paste JSON to import"));
             pasteBtn.setOnClickListener(v -> pasteBackupFromClipboard());
             c1.addView(pasteBtn, widen());
             content.addView(c1, widen());
@@ -1869,7 +1932,7 @@ public class MainActivity extends Activity {
             String json = SettingsBackup.export(AppInfo.VERSION_NAME, System.currentTimeMillis(), gatherSettings());
             android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             cm.setPrimaryClip(android.content.ClipData.newPlainText("sinhala-player-settings", json));
-            toast(t("📋 JSON " + json.length() + " අකුරු copied ✓", "📋 JSON copied ✓ (" + json.length() + " chars)"));
+            toast(t("JSON " + json.length() + " අකුරු copied", "JSON copied (" + json.length() + " chars)"));
             Diag.i("backup", "exported " + json.length() + " chars to clipboard");
         } catch (Throwable t) {
             Diag.w("backup", "clipboard export: " + t);
@@ -1890,7 +1953,7 @@ public class MainActivity extends Activity {
     private void applyImportedJson(String json) {
         SettingsBackup.Import r = SettingsBackup.parseImport(json);
         if (!r.ok) {
-            toast("✗ " + r.errorSi + " · " + r.error);
+            toast(r.errorSi + " · " + r.error);
             Diag.w("backup", "import rejected: " + r.error);
             return;
         }
@@ -1905,7 +1968,7 @@ public class MainActivity extends Activity {
         }
         e.apply();
         Diag.i("backup", "imported " + r.values.size() + " settings (" + r.rejected + " rejected)");
-        toast("✓ " + r.values.size() + " " + t("settings import කළා", "settings imported"));
+        toast(r.values.size() + " " + t("settings import කළා", "settings imported"));
         closeSubPage();
         applyCastPrefs();
         recreate();
@@ -1924,10 +1987,10 @@ public class MainActivity extends Activity {
                         o.write(json.getBytes(StandardCharsets.UTF_8));
                     }
                     Diag.i("backup", "exported to " + u);
-                    main.post(() -> toast("✓ " + t("ගොනුව සුරැකිණි", "file saved")));
+                    main.post(() -> toast(t("ගොනුව සුරැකිණි", "file saved")));
                 } catch (Exception e) {
                     Diag.w("backup", "export: " + e);
-                    main.post(() -> toast("✗ " + e.getMessage()));
+                    main.post(() -> toast(String.valueOf(e.getMessage())));
                 }
             }, "si-export").start();
         } else if (req == 51) {   // import
@@ -1940,7 +2003,7 @@ public class MainActivity extends Activity {
                     main.post(() -> applyImportedJson(json));
                 } catch (Exception e) {
                     Diag.w("backup", "import: " + e);
-                    main.post(() -> toast("✗ " + e.getMessage()));
+                    main.post(() -> toast(String.valueOf(e.getMessage())));
                 }
             }, "si-import").start();
         }
@@ -1949,7 +2012,7 @@ public class MainActivity extends Activity {
     // ── ℹ️ About & Security ─────────────────────────────────────────────────────
 
     private void openAbout() {
-        openSub("ℹ️ " + t("පිළිබඳ සහ ආරක්ෂණය", "About & Security"), content -> {
+        openSub(t("පිළිබඳ සහ ආරක්ෂණය", "About & Security"), content -> {
             LinearLayout c1 = card(P.card);
             settingRow(c1, t("සංස්කරණය", "Version"), "v" + AppInfo.VERSION_NAME + " (code " + AppInfo.VERSION_CODE + ") · targetSdk 36");
             settingRow(c1, t("ගොනු ගබඩාව", "Repository"), "dictationb1/anantplay-sinhala-player");
@@ -1959,19 +2022,20 @@ public class MainActivity extends Activity {
             LinearLayout c2 = card(P.card);
             c2.addView(settingLabel(t("ආරක්ෂණ විග්‍රහය · Security audit", "Security audit")));
             for (String line : new String[]{
-                "✓ " + t("සීමිත අවසර පමණයි (ජාලය · දැනුම්දීම් · install · overlay)", "minimal permissions (network · notifications · install · overlay)"),
-                "✓ " + t("Analytics/ads/telemetry නැත", "zero analytics / ads / telemetry SDKs"),
-                "✓ " + t("AccessibilityService නැත", "zero AccessibilityService"),
-                "✓ " + t("Obfuscated blobs · DexClassLoader නැත", "zero obfuscated blobs / dynamic code loading"),
-                "✓ " + t("Cast policy: මෙම දුරකථනයෙන් පමණයි (local-only)", "cast policy: this device only (local-device lock)"),
-                "✓ " + t("HTTPS-only යාවත්කාලීන + SHA-256 තහවුරුව", "HTTPS-only updates + SHA-256 verification"),
-                "✓ " + t("log වලින් secrets redact වේ", "secrets redacted from every log"),
-                "✓ allowBackup=false · " + t("වෙනත් app වලට export නැත", "no cross-app data export"),
+                t("සීමිත අවසර පමණයි (ජාලය · දැනුම්දීම් · install · overlay)", "minimal permissions (network · notifications · install · overlay)"),
+                t("Analytics/ads/telemetry නැත", "zero analytics / ads / telemetry SDKs"),
+                t("AccessibilityService නැත", "zero AccessibilityService"),
+                t("Obfuscated blobs · DexClassLoader නැත", "zero obfuscated blobs / dynamic code loading"),
+                t("Cast policy: මෙම දුරකථනයෙන් පමණයි (local-only)", "cast policy: this device only (local-device lock)"),
+                t("HTTPS-only යාවත්කාලීන + SHA-256 තහවුරුව", "HTTPS-only updates + SHA-256 verification"),
+                t("log වලින් secrets redact වේ", "secrets redacted from every log"),
+                "allowBackup=false · " + t("වෙනත් app වලට export නැත", "no cross-app data export"),
             }) {
                 TextView l = new TextView(this);
                 l.setText(line);
                 l.setTextColor(P.text);
                 l.setTextSize(12f);
+                UiIcons.setCompound(l, R.drawable.ic_check_circle, P.ok, 13, Gravity.START);
                 l.setPadding(dp(2), dp(4), dp(2), dp(4));
                 c2.addView(l, widen());
             }
@@ -2002,15 +2066,15 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ViewGroup.LayoutParams(-1, -2));
 
         // ── THE MASTER HERO: ONE tap runs EVERYTHING ──
-        Button hero = btnPrimary("🩺 " + t("සම්පූර්ණ ඇප් පරීක්ෂණය ධාවනය කරන්න (සියලු විශේෂාංග)",
+        Button hero = iconPrimaryBtn(R.drawable.ic_nav_troubleshoot, t("සම්පූර්ණ ඇප් පරීක්ෂණය ධාවනය කරන්න (සියලු විශේෂාංග)",
             "Run Full App Troubleshoot (All Features)"));
         hero.setOnClickListener(v -> runFullTroubleshoot());
         root.addView(hero, widen());
         LinearLayout hero2 = row();
-        Button shareRep = smallBtn("📤 " + t("Report බෙදාගන්න", "Share Report"));
+        Button shareRep = iconBtn(R.drawable.ic_share, t("Report බෙදාගන්න", "Share Report"));
         shareRep.setOnClickListener(v -> shareTroubleshootReport());
         hero2.addView(shareRep, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button copyRep = smallBtn("📋 " + t("Report copy", "Copy Report"));
+        Button copyRep = iconBtn(R.drawable.ic_copy, t("Report copy", "Copy Report"));
         copyRep.setOnClickListener(v -> copyTroubleshootReport());
         hero2.addView(copyRep, new LinearLayout.LayoutParams(0, -2, 1f));
         root.addView(hero2, widen());
@@ -2053,15 +2117,15 @@ public class MainActivity extends Activity {
 
         // ── the 1-tap log buttons ──
         LinearLayout b1 = row();
-        Button copy = smallBtn("📋 " + t("Copy Log", "Copy Log"));
+        Button copy = iconBtn(R.drawable.ic_copy, t("Copy Log", "Copy Log"));
         copy.setOnClickListener(v -> {
             android.content.ClipboardManager cm = (android.content.ClipboardManager)
                 getSystemService(Context.CLIPBOARD_SERVICE);
             cm.setPrimaryClip(android.content.ClipData.newPlainText("si-diag", Diag.dump()));
-            toast("📋 " + t("copied ✓ — කොහෙහරි paste කරන්න", "copied ✓ — paste anywhere"));
+            toast(t("copied — කොහෙහරි paste කරන්න", "copied — paste anywhere"));
         });
         b1.addView(copy, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button share = smallBtn("📤 " + t("Share Log", "Share Log"));
+        Button share = iconBtn(R.drawable.ic_share, t("Share Log", "Share Log"));
         share.setOnClickListener(v -> {
             Intent i = new Intent(Intent.ACTION_SEND);
             i.setType("text/plain");
@@ -2072,7 +2136,7 @@ public class MainActivity extends Activity {
         b1.addView(share, new LinearLayout.LayoutParams(0, -2, 1f));
         root.addView(b1, widen());
         LinearLayout b2 = row();
-        Button clear = smallBtn("🗑 " + t("Clear Log", "Clear Log"));
+        Button clear = iconDangerBtn(R.drawable.ic_close, t("Clear Log", "Clear Log"));
         clear.setOnClickListener(v -> {
             Diag.reset();
             Diag.i("diag", "log cleared by user");
@@ -2080,7 +2144,7 @@ public class MainActivity extends Activity {
             refresh();
         });
         b2.addView(clear, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button stale = smallBtn("🗑 " + t("Crash log හිස් කරන්න", "Clear crash log"));
+        Button stale = iconDangerBtn(R.drawable.ic_close, t("Crash log හිස් කරන්න", "Clear crash log"));
         stale.setOnClickListener(v -> {
             CrashLog.clear(getFilesDir());
             toast(t("crash log හිස් කළා", "crash log cleared"));
@@ -2158,7 +2222,7 @@ public class MainActivity extends Activity {
             line.setGravity(Gravity.CENTER_VERTICAL);
             line.setPadding(0, dp(4), 0, dp(4));
             TextView mark = new TextView(this);
-            mark.setText(o.pass ? "✓" : "✗");
+            UiIcons.setIconOnly(mark, o.pass ? R.drawable.ic_check_circle : R.drawable.ic_close, o.pass ? P.ok : P.err, 15);
             mark.setTextColor(o.pass ? P.ok : P.err);
             mark.setTextSize(14f);
             mark.setTypeface(Typeface.DEFAULT_BOLD);
@@ -2240,9 +2304,11 @@ public class MainActivity extends Activity {
                 Diag.i("trouble", "full-feature troubleshoot: " + pass + "/10 PASS");
                 main.post(() -> {
                     if (isFinishing() || isDestroyed()) return;      // v3.3.1 — never touch a dead UI
-                    selfTestLine.setText((all ? "🩺 ✓ " : "🩺 ✗ ") + passCount + "/" + totalCount + " "
+                    selfTestLine.setText(passCount + "/" + totalCount + " "
                         + t("විශේෂාංග PASS — report එක copy කරන්න", "features PASS — copy the report"));
                     selfTestLine.setTextColor(all ? P.ok : P.warn);
+                    UiIcons.setCompound(selfTestLine, all ? R.drawable.ic_check_circle : R.drawable.ic_alert,
+                        all ? P.ok : P.warn, 14, Gravity.START);
                     paintProbeCard();
                     refresh();
                 });
@@ -2304,11 +2370,11 @@ public class MainActivity extends Activity {
             String rep = troubleshootReport();
             android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             cm.setPrimaryClip(android.content.ClipData.newPlainText("si-troubleshoot", rep));
-            toast("📋 " + t("report copied ✓ — ", "report copied ✓ (privacy-safe, ") + rep.length() + t(" අකුරු · privacy-safe", " chars)"));
+            toast(t("report copied — ", "report copied (privacy-safe, ") + rep.length() + t(" අකුරු", " chars)"));
             Diag.i("diag", "troubleshoot report copied (" + rep.length() + " chars, privacy-scrubbed)");
         } catch (Throwable t) {
             Diag.w("diag", "report copy: " + t);
-            toast("✗ " + t.getMessage());
+            toast(String.valueOf(t.getMessage()));
         }
     }
 
@@ -2336,7 +2402,8 @@ public class MainActivity extends Activity {
         LinearLayout head = row();
         head.setGravity(Gravity.CENTER_VERTICAL);
         TextView t = new TextView(this);
-        t.setText("⚠ " + t("අවසාන Crash එක සටහන් වී ඇත", "Last Crash Captured"));
+        t.setText(t("අවසාන Crash එක සටහන් වී ඇත", "Last Crash Captured"));
+        UiIcons.setCompound(t, R.drawable.ic_alert, P.warn, 15, Gravity.START);
         t.setTextColor(P.err);
         t.setTextSize(13.5f);
         t.setTypeface(Typeface.DEFAULT_BOLD);
@@ -2356,14 +2423,14 @@ public class MainActivity extends Activity {
         body.setText(sb.length() > 0 ? sb.toString() : tail(report, 12));
         crashCard.addView(body, widen());
         LinearLayout acts = row();
-        Button cp = smallBtn("📋 " + t("Copy (full)", "Copy (full)"));
+        Button cp = iconBtn(R.drawable.ic_copy, t("Copy (full)", "Copy (full)"));
         cp.setOnClickListener(v -> {
             android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             cm.setPrimaryClip(android.content.ClipData.newPlainText("si-crash", CrashLog.scrub(report)));
-            toast("📋 " + t("full crash trace copied ✓", "full crash trace copied ✓"));
+            toast(t("full crash trace copied", "full crash trace copied"));
         });
         acts.addView(cp, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button sh = smallBtn("📤 " + t("Share", "Share"));
+        Button sh = iconBtn(R.drawable.ic_share, t("Share", "Share"));
         sh.setOnClickListener(v -> {
             Intent i = new Intent(Intent.ACTION_SEND);
             i.setType("text/plain");
@@ -2372,7 +2439,7 @@ public class MainActivity extends Activity {
             try { startActivity(Intent.createChooser(i, t("Share crash trace", "Share crash trace"))); } catch (Throwable x) { toast("no share target"); }
         });
         acts.addView(sh, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button cl = smallBtn("🗑 " + t("Clear", "Clear"));
+        Button cl = iconDangerBtn(R.drawable.ic_close, t("Clear", "Clear"));
         cl.setOnClickListener(v -> {
             CrashLog.clear(getFilesDir());
             toast(t("හිස් කළා", "cleared"));
@@ -2402,7 +2469,9 @@ public class MainActivity extends Activity {
     }
 
     private void paintHealth(TextView v, boolean ok, String detail) {
-        v.setText((ok ? "✓ " : "✗ ") + detail);
+        v.setText(detail);
+        UiIcons.setCompound(v, ok ? R.drawable.ic_check_circle : R.drawable.ic_close,
+            ok ? P.ok : P.err, 13, Gravity.START);
         v.setTextColor(ok ? P.ok : P.warn);
     }
 
@@ -2438,11 +2507,12 @@ public class MainActivity extends Activity {
                     return;
                 }
                 if (!r.newer) {
-                    toast("✓ " + t("අලුත්ම — v" + AppInfo.VERSION_NAME, "v" + AppInfo.VERSION_NAME + " is the latest release"));
+                    toast(t("අලුත්ම — v" + AppInfo.VERSION_NAME, "v" + AppInfo.VERSION_NAME + " is the latest release"));
                     updateBanner.setVisibility(View.GONE);
+        UiIcons.setCompound(updateBanner, R.drawable.ic_update, P.accentDim, 14, Gravity.START);
                     return;
                 }
-                String msg = "🆕 v" + r.latest + " " + t("ඇතුළත් · a new release is available", "— a new release is available")
+                String msg = "v" + r.latest + " " + t("ඇතුළත් · a new release is available", "— a new release is available")
                     + "\n\n" + (r.notes.isEmpty() ? "" : r.notes + "\n\n")
                     + "Download: AnantPlay-Sinhala-Player-v" + r.latest + ".apk\n"
                     + t("නිහඬ ස්වයංක්‍රීය යාවත්කාලීනය දැනටමත් ON නම් එය බාගෙන නිහඬව සූදානම් වේ.",
@@ -2466,12 +2536,13 @@ public class MainActivity extends Activity {
                         getSharedPreferences("selfupdate", MODE_PRIVATE).edit()
                             .putString("skippedVersion", r.latest).apply();
                         SelfUpdater.cancelBanners(this);
-                        toast(t("v" + r.latest + " මඟහැරියා ✓", "skipped v" + r.latest + " ✓"));
+                        toast(t("v" + r.latest + " මඟහැරියා", "skipped v" + r.latest));
                         updateBanner.setVisibility(View.GONE);
+        UiIcons.setCompound(updateBanner, R.drawable.ic_update, P.accentDim, 14, Gravity.START);
                     })
                     .setOnCancelListener(dd -> { });
                 try { d.show(); } catch (Throwable ignored) { }
-                showUpdateBanner("🆕 v" + r.latest + " — " + t("නිහඬව බාගැනෙයි", "downloading quietly"), -2);
+                showUpdateBanner("v" + r.latest + " — " + t("නිහඬව බාගැනෙයි", "downloading quietly"), -2);
             });
         }, "si-update").start();
     }
@@ -2576,6 +2647,79 @@ public class MainActivity extends Activity {
         return toggleRow(cardBox, label, key, def, null);
     }
 
+    /** v3.4.0 - a settings row whose label carries a leading vector (no emoji prefix). */
+    private TextView settingRow(LinearLayout cardBox, int iconRes, String label, String value) {
+        TextView v = settingRow(cardBox, label, value);
+        labelIcon(v, iconRes);
+        return v;
+    }
+
+    /** v3.4.0 - a toggle row whose label carries a leading vector. */
+    private TextView toggleRow(LinearLayout cardBox, int iconRes, String label, String key, boolean def) {
+        TextView v = toggleRow(cardBox, label, key, def);
+        labelIcon(v, iconRes);
+        return v;
+    }
+
+    private TextView toggleRow(LinearLayout cardBox, int iconRes, String label, String key, boolean def, Runnable after) {
+        TextView v = toggleRow(cardBox, label, key, def, after);
+        labelIcon(v, iconRes);
+        return v;
+    }
+
+    /** Puts the tinted vector on the row's LABEL view (child 0), keeping the label text. */
+    private void labelIcon(TextView valueView, int iconRes) {
+        if (valueView == null) return;
+        android.view.ViewParent parent = valueView.getParent();
+        if (!(parent instanceof LinearLayout)) return;
+        LinearLayout r = (LinearLayout) parent;
+        if (r.getChildCount() == 0) return;
+        View first = r.getChildAt(0);
+        if (first instanceof TextView) {
+            UiIcons.setCompound((TextView) first, iconRes, P.accent, 15, Gravity.START);
+        }
+    }
+
+    /** v3.4.0 - a secondary button with a leading vector (drop-in for iconBtn(R.drawable.ic_copy, x)). */
+    private Button iconBtn(int iconRes, String text) {
+        Button b = smallBtn(text);
+        UiIcons.setCompound(b, iconRes, P.text, 15, Gravity.START);
+        return b;
+    }
+
+    /** v3.4.0 - a primary button with a leading vector. */
+    private Button iconPrimaryBtn(int iconRes, String text) {
+        Button b = btnPrimary(text);
+        UiIcons.setCompound(b, iconRes, 0xFF0A0A14, 16, Gravity.START);
+        return b;
+    }
+
+    /** v3.4.0 - a destructive small button (clear / delete) with a leading vector. */
+    private Button iconDangerBtn(int iconRes, String text) {
+        Button b = smallBtn(text);
+        UiIcons.setCompound(b, iconRes, P.err, 15, Gravity.START);
+        return b;
+    }
+
+    /** v3.4.0 - a button with a leading vector instead of an emoji prefix. */
+    private Button iconBtn(int iconRes, String text, boolean primary, int tint) {
+        Button b = primary ? btnPrimary(text) : smallBtn(text);
+        UiIcons.setCompound(b, iconRes, tint, primary ? 16 : 15, Gravity.START);
+        return b;
+    }
+
+    /** v3.4.0 - a button that IS an icon (destructive actions, clear buttons). */
+    private Button iconOnlyBtn(int iconRes, int tint) {
+        Button b = smallBtn("");
+        UiIcons.setIconOnly(b, iconRes, tint, 16);
+        return b;
+    }
+
+    /** v3.4.0 - the live status dot as a compound drawable (replaces 🟢/🟡/⚪). */
+    private void statusDot(TextView tv, int color) {
+        UiIcons.setCompound(tv, R.drawable.ic_dot, color, 9, Gravity.START);
+    }
+
     private TextView toggleRow(LinearLayout cardBox, String label, String key, boolean def, Runnable after) {
         boolean on = prefs.getBoolean(key, def);
         final TextView v = settingRow(cardBox, label, on ? "ON" : "OFF");
@@ -2656,7 +2800,7 @@ public class MainActivity extends Activity {
     }
 
     /** One 2×2 grid action button: big glyph + bold label. */
-    private View actionBtn(String glyph, String title, View.OnClickListener click) {
+    private View actionBtn(int iconRes, String title, View.OnClickListener click) {
         LinearLayout l = new LinearLayout(this);
         l.setOrientation(LinearLayout.VERTICAL);
         l.setGravity(Gravity.CENTER);
@@ -2667,11 +2811,10 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
         lp.setMargins(dp(4), dp(4), dp(4), dp(4));
         l.setLayoutParams(lp);
-        TextView ic = new TextView(this);
-        ic.setText(glyph);
-        ic.setTextSize(22f);
-        ic.setGravity(Gravity.CENTER);
-        l.addView(ic, new LinearLayout.LayoutParams(-1, -2));
+        ImageView ic = new ImageView(this);
+        ic.setImageDrawable(UiIcons.tinted(this, iconRes, P.accent, 22));
+        ic.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        l.addView(ic, new LinearLayout.LayoutParams(-1, dp(26)));
         TextView t = new TextView(this);
         t.setText(title);
         t.setTextColor(P.title);
@@ -2698,8 +2841,10 @@ public class MainActivity extends Activity {
     }
 
     private void paintChip(TextView chip, boolean ok, String label, String detail) {
-        chip.setText((ok ? "✓ " : "… ") + label + " · " + detail);
+        chip.setText(label + " · " + detail);
         chip.setTextColor(ok ? P.ok : P.warn);
+        UiIcons.setCompound(chip, ok ? R.drawable.ic_check_circle : R.drawable.ic_alert,
+            ok ? P.ok : P.warn, 12, Gravity.START);
         chip.requestLayout();
     }
 

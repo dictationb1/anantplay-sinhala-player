@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ic_nav_troubleshoot_filled - active bottom-nav state (solid health ring, ECG pulse knocked out)
+     v3.4.0 - MANDATORY FIX #4: the outer body and every inner cutout live in ONE
+     <path> with android:fillType="evenOdd", so the hole is a real hole on every
+     background (two separate <path> elements would simply paint over each other). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12 3.4 a8.6 8.6 0 1 0 0 17.2 a8.6 8.6 0 1 0 0 -17.2 Z M6.4 11.5H8.6L11 6.9L13.4 14.9L14.7 11.5H17.6V13.4H15.3L13.3 19.1L10.9 11.1L10 13.4H6.4Z"
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"/>
+</vector>

@@ -1,4 +1,17 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.3.1)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.0)
+
+> **v3.4.0 අලුත් දේ (Sinhala):**
+>
+> 1. **සියලුම emoji වෙනුවට සැබෑ vector අයිකන.** පහළ තීරුව, ඉහළ තීරුව, ධාවක HUD,
+>    chip, sheet සහ බ්‍රව්සර් තීරුව — 63 `VectorDrawable` (24dp, 1.75dp stroke).
+> 2. **නව යෙදුම් අයිකනය** — adaptive (ස්ක්වර්කල්), රවුම් සහ Material You monochrome;
+>    `ස` අකුරේ සැබෑ outline එකෙන් නිර්මාණය කළා.
+> 3. **සැබෑ Sinhala බර 400 + 600** — faux bold ඉවරයි; ෆොන්ට් එක 1,154 KB සිට 422 KB දක්වා.
+> 4. **Mornye-මට්ටමේ Customize** — තේමා 4, වර්ණ 10 + custom hex, glass surface,
+>    bottom bar style, subtitle studio සහ තවත් (මුළු විකල්ප 75).
+> 5. **නව ධාවක HUD** — 3-zone glass HUD, 3 bottom sheet (Subtitles / Audio & Quality /
+>    Player settings), scrub bar සහ brightness/volume capsule.
+> 6. **නව බ්‍රව්සරය** — speed dial (2/3/4 තීරු), පහළ omnibar, capture dock, tabs.
 
 > **v3.3.1 අලුත් දේ (Sinhala):**
 >

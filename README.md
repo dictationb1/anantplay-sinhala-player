@@ -1,4 +1,19 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v3.3.1
+# AnantPlay Sinhala Player (SI Cast Receiver) v3.4.0
+
+> **v3.4.0 — THE VECTOR UI OVERHAUL · 63 VectorDrawables · NEW ADAPTIVE + MONOCHROME
+> ICON · REAL 400/600 SINHALA WEIGHTS (−742 KB) · MORNYE-GRADE SHELL WITH 75
+> CUSTOMIZATION OPTIONS · REDESIGNED CINEMA HUD + 3 BOTTOM SHEETS · SAFARI-GRADE
+> BROWSER (SPEED DIAL · BOTTOM OMNIBAR · CAPTURE DOCK).**
+> Every emoji that was doing an icon's job is gone: the bottom bar, the top bar, the
+> player HUD, the chips, the sheets and the browser bar all paint tinted vectors from
+> `res/drawable/ic_*.xml` through `UiIcons`. The launcher icon is a real Android 8+
+> adaptive icon (background + foreground + Material-You monochrome) drawn from the
+> **outline of the letter ස** extracted from the bundled font — no more baked-squircle
+> PNG that a launcher masks twice. The bundled Sinhala font was a variable font pinned
+> to its 400 default, so every bold was synthetic; it is now two REAL static instances
+> (400 + 600) with full GSUB/GPOS/GDEF shaping and ZWJ/ZWNJ preserved, at **422 KB
+> instead of 1,154 KB**. All 773 v3.3.1 lab checks still pass, plus the new v3.4.0
+> suites (icons, fonts, prefs, browser, layout).
 
 > **v3.3.0 — CINEMA PLAYER & NAVIGATION OVERHAUL · HTTP-403 KILLED ·
 > ASPECT-RATIO ENGINE · SRI LANKAN SUBTITLE CAPTURE · 660/660 CI LAB.**
