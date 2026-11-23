@@ -1,4 +1,4 @@
-# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.0)
+# AnantPlay සිංහල Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.1)
 
 > **v3.4.0 අලුත් දේ (Sinhala):**
 >

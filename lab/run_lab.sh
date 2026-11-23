@@ -105,6 +105,39 @@ python3 lab/verify_refs.py
 python3 lab/verify_layouts.py --selftest
 python3 lab/verify_layouts.py
 
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.4.1 — THE UI-COMPLETENESS TRUTH GATE (third gating auditor)
+#
+# The v3.4.0 field report said "symbols are way too huge" and "customizations
+# aren't actually working". This gate turns both sentences into arithmetic:
+#   R1  every UiIcons.* call with a literal size must be <= 28dp (hero disc
+#       32dp, designed empty-state illustration 40dp — both named exceptions);
+#   R2  every AppPrefs K_* must be listed in BACKUP_KEYS *and* reachable from a
+#       UI surface, directly or through an AppPrefs accessor (zero dead keys);
+#   R3  zero emoji inside a control string — the chrome is drawn with
+#       res/drawable/ic_*.xml through UiIcons, never with a font glyph.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 lab/verify_ui_completeness.py
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.4.1 — THE JAVAC SYNTAX GATE (fourth gating auditor)
+#
+# run_lab.sh compiles only the PURE engines; the four Activity classes are compiled
+# exclusively by build.sh against android.jar, so a stray brace there used to be
+# invisible locally and only turned the hosted APK build red. This gate parses all
+# 58 shipped sources with javac and keeps only the syntax-class diagnostics (the
+# "package android.content does not exist" noise is expected and discarded).
+# Exit 77 = no JDK on this machine → SKIP, never a silent pass.
+# ─────────────────────────────────────────────────────────────────────────────
+set +e
+python3 lab/verify_syntax.py
+SYNTAX_EXIT=$?
+set -e
+if [ "$SYNTAX_EXIT" -ne 0 ] && [ "$SYNTAX_EXIT" -ne 77 ]; then
+  echo "LAB FAILED: verify_syntax.py exited $SYNTAX_EXIT" >&2
+  exit 1
+fi
+
 echo "── live bridge E2E (best effort — never gating)"
 # v3.3.0 — LAB_SKIP_LIVE=1 skips the network leg entirely (air-gapped runners and
 # local verification runs must finish in seconds, not wait on a worker timeout).

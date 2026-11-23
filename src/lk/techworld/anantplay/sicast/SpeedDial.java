@@ -38,6 +38,10 @@ final class SpeedDial {
         {"PirateLK", "https://piratelk.com"},
         {"SubDL", "https://subdl.com"},
         {"OpenSubtitles", "https://www.opensubtitles.org"},
+        // v3.4.1 — LAYER 5: translate any .srt to Sinhala inside the WebView itself.
+        // Its result is a client-side Blob, which the Blob bridge captures and
+        // attaches to the playing movie with one tap (see WebBrowserView).
+        {"NewZone Translate", "https://tools.newzone.top/en/subtitle-translator"},
     };
 
     interface OnOpen {

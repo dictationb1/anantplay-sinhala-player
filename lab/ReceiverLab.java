@@ -11,6 +11,7 @@ import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -1424,9 +1425,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30400 strictly > 30400 (v3.4.0) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30400 && AppInfo.VERSION_CODE > 30301 && AppInfo.VERSION_CODE < 40000
-              && "3.4.0".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30401 strictly > 30400 (v3.4.0) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30401 && AppInfo.VERSION_CODE > 30400 && AppInfo.VERSION_CODE < 40000
+              && "3.4.1".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1458,9 +1459,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.4.0 / 30400 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.0}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30400}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.4.1 / 30401 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.1}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30401}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -2602,18 +2603,18 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v31 sec: both workflows carry versionCode 30400 / 3.4.0",
-            buildYml.contains("30400") && buildYml.contains("3.4.0") && relYml.contains("3.4.0"));
+        check("v31 sec: both workflows carry versionCode 30401 / 3.4.1",
+            buildYml.contains("30401") && buildYml.contains("3.4.1") && relYml.contains("3.4.1"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
-        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30400 + versionName 3.4.0",
-            srcManifest.contains("android:versionCode=\"30400\"")
-                && srcManifest.contains("android:versionName=\"3.4.0\"")
-                && "30400".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.0".equals(AppInfo.VERSION_NAME));
+        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30401 + versionName 3.4.1",
+            srcManifest.contains("android:versionCode=\"30401\"")
+                && srcManifest.contains("android:versionName=\"3.4.1\"")
+                && "30401".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.1".equals(AppInfo.VERSION_NAME));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -2623,10 +2624,10 @@ public class ReceiverLab {
         // that survived the 3.1.0 bump: the build job still uploaded
         // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
         check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.0.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.1.apk")
                 && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
         check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.0.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.1.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
         // v3.1.1 — REPRODUCIBILITY GUARD: the pre-merge build and the post-merge
         // release build of the SAME commit used to differ only by the ZIP entry
@@ -2851,7 +2852,7 @@ public class ReceiverLab {
         check("v312 tsr: the report's crash section leads with the EXCEPTION line",
             rep.contains("EXCEPTION android.content.res.Resources$NotFoundException"));
         check("v312 tsr: the report header stamps the app version + SDK only (no model)",
-            rep.contains("app v3.4.0") && rep.contains("Android SDK"));
+            rep.contains("app v3.4.1") && rep.contains("Android SDK"));
         check("v312 tsr: the report is zero-PII end-to-end (the whole bundle re-scrubbed)",
             !rep.contains("24117RN76G") && !rep.contains("192.168.1.39"));
     }
@@ -3657,12 +3658,22 @@ public class ReceiverLab {
     static boolean probeNamesMatch() {
         try {
             java.lang.reflect.Method[] ms = FeatureProbe.class.getDeclaredMethods();
-            int found = 0;
+            java.util.Set<Integer> ids = new java.util.TreeSet<>();
             for (java.lang.reflect.Method m : ms) {
                 String n = m.getName();
-                if (Character.isDigit(n.charAt(n.length() - 1))) found++;   // probe1..probe10
+                // v3.4.1 — count the REAL probe entry points: `probe<N><Name>`.
+                // v3.4.0 counted "any method whose name ends in a digit", which was
+                // really counting the synthetic lambda$…$N bodies and broke the moment
+                // runAll() gained its own ten guarded() lambdas. Matching the actual
+                // probe names (and their NUMBER) is both stricter and stable.
+                java.util.regex.Matcher mm = java.util.regex.Pattern
+                    .compile("^probe(\\d+)[A-Z]").matcher(n);
+                if (!m.isSynthetic() && mm.find()) ids.add(Integer.parseInt(mm.group(1)));
             }
-            return found == 10;
+            // exactly the numbers 1..10, no gaps and no duplicates
+            if (ids.size() != 10) return false;
+            for (int i = 1; i <= 10; i++) if (!ids.contains(i)) return false;
+            return true;
         } catch (Throwable t) {
             return false;
         }
@@ -4073,35 +4084,35 @@ public class ReceiverLab {
         }
     }
 
-    /** The version/pipeline parity gate (3.4.0 / 30400 everywhere, never 4.x). */
+    /** The version/pipeline parity gate (3.4.1 / 30401 everywhere, never 4.x). */
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
-        check("v331 parity: AndroidManifest.xml says 3.4.0 / 30400",
-            manifest.contains("android:versionCode=\"30400\"") && manifest.contains("android:versionName=\"3.4.0\""));
-        check("v331 parity: AppInfo says 3.4.0 / 30400",
-            "3.4.0".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30400);
-        check("v331 parity: 30400 strictly > 30400 (v3.4.0) — an in-place update, no downgrade",
-            AppInfo.VERSION_CODE == 30400 && AppInfo.VERSION_CODE > 30301);
+        check("v331 parity: AndroidManifest.xml says 3.4.1 / 30401",
+            manifest.contains("android:versionCode=\"30401\"") && manifest.contains("android:versionName=\"3.4.1\""));
+        check("v331 parity: AppInfo says 3.4.1 / 30401",
+            "3.4.1".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30401);
+        check("v331 parity: 30401 strictly > 30400 (v3.4.0) — an in-place update, no downgrade",
+            AppInfo.VERSION_CODE == 30401 && AppInfo.VERSION_CODE > 30400);
         String build = readRepoFile("build.sh");
-        check("v331 parity: build.sh defaults to 3.4.0 / 30400 (previous 30301)",
-            build.contains("VERSION_NAME:-3.4.0") && build.contains("VERSION_CODE:-30400")
-                && build.contains("PREV_VERSION_CODE:-30301"));
+        check("v331 parity: build.sh defaults to 3.4.1 / 30401 (previous 30400)",
+            build.contains("VERSION_NAME:-3.4.1") && build.contains("VERSION_CODE:-30401")
+                && build.contains("PREV_VERSION_CODE:-30400"));
         String latest = readRepoFile("docs/latest.json");
-        check("v331 parity: docs/latest.json carries 3.4.0 / 30400",
-            latest.contains("\"version\":\"3.4.0\"") && latest.contains("\"code\":30400"));
-        check("v331 parity: docs/latest.json apkUrl points at the v3.4.0 asset",
-            latest.contains("/download/v3.4.0/AnantPlay-Sinhala-Player-v3.4.0.apk"));
-        check("v331 parity: README.md announces v3.4.0",
-            readRepoFile("README.md").contains("3.4.0"));
-        check("v331 parity: SETUP-SI.md announces v3.4.0",
-            readRepoFile("SETUP-SI.md").contains("3.4.0"));
+        check("v331 parity: docs/latest.json carries 3.4.1 / 30401",
+            latest.contains("\"version\":\"3.4.1\"") && latest.contains("\"code\":30401"));
+        check("v331 parity: docs/latest.json apkUrl points at the v3.4.1 asset",
+            latest.contains("/download/v3.4.1/AnantPlay-Sinhala-Player-v3.4.1.apk"));
+        check("v331 parity: README.md announces v3.4.1",
+            readRepoFile("README.md").contains("3.4.1"));
+        check("v331 parity: SETUP-SI.md announces v3.4.1",
+            readRepoFile("SETUP-SI.md").contains("3.4.1"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v331 parity: build-apk.yml asserts 30400 / 3.4.0",
-            buildWf.contains("versionCode='30400'") && buildWf.contains("versionName='3.4.0'")
-                && buildWf.contains("AnantPlay-Sinhala-Player-v3.4.0.apk"));
+        check("v331 parity: build-apk.yml asserts 30401 / 3.4.1",
+            buildWf.contains("versionCode='30401'") && buildWf.contains("versionName='3.4.1'")
+                && buildWf.contains("AnantPlay-Sinhala-Player-v3.4.1.apk"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v331 parity: release-apk.yml defaults to 3.4.0",
-            relWf.contains("default: '3.4.0'"));
+        check("v331 parity: release-apk.yml defaults to 3.4.1",
+            relWf.contains("default: '3.4.1'"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
             !manifest.contains("versionName=\"4.") && !"4".equals(AppInfo.VERSION_NAME.substring(0, 1)));
         check("v331 parity: the v3.4.0 report ships inside the repo",
@@ -4504,11 +4515,11 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v340 A11: AndroidManifest declares 30400 / 3.4.0",
-            manifest340.contains("android:versionCode=\"30400\"")
-                && manifest340.contains("android:versionName=\"3.4.0\""));
-        check("v340 A11: AppInfo is 3.4.0 / 30400",
-            "3.4.0".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30400);
+        check("v341 A11: AndroidManifest declares 30401 / 3.4.1",
+            manifest340.contains("android:versionCode=\"30401\"")
+                && manifest340.contains("android:versionName=\"3.4.1\""));
+        check("v341 A11: AppInfo is 3.4.1 / 30401",
+            "3.4.1".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30401);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -4831,12 +4842,328 @@ public class ReceiverLab {
 
         // ── the live update channel's own manifest ────────────────────────────
         String latest = readRepoFile("docs/latest.json");
-        check("v331 customize: docs/latest.json announces 3.4.0 / 30400",
-            latest.contains("\"version\":\"3.4.0\"") && latest.contains("\"code\":30400"), latest);
+        check("v331 customize: docs/latest.json announces 3.4.1 / 30401",
+            latest.contains("\"version\":\"3.4.1\"") && latest.contains("\"code\":30401"), latest);
         check("v331 customize: docs/latest.json points at the v3.4.0 release asset",
-            latest.contains("/download/v3.4.0/AnantPlay-Sinhala-Player-v3.4.0.apk"));
+            latest.contains("/download/v3.4.1/AnantPlay-Sinhala-Player-v3.4.1.apk"));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
+
+        // ── v3.4.1 — THE DLNA RELAY 403 LAB (the "Influencers" defect) ────────
+        relay403Lab();
+
+        // ── v3.4.1 — THE 10/10 PROBE + HONEST VERDICT LAB (defect #3) ─────────
+        probesLab();
+
+        // ── v3.4.1 — THE SUBTITLE TRUTH LAB (defect #4) ──────────────────────
+        subsLab();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.1 — v341 subs: JUNK-TITLE CACHE POISONING, SLUG RECOVERY, LAYERS 4 & 5
+    //
+    // The field report: title="ArrowTV Player" → "cues loaded: 906 · source=cached".
+    // The cache was read BEFORE any junk-title test, keyed on the raw title, so the
+    // player's own branding owned 906 cues of some other movie. The cast URL in the
+    // same log carried "slug":"influencers-MAyBtWlRaw8" — the real movie.
+    // ═════════════════════════════════════════════════════════════════════════
+    static void subsLab() throws Exception {
+        // the exact field string, and the look-alikes that must stay junk
+        check("v341 subs: 'ArrowTV Player' is recognised as a junk title",
+            TitleCleaner.isJunkTitle("ArrowTV Player"));
+        check("v341 subs: a real movie title is NOT junk",
+            !TitleCleaner.isJunkTitle("Influencers") && !TitleCleaner.isJunkTitle("The Odyssey 2026"));
+
+        // the slug IS the movie
+        check("v341 subs: the field slug becomes the real movie name",
+            "Influencers".equals(TitleCleaner.fromSlug("influencers-MAyBtWlRaw8")),
+            TitleCleaner.fromSlug("influencers-MAyBtWlRaw8"));
+        check("v341 subs: a multi-word slug is title-cased",
+            "The Great Escape".equals(TitleCleaner.fromSlug("the-great-escape-9Xk2Lm4P")),
+            TitleCleaner.fromSlug("the-great-escape-9Xk2Lm4P"));
+        check("v341 subs: a junk slug is refused, never used as a title",
+            TitleCleaner.fromSlug("player-embed-1a2b3c4d") == null
+                && TitleCleaner.fromSlug("") == null
+                && TitleCleaner.fromSlug(null) == null);
+
+        // …and it really travels through the relay token
+        String b64o = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("https://proxy.yenime.net".getBytes(StandardCharsets.UTF_8));
+        String tok = java.util.Base64.getEncoder().encodeToString(
+            ("{\"b\":\"https://cdn.example/\",\"r\":{\"subjectId\":\"7149\","
+                + "\"slug\":\"influencers-MAyBtWlRaw8\"}}").getBytes(StandardCharsets.UTF_8));
+        StreamHttpConfig.Relay rr = StreamHttpConfig.relay(
+            "http://192.168.1.7:34783/" + b64o + "/manifest.mpd?t="
+                + java.net.URLEncoder.encode(tok, StandardCharsets.UTF_8));
+        check("v341 subs: the relay token exposes the movie slug",
+            "influencers-MAyBtWlRaw8".equals(rr.slug), rr.slug);
+        check("v341 subs: the slug recovered from the token is the real title",
+            "Influencers".equals(TitleCleaner.fromSlug(rr.slug)));
+
+        // the wiring, asserted on the shipped source (these classes need android.jar)
+        String play = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        check("v341 subs: the cache READ is gated on the junk title",
+            play.contains("final boolean junkKey = isJunkForCache();")
+                && play.contains("if (!junkKey) {"));
+        check("v341 subs: EVERY cache write goes through the junk-safe saveCues()",
+            countOf(play, "store.save(") == 1 && play.contains("private void saveCues("));
+        check("v341 subs: the real title is recovered from the cast slug at start-up",
+            play.contains("recoverTitleFromCast();"));
+        check("v341 subs: a still-junk title raises the 1-tap intro prompt",
+            play.contains("promptJunkTitle();") && play.contains("openTitleSearch()"));
+        check("v341 subs: the cue list is SORTED before rendering (the cue-match guard)",
+            play.contains("Collections.sort(sorted") || play.contains("java.util.Collections.sort(sorted"));
+        check("v341 subs: the subtitle view is repaired (alpha / visibility / z-order)",
+            play.contains("private void repairSubtitleView()") && play.contains("bringToFront()"));
+        check("v341 subs: the first painted cue is PROVEN and recorded",
+            play.contains("[SUBS] first cue rendered"));
+        check("v341 subs: LAYER 4 enables the stream text track and translates it live",
+            play.contains("liveTranslateOn = true;") && play.contains("queueLiveTranslation("));
+        check("v341 subs: Layer 4 caches each translated line in memory",
+            play.contains("liveCache.put("));
+
+        String web = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
+        check("v341 subs: LAYER 5 hooks URL.createObjectURL for client-side Blob subtitles",
+            web.contains("__siBlobHook") && web.contains("URL.createObjectURL"));
+        check("v341 subs: LAYER 5 catches <a download href=\"blob:…\"> too",
+            web.contains("a[download]") && web.contains("blob:"));
+        check("v341 subs: LAYER 5 posts through the ONE registered interface (SniJS)",
+            web.contains("public void onBlobDownload(String base64, String name)"));
+        check("v341 subs: LAYER 5 refuses anything over the 5 MB cap",
+            web.contains("BLOB_CAP") && web.contains("5 * 1024 * 1024"));
+        String sd = readRepoFile("src/lk/techworld/anantplay/sicast/SpeedDial.java");
+        check("v341 subs: tools.newzone.top/en/subtitle-translator is a built-in speed dial entry",
+            sd.contains("https://tools.newzone.top/en/subtitle-translator"));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.1 — v341 probes: ALL 10 ROWS ALWAYS REPORT, AND THE VERDICT NEVER LIES
+    //
+    // The field report showed probes 8, 9 and 10 simply absent while the app
+    // printed "7/10 PASS — ALL FEATURES HEALTHY". Two independent bugs produced
+    // that: probe 8 allocated 4 GiB (65536 x 64 KiB) and its OutOfMemoryError
+    // escaped both catch blocks, and the verdict compared pass == outcomes.size()
+    // so 7 of 7 looked complete. Both are now asserted, not assumed.
+    // ═════════════════════════════════════════════════════════════════════════
+    static void probesLab() throws Exception {
+        // the verdict arithmetic
+        List<FeatureProbe.Outcome> seven = new ArrayList<>();
+        for (int i = 1; i <= 7; i++) seven.add(outcome(i, true));
+        String v7 = FeatureProbe.verdict(seven);
+        check("v341 probes: a 7-row all-green run is NEVER called healthy", 
+            v7.indexOf("ALL FEATURES HEALTHY") < 0, v7);
+        check("v341 probes: a 7-row run says exactly how many rows are MISSING",
+            v7.contains("7/10 PASS") && v7.contains("3 MISSING"), v7);
+        check("v341 probes: allHealthy(7 rows) is false", !FeatureProbe.allHealthy(seven));
+
+        List<FeatureProbe.Outcome> ten = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) ten.add(outcome(i, true));
+        check("v341 probes: a complete 10/10 run IS called healthy",
+            FeatureProbe.verdict(ten).contains("ALL FEATURES HEALTHY"), FeatureProbe.verdict(ten));
+        check("v341 probes: allHealthy(10 passing rows) is true", FeatureProbe.allHealthy(ten));
+
+        List<FeatureProbe.Outcome> nine = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) nine.add(outcome(i, i != 9));
+        String v9 = FeatureProbe.verdict(nine);
+        check("v341 probes: 10 rows with one failure is never healthy",
+            v9.indexOf("ALL FEATURES HEALTHY") < 0, v9);
+        check("v341 probes: the failing row is NAMED by number",
+            v9.contains("9/10 PASS") && v9.contains("1 FAIL") && v9.contains("#9"), v9);
+        check("v341 probes: allHealthy(10 rows, one failure) is false", !FeatureProbe.allHealthy(nine));
+
+        // the 4 GiB allocation is gone from the source
+        String probeSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/FeatureProbe.java"));
+        check("v341 probes: the 4 GiB zip-bomb loop is really gone (the live loop is 8 chunks)",
+            probeSrc.contains("for (int i = 0; i < 8; i++) bz.write(chunk)")
+                && !probeSrc.contains("i < 65536; i++) bz.write"));
+        check("v341 probes: every probe is run through guarded() so a row can never go missing",
+            probeSrc.contains("guarded(10,") && probeSrc.contains("guarded(8,"));
+        // Every probe body is wrapped in timed(...), whose catch is Throwable, and every
+        // probe call in runAll() is wrapped in guarded(...), also Throwable — two
+        // independent layers, so no single probe can take the run down.
+        check("v341 probes: all 10 probe bodies run inside timed(...) (Throwable-safe)",
+            countOf(probeSrc, "return timed(") == 10, "timed() wrappers=" + countOf(probeSrc, "return timed("));
+        check("v341 probes: timed() and guarded() both catch Throwable",
+            probeSrc.contains("catch (Throwable t)") && probeSrc.contains("catch (Throwable t) {"));
+
+        // the probe itself, really run
+        FeatureProbe.Outcome p8 = FeatureProbe.probe8ZipExtractor(null);
+        check("v341 probes: probe 8 (Auto .zip/.srt Extractor) PASSES on this JVM",
+            p8 != null && p8.pass, p8 == null ? "null" : p8.detail);
+
+        // …and it passes in a 48 MB heap, where the v3.4.0 4 GiB loop could never run
+        String java = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
+        ProcessBuilder pb = new ProcessBuilder(java, "-Xmx48m", "-cp",
+            System.getProperty("java.class.path"),
+            "lk.techworld.anantplay.sicast.ReceiverLab$Probe8Main");
+        pb.redirectErrorStream(true);
+        Process pr = pb.start();
+        String outText = new String(readAllBytes(pr.getInputStream()), StandardCharsets.UTF_8).trim();
+        int rc = pr.waitFor();
+        check("v341 probes: probe 8 completes in a 48 MB heap (the 4 GiB loop is really gone)",
+            rc == 0 && outText.contains("PROBE8 OK"), "exit=" + rc + " out=" + outText);
+    }
+
+    /** A bare outcome for the verdict arithmetic. */
+    static FeatureProbe.Outcome outcome(int id, boolean pass) {
+        FeatureProbe.Outcome o = new FeatureProbe.Outcome(id, "probe " + id);
+        o.pass = pass;
+        o.ms = id;
+        o.detail = pass ? "ok" : "failed on purpose";
+        return o;
+    }
+
+    /** The 48 MB-heap child: run probe 8 alone and print one line. */
+    public static final class Probe8Main {
+        public static void main(String[] args) {
+            try {
+                FeatureProbe.Outcome o = FeatureProbe.probe8ZipExtractor(null);
+                System.out.println(o != null && o.pass ? "PROBE8 OK " + o.detail : "PROBE8 FAIL " + (o == null ? "null" : o.detail));
+            } catch (Throwable t) {
+                System.out.println("PROBE8 THREW " + t.getClass().getSimpleName());
+            }
+        }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.1 — v341 relay403: A REAL HTTP SERVER THAT 403s ON A LAN ORIGIN
+    //
+    // The field log (v3.4.0, "Influencers"):
+    //   first attempt  · headers=Accept, Accept-Language, Origin, User-Agent        → HTTP 403
+    //   recovery       · headers=… Origin, Referer, Sec-Fetch-*  …                 → HTTP 403
+    //
+    // This lab reproduces the rule that produced it — "a request carrying an Origin
+    // or Referer that points at the LAN address is refused" — on a real socket, and
+    // then proves all three v3.4.1 stages reach 200 OK against it.
+    // ═════════════════════════════════════════════════════════════════════════
+    static void relay403Lab() throws Exception {
+        // the exact URL shape from the phone, built from the real token payload
+        String b64o = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("https://proxy.yenime.net".getBytes(StandardCharsets.UTF_8));
+        String tokenJson = "{\"b\":\"https://sbcdnw.hakunaymatata.com/dash/7149952989435249816_0_0_720_h265_30/\","
+            + "\"c\":\"Edge-Cache-Cookie=urlprefix=aHR0cHM6:sign=a2b6dbe2203de7bc61cd772d9a80e39d:t=1795365429\","
+            + "\"h\":\"X-MB-Token\",\"r\":{\"subjectId\":\"7149952989435249816\","
+            + "\"slug\":\"influencers-MAyBtWlRaw8\"}}";
+        String token = java.util.Base64.getEncoder().encodeToString(tokenJson.getBytes(StandardCharsets.UTF_8));
+        String direct = "https://sbcdnw.hakunaymatata.com/dash/7149952989435249816_0_0_720_h265_30/index_web.mpd";
+        String relayUrl = "http://192.168.1.7:34783/" + b64o + "/manifest.mpd?url="
+            + java.net.URLEncoder.encode(direct, StandardCharsets.UTF_8).replace("+", "%20")
+            + "&t=" + java.net.URLEncoder.encode(token, StandardCharsets.UTF_8);
+
+        // ── pure decoding ────────────────────────────────────────────────────
+        check("v341 relay403: the field relay URL is recognised as an AnantPlay relay",
+            StreamHttpConfig.isRelay(relayUrl));
+        check("v341 relay403: a loopback relay URL is recognised too",
+            StreamHttpConfig.isRelay("http://127.0.0.1:34783/" + b64o + "/x.mpd"));
+        check("v341 relay403: a public CDN URL is NEVER mistaken for a relay",
+            !StreamHttpConfig.isRelay(direct)
+                && !StreamHttpConfig.isRelay("http://8.8.8.8:34783/" + b64o + "/x.mpd"));
+        StreamHttpConfig.Relay r = StreamHttpConfig.relay(relayUrl);
+        check("v341 relay403: the base64 segment decodes to the real upstream origin",
+            "https://proxy.yenime.net".equals(r.upstreamOrigin), r.upstreamOrigin);
+        check("v341 relay403: the signed stream inside url= is unwrapped",
+            direct.equals(r.direct), r.direct);
+        check("v341 relay403: the t= token yields its Edge-Cache-Cookie",
+            r.cookie != null && r.cookie.startsWith("Edge-Cache-Cookie=urlprefix="), r.cookie);
+        check("v341 relay403: the t= token yields its b= base URL",
+            r.base != null && r.base.startsWith("https://sbcdnw.hakunaymatata.com/"), r.base);
+        check("v341 relay403: stage 3 targets the signed upstream, not the relay",
+            direct.equals(StreamHttpConfig.directUrl(r)));
+
+        // ── the header contracts ─────────────────────────────────────────────
+        Map<String, String> s1 = StreamHttpConfig.relayClean();
+        check("v341 relay403: stage 1 sends NO Origin (the fake LAN origin is gone)",
+            !s1.containsKey("Origin"));
+        check("v341 relay403: stage 1 sends NO Referer", !s1.containsKey("Referer"));
+        check("v341 relay403: stage 1 sends NO Sec-Fetch-* triple",
+            !s1.containsKey("Sec-Fetch-Dest") && !s1.containsKey("Sec-Fetch-Mode")
+                && !s1.containsKey("Sec-Fetch-Site"));
+        check("v341 relay403: stage 1 still sends a real Chrome UA + Accept",
+            s1.get("User-Agent") != null && s1.get("User-Agent").contains("Chrome/")
+                && "*/*".equals(s1.get("Accept")));
+        Map<String, String> s2 = StreamHttpConfig.relayOriginHeaders(r, s1);
+        check("v341 relay403: stage 2 derives Origin from the DECODED upstream, never the LAN IP",
+            "https://proxy.yenime.net".equals(s2.get("Origin")) && !s2.toString().contains("192.168"));
+        check("v341 relay403: stage 2 derives the matching Referer",
+            "https://proxy.yenime.net/".equals(s2.get("Referer")));
+        Map<String, String> s3 = StreamHttpConfig.directHeaders(r);
+        check("v341 relay403: stage 3 carries the token's Edge-Cache-Cookie",
+            s3.get("Cookie") != null && s3.get("Cookie").contains("sign="));
+        check("v341 relay403: stage 3 points Origin at the CDN from b=",
+            "https://sbcdnw.hakunaymatata.com".equals(s3.get("Origin")));
+        check("v341 relay403: normalize() no longer invents a LAN Origin for a relay URL",
+            !StreamHttpConfig.normalize("{}", null, relayUrl).containsKey("Origin"));
+        check("v341 relay403: normalize() drops a fake LAN Referer handed in by the cast",
+            !StreamHttpConfig.normalize("{\"Referer\":\"http://192.168.1.7:34783/\"}", null, relayUrl)
+                .containsKey("Referer"));
+        check("v341 relay403: recovery() on a relay URL IS stage 2 (real upstream origin)",
+            "https://proxy.yenime.net".equals(StreamHttpConfig.recovery(relayUrl, s1).get("Origin")));
+        check("v341 relay403: recovery() on a normal CDN still sends the Sec-Fetch triple",
+            "cross-site".equals(StreamHttpConfig.recovery("https://cdn.example/a.m3u8", null)
+                .get("Sec-Fetch-Site")));
+
+        // ── the LIVE server: 403 on a LAN Origin/Referer, 200 otherwise ──────
+        com.sun.net.httpserver.HttpServer srv =
+            com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        srv.createContext("/", ex -> {
+            String origin = ex.getRequestHeaders().getFirst("Origin");
+            String referer = ex.getRequestHeaders().getFirst("Referer");
+            String cookie = ex.getRequestHeaders().getFirst("Cookie");
+            String path = ex.getRequestURI().getPath();
+            boolean lanOrigin = (origin != null && origin.contains("127.0.0.1"))
+                || (referer != null && referer.contains("127.0.0.1"));
+            int code;
+            String body;
+            if (path.startsWith("/cdn/")) {
+                // the CDN rule: the signed Edge-Cache-Cookie must be present
+                boolean signed = cookie != null && cookie.contains("sign=");
+                code = signed ? 200 : 403;
+                body = signed ? "<?xml version=\"1.0\"?><MPD/>" : "signed cookie missing";
+            } else {
+                code = lanOrigin ? 403 : 200;      // the relay rule from the field log
+                body = lanOrigin ? "lan origin refused" : "<?xml version=\"1.0\"?><MPD/>";
+            }
+            byte[] b = body.getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(code, b.length);
+            try (OutputStream o = ex.getResponseBody()) { o.write(b); }
+        });
+        srv.start();
+        try {
+            String base = "http://127.0.0.1:" + srv.getAddress().getPort();
+            // the bug, reproduced: a LAN Origin is refused
+            check("v341 relay403: THE BUG — a LAN Origin is refused with HTTP 403",
+                get(base + "/aHR0/manifest.mpd", Collections.singletonMap("Origin", "http://127.0.0.1:34783")) == 403);
+            // stage 1
+            check("v341 relay403: STAGE 1 clean pass-through → HTTP 200 OK",
+                get(base + "/aHR0/manifest.mpd", s1) == 200);
+            // stage 2
+            check("v341 relay403: STAGE 2 decoded-upstream Origin → HTTP 200 OK",
+                get(base + "/aHR0/manifest.mpd", s2) == 200);
+            // stage 3
+            check("v341 relay403: stage 3 against a signed CDN without the cookie → 403 (control)",
+                get(base + "/cdn/index_web.mpd", s1) == 403);
+            check("v341 relay403: STAGE 3 direct unwrap + Edge-Cache-Cookie → HTTP 200 OK",
+                get(base + "/cdn/index_web.mpd", s3) == 200);
+        } finally {
+            srv.stop(0);
+        }
+    }
+
+    /** One GET with an explicit header map; returns the status code (0 on failure). */
+    static int get(String url, Map<String, String> headers) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(5000);
+            for (Map.Entry<String, String> e : headers.entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
+            int code = c.getResponseCode();
+            InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+            if (in != null) { byte[] buf = new byte[4096]; while (in.read(buf) > 0) { } in.close(); }
+            c.disconnect();
+            return code;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
 }

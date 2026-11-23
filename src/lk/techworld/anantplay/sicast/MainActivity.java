@@ -370,7 +370,10 @@ public class MainActivity extends Activity {
         tabIconRes.clear();
         final boolean showLabels = AppPrefs.bottomBarLabels(prefs);
         final boolean floating = AppPrefs.floatingBar(prefs);
-        final int iconDp = showLabels ? 22 : 24;
+        // v3.4.1 — the bottom-nav glyph is EXACTLY 22dp in a 48dp target, with or
+        // without labels. v3.4.0 grew it to 24dp the moment labels were hidden, which
+        // is precisely the mode that made the symbols read as "way too huge".
+        final int iconDp = 22;
         for (int i = 0; i < tabIds.length && i < iconSet.length; i++) {
             final int idx = tabIds[i];
             LinearLayout tab = new LinearLayout(this);
@@ -390,7 +393,7 @@ public class MainActivity extends Activity {
             label.setEllipsize(android.text.TextUtils.TruncateAt.END);
             label.setPadding(dp(1), dp(2), dp(1), 0);
 
-            tab.addView(icon, new LinearLayout.LayoutParams(-1, dp(iconDp + 2)));
+            tab.addView(icon, new LinearLayout.LayoutParams(-1, dp(iconDp)));   // v3.4.1 — no inflated box
             if (showLabels) tab.addView(label, new LinearLayout.LayoutParams(-1, -2));
             tab.setOnClickListener(v -> selectTab(idx));
             tabIcons.add(icon);
@@ -437,6 +440,43 @@ public class MainActivity extends Activity {
 
         selectTab(TAB_HOME);
         return shell;
+    }
+
+    /** v3.4.1 — the dismissible first-time Quick-Start banner (null once dismissed). */
+    private LinearLayout quickStartCard;
+
+    /**
+     * v3.4.1 — one numbered Quick-Start row: a small accent badge, a bold step title
+     * and one quiet line. Drawn with the design grammar, never an emoji.
+     */
+    private LinearLayout quickStartStep(String n, String title, String body) {
+        LinearLayout row = row();
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(7), 0, 0);
+        TextView badge = new TextView(this);
+        badge.setText(n);
+        badge.setTextColor(0xFF0A0A14);
+        badge.setTextSize(12f);
+        badge.setTypeface(Typeface.DEFAULT_BOLD);
+        badge.setGravity(Gravity.CENTER);
+        badge.setBackground(rounded(P.accent, dp(9)));
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(dp(18), dp(18));
+        bp.setMarginEnd(dp(9));
+        row.addView(badge, bp);
+        LinearLayout text = column();
+        TextView t1 = new TextView(this);
+        t1.setText(title);
+        t1.setTextColor(P.title);
+        t1.setTextSize(13.5f);
+        t1.setTypeface(Typeface.DEFAULT_BOLD);
+        text.addView(t1, widen(0, 0));
+        TextView t2v = new TextView(this);
+        t2v.setText(body);
+        t2v.setTextColor(P.desc);
+        t2v.setTextSize(12f);
+        text.addView(t2v, widen(0, 0));
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1f));
+        return row;
     }
 
     /** v3.3.0 — the LAST measured navigation-shell verdict (read by FeatureProbe #10). */
@@ -566,6 +606,46 @@ public class MainActivity extends Activity {
         root.addView(updateBar, widen());
 
         // ── HERO: the receiver status card ──
+        // ══ v3.4.1 — THE FIRST-TIME 3-STEP QUICK START (defect #5.2) ══════════
+        // A first-time user must understand the whole app in ten seconds. Three
+        // numbered steps, one button, dismissible, and remembered forever in AppPrefs
+        // (and in the settings backup). The technical detail lives in Troubleshoot.
+        if (!AppPrefs.quickStartDone(prefs)) {
+            quickStartCard = card(P.accentSoft);
+            LinearLayout qsHead = row();
+            qsHead.setGravity(Gravity.CENTER_VERTICAL);
+            TextView qsTitle = new TextView(this);
+            qsTitle.setText(t("මිනිත්තු 10න් පටන් ගන්න", "Get started in 3 steps"));
+            UiIcons.setCompound(qsTitle, R.drawable.ic_check_circle, P.accent, 16, Gravity.START);
+            qsTitle.setTextColor(P.title);
+            qsTitle.setTextSize(15f);
+            qsTitle.setTypeface(Typeface.DEFAULT_BOLD);
+            qsHead.addView(qsTitle, new LinearLayout.LayoutParams(0, -2, 1f));
+            quickStartCard.addView(qsHead, widen());
+
+            quickStartCard.addView(quickStartStep("1", t("රිසීවරය අරඹන්න",
+                "Start the receiver"), t("පහළ ඇති Start receiver ඔබන්න",
+                "Tap Start receiver below")), widen());
+            quickStartCard.addView(quickStartStep("2", t("AnantPlay වලින් Cast කරන්න",
+                "Cast from AnantPlay"), t("නැත්නම් බ්‍රව්සරයෙන් විවෘත කරන්න",
+                "or open a video in the browser")), widen());
+            quickStartCard.addView(quickStartStep("3", t("සිංහල උපසිරැසි තනිවම එනවා",
+                "Sinhala subtitles arrive by themselves"),
+                t("කිසිවක් සැකසීමට අවශ්‍ය නැත", "nothing to configure")), widen());
+
+            Button got = btnPrimary(t("Got it", "Got it"));
+            UiIcons.setCompound(got, R.drawable.ic_check_circle, 0xFF0A0A14, 16, Gravity.START);
+            got.setOnClickListener(v -> {
+                prefs.edit().putBoolean(AppPrefs.K_QUICKSTART_DONE, true).apply();
+                if (quickStartCard != null) quickStartCard.setVisibility(View.GONE);
+                toast(t("හරි! සුබ නැරඹුමක්", "Got it — enjoy the movie"));
+            });
+            LinearLayout qsBtnRow = row();
+            qsBtnRow.addView(got, new LinearLayout.LayoutParams(0, -2, 1f));
+            quickStartCard.addView(qsBtnRow, widen(0, 10));
+            root.addView(quickStartCard, widen());
+        }
+
         LinearLayout hero = card(P.card);
         heroPill = new TextView(this);
         heroPill.setTextSize(17f);
@@ -627,9 +707,11 @@ public class MainActivity extends Activity {
             toggle.setText(up ? t("වසන්න", "Stop receiver") : t("අරඹන්න", "Start receiver"));
             UiIcons.setCompound(toggle, up ? R.drawable.ic_pause : R.drawable.ic_play,
                 0xFF0A0A14, 16, Gravity.START);
-            paintChip(chipReceiver, up, t("රිසීවරය", "Receiver"), up ? "port " + ReceiverService.port() : "off");
-            paintChip(chipCast, castable, t("Cast/DLNA", "Cast/DLNA"),
-                castable ? (announced ? "Nsd+Rsp+DLNA" : "Rsp+DLNA") : t("සක්‍රිය වෙමින්", "arming"));
+            // v3.4.1 — plain words on Home. "port 8765" / "Rsp+DLNA" / "NSD pending" are
+            // real facts for the Troubleshoot tab, and noise for a first-time user.
+            paintChip(chipReceiver, up, t("රිසීවරය", "Receiver"), up ? t("ක්‍රියාත්මකයි", "running") : t("නිවී ඇත", "off"));
+            paintChip(chipCast, castable, t("Cast", "Cast"),
+                castable ? t("හමුවෙනවා", "discoverable") : t("සක්‍රිය වෙමින්", "starting…"));
             paintChip(chipSubs, bridgeConfigured(), t("උපසිරැසි එන්ජිනය", "Subs Engine"),
                 bridgeConfigured() ? t("ලෑස්තියි", "ready") : t("worker බලන්න", "check worker"));
         });
@@ -2552,9 +2634,12 @@ public class MainActivity extends Activity {
             probeCard.addView(detail, widen(0, 0));
         }
         TextView verdict = new TextView(this);
-        verdict.setText(t("තීරණය: " + pass + "/10 PASS" + (pass == outcomes.size() ? " — සියලු විශේෂාංග සෞඛ්‍යසම්පූර්ණයි" : ""),
-            "Verdict: " + pass + "/10 PASS" + (pass == outcomes.size() ? " — ALL FEATURES HEALTHY" : "")));
-        verdict.setTextColor(pass == outcomes.size() ? P.ok : P.warn);
+        // v3.4.1 — "ALL FEATURES HEALTHY" requires results.size() == 10 AND pass == 10.
+        // A truncated run (probes 9/10 missing) now says exactly how many are missing.
+        final boolean healthy = FeatureProbe.allHealthy(outcomes);
+        verdict.setText(t("තීරණය: " + FeatureProbe.verdict(outcomes).replace("ALL FEATURES HEALTHY", "සියලු විශේෂාංග සෞඛ්‍යසම්පූර්ණයි"),
+            "Verdict: " + FeatureProbe.verdict(outcomes)));
+        verdict.setTextColor(healthy ? P.ok : P.warn);
         verdict.setTextSize(12.5f);
         verdict.setTypeface(Typeface.DEFAULT_BOLD);
         verdict.setPadding(0, dp(6), 0, 0);

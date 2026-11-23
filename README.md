@@ -1,4 +1,4 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v3.4.0
+# AnantPlay Sinhala Player (SI Cast Receiver) v3.4.1
 
 > **v3.4.0 — THE VECTOR UI OVERHAUL · 63 VectorDrawables · NEW ADAPTIVE + MONOCHROME
 > ICON · REAL 400/600 SINHALA WEIGHTS (−742 KB) · MORNYE-GRADE SHELL WITH 75

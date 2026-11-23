@@ -75,6 +75,8 @@ public final class AppPrefs {
     public static final String K_SWIPE_VOLUME = "swipeVolume";          // v3.3.0: bool (right-half vertical swipe)
     public static final String K_SWIPE_SEEK = "swipeSeek";              // v3.3.0: bool (horizontal swipe seek)
     public static final String K_LOCK_ON_START = "lockOnStart";         // v3.3.0: bool (start with the HUD locked)
+    /** v3.4.1 — the first-time 3-step Quick-Start banner was dismissed ("Got it"). */
+    public static final String K_QUICKSTART_DONE = "quickstartDone";
     public static final String K_DOH_DIAG = "dohDiag";               // bool
     public static final String K_RECEIVER_NAME = "receiverName";     // free text (trimmed, ≤64)
     public static final String K_RECEIVER_PORT = "receiverPort";      // v3.2.0: 1024..65535 (8765 default)
@@ -145,7 +147,7 @@ public final class AppPrefs {
         K_SUB_ENGINE, K_AUTO_TRANSLATE_NON_SI, K_AUTO_ZIP,
         K_SYNC_STEP_MS, K_SEEK_STEP_MS, K_GESTURES, K_DOUBLE_TAP_SEEK, K_AUTO_PIP, K_KEEP_SCREEN_ON,
         K_AUTO_RESUME, K_HUD_HIDE_MS, K_PLAY_SPEED, K_ASPECT_MODE,
-        K_SWIPE_BRIGHTNESS, K_SWIPE_VOLUME, K_SWIPE_SEEK, K_LOCK_ON_START,
+        K_SWIPE_BRIGHTNESS, K_SWIPE_VOLUME, K_SWIPE_SEEK, K_LOCK_ON_START, K_QUICKSTART_DONE,
         K_DOH_DIAG, K_RECEIVER_NAME, K_RECEIVER_PORT, K_DLNASTART, K_MDNS,
         K_WORKER_URL, K_AUTO_UPDATE, K_AUTO_OPEN_SNIFFED, K_WEB_DESKTOP_UA,
         K_AD_BLOCK, K_WEB_LINKS, K_FREE_TRANSLATOR,
@@ -587,6 +589,8 @@ public final class AppPrefs {
     public static boolean swipeVolume(SharedPreferences p) { return p.getBoolean(K_SWIPE_VOLUME, true); }
     public static boolean swipeSeek(SharedPreferences p) { return p.getBoolean(K_SWIPE_SEEK, true); }
     public static boolean lockOnStart(SharedPreferences p) { return p.getBoolean(K_LOCK_ON_START, false); }
+    /** v3.4.1 — has the first-time Quick-Start banner been dismissed? */
+    public static boolean quickStartDone(SharedPreferences p) { return p.getBoolean(K_QUICKSTART_DONE, false); }
     public static boolean dohDiag(SharedPreferences p) { return p.getBoolean(K_DOH_DIAG, true); }
     public static boolean cinemaPolish(SharedPreferences p) { return p.getBoolean(K_CINEMA_POLISH, true); }
     public static String receiverName(SharedPreferences p) { return normalizeReceiverName(p.getString(K_RECEIVER_NAME, null)); }

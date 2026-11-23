@@ -53,6 +53,45 @@ final class TitleCleaner {
         + "[\\s\\-–—|·:.\\u2026\\u00a0]*(?:player|players|embed(?:ded)?|video|videos|stream|streams|watch(?: online| online free)?|online|hd|4k|free|tv|hub|pro|plus|to|cc|io|me|net|com|app|site|web|page|portal)?" + "[\\s\\-–—|·:.\\u2026\\u00a0]*)+$",
         Pattern.CASE_INSENSITIVE);
 
+    /**
+     * v3.4.1 — THE REAL MOVIE NAME OUT OF A CAST SLUG.
+     *
+     * <p>The field log's junk title was {@code "ArrowTV Player"}, but the very same
+     * cast URL carried {@code "slug":"influencers-MAyBtWlRaw8"} inside its {@code t=}
+     * token. That slug IS the movie. This turns it back into a title:
+     * {@code influencers-MAyBtWlRaw8} → {@code Influencers}.
+     *
+     * <p>Rules: drop a trailing site id (a run of 8+ base62 chars), turn -/_/+ into
+     * spaces, collapse whitespace, Title-Case each word, and refuse anything that is
+     * still junk, empty or absurdly long. Pure — the lab asserts every case.
+     */
+    static String fromSlug(String slug) {
+        if (slug == null) return null;
+        String t = slug.trim();
+        if (t.isEmpty()) return null;
+        // strip a query/fragment tail if a caller passed a whole URL fragment
+        int cut = t.indexOf('?');
+        if (cut > 0) t = t.substring(0, cut);
+        cut = t.indexOf('#');
+        if (cut > 0) t = t.substring(0, cut);
+        // drop a trailing site id: "-MAyBtWlRaw8", "_a1B2c3D4e5"
+        t = t.replaceAll("[-_][A-Za-z0-9]{8,}$", "");
+        // the separator vocabulary of every scraper slug
+        t = t.replaceAll("[-_+]+", " ").replaceAll("\\s+", " ").trim();
+        if (t.length() < 3) return null;
+        if (isJunkTitle(t)) return null;
+        StringBuilder sb = new StringBuilder(t.length());
+        for (String w : t.split(" ")) {
+            if (w.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(Character.toUpperCase(w.charAt(0)));
+            if (w.length() > 1) sb.append(w.substring(1));
+        }
+        String out = sb.toString().trim();
+        if (out.isEmpty() || out.length() > 90) return null;
+        return out;
+    }
+
     /** v3.2.0 — the junk-title verdict: true when this raw page title is a
      *  generic player/site label that must NOT be sent to Cinemeta (the
      *  in-player title-search dialog opens instead). Pure, lab-proven against
