@@ -5339,6 +5339,7 @@ public class ReceiverLab {
                 && play.contains("armSleepTimer(values[i])"));
         check("v344 player: subtitle settings panel uses the selected flat/glass surface",
             play.contains("ThemeEngine.cardFill(palette, AppPrefs.glass(prefs))")
+                && play.contains("ThemeEngine.hairline(palette, AppPrefs.borderAlpha(prefs))")
                 && play.contains("if (AppPrefs.glass(prefs))"));
 
         check("v344 subtitles: secondary tools start collapsed",

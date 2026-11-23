@@ -19,7 +19,7 @@
 - **3,136 total checks passed; 0 failed.**
 - The existing UI-completeness, layout-parameter, reference, and Java-syntax gates passed. The syntax gate parsed **63** shipped Java sources.
 - The text-size audit found no literal UI text below **10sp**.
-- The Android SDK and `aapt2` are not available in this environment, so a packaged APK and device-rendered screenshots were not verified. Hosted APK CI and release publication have not been run; no push, merge, or release was performed.
+- The Android SDK and `aapt2` are not available locally, so a packaged APK and device-rendered screenshots were not verified here. The approved hosted run found two missing player-palette symbols; both are now corrected locally, but a follow-up hosted run is still pending approval. No merge or release was performed.
 
 ## සිංහල
 
@@ -40,4 +40,4 @@
 - **මුළු පරීක්ෂණ 3,136ක් සමත්; අසමත් 0යි.**
 - UI-completeness, layout-parameter, reference, සහ Java syntax පරීක්ෂණ සමත්. Syntax පරීක්ෂණය යෙදුමේ Java source **63ක්** පරීක්ෂා කළා.
 - UI අකුරු සඳහා **10spට අඩු** literal ප්‍රමාණයක් හමු නොවීය.
-- මෙම පරිසරයේ Android SDK සහ `aapt2` නොමැති බැවින් APK එකක් package කිරීම හෝ දුරකථනයක render කළ screenshots පරීක්ෂා කිරීම සිදු කළ නොහැකි විය. Hosted APK CI හෝ release එකක් ක්‍රියාත්මක කර නැත; push, merge, හෝ release සිදු කළේ නැත.
+- මෙහි Android SDK සහ `aapt2` නොමැති බැවින් APK එකක් package කිරීම හෝ දුරකථනයක render කළ screenshots පරීක්ෂා කිරීම සිදු කළ නොහැකි විය. අනුමත hosted run එකේ player palette සම්බන්ධ missing symbols දෙකක් හමු විය; ඒවා දැන් local code එකේ නිවැරදි කර ඇති නමුත් නැවත hosted run කිරීම සඳහා අනුමැතිය අවශ්‍යයි. Merge හෝ release සිදු කළේ නැත.

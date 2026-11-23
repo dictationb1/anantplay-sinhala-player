@@ -2334,7 +2334,7 @@ public class PlayActivity extends Activity {
         ThemeEngine.Palette palette = pal();
         bg.setColor(ThemeEngine.cardFill(palette, AppPrefs.glass(prefs)));
         if (AppPrefs.glass(prefs)) {
-            bg.setStroke(dp(1), palette.stroke);
+            bg.setStroke(dp(1), ThemeEngine.hairline(palette, AppPrefs.borderAlpha(prefs)));
         }
         p.setBackground(bg);
         p.setPadding(dp(14), dp(12), dp(14), dp(12));
@@ -2414,7 +2414,7 @@ public class PlayActivity extends Activity {
     private LinearLayout buildSettingsSheet() {
         LinearLayout s = new LinearLayout(this);
         s.setOrientation(LinearLayout.VERTICAL);
-        ThemeEngine.Palette p = palette();
+        ThemeEngine.Palette p = pal();
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(radiusSheet());
         bg.setColor(ThemeEngine.cardFill(p, AppPrefs.glass(prefs)));
