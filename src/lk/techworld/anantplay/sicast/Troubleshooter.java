@@ -384,14 +384,13 @@ public final class Troubleshooter {
         if (outcomes == null || outcomes.isEmpty()) {
             sb.append("(not run yet — tap 🩺 Run Full App Troubleshoot)\n");
         } else {
-            int pass = 0;
             for (FeatureProbe.Outcome o : outcomes) {
                 sb.append(String.format(java.util.Locale.US, "%s %d. %s — %d ms — %s\n",
                     o.pass ? "✓" : "✗", o.id, o.name, o.ms, o.detail == null ? "" : o.detail));
-                if (o.pass) pass++;
             }
-            sb.append(String.format(java.util.Locale.US, "verdict: %d/10 PASS%s\n",
-                pass, pass == outcomes.size() ? " — ALL FEATURES HEALTHY" : ""));
+            // v3.4.1 — the verdict is 10/10 or it is not healthy. A run that stopped
+            // after probe 7 can never print "ALL FEATURES HEALTHY" again.
+            sb.append("verdict: ").append(FeatureProbe.verdict(outcomes)).append('\n');
         }
         return PrivacyScrubber.scrub(sb.toString());
     }

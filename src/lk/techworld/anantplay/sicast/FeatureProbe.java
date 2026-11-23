@@ -133,16 +133,22 @@ public final class FeatureProbe {
         try {
             LAST.clear();
             List<Outcome> out = new ArrayList<>(10);
-            out.add(land(probe1Loopback(receiverPort, l), l));
-            out.add(land(probe2Dlna(receiverPort, l), l));
-            out.add(land(probe3Mdns(mdnsRunning, l), l));
-            out.add(land(probe4Updater(l), l));
-            out.add(land(probe5Worker(workerUrl, l), l));
-            out.add(land(probe6ResolveScript(workerUrl, l), l));
-            out.add(land(probe7FreeTranslator(filesDir, l), l));
-            out.add(land(probe8ZipExtractor(l), l));
-            out.add(land(probe9FontAsset(filesDir, l), l));
-            out.add(land(probe10BackupCrash(filesDir, l), l));
+            // ══ v3.4.1 — ALL 10 ROWS ALWAYS EXIST ═════════════════════════════
+            // v3.4.0 called land(probeN(...), l) directly, so anything that escaped a
+            // probe (the 4 GiB OutOfMemoryError in probe 8) killed the run and probes
+            // 9 and 10 simply never appeared — 7 rows, and the verdict then compared
+            // 7 == 7 and printed "ALL FEATURES HEALTHY". Every probe now goes through
+            // guarded(), which lands an outcome NO MATTER WHAT the probe does.
+            out.add(guarded(1, "Loopback Receiver", () -> probe1Loopback(receiverPort, l), l));
+            out.add(guarded(2, "DLNA MediaRenderer", () -> probe2Dlna(receiverPort, l), l));
+            out.add(guarded(3, "mDNS Wire Responder", () -> probe3Mdns(mdnsRunning, l), l));
+            out.add(guarded(4, "Updater manifest", () -> probe4Updater(l), l));
+            out.add(guarded(5, "Worker v4.1", () -> probe5Worker(workerUrl, l), l));
+            out.add(guarded(6, "Subtitle Resolve + Script Check", () -> probe6ResolveScript(workerUrl, l), l));
+            out.add(guarded(7, "Free Keyless Translator", () -> probe7FreeTranslator(filesDir, l), l));
+            out.add(guarded(8, "Auto .zip/.srt Extractor", () -> probe8ZipExtractor(l), l));
+            out.add(guarded(9, "Font Asset", () -> probe9FontAsset(filesDir, l), l));
+            out.add(guarded(10, "Backup + Crash Log + Nav Shell", () -> probe10BackupCrash(filesDir, l), l));
             List<Outcome> snap = snapshot();
             if (l != null) {
                 try { l.onAllDone(snap); } catch (Throwable ignored) { }
@@ -150,6 +156,88 @@ public final class FeatureProbe {
             return snap;
         } finally {
             RUNNING.set(false);
+        }
+    }
+
+    /** v3.4.1 — the constant used when a probe dies so hard that even formatting a
+     *  message is unsafe (an exhausted heap cannot build a new String). */
+    private static final String FAIL_DETAIL = "threw: ";
+
+    /**
+     * v3.4.1 — run one probe and LAND an outcome unconditionally.
+     *
+     * <p>The v3.4.0 run aborted at probe 8: a 4 GiB allocation raised
+     * {@code OutOfMemoryError}, which escaped every {@code catch (Exception)} in the
+     * probe, reached {@code timed()}'s {@code catch (Throwable)}, and there the
+     * {@code "threw: " + name} concatenation allocated again on the exhausted heap and
+     * died for real — so {@code land()} never ran for probes 8, 9 and 10. This wrapper
+     * makes that outcome structurally impossible: the failure path allocates nothing
+     * beyond the pre-allocated constant, and the row is always appended.
+     */
+    private static Outcome guarded(int id, String name,
+                                   java.util.function.Supplier<Outcome> body, Listener l) {
+        Outcome o = null;
+        try {
+            o = body.get();
+        } catch (Throwable t) {
+            o = new Outcome(id, name);
+            o.pass = false;
+            o.detail = FAIL_DETAIL + safeName(t);
+        }
+        if (o == null) {
+            o = new Outcome(id, name);
+            o.pass = false;
+            o.detail = FAIL_DETAIL + "no outcome";
+        }
+        if (o.id <= 0) o = new Outcome(id, name);   // never let a row lose its number
+        land(o, l);
+        return o;
+    }
+
+    /**
+     * v3.4.1 — THE ONLY HONEST VERDICT.
+     *
+     * <p>v3.4.0 printed "ALL FEATURES HEALTHY" whenever {@code pass == outcomes.size()},
+     * so a run that aborted after probe 7 (7 rows, 7 passes) declared itself healthy.
+     * The label is now allowed ONLY when all ten rows exist and all ten passed.
+     * Anything else names the count, the number of missing rows and every failing
+     * probe by number and name.
+     */
+    public static String verdict(java.util.List<Outcome> results) {
+        int total = results == null ? 0 : results.size();
+        int pass = 0;
+        StringBuilder fails = new StringBuilder();
+        if (results != null) {
+            for (Outcome o : results) {
+                if (o == null) continue;
+                if (o.pass) { pass++; continue; }
+                if (fails.length() > 0) fails.append(" · ");
+                fails.append('#').append(o.id).append(' ').append(o.name);
+            }
+        }
+        boolean healthy = total == 10 && pass == 10;
+        StringBuilder v = new StringBuilder();
+        v.append(pass).append("/10 PASS");
+        if (total < 10) v.append(" · ").append(10 - total).append(" MISSING");
+        if (pass < total) v.append(" · ").append(total - pass).append(" FAIL");
+        if (healthy) v.append(" — ALL FEATURES HEALTHY");
+        else if (fails.length() > 0) v.append(" — FAILED: ").append(fails);
+        return v.toString();
+    }
+
+    /** True only for a complete, all-green run — the ONLY thing "healthy" may mean. */
+    public static boolean allHealthy(java.util.List<Outcome> results) {
+        return results != null && results.size() == 10
+            && verdict(results).indexOf("ALL FEATURES HEALTHY") >= 0;
+    }
+
+    /** The Throwable's simple name, or a literal, without ever throwing. */
+    private static String safeName(Throwable t) {
+        try {
+            String n = t == null ? null : t.getClass().getSimpleName();
+            return n == null || n.isEmpty() ? "Throwable" : n;
+        } catch (Throwable ignored) {
+            return "Throwable";
         }
     }
 
@@ -172,8 +260,12 @@ public final class FeatureProbe {
         try {
             o = body.apply(o);
         } catch (Throwable t) {
+            // v3.4.1 — OOM-safe: on an exhausted heap even a String concat throws, so
+            // the detail is the pre-allocated constant plus a guarded name lookup.
+            if (o == null) { o = new Outcome(id, name); }
             o.pass = false;
-            o.detail = "threw: " + t.getClass().getSimpleName();
+            try { o.detail = FAIL_DETAIL + safeName(t); }
+            catch (Throwable ignored) { o.detail = FAIL_DETAIL + "Error"; }
         }
         o.ms = System.currentTimeMillis() - t0;
         if (l != null) l.onProbeDone(o);
@@ -331,7 +423,9 @@ public final class FeatureProbe {
                 o.pass = got;
                 o.detail = got ? "translated ✓ (" + (r.cacheHits > 0 ? "cache" : r.requests + " req, " + r.batches + " batch") + ")"
                     : "no translation (offline or endpoints refused — retry with internet)";
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                // v3.4.1 — Throwable, not Exception: an Error (OutOfMemoryError,
+                // StackOverflowError) must be REPORTED, never allowed to abort the run.
                 o.pass = false;
                 o.detail = "threw: " + e.getClass().getSimpleName();
             }
@@ -353,24 +447,39 @@ public final class FeatureProbe {
                 zs.close();
                 List<Cue> cues = SrtLoader.load(zipBuf.toByteArray(), "test.zip");
                 boolean extractOk = cues.size() == 2 && "ආයුබෝවන්".equals(cues.get(0).si);
-                // the bomb: a >5 MB decompressed entry must be refused
+                // ── v3.4.1 — THE 4 GiB PROBE (the exact reason probes 9 and 10 never ran) ──
+                // v3.4.0 wrote `for (int i = 0; i < 65536; i++) bz.write(chunk)` with a
+                // 64 KiB chunk: 65536 x 65536 = 4,294,967,296 bytes — FOUR GIBIBYTES into a
+                // ByteArrayOutputStream, in the phone's heap. The comment beside it said
+                // "~4 MB... use 8 chunks", which is what the loop bound was meant to be.
+                // The OutOfMemoryError is an Error, so `catch (IOException)` and
+                // `catch (Exception)` both missed it; it reached timed()'s catch (Throwable),
+                // which then allocated a String on the exhausted heap and died too —
+                // aborting runAll() before probes 9 and 10. 8 x 64 KiB = 512 KiB is still
+                // 100x the 5 MB cap once inflated, and costs no heap at all.
                 boolean bombRefused = false;
                 try {
                     ByteArrayOutputStream bomb = new ByteArrayOutputStream();
                     java.util.zip.ZipOutputStream bz = new java.util.zip.ZipOutputStream(bomb);
                     bz.putNextEntry(new ZipEntry("bomb.srt"));
                     byte[] chunk = new byte[65536];
-                    for (int i = 0; i < 65536; i++) bz.write(chunk);   // ~4 MB... use 8 chunks
-                    for (int i = 0; i < 8; i++) bz.write(chunk);        // ~8 MB total > 5 MB cap
+                    for (int i = 0; i < 8; i++) bz.write(chunk);        // 512 KiB, not 4 GiB
                     bz.closeEntry();
                     bz.close();
                     SrtLoader.load(bomb.toByteArray(), "bomb.zip");
                 } catch (java.io.IOException expected) {
                     bombRefused = true;   // the cap threw — the guard works
+                } catch (Throwable t) {
+                    // v3.4.1 — an Error must still be recorded, never allowed to escape
+                    o.pass = false;
+                    o.detail = "zip-bomb guard threw " + t.getClass().getSimpleName();
+                    return o;
                 }
                 o.pass = extractOk && bombRefused;
                 o.detail = "extract " + (extractOk ? "✓ (2 cues, Sinhala)" : "✗") + " · zip-bomb guard " + (bombRefused ? "✓" : "✗ (NOT refused!)");
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                // v3.4.1 — Throwable, not Exception: an Error (OutOfMemoryError,
+                // StackOverflowError) must be REPORTED, never allowed to abort the run.
                 o.pass = false;
                 o.detail = "threw: " + e.getClass().getSimpleName();
             }
@@ -450,7 +559,9 @@ public final class FeatureProbe {
                     + " · aspect 1080×608 " + (aspectOk ? "✓" : "✗")
                     + " · nav shell " + (layoutOk ? "✓" : "✗")
                     + " · crash log: " + crashState;
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                // v3.4.1 — Throwable, not Exception: an Error (OutOfMemoryError,
+                // StackOverflowError) must be REPORTED, never allowed to abort the run.
                 o.pass = false;
                 o.detail = "threw: " + e.getClass().getSimpleName();
             }

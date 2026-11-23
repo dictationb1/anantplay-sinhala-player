@@ -2552,9 +2552,12 @@ public class MainActivity extends Activity {
             probeCard.addView(detail, widen(0, 0));
         }
         TextView verdict = new TextView(this);
-        verdict.setText(t("තීරණය: " + pass + "/10 PASS" + (pass == outcomes.size() ? " — සියලු විශේෂාංග සෞඛ්‍යසම්පූර්ණයි" : ""),
-            "Verdict: " + pass + "/10 PASS" + (pass == outcomes.size() ? " — ALL FEATURES HEALTHY" : "")));
-        verdict.setTextColor(pass == outcomes.size() ? P.ok : P.warn);
+        // v3.4.1 — "ALL FEATURES HEALTHY" requires results.size() == 10 AND pass == 10.
+        // A truncated run (probes 9/10 missing) now says exactly how many are missing.
+        final boolean healthy = FeatureProbe.allHealthy(outcomes);
+        verdict.setText(t("තීරණය: " + FeatureProbe.verdict(outcomes).replace("ALL FEATURES HEALTHY", "සියලු විශේෂාංග සෞඛ්‍යසම්පූර්ණයි"),
+            "Verdict: " + FeatureProbe.verdict(outcomes)));
+        verdict.setTextColor(healthy ? P.ok : P.warn);
         verdict.setTextSize(12.5f);
         verdict.setTypeface(Typeface.DEFAULT_BOLD);
         verdict.setPadding(0, dp(6), 0, 0);

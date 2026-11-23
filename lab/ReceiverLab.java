@@ -3658,12 +3658,22 @@ public class ReceiverLab {
     static boolean probeNamesMatch() {
         try {
             java.lang.reflect.Method[] ms = FeatureProbe.class.getDeclaredMethods();
-            int found = 0;
+            java.util.Set<Integer> ids = new java.util.TreeSet<>();
             for (java.lang.reflect.Method m : ms) {
                 String n = m.getName();
-                if (Character.isDigit(n.charAt(n.length() - 1))) found++;   // probe1..probe10
+                // v3.4.1 — count the REAL probe entry points: `probe<N><Name>`.
+                // v3.4.0 counted "any method whose name ends in a digit", which was
+                // really counting the synthetic lambda$…$N bodies and broke the moment
+                // runAll() gained its own ten guarded() lambdas. Matching the actual
+                // probe names (and their NUMBER) is both stricter and stable.
+                java.util.regex.Matcher mm = java.util.regex.Pattern
+                    .compile("^probe(\\d+)[A-Z]").matcher(n);
+                if (!m.isSynthetic() && mm.find()) ids.add(Integer.parseInt(mm.group(1)));
             }
-            return found == 10;
+            // exactly the numbers 1..10, no gaps and no duplicates
+            if (ids.size() != 10) return false;
+            for (int i = 1; i <= 10; i++) if (!ids.contains(i)) return false;
+            return true;
         } catch (Throwable t) {
             return false;
         }
@@ -4841,6 +4851,98 @@ public class ReceiverLab {
 
         // ── v3.4.1 — THE DLNA RELAY 403 LAB (the "Influencers" defect) ────────
         relay403Lab();
+
+        // ── v3.4.1 — THE 10/10 PROBE + HONEST VERDICT LAB (defect #3) ─────────
+        probesLab();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.1 — v341 probes: ALL 10 ROWS ALWAYS REPORT, AND THE VERDICT NEVER LIES
+    //
+    // The field report showed probes 8, 9 and 10 simply absent while the app
+    // printed "7/10 PASS — ALL FEATURES HEALTHY". Two independent bugs produced
+    // that: probe 8 allocated 4 GiB (65536 x 64 KiB) and its OutOfMemoryError
+    // escaped both catch blocks, and the verdict compared pass == outcomes.size()
+    // so 7 of 7 looked complete. Both are now asserted, not assumed.
+    // ═════════════════════════════════════════════════════════════════════════
+    static void probesLab() throws Exception {
+        // the verdict arithmetic
+        List<FeatureProbe.Outcome> seven = new ArrayList<>();
+        for (int i = 1; i <= 7; i++) seven.add(outcome(i, true));
+        String v7 = FeatureProbe.verdict(seven);
+        check("v341 probes: a 7-row all-green run is NEVER called healthy", 
+            v7.indexOf("ALL FEATURES HEALTHY") < 0, v7);
+        check("v341 probes: a 7-row run says exactly how many rows are MISSING",
+            v7.contains("7/10 PASS") && v7.contains("3 MISSING"), v7);
+        check("v341 probes: allHealthy(7 rows) is false", !FeatureProbe.allHealthy(seven));
+
+        List<FeatureProbe.Outcome> ten = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) ten.add(outcome(i, true));
+        check("v341 probes: a complete 10/10 run IS called healthy",
+            FeatureProbe.verdict(ten).contains("ALL FEATURES HEALTHY"), FeatureProbe.verdict(ten));
+        check("v341 probes: allHealthy(10 passing rows) is true", FeatureProbe.allHealthy(ten));
+
+        List<FeatureProbe.Outcome> nine = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) nine.add(outcome(i, i != 9));
+        String v9 = FeatureProbe.verdict(nine);
+        check("v341 probes: 10 rows with one failure is never healthy",
+            v9.indexOf("ALL FEATURES HEALTHY") < 0, v9);
+        check("v341 probes: the failing row is NAMED by number",
+            v9.contains("9/10 PASS") && v9.contains("1 FAIL") && v9.contains("#9"), v9);
+        check("v341 probes: allHealthy(10 rows, one failure) is false", !FeatureProbe.allHealthy(nine));
+
+        // the 4 GiB allocation is gone from the source
+        String probeSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/FeatureProbe.java"));
+        check("v341 probes: the 4 GiB zip-bomb loop is really gone (the live loop is 8 chunks)",
+            probeSrc.contains("for (int i = 0; i < 8; i++) bz.write(chunk)")
+                && !probeSrc.contains("i < 65536; i++) bz.write"));
+        check("v341 probes: every probe is run through guarded() so a row can never go missing",
+            probeSrc.contains("guarded(10,") && probeSrc.contains("guarded(8,"));
+        // Every probe body is wrapped in timed(...), whose catch is Throwable, and every
+        // probe call in runAll() is wrapped in guarded(...), also Throwable — two
+        // independent layers, so no single probe can take the run down.
+        check("v341 probes: all 10 probe bodies run inside timed(...) (Throwable-safe)",
+            countOf(probeSrc, "return timed(") == 10, "timed() wrappers=" + countOf(probeSrc, "return timed("));
+        check("v341 probes: timed() and guarded() both catch Throwable",
+            probeSrc.contains("catch (Throwable t)") && probeSrc.contains("catch (Throwable t) {"));
+
+        // the probe itself, really run
+        FeatureProbe.Outcome p8 = FeatureProbe.probe8ZipExtractor(null);
+        check("v341 probes: probe 8 (Auto .zip/.srt Extractor) PASSES on this JVM",
+            p8 != null && p8.pass, p8 == null ? "null" : p8.detail);
+
+        // …and it passes in a 48 MB heap, where the v3.4.0 4 GiB loop could never run
+        String java = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java";
+        ProcessBuilder pb = new ProcessBuilder(java, "-Xmx48m", "-cp",
+            System.getProperty("java.class.path"),
+            "lk.techworld.anantplay.sicast.ReceiverLab$Probe8Main");
+        pb.redirectErrorStream(true);
+        Process pr = pb.start();
+        String outText = new String(readAllBytes(pr.getInputStream()), StandardCharsets.UTF_8).trim();
+        int rc = pr.waitFor();
+        check("v341 probes: probe 8 completes in a 48 MB heap (the 4 GiB loop is really gone)",
+            rc == 0 && outText.contains("PROBE8 OK"), "exit=" + rc + " out=" + outText);
+    }
+
+    /** A bare outcome for the verdict arithmetic. */
+    static FeatureProbe.Outcome outcome(int id, boolean pass) {
+        FeatureProbe.Outcome o = new FeatureProbe.Outcome(id, "probe " + id);
+        o.pass = pass;
+        o.ms = id;
+        o.detail = pass ? "ok" : "failed on purpose";
+        return o;
+    }
+
+    /** The 48 MB-heap child: run probe 8 alone and print one line. */
+    public static final class Probe8Main {
+        public static void main(String[] args) {
+            try {
+                FeatureProbe.Outcome o = FeatureProbe.probe8ZipExtractor(null);
+                System.out.println(o != null && o.pass ? "PROBE8 OK " + o.detail : "PROBE8 FAIL " + (o == null ? "null" : o.detail));
+            } catch (Throwable t) {
+                System.out.println("PROBE8 THREW " + t.getClass().getSimpleName());
+            }
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════

@@ -264,6 +264,27 @@ public class PlayActivity extends Activity {
     /** The 403 recovery leg: one automatic retry, then the honest error card. */
     private boolean triedHeaderRecovery;
     private Map<String, String> httpHeaders;
+
+    // ── v3.4.1 — the DLNA relay ladder + the TRANSITIONING hold (defects #1 & #2) ──
+    /** The decoded AnantPlay relay for THIS playback (null / !isRelay for a normal stream). */
+    private StreamHttpConfig.Relay relayInfo;
+    /** 0 = not on the ladder, 1 = clean relay, 2 = decoded-upstream origin, 3 = direct unwrap. */
+    private int relayStage;
+    /**
+     * Uptime millis until which {@link #statusJson()} must answer {@code {"loading":true}}
+     * (→ UPnP {@code TRANSITIONING}) instead of the media shape.
+     *
+     * <p>WHY THIS EXISTS (the field takeover at 237.250): a fresh Media3 player is
+     * {@code STATE_IDLE} with {@code playWhenReady == false}, so the v3.4.0 status JSON
+     * looked like "the TV stopped" and {@code DlnaEndpoint.transportState()} mapped it to
+     * {@code NO_MEDIA_PRESENT} — AnantPlay's remote then tore the cast down and popped its
+     * own player over ours. The hold keeps the remote on {@code TRANSITIONING} through
+     * buffering, every automatic 403 stage, and the 15 s startup grace, so a retry can
+     * never look like a stop.
+     */
+    private long holdUntil;
+    /** The v3.4.1 startup / per-stage grace: long enough for a 403 ladder to finish. */
+    private static final long HOLD_MS = 15000L;
     /** The error card + the last exact message (for 📋 Copy). */
     private LinearLayout errorCard;
     private String lastErrorMsg = "";
@@ -548,6 +569,8 @@ public class PlayActivity extends Activity {
             // 3. a ResolvingDataSource adds the WebView's cookie FOR EACH REQUEST'S OWN
             //    HOST (segments live on a different CDN host than the playlist);
             // 4. a 401/403/451 error triggers ONE automatic header-recovery retry.
+            hold();   // v3.4.1 — never report "stopped" while the first frame loads
+            relayInfo = StreamHttpConfig.relay(url);
             if (httpHeaders == null) {
                 Map<String, String> extra = new LinkedHashMap<>();
                 if (uaHeader != null) extra.put("User-Agent", uaHeader);
@@ -555,10 +578,26 @@ public class PlayActivity extends Activity {
                 if (originHeader != null) extra.put("Origin", originHeader);
                 httpHeaders = StreamHttpConfig.normalize(headersJson, cookie, url, extra);
             }
+            // ══ v3.4.1 — THE RELAY LADDER (defect #1) ═══════════════════════════
+            // This cast came from AnantPlay's DLNA relay (http://<lan-ip>:<port>/<b64>/…).
+            // Stage 1 is a CLEAN pass-through: Chrome UA + Accept only. The v3.4.0 engine
+            // sent `Origin: http://192.168.x.x:34783` here, which the relay discards on
+            // arrival anyway (Chromecast.java:330-341) — so it could never have helped,
+            // and it is the fake header the field log recorded.
+            if (relayInfo.isRelay) {
+                if (relayStage == 0) relayStage = 1;
+                if (relayStage == 1) {
+                    Map<String, String> clean = StreamHttpConfig.relayClean();
+                    String ck = httpHeaders.get("Cookie");
+                    if (ck != null && !ck.trim().isEmpty()) clean.put("Cookie", ck);
+                    httpHeaders = clean;
+                }
+            }
             Map<String, String> headers = new LinkedHashMap<>(httpHeaders);
             String ua = headers.remove("User-Agent");
             if (ua == null || ua.trim().isEmpty()) ua = StreamHttpConfig.CHROME_UA;
-            Troubleshooter.record("HTTP", (triedHeaderRecovery ? "recovery" : "first") + " attempt · url="
+            Troubleshooter.record("HTTP", (relayInfo.isRelay ? "relay stage " + relayStage :
+                    triedHeaderRecovery ? "recovery" : "first") + " attempt · url="
                 + hostOf(url) + " · headers=" + StreamHttpConfig.describe(httpHeaders));
 
             DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
@@ -592,6 +631,9 @@ public class PlayActivity extends Activity {
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build());   // our cues first, like AnantPlay
             player.addListener(new Player.Listener() {
                 @Override public void onPlaybackStateChanged(int s) {
+                    // v3.4.1 — buffering IS a transition: keep the remote on TRANSITIONING
+                    if (s == Player.STATE_BUFFERING) hold();
+                    if (s == Player.STATE_READY) holdUntil = 0;   // a real frame is up
                     spinner.setVisibility(s == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
                     // v3.1.2 — the Media3 transition lands in the Troubleshooter timeline
                     Troubleshooter.record("PLAYER", "media3 state=" + stateName(s));
@@ -617,18 +659,62 @@ public class PlayActivity extends Activity {
                     Troubleshooter.record("PLAYER", "media3 ERROR " + e.getErrorCodeName()
                         + (code > 0 ? " · HTTP " + code : "")
                         + (e.getCause() == null ? "" : " · cause " + e.getCause()));
-                    // ── v3.3.0: THE AUTOMATIC 403 HEADER-RECOVERY LEG ─────────────
-                    if (!triedHeaderRecovery && code > 0 && StreamHttpConfig.recoverable(code)) {
-                        triedHeaderRecovery = true;
-                        httpHeaders = StreamHttpConfig.recovery(url, httpHeaders);
-                        Diag.i("player", "HTTP " + code + " → retrying ONCE with recovery headers: "
-                            + StreamHttpConfig.describe(httpHeaders));
-                        Troubleshooter.record("HTTP", "HTTP " + code + " → automatic recovery retry with "
-                            + StreamHttpConfig.describe(httpHeaders));
-                        flash("HTTP " + code + " — retrying with browser headers…");
-                        rebuildAt(pos);
-                        updateSnapshot();
-                        return;
+                    // ── v3.4.1: THE 3-STAGE RELAY LADDER / 403 RECOVERY LEG ──────
+                    if (code > 0 && StreamHttpConfig.recoverable(code)) {
+                        if (relayInfo != null && relayInfo.isRelay) {
+                            // STAGE 1 → STAGE 2: the real upstream origin, decoded out of
+                            // the base64 segment. NEVER the phone's LAN address.
+                            if (relayStage < 2) {
+                                relayStage = 2;
+                                httpHeaders = StreamHttpConfig.relayOriginHeaders(relayInfo, httpHeaders);
+                                hold();
+                                Diag.i("player", "HTTP " + code + " → relay stage 2 (upstream origin "
+                                    + relayInfo.upstreamOrigin + ")");
+                                Troubleshooter.record("HTTP", "HTTP " + code
+                                    + " → relay stage 2: decoded upstream Origin/Referer "
+                                    + StreamHttpConfig.describe(httpHeaders));
+                                flash("HTTP " + code + " — relay stage 2…");
+                                rebuildAt(pos);
+                                updateSnapshot();
+                                return;
+                            }
+                            // STAGE 2 → STAGE 3: leave the relay entirely. The signed
+                            // url= stream + the token's Edge-Cache-Cookie, which also
+                            // fixes the relay's DASH pass-through hole (it rewrites HLS
+                            // only — Chromecast.java:348-354).
+                            if (relayStage < 3 && relayInfo.hasDirect()) {
+                                relayStage = 3;
+                                String direct = StreamHttpConfig.directUrl(relayInfo);
+                                httpHeaders = StreamHttpConfig.directHeaders(relayInfo);
+                                if (direct != null && !direct.isEmpty()) {
+                                    url = direct;                       // the real stream
+                                    mime = null;                        // re-derive from .mpd/.m3u8
+                                    dashFlag = false;
+                                }
+                                hold();
+                                Diag.i("player", "HTTP " + code + " → relay stage 3 (direct upstream "
+                                    + hostOf(url) + ")");
+                                Troubleshooter.record("HTTP", "HTTP " + code
+                                    + " → relay stage 3: direct upstream unwrap with the token's "
+                                    + "Edge-Cache-Cookie · headers=" + StreamHttpConfig.describe(httpHeaders));
+                                flash("HTTP " + code + " — direct upstream…");
+                                rebuildAt(pos);
+                                updateSnapshot();
+                                return;
+                            }
+                        } else if (!triedHeaderRecovery) {
+                            triedHeaderRecovery = true;
+                            httpHeaders = StreamHttpConfig.recovery(url, httpHeaders);
+                            hold();
+                            Diag.i("player", "HTTP " + code + " → retrying ONCE with recovery headers: "
+                                + StreamHttpConfig.describe(httpHeaders));
+                            Troubleshooter.record("HTTP", "HTTP " + code + " → automatic recovery retry with "
+                                + StreamHttpConfig.describe(httpHeaders));
+                            flash("HTTP " + code + " — retrying with browser headers…");
+                            rebuildAt(pos);
+                            updateSnapshot();
+                            return;
+                        }
                     }
                     showError(e.getErrorCodeName() + (code > 0 ? " · HTTP " + code : "")
                         + (e.getCause() == null ? "" : " · " + e.getCause().getMessage()));
@@ -669,11 +755,20 @@ public class PlayActivity extends Activity {
     // ── /status + /do (the cast surface; called on the main thread by the service) ──
 
     String statusJson() {
+        // v3.4.1 — THE TRANSITIONING HOLD. While the startup grace, a buffer or an
+        // automatic 403 stage is in flight, answer the LOADING shape: the remote then
+        // renders TRANSITIONING and never decides the TV stopped (defect #2).
+        if (SystemClock.uptimeMillis() < holdUntil) return ReceiverServer.loadingJson();
         if (player == null) return ReceiverServer.idleJson();
+        // a player that is IDLE *after* the hold means every stage genuinely failed
+        if (player.getPlaybackState() == Player.STATE_IDLE) return ReceiverServer.idleJson();
         long dur = player.getDuration();
         live = dur == C.TIME_UNSET || player.isCurrentMediaItemLive();
         return ReceiverServer.statusJson(title, player.getCurrentPosition(), dur, player.getPlayWhenReady(), live);
     }
+
+    /** Extend the TRANSITIONING hold (called on every stage start and on BUFFERING). */
+    private void hold() { holdUntil = SystemClock.uptimeMillis() + HOLD_MS; }
 
     String castAction(String a, long to) {
         if (player == null) return ReceiverServer.idleJson();
@@ -2798,6 +2893,9 @@ public class PlayActivity extends Activity {
     }
 
     private void showError(String msg) {
+        // v3.4.1 — every recovery attempt has genuinely finished: the hold is released,
+        // so the remote finally sees the honest state instead of TRANSITIONING forever.
+        holdUntil = 0;
         lastErrorMsg = msg == null ? "" : msg;
         if (errorBox != null) {
             errorBox.setText(lastErrorMsg);
@@ -2980,6 +3078,7 @@ public class PlayActivity extends Activity {
 
     /** Rebuild the player at {@code pos} with the CURRENT httpHeaders (the retry leg). */
     private void rebuildAt(long pos) {
+        hold();   // v3.4.1 — a rebuild is a TRANSITION, never a stop (defect #2)
         try {
             if (player != null) { player.release(); player = null; }
         } catch (Throwable ignored) { }
@@ -3016,6 +3115,7 @@ public class PlayActivity extends Activity {
         retry.setOnClickListener(v -> {
             card.setVisibility(View.GONE);
             triedHeaderRecovery = false;
+            relayStage = 0;            // v3.4.1 — a manual retry restarts the ladder
             httpHeaders = null;
             rebuildAt(retryAtMs);
         });
