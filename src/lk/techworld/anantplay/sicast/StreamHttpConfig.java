@@ -209,8 +209,19 @@ final class StreamHttpConfig {
             else if (!existing.contains(cookie.trim())) out.put("Cookie", existing.trim() + "; " + cookie.trim());
         }
 
-        // 3. Origin derived from the Referer (the token check that 403s without it)
-        if (!out.containsKey("Origin")) {
+        // 3. Origin derived from the Referer (the token check that 403s without it).
+        //    v3.4.1 — a LOCAL RELAY URL MUST NEVER SEED AN ORIGIN. Deriving it from the
+        //    relay's own address is exactly the fake `Origin: http://192.168.x.x:34783`
+        //    the field log recorded; AnantPlay's relay discards client headers anyway
+        //    (Chromecast.java:330-341), so the only honest stage-1 request is a CLEAN
+        //    one. Stage 2 (relayOriginHeaders) supplies the real decoded upstream origin.
+        Relay rl = relay(url);
+        if (rl.isRelay) {
+            String ref = out.get("Referer");
+            if (ref != null && rl.relayOrigin != null && rl.relayOrigin.equals(originOf(ref))) {
+                out.remove("Referer");                     // a fake LAN Referer, never forward it
+            }
+        } else if (!out.containsKey("Origin")) {
             String o = originOf(out.get("Referer"));
             if (o == null) o = originOf(url);
             if (o != null) out.put("Origin", o);
@@ -228,6 +239,12 @@ final class StreamHttpConfig {
      * real Chrome sends. Deterministic, so the lab can assert it exactly.
      */
     static Map<String, String> recovery(String url, Map<String, String> first) {
+        // v3.4.1 — for an AnantPlay relay the retry is STAGE 2: the real upstream origin
+        // decoded out of the base64 segment, never the phone's LAN address. Swapping
+        // headers on a relay request is otherwise pointless — the relay only reads the
+        // request line and `Range` (Chromecast.java:330-341).
+        Relay rl = relay(url);
+        if (rl.isRelay) return relayOriginHeaders(rl, relayClean());
         LinkedHashMap<String, String> out = new LinkedHashMap<>();
         if (first != null) out.putAll(first);
         out.put("User-Agent", CHROME_UA);
@@ -281,6 +298,291 @@ final class StreamHttpConfig {
         if (at >= 0) authority = authority.substring(at + 1);          // never log credentials
         if (authority.isEmpty()) return null;
         return scheme + "://" + authority;
+    }
+
+    // ───────────────────────────────────────────────────────────────────────────
+    // v3.4.1 — THE ANANTPLAY LOCAL RELAY ENGINE (defect #1: the DLNA DASH 403)
+    // ───────────────────────────────────────────────────────────────────────────
+    //
+    // WHAT THE FIELD LOG SHOWED (v3.4.0, "Influencers"):
+    //   from dlna:http://<lan-peer>:34783/aHR0cHM6Ly9wcm94eS55ZW5pbWUubmV0/manifest.mpd?url=…&t=<b64>
+    //   first attempt  · headers=Accept, Accept-Language, Origin, User-Agent        → HTTP 403
+    //   recovery       · headers=… Origin, Referer, Sec-Fetch-*  …                 → HTTP 403
+    //
+    // WHY IT COULD NEVER WORK, proven against AnantPlay's own relay source:
+    //   · Chromecast.Relay.serve() reads ONLY the request line and `Range`
+    //     (ref-anantplay Chromecast.java:330-341). Every Origin/Referer/Sec-Fetch we
+    //     sent to the relay was discarded on arrival, so our "recovery" retry was
+    //     byte-identical to the first attempt — exactly what the phone recorded.
+    //   · Relay.open() replays the CAPTURED header map + a cookie for the unwrapped
+    //     URL (Chromecast.java:367-383). It never decodes the `t=` payload, so the
+    //     signed `Edge-Cache-Cookie` the token describes is never attached.
+    //   · Relay.serve() rewrites HLS only (`#EXTM3U`, Chromecast.java:348-354). A DASH
+    //     `.mpd` is streamed through BYTE-FOR-BYTE, so its BaseURL/SegmentTemplate
+    //     still point at the raw signed CDN — DLNA + DASH is structurally broken.
+    //
+    // So the fix cannot be another header. It has to be another REQUEST. Three of them.
+    //
+    //   Stage 1  the relay URL + clean headers (Chrome UA, Accept: */*, and NOTHING
+    //            else — no Origin, no Referer, no Sec-Fetch-*) so the relay attaches
+    //            its own upstream set with zero conflict;
+    //   Stage 2  the relay URL + Origin/Referer derived from the DECODED base64
+    //            upstream origin (https://proxy.yenime.net) — never the phone's LAN IP;
+    //   Stage 3  the DIRECT upstream URL from `url=`, carrying the token's own
+    //            `Edge-Cache-Cookie`, which bypasses the relay and its DASH hole.
+    //
+    // Everything below is pure: no Android types, no I/O, so the lab can drive it.
+
+    /** A decoded AnantPlay relay URL. {@code isRelay} false = the URL is not a relay. */
+    static final class Relay {
+        boolean isRelay;
+        /** The relay's own origin, e.g. {@code http://192.168.1.7:34783} (for logging only). */
+        String relayOrigin;
+        /** The decoded base64 origin segment, e.g. {@code https://proxy.yenime.net}. */
+        String upstreamOrigin;
+        /** The full upstream URL the relay would fetch: origin + path + query. */
+        String upstream;
+        /** The signed stream inside {@code url=}, or null when the relay URL has none. */
+        String direct;
+        /** The signed {@code Edge-Cache-Cookie=…} from the {@code t=} payload, or null. */
+        String cookie;
+        /** The {@code b} base URL from the {@code t=} payload, or null. */
+        String base;
+
+        boolean hasDirect() { return direct != null && !direct.isEmpty(); }
+    }
+
+    /** True when this URL is an AnantPlay local relay (loopback/private IP + base64 origin segment). */
+    static boolean isRelay(String url) {
+        return relay(url).isRelay;
+    }
+
+    /**
+     * Decode an AnantPlay relay URL. Safe on anything: a non-relay URL comes back with
+     * {@code isRelay == false} and every other field null.
+     *
+     * <p>Relay shape (ref-anantplay Chromecast.java:302-314):
+     * {@code http://<private-ip>:<port>/<base64url(origin)><path>?<query>}.
+     */
+    static Relay relay(String url) {
+        Relay r = new Relay();
+        if (url == null) return r;
+        String u = url.trim();
+        int se = u.indexOf("://");
+        if (se <= 0) return r;
+        String scheme = u.substring(0, se).toLowerCase(Locale.US);
+        if (!scheme.equals("http") && !scheme.equals("https")) return r;
+        int hostStart = se + 3;
+        int hostEnd = hostStart;
+        while (hostEnd < u.length()) {
+            char c = u.charAt(hostEnd);
+            if (c == '/' || c == '?' || c == '#') break;
+            hostEnd++;
+        }
+        String authority = u.substring(hostStart, hostEnd);
+        int colon = authority.lastIndexOf(':');
+        String host = colon >= 0 ? authority.substring(0, colon) : authority;
+        int port = -1;
+        if (colon >= 0) {
+            try { port = Integer.parseInt(authority.substring(colon + 1)); } catch (NumberFormatException ignored) { }
+        }
+        if (!isPrivateHost(host) || port <= 0) return r;          // a public host is never the relay
+        if (hostEnd >= u.length() || u.charAt(hostEnd) != '/') return r;
+        int segStart = hostEnd + 1;
+        int segEnd = u.indexOf('/', segStart);
+        String seg = segEnd < 0 ? u.substring(segStart) : u.substring(segStart, segEnd);
+        if (seg.isEmpty()) return r;
+        String decoded = b64Url(seg);
+        if (decoded == null || !(decoded.startsWith("http://") || decoded.startsWith("https://"))) return r;
+        r.isRelay = true;
+        r.relayOrigin = scheme + "://" + authority;
+        r.upstreamOrigin = trimSlash(decoded);
+        String rest = segEnd < 0 ? "/" : u.substring(segEnd);
+        r.upstream = r.upstreamOrigin + rest;
+        // the signed stream + its token, when the relay URL carries them
+        String q = query(rest);
+        if (q != null) {
+            r.direct = percentDecode(param(q, "url"));
+            String t = percentDecode(param(q, "t"));   // the token is percent-encoded in the relay URL
+            if (t != null) {
+                String json = b64Std(t);
+                if (json != null && json.indexOf('{') >= 0) {
+                    r.cookie = jsonString(json, "c");
+                    r.base = jsonString(json, "b");
+                }
+            }
+        }
+        return r;
+    }
+
+    /**
+     * STAGE 1 — the clean relay pass-through. A Chrome UA and {@code Accept: *}{@code /*}:
+     * no Origin, no Referer, no Sec-Fetch-*, so AnantPlay's relay attaches its own
+     * captured upstream set with nothing of ours to conflict with.
+     */
+    static Map<String, String> relayClean() {
+        LinkedHashMap<String, String> out = new LinkedHashMap<>();
+        out.put("User-Agent", CHROME_UA);
+        out.put("Accept", "*/*");
+        out.put("Accept-Language", "en-US,en;q=0.9");
+        return out;
+    }
+
+    /**
+     * STAGE 2 — the derived-upstream recovery: the SAME relay URL, but Origin and
+     * Referer come from the decoded base64 upstream origin, never from the relay's
+     * own LAN address. Returns {@code clean} unchanged when the URL is not a relay.
+     */
+    static Map<String, String> relayOriginHeaders(Relay r, Map<String, String> clean) {
+        LinkedHashMap<String, String> out = new LinkedHashMap<>();
+        if (clean != null) out.putAll(clean);
+        out.put("User-Agent", CHROME_UA);
+        out.put("Accept", "*/*");
+        if (!out.containsKey("Accept-Language")) out.put("Accept-Language", "en-US,en;q=0.9");
+        if (r != null && r.isRelay && r.upstreamOrigin != null) {
+            out.put("Origin", r.upstreamOrigin);
+            out.put("Referer", r.upstreamOrigin + "/");
+        }
+        return out;
+    }
+
+    /**
+     * STAGE 3 — the direct upstream unwrap: the signed stream from {@code url=} with the
+     * token's own {@code Edge-Cache-Cookie}, so the relay (and its DASH pass-through
+     * hole) is out of the path entirely. Origin/Referer are derived from the token's
+     * {@code b} base when it is present, else from the upstream origin.
+     */
+    static Map<String, String> directHeaders(Relay r) {
+        LinkedHashMap<String, String> out = new LinkedHashMap<>();
+        out.put("User-Agent", CHROME_UA);
+        out.put("Accept", "*/*");
+        out.put("Accept-Language", "en-US,en;q=0.9");
+        if (r == null) return out;
+        if (r.cookie != null && !r.cookie.isEmpty()) out.put("Cookie", r.cookie);
+        String org = originOf(r.base != null && !r.base.isEmpty() ? r.base : r.upstreamOrigin);
+        if (org != null) {
+            out.put("Origin", org);
+            out.put("Referer", org + "/");
+        }
+        return out;
+    }
+
+    /** The URL a stage-3 request must hit: the signed stream when we have one, else the upstream. */
+    static String directUrl(Relay r) {
+        if (r == null || !r.isRelay) return null;
+        return r.hasDirect() ? r.direct : r.upstream;
+    }
+
+    /** Loopback, link-local, or any RFC1918 private address (a LAN peer, never a CDN). */
+    static boolean isPrivateHost(String host) {
+        if (host == null || host.isEmpty()) return false;
+        String h = host.toLowerCase(Locale.US);
+        if (h.equals("localhost") || h.equals("[::1]") || h.equals("::1")) return true;
+        if (h.startsWith("[")) return true;                       // any IPv6 literal
+        String[] p = h.split("\\.");
+        if (p.length != 4) return false;
+        int[] n = new int[4];
+        for (int i = 0; i < 4; i++) {
+            try { n[i] = Integer.parseInt(p[i]); } catch (NumberFormatException e) { return false; }
+            if (n[i] < 0 || n[i] > 255) return false;
+        }
+        if (n[0] == 127) return true;                              // loopback
+        if (n[0] == 10) return true;                               // 10/8
+        if (n[0] == 172 && n[1] >= 16 && n[1] <= 31) return true;   // 172.16/12
+        if (n[0] == 192 && n[1] == 168) return true;                // 192.168/16
+        if (n[0] == 169 && n[1] == 254) return true;                // link-local
+        return false;
+    }
+
+    /** base64url (unpadded, Android's URL_SAFE|NO_WRAP|NO_PADDING) → text, or null. */
+    static String b64Url(String s) { return b64(s, true); }
+
+    /** standard base64 (padded or not) → text, or null. */
+    static String b64Std(String s) { return b64(s, false); }
+
+    private static String b64(String s, boolean urlSafe) {
+        if (s == null || s.isEmpty()) return null;
+        try {
+            String t = s.replace(' ', '+');
+            int pad = t.length() % 4;
+            if (pad != 0) { StringBuilder sb = new StringBuilder(t); for (int i = pad; i < 4; i++) sb.append('='); t = sb.toString(); }
+            byte[] raw = urlSafe ? java.util.Base64.getUrlDecoder().decode(t) : java.util.Base64.getDecoder().decode(t);
+            return new String(raw, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static String trimSlash(String s) {
+        if (s == null) return null;
+        String t = s;
+        while (t.endsWith("/")) t = t.substring(0, t.length() - 1);
+        return t;
+    }
+
+    /** The query string of a path+query tail, or null. */
+    private static String query(String pathAndQuery) {
+        if (pathAndQuery == null) return null;
+        int q = pathAndQuery.indexOf('?');
+        return q < 0 ? null : pathAndQuery.substring(q + 1);
+    }
+
+    /** One raw (still percent-encoded) query parameter, or null. */
+    static String param(String query, String name) {
+        if (query == null || name == null) return null;
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            String k = eq < 0 ? pair : pair.substring(0, eq);
+            if (!k.equals(name)) continue;
+            return eq < 0 ? "" : pair.substring(eq + 1);
+        }
+        return null;
+    }
+
+    /** Minimal %XX decoder (the token and the url= value are both percent-encoded). */
+    static String percentDecode(String s) {
+        if (s == null || s.indexOf('%') < 0) return s;
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '%' && i + 2 < s.length()) {
+                int hi = Character.digit(s.charAt(i + 1), 16), lo = Character.digit(s.charAt(i + 2), 16);
+                if (hi >= 0 && lo >= 0) { out.write((hi << 4) + lo); i += 2; continue; }
+            }
+            out.write((byte) c);
+        }
+        return new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** One string field out of a small flat JSON object ("c", "b"), with backslash-u escapes and escaped slashes unescaped. */
+    static String jsonString(String json, String key) {
+        if (json == null || key == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+            .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
+            .matcher(json);
+        if (!m.find()) return null;
+        String v = m.group(1);
+        StringBuilder sb = new StringBuilder(v.length());
+        for (int i = 0; i < v.length(); i++) {
+            char c = v.charAt(i);
+            if (c != '\\' || i + 1 >= v.length()) { sb.append(c); continue; }
+            char e = v.charAt(++i);
+            switch (e) {
+                case 'n': sb.append('\n'); break;
+                case 't': sb.append('\t'); break;
+                case 'r': sb.append('\r'); break;
+                case 'b': sb.append('\b'); break;
+                case 'f': sb.append('\f'); break;
+                case 'u':
+                    if (i + 4 < v.length()) {
+                        try { sb.append((char) Integer.parseInt(v.substring(i + 1, i + 5), 16)); i += 4; }
+                        catch (NumberFormatException ex) { sb.append("\\u"); }
+                    }
+                    break;
+                default: sb.append(e);
+            }
+        }
+        return sb.toString();
     }
 
     /**

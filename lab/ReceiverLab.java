@@ -11,6 +11,7 @@ import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -4837,6 +4838,150 @@ public class ReceiverLab {
             latest.contains("/download/v3.4.0/AnantPlay-Sinhala-Player-v3.4.0.apk"));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
+
+        // ── v3.4.1 — THE DLNA RELAY 403 LAB (the "Influencers" defect) ────────
+        relay403Lab();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.1 — v341 relay403: A REAL HTTP SERVER THAT 403s ON A LAN ORIGIN
+    //
+    // The field log (v3.4.0, "Influencers"):
+    //   first attempt  · headers=Accept, Accept-Language, Origin, User-Agent        → HTTP 403
+    //   recovery       · headers=… Origin, Referer, Sec-Fetch-*  …                 → HTTP 403
+    //
+    // This lab reproduces the rule that produced it — "a request carrying an Origin
+    // or Referer that points at the LAN address is refused" — on a real socket, and
+    // then proves all three v3.4.1 stages reach 200 OK against it.
+    // ═════════════════════════════════════════════════════════════════════════
+    static void relay403Lab() throws Exception {
+        // the exact URL shape from the phone, built from the real token payload
+        String b64o = java.util.Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("https://proxy.yenime.net".getBytes(StandardCharsets.UTF_8));
+        String tokenJson = "{\"b\":\"https://sbcdnw.hakunaymatata.com/dash/7149952989435249816_0_0_720_h265_30/\","
+            + "\"c\":\"Edge-Cache-Cookie=urlprefix=aHR0cHM6:sign=a2b6dbe2203de7bc61cd772d9a80e39d:t=1795365429\","
+            + "\"h\":\"X-MB-Token\",\"r\":{\"subjectId\":\"7149952989435249816\","
+            + "\"slug\":\"influencers-MAyBtWlRaw8\"}}";
+        String token = java.util.Base64.getEncoder().encodeToString(tokenJson.getBytes(StandardCharsets.UTF_8));
+        String direct = "https://sbcdnw.hakunaymatata.com/dash/7149952989435249816_0_0_720_h265_30/index_web.mpd";
+        String relayUrl = "http://192.168.1.7:34783/" + b64o + "/manifest.mpd?url="
+            + java.net.URLEncoder.encode(direct, StandardCharsets.UTF_8).replace("+", "%20")
+            + "&t=" + java.net.URLEncoder.encode(token, StandardCharsets.UTF_8);
+
+        // ── pure decoding ────────────────────────────────────────────────────
+        check("v341 relay403: the field relay URL is recognised as an AnantPlay relay",
+            StreamHttpConfig.isRelay(relayUrl));
+        check("v341 relay403: a loopback relay URL is recognised too",
+            StreamHttpConfig.isRelay("http://127.0.0.1:34783/" + b64o + "/x.mpd"));
+        check("v341 relay403: a public CDN URL is NEVER mistaken for a relay",
+            !StreamHttpConfig.isRelay(direct)
+                && !StreamHttpConfig.isRelay("http://8.8.8.8:34783/" + b64o + "/x.mpd"));
+        StreamHttpConfig.Relay r = StreamHttpConfig.relay(relayUrl);
+        check("v341 relay403: the base64 segment decodes to the real upstream origin",
+            "https://proxy.yenime.net".equals(r.upstreamOrigin), r.upstreamOrigin);
+        check("v341 relay403: the signed stream inside url= is unwrapped",
+            direct.equals(r.direct), r.direct);
+        check("v341 relay403: the t= token yields its Edge-Cache-Cookie",
+            r.cookie != null && r.cookie.startsWith("Edge-Cache-Cookie=urlprefix="), r.cookie);
+        check("v341 relay403: the t= token yields its b= base URL",
+            r.base != null && r.base.startsWith("https://sbcdnw.hakunaymatata.com/"), r.base);
+        check("v341 relay403: stage 3 targets the signed upstream, not the relay",
+            direct.equals(StreamHttpConfig.directUrl(r)));
+
+        // ── the header contracts ─────────────────────────────────────────────
+        Map<String, String> s1 = StreamHttpConfig.relayClean();
+        check("v341 relay403: stage 1 sends NO Origin (the fake LAN origin is gone)",
+            !s1.containsKey("Origin"));
+        check("v341 relay403: stage 1 sends NO Referer", !s1.containsKey("Referer"));
+        check("v341 relay403: stage 1 sends NO Sec-Fetch-* triple",
+            !s1.containsKey("Sec-Fetch-Dest") && !s1.containsKey("Sec-Fetch-Mode")
+                && !s1.containsKey("Sec-Fetch-Site"));
+        check("v341 relay403: stage 1 still sends a real Chrome UA + Accept",
+            s1.get("User-Agent") != null && s1.get("User-Agent").contains("Chrome/")
+                && "*/*".equals(s1.get("Accept")));
+        Map<String, String> s2 = StreamHttpConfig.relayOriginHeaders(r, s1);
+        check("v341 relay403: stage 2 derives Origin from the DECODED upstream, never the LAN IP",
+            "https://proxy.yenime.net".equals(s2.get("Origin")) && !s2.toString().contains("192.168"));
+        check("v341 relay403: stage 2 derives the matching Referer",
+            "https://proxy.yenime.net/".equals(s2.get("Referer")));
+        Map<String, String> s3 = StreamHttpConfig.directHeaders(r);
+        check("v341 relay403: stage 3 carries the token's Edge-Cache-Cookie",
+            s3.get("Cookie") != null && s3.get("Cookie").contains("sign="));
+        check("v341 relay403: stage 3 points Origin at the CDN from b=",
+            "https://sbcdnw.hakunaymatata.com".equals(s3.get("Origin")));
+        check("v341 relay403: normalize() no longer invents a LAN Origin for a relay URL",
+            !StreamHttpConfig.normalize("{}", null, relayUrl).containsKey("Origin"));
+        check("v341 relay403: normalize() drops a fake LAN Referer handed in by the cast",
+            !StreamHttpConfig.normalize("{\"Referer\":\"http://192.168.1.7:34783/\"}", null, relayUrl)
+                .containsKey("Referer"));
+        check("v341 relay403: recovery() on a relay URL IS stage 2 (real upstream origin)",
+            "https://proxy.yenime.net".equals(StreamHttpConfig.recovery(relayUrl, s1).get("Origin")));
+        check("v341 relay403: recovery() on a normal CDN still sends the Sec-Fetch triple",
+            "cross-site".equals(StreamHttpConfig.recovery("https://cdn.example/a.m3u8", null)
+                .get("Sec-Fetch-Site")));
+
+        // ── the LIVE server: 403 on a LAN Origin/Referer, 200 otherwise ──────
+        com.sun.net.httpserver.HttpServer srv =
+            com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        srv.createContext("/", ex -> {
+            String origin = ex.getRequestHeaders().getFirst("Origin");
+            String referer = ex.getRequestHeaders().getFirst("Referer");
+            String cookie = ex.getRequestHeaders().getFirst("Cookie");
+            String path = ex.getRequestURI().getPath();
+            boolean lanOrigin = (origin != null && origin.contains("127.0.0.1"))
+                || (referer != null && referer.contains("127.0.0.1"));
+            int code;
+            String body;
+            if (path.startsWith("/cdn/")) {
+                // the CDN rule: the signed Edge-Cache-Cookie must be present
+                boolean signed = cookie != null && cookie.contains("sign=");
+                code = signed ? 200 : 403;
+                body = signed ? "<?xml version=\"1.0\"?><MPD/>" : "signed cookie missing";
+            } else {
+                code = lanOrigin ? 403 : 200;      // the relay rule from the field log
+                body = lanOrigin ? "lan origin refused" : "<?xml version=\"1.0\"?><MPD/>";
+            }
+            byte[] b = body.getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(code, b.length);
+            try (OutputStream o = ex.getResponseBody()) { o.write(b); }
+        });
+        srv.start();
+        try {
+            String base = "http://127.0.0.1:" + srv.getAddress().getPort();
+            // the bug, reproduced: a LAN Origin is refused
+            check("v341 relay403: THE BUG — a LAN Origin is refused with HTTP 403",
+                get(base + "/aHR0/manifest.mpd", Collections.singletonMap("Origin", "http://127.0.0.1:34783")) == 403);
+            // stage 1
+            check("v341 relay403: STAGE 1 clean pass-through → HTTP 200 OK",
+                get(base + "/aHR0/manifest.mpd", s1) == 200);
+            // stage 2
+            check("v341 relay403: STAGE 2 decoded-upstream Origin → HTTP 200 OK",
+                get(base + "/aHR0/manifest.mpd", s2) == 200);
+            // stage 3
+            check("v341 relay403: stage 3 against a signed CDN without the cookie → 403 (control)",
+                get(base + "/cdn/index_web.mpd", s1) == 403);
+            check("v341 relay403: STAGE 3 direct unwrap + Edge-Cache-Cookie → HTTP 200 OK",
+                get(base + "/cdn/index_web.mpd", s3) == 200);
+        } finally {
+            srv.stop(0);
+        }
+    }
+
+    /** One GET with an explicit header map; returns the status code (0 on failure). */
+    static int get(String url, Map<String, String> headers) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(5000);
+            for (Map.Entry<String, String> e : headers.entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
+            int code = c.getResponseCode();
+            InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+            if (in != null) { byte[] buf = new byte[4096]; while (in.read(buf) > 0) { } in.close(); }
+            c.disconnect();
+            return code;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
 }
