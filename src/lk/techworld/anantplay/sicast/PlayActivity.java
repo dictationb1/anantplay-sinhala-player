@@ -1366,10 +1366,13 @@ public class PlayActivity extends Activity {
             if (subLayer != null) {
                 if (subLayer.getAlpha() < 1f) { subLayer.setAlpha(1f); fixed = true; }
                 if (subLayer.getVisibility() != View.VISIBLE) { subLayer.setVisibility(View.VISIBLE); fixed = true; }
-                if (subLayer.getParent() instanceof View) {
-                    View host = (View) subLayer.getParent();
-                    if (host.indexOfChild(subLayer) < host.getChildCount() - 1) {
-                        subLayer.bringToFront(); fixed = true;   // above the video surface
+                {
+                    // v3.4.1 — indexOfChild/getChildCount live on ViewGroup, not View
+                    if (subLayer.getParent() instanceof android.view.ViewGroup) {
+                        android.view.ViewGroup host = (android.view.ViewGroup) subLayer.getParent();
+                        if (host.indexOfChild(subLayer) < host.getChildCount() - 1) {
+                            subLayer.bringToFront(); fixed = true;   // above the video surface
+                        }
                     }
                 }
             }
@@ -1603,7 +1606,7 @@ public class PlayActivity extends Activity {
                         firstCueRendered = true;
                         if (subView != null && (subView.getAlpha() < 1f
                                 || (subLayer != null && subLayer.getVisibility() != View.VISIBLE))) {
-                            main.post(this::repairSubtitleView);
+                            main.post(PlayActivity.this::repairSubtitleView);
                         }
                         Diag.i("subs", "first cue rendered \u2713 at " + pos + " ms ("
                             + (hit.si != null && !hit.si.isEmpty() ? "si" : "en") + ")");
