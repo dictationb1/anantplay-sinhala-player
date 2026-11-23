@@ -1,4 +1,18 @@
-# AnantPlay Sinhala Player (SI Cast Receiver) v3.4.2
+# AnantPlay Sinhala Player (SI Cast Receiver) v3.4.3
+
+> **v3.4.3 — ZERO-DEFECT HARDENING: 5-STAGE FIRST-LAUNCH ONBOARDING · P0 MEDIA3/WEBVIEW
+> SECURITY · WATCH-HISTORY CREDENTIAL HYGIENE · SIMPLE/ADVANCED SETTINGS ·
+> LIVE-TESTED SUBTITLE ORDER · 1,181/1,181 CI LAB.**
+> A brand-new user is set up in 30 seconds by a five-stage wizard (Welcome →
+> Notifications → Auto-open on Cast → Background stability → Connect AnantPlay +
+> a real 10-point check) that explains before it asks and never traps anyone in a
+> loop. The cast cookie is now origin-scoped instead of a Media3 default request
+> property, an authenticated HTTPS request can no longer be silently downgraded to
+> plaintext, the WebView blocks mixed content by default, and its Blob subtitle
+> bridge is capped, same-origin and gesture-gated. Watch history no longer stores a
+> Cookie or Authorization and knows when an AnantPlay LAN relay has expired. Settings
+> opens with five Quick controls and folds the rest into Advanced; the subtitle
+> provider order is now the live-HTTP-tested one (`https://subz.lk/` first tier).
 
 > **v3.4.2 — CLEAN-ENGLISH FLAGSHIP UI · CONTINUE WATCHING · CINEMA PLAYER FIXES ·
 > 10 SOURCES FOR SINHALA SUBTITLES · 1,101/1,101 CI LAB.**

@@ -78,9 +78,48 @@ public final class FreeSubTranslator {
         List<String> out = new ArrayList<>();
         for (int i = from; i <= to && i < cues.size(); i++) {
             String t = cues.get(i).en == null || cues.get(i).en.isEmpty() ? cues.get(i).si : cues.get(i).en;
-            out.add((i - from + 1) + " " + (t == null ? "" : t.replace('\n', ' ').trim()));
+            out.add((i - from + 1) + " " + maskJoiners(t == null ? "" : t.replace('\n', ' ').trim()));
         }
         return out;
+    }
+
+    // ══ v3.4.3 — SINHALA JOINER PRESERVATION (Replit QA-1460) ═════════════════
+    // Sinhala's conjuncts depend on U+200D ZWJ and U+200C ZWNJ. A machine-translation
+    // round trip silently DROPS them (they are zero-width control characters), which
+    // turns a correct conjunct into a broken one — a wrong letter, not a style choice.
+    // They are masked to private-use code points before the request and restored after
+    // it, so the transport can never eat them.
+    static final char ZWJ = '\u200D';
+    static final char ZWNJ = '\u200C';
+    static final char ZWJ_MASK = '\uE000';
+    static final char ZWNJ_MASK = '\uE001';
+
+    /** Replace ZWJ/ZWNJ with private-use placeholders before sending. */
+    static String maskJoiners(String s) {
+        if (s == null || s.isEmpty()) return s == null ? "" : s;
+        return s.replace(ZWJ, ZWJ_MASK).replace(ZWNJ, ZWNJ_MASK);
+    }
+
+    /** Restore ZWJ/ZWNJ after the reply comes back (idempotent, never throws). */
+    static String unmaskJoiners(String s) {
+        if (s == null || s.isEmpty()) return s == null ? "" : s;
+        return s.replace(ZWJ_MASK, ZWJ).replace(ZWNJ_MASK, ZWNJ);
+    }
+
+    /** True when the text still carries its Sinhala joiners (the lab's assertion). */
+    static boolean joinersIntact(String original, String after) {
+        if (original == null || after == null) return false;
+        int z = 0, n = 0;
+        for (int i = 0; i < original.length(); i++) {
+            if (original.charAt(i) == ZWJ) z++;
+            if (original.charAt(i) == ZWNJ) n++;
+        }
+        int az = 0, an = 0;
+        for (int i = 0; i < after.length(); i++) {
+            if (after.charAt(i) == ZWJ) az++;
+            if (after.charAt(i) == ZWNJ) an++;
+        }
+        return az >= z && an >= n;
     }
 
     /** Split a translated multi-line reply back onto the batch indices.
@@ -107,7 +146,7 @@ public final class FreeSubTranslator {
                 idx = position;
             }
             if (idx >= 0 && idx < batchCount && (out[idx] == null || out[idx].isEmpty())) {
-                out[idx] = line;
+                out[idx] = unmaskJoiners(line);   // v3.4.3 — restore ZWJ/ZWNJ
             }
             position++;
         }
@@ -264,9 +303,15 @@ public final class FreeSubTranslator {
                 }
             }
             if (reply == null) {
-                // hard failure: keep the ORIGINAL text, stop asking
+                // ══ v3.4.3 — NEVER WIPE THE ENGLISH ON A TRANSLATION FAILURE ══
+                // `out` still holds every original cue (the loop only ever REPLACES a
+                // cue after a successful decode), and complete stays false, so the
+                // player keeps showing the loaded English instead of an error card.
+                // This is asserted by the lab: a dead endpoint must return the input.
                 r.error = last == null ? "no reply" : last.getMessage();
-                break;
+                r.cues = out;
+                r.complete = false;
+                return r;
             }
             String[] decoded = decodeBatch(reply, encoded.size());
             for (int i = 0; i < decoded.length; i++) {

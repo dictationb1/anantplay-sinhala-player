@@ -312,6 +312,78 @@ public class PlayActivity extends Activity {
     private LinearLayout errorCard;
     private String lastErrorMsg = "";
 
+    // ══ v3.4.3 — CAST SESSION CORRELATION (Replit QA-0016 / QA-0024) ══════════
+    /** The duplicate-retry window: the same Cast/DLNA payload inside this many
+     *  milliseconds is a RETRY, not a new stream (official AnantPlay re-posts /play
+     *  and the DLNA SetAVTransportURI arrives twice on some renderers). */
+    static final long DUP_CAST_MS = CastPolicy.DUP_CAST_MS;
+
+    /** Monotonic across the whole process: every accepted cast opens a new session. */
+    private static final java.util.concurrent.atomic.AtomicInteger CAST_SESSIONS =
+        new java.util.concurrent.atomic.AtomicInteger(0);
+
+    /** THIS playback's session id (0 = not yet correlated). */
+    private volatile int castSessionId;
+    /** The last accepted cast payload identity + when it landed. */
+    private volatile String lastCastKey = "";
+    private volatile long lastCastAtMs;
+
+    /**
+     * v3.4.3 — IS THIS CAST A DUPLICATE RETRY? (pure, so the lab proves it)
+     *
+     * <p>The identity is the payload itself (cast JSON, else URL). The SAME identity
+     * inside {@link #DUP_CAST_MS} is the remote retrying itself — v3.4.2 released the
+     * live player and rebuilt it for that, which is the audible "double audio / stutter
+     * on every cast" the audit recorded. A different identity, or the same one after
+     * the window, is a real new cast.
+     */
+    static boolean isDuplicateCast(String key, long nowMs, String lastKey, long lastAtMs) {
+        // the rule itself lives in the pure CastPolicy so the lab can prove it
+        return CastPolicy.isDuplicateCast(key, nowMs, lastKey, lastAtMs);
+    }
+
+    /** The payload identity used for duplicate detection (cast JSON, else URL). */
+    private static String castKeyOf(String castJson, String url) {
+        if (castJson != null && !castJson.trim().isEmpty()) return "c:" + castJson.trim();
+        if (url != null && !url.trim().isEmpty()) return "u:" + url.trim();
+        return "";
+    }
+
+    /**
+     * Accept or reject an incoming cast for THIS activity instance.
+     *
+     * <p>On acceptance it opens a NEW session id — which is what immediately makes every
+     * in-flight subtitle fetch, recovery retry and delayed task from the previous
+     * session stale (they all compare {@code fetchGen} / the session they started in).
+     */
+    private boolean acceptCast(String key) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (isDuplicateCast(key, now, lastCastKey, lastCastAtMs)) {
+            Diag.i("player", "duplicate cast ignored (retry within " + DUP_CAST_MS + " ms)");
+            Troubleshooter.record("CAST", "duplicate cast retry ignored — session " + castSessionId);
+            return false;
+        }
+        lastCastKey = key;
+        lastCastAtMs = now;
+        castSessionId = CAST_SESSIONS.incrementAndGet();
+        Diag.i("player", "cast session " + castSessionId + " accepted");
+        Troubleshooter.record("CAST", "session " + castSessionId + " accepted");
+        return true;
+    }
+
+    /** This playback's cast session id (0 before the first accepted cast). */
+    int castSessionId() { return castSessionId; }
+
+    /** The path part of a URL ("…/x/y.m4s"), for a log line that carries no query. */
+    private static String pathOf(String url) {
+        if (url == null) return "";
+        int se = url.indexOf("://");
+        int slash = url.indexOf('/', se < 0 ? 0 : se + 3);
+        if (slash < 0) return "/";
+        int q = url.indexOf('?', slash);
+        return q < 0 ? url.substring(slash) : url.substring(slash, q);
+    }
+
     // ───────────────────────────────────────────────────────────────────────────
     // lifecycle
     // ───────────────────────────────────────────────────────────────────────────
@@ -322,6 +394,8 @@ public class PlayActivity extends Activity {
         currentInstance = this;
         snapshot = ReceiverServer.loadingJson();
         prefs = getSharedPreferences("sicast", MODE_PRIVATE);
+        // v3.4.3 — the player's chrome follows the UI language too (zero Sinhala leaks).
+        Chrome.setUiLang(AppPrefs.uiLang(prefs));
         // v2.2: the user's default subtitle language (si default)
         activeLang = Langs.isKnown(prefs.getString("defaultLang", null)) ? prefs.getString("defaultLang", Langs.DEFAULT) : Langs.DEFAULT;
         store = new SubtitleStore(getFilesDir());
@@ -330,6 +404,10 @@ public class PlayActivity extends Activity {
         siFont = UiTokens.si(this, false);
         siFontSemi = UiTokens.si(this, true);
         parseIntent();
+        // v3.4.3 — the FIRST cast of this instance opens session 1 (a later /play retry
+        // is then correctly classified as a duplicate instead of rebuilding the player).
+        acceptCast(castKeyOf(getIntent() == null ? null : getIntent().getStringExtra("castJson"),
+            url));
         recoverTitleFromCast();   // v3.4.1 — a junk title may still carry the real slug
         if (url == null) {          // nothing playable arrived — leave cleanly, no half UI
             finish();
@@ -351,9 +429,9 @@ public class PlayActivity extends Activity {
         // Cinemeta: the pill immediately becomes the 1-tap title-search entry.
         if (!testMode) {
             if (titleIsJunk) {
-                setState("not-found", "චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name");
+                setState("not-found", Chrome.pick("චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name"));
             } else {
-                setState("fetching", "සිංහල උපසිරැසි ලබාගනිමින්… · fetching Sinhala subtitles…");
+                setState("fetching", Chrome.pick("සිංහල උපසිරැසි ලබාගනිමින්… · fetching Sinhala subtitles…"));
             }
         }
         main.postDelayed(() -> { expectTakeover = false; armAutoPip(); }, 3000);   // PiP only after the hand-over
@@ -502,12 +580,35 @@ public class PlayActivity extends Activity {
         String oldCast = getIntent().getStringExtra("castJson");
         setIntent(i);
         if (newCast != null && newCast.equals(oldCast == null ? "" : oldCast)) return;   // same cast again
+        // ══ v3.4.3 — P0 FIX #5: STRICT IDEMPOTENCE FOR A CAST RETRY (QA-0016) ══════
+        // AnantPlay's Remote re-posts the SAME /play payload (and a DLNA renderer can
+        // send SetAVTransportURI twice). v3.4.2 released the live player and rebuilt it
+        // for that retry — a visible stutter, a fresh subtitle fetch and a new session.
+        // A retry of the SAME payload inside 2 s is now a no-op: the stream that is
+        // already playing stays untouched.
+        if (!acceptCast(castKeyOf(newCast, newUrl))) return;
         // v3.1.0 (Bug 2 hardening): a malformed re-cast must never kill the
         // player that is already running — parse defensively, keep the old
         // stream alive when the new payload does not produce a playable url.
         try {
-            Diag.i("player", "re-targeted by a new cast — reloading");
+            Diag.i("player", "re-targeted by a new cast (session " + castSessionId + ") — reloading");
             String prevUrl = url;
+            // v3.4.3 — CANCEL EVERY TASK FROM THE OLDER SESSION FIRST (QA-0016): the
+            // in-flight subtitle fetch, the Cinema-Polish re-check, the delayed HUD/PiP
+            // armers and any pending recovery retry all belong to the previous cast.
+            // Bumping fetchGen + clearing the handler queue is what makes "cancelled"
+            // true rather than merely no-op'd by a flag.
+            fetchGen++;
+            fetching = false;
+            polishWatchToken = null;
+            polishHotSwapped = false;
+            triedHeaderRecovery = false;
+            relayStage = 0;
+            holdUntil = 0;
+            resumeApplied = false;
+            // Clearing the queue kills the 4 Hz ticker too, so it is re-armed right
+            // after (the HUD clock must keep running across a re-cast).
+            if (main != null) { main.removeCallbacksAndMessages(null); startTicker(); }
             if (player != null) { try { player.release(); } catch (Throwable ignored) { } player = null; }
             cues = new ArrayList<>();
             enFallbackOn = false;
@@ -632,22 +733,65 @@ public class PlayActivity extends Activity {
             Map<String, String> headers = new LinkedHashMap<>(httpHeaders);
             String ua = headers.remove("User-Agent");
             if (ua == null || ua.trim().isEmpty()) ua = StreamHttpConfig.CHROME_UA;
+            // ══ v3.4.3 — P0 FIX #1 (Replit QA-0017): THE COOKIE IS NEVER A GLOBAL DEFAULT ══
+            // A DefaultHttpDataSource "default request property" is attached to EVERY
+            // request the factory makes — playlist, segments, and the segments a
+            // DIFFERENT CDN host serves. v3.4.2 therefore replayed the cast's Origin-A
+            // Cookie to whatever Host B the manifest pointed at. The cookie is lifted
+            // out of the defaults here and re-attached per request below, and only
+            // when the request host really is the origin host.
+            final String castCookie = headers.remove("Cookie");
+            final String originUrl = url;                       // the host the cookie belongs to
+            final boolean credentials = StreamHttpConfig.hasCredentials(headers)
+                || (castCookie != null && !castCookie.trim().isEmpty());
             Troubleshooter.record("HTTP", (relayInfo.isRelay ? "relay stage " + relayStage :
                     triedHeaderRecovery ? "recovery" : "first") + " attempt · url="
-                + hostOf(url) + " · headers=" + StreamHttpConfig.describe(httpHeaders));
+                + hostOf(url) + " · headers=" + StreamHttpConfig.describe(httpHeaders)
+                + " · cookie=" + (castCookie == null || castCookie.trim().isEmpty()
+                    ? "none" : "origin-scoped to " + hostOf(originUrl)));
 
             DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
                 .setUserAgent(ua)
-                .setDefaultRequestProperties(headers)
+                .setDefaultRequestProperties(headers)       // v3.4.3: NO Cookie in here, ever
                 .setConnectTimeoutMs(15000)
                 .setReadTimeoutMs(30000)
-                .setAllowCrossProtocolRedirects(true);
-            // the per-host cookie: exactly official PlayerActivity.java:1099-1103
+                // v3.4.3 — P0 FIX #2 (Replit QA-0018): an authenticated HTTPS request may
+                // not be redirected across protocols, so it can never be silently
+                // downgraded to plaintext HTTP with its Cookie/Authorization attached.
+                // The plaintext LAN relay (http://192.168.x.x:port) keeps the ability to
+                // upgrade to the real upstream, which is what makes it work at all.
+                .setAllowCrossProtocolRedirects(
+                    StreamHttpConfig.allowCrossProtocolRedirects(url, credentials));
+            // v3.4.3 — THE PER-HOST COOKIE LAYER (the leak fix, in one place):
+            //   · the WebView's own cookie for THIS request host, always (official
+            //     PlayerActivity.java:1099-1103 behaviour, unchanged);
+            //   · the cast's origin cookie ONLY when this request host is the validated
+            //     origin host or a same-site suffix of it (StreamHttpConfig.scopedCookie),
+            //     so Origin A's credential can never reach an unrelated Host B.
+            final boolean viaRelay = relayInfo != null && relayInfo.isRelay;
             DataSource.Factory cookieLayer = new ResolvingDataSource.Factory(http, spec -> {
                 try {
-                    String ck = CookieManager.getInstance().getCookie(spec.uri.toString());
-                    if (ck == null || ck.isEmpty()) return spec;
-                    return spec.withAdditionalHeaders(Collections.singletonMap("Cookie", ck));
+                    // v3.4.3 — QA-0025: a DASH/HLS segment the manifest referenced
+                    // RELATIVELY lands on the relay host WITHOUT the base64 origin
+                    // segment, so the relay cannot know what to fetch. Re-insert it.
+                    if (viaRelay) {
+                        String rebased = StreamHttpConfig.rebaseOntoRelay(url, spec.uri.toString());
+                        if (rebased != null && !rebased.equals(spec.uri.toString())) {
+                            spec = spec.withUri(Uri.parse(rebased));
+                            Diag.i("player", "relay-relative segment re-based: "
+                                + hostOf(rebased) + pathOf(rebased));
+                        }
+                    }
+                    final String reqUrl = spec.uri.toString();
+                    String ck = CookieManager.getInstance().getCookie(reqUrl);
+                    String scoped = StreamHttpConfig.scopedCookie(reqUrl, originUrl, castCookie);
+                    if (scoped.isEmpty()) {
+                        if (ck == null || ck.isEmpty()) return spec;
+                        return spec.withAdditionalHeaders(Collections.singletonMap("Cookie", ck));
+                    }
+                    String merged = (ck == null || ck.isEmpty()) ? scoped
+                        : (ck.contains(scoped) ? ck : ck + "; " + scoped);
+                    return spec.withAdditionalHeaders(Collections.singletonMap("Cookie", merged));
                 } catch (Throwable t) { return spec; }
             });
             DefaultDataSource.Factory data = new DefaultDataSource.Factory(this, cookieLayer);
@@ -777,7 +921,7 @@ public class PlayActivity extends Activity {
                     if (saved > 10000 && (dur <= 0 || saved < dur - 15000)) {
                         player.seekTo(saved);
                         startAt = saved;
-                        flash("↻ " + ReceiverServer.clock(saved) + " සිට · resumed");
+                        flash("↻ " + ReceiverServer.clock(saved) + Chrome.pick(" සිට · resumed"));
                     }
                 } catch (Throwable ignored) { }
             }
@@ -794,7 +938,16 @@ public class PlayActivity extends Activity {
         // v3.4.1 — THE TRANSITIONING HOLD. While the startup grace, a buffer or an
         // automatic 403 stage is in flight, answer the LOADING shape: the remote then
         // renders TRANSITIONING and never decides the TV stopped (defect #2).
-        if (SystemClock.uptimeMillis() < holdUntil) return ReceiverServer.loadingJson();
+        long now = SystemClock.uptimeMillis();
+        // v3.4.3 — BOUNDED recovery (QA-0024): TRANSITIONING is honest while a stage is
+        // running, but never past RECOVERY_CAP_MS. After that the stream really is gone.
+        if (recovering() && recoveryDeadline > 0 && now > recoveryDeadline) {
+            Diag.w("player", "recovery exceeded " + RECOVERY_CAP_MS + " ms — reporting idle");
+            Troubleshooter.record("HTTP", "recovery bound reached — reporting NO_MEDIA_PRESENT");
+            recoveryDeadline = 0;
+            return ReceiverServer.idleJson();
+        }
+        if (now < holdUntil) return ReceiverServer.loadingJson();
         if (player == null) return ReceiverServer.idleJson();
         // a player that is IDLE *after* the hold means every stage genuinely failed
         if (player.getPlaybackState() == Player.STATE_IDLE) return ReceiverServer.idleJson();
@@ -805,6 +958,13 @@ public class PlayActivity extends Activity {
 
     /** Extend the TRANSITIONING hold (called on every stage start and on BUFFERING). */
     private void hold() { holdUntil = SystemClock.uptimeMillis() + HOLD_MS; }
+
+    /** v3.4.3 — the hard bound on the whole recovery ladder (stage 2 → 3 → retry). */
+    static final long RECOVERY_CAP_MS = 60000L;
+    private long recoveryDeadline;
+
+    /** True while an automatic 403 stage or header-recovery retry is in flight. */
+    private boolean recovering() { return relayStage >= 2 || triedHeaderRecovery; }
 
     String castAction(String a, long to) {
         if (player == null) return ReceiverServer.idleJson();
@@ -1040,7 +1200,7 @@ public class PlayActivity extends Activity {
                         if (myGen != fetchGen) return;
                         if (subUrl == null || !(subUrl.startsWith("http://") || subUrl.startsWith("https://"))) continue;
                         try {
-                            setState("fetching", "cast subtitle ලබාගනිමින්… · fetching the cast's own subtitle…", myGen);
+                            setState("fetching", Chrome.pick("cast subtitle ලබාගනිමින්… · fetching the cast's own subtitle…"), myGen);
                             byte[] raw = httpGet(subUrl, null);
                             List<Cue> enCues = SrtLoader.load(raw, "cast.srt");
                             if (enCues.size() < 8) continue;   // not a real track
@@ -1051,7 +1211,7 @@ public class PlayActivity extends Activity {
                                 saveCues(key, enCues);
                                 return;
                             }
-                            setState("fetching", "cast subtitle පරිවර්තනය වෙමින්… · translating the cast's subtitle…", myGen);
+                            setState("fetching", Chrome.pick("cast subtitle පරිවර්තනය වෙමින්… · translating the cast's subtitle…"), myGen);
                             Map<String, Object> job = api.subsDirect(CueText.of(enCues), title, activeLang, registerOverride);
                             String token = tokenOf(job);
                             if (pollToDone(token, myGen)) {
@@ -1080,7 +1240,7 @@ public class PlayActivity extends Activity {
                     // v3.2.0: JUNK TITLES NEVER REACH CINEMETA (the raw-JSON banner
                     // fix): "ArrowTV Player" and friends open the title-search pill.
                     if (titleIsJunk || TitleCleaner.isJunkTitle(title)) {
-                        setState("not-found", "චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name", myGen);
+                        setState("not-found", Chrome.pick("චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name"), myGen);
                         return;   // NEVER "no Cinemeta match for: ArrowTV Player"
                     }
                     TitleCleaner.Clean cleaned = TitleCleaner.clean(title);
@@ -1101,7 +1261,7 @@ public class PlayActivity extends Activity {
                         + (cleaned.year != null ? " (" + cleaned.year + ")" : "")
                         + " · /api/resolve " + (r == null ? "no-match" : "ok imdb=" + String.valueOf(r.get("imdb"))));
                     if (r == null) {
-                        setState("not-found", "Cinemeta couldn't match \"" + lookupTitle + "\" — the title search helps · නම සොයන්න", myGen);
+                        setState("not-found", "Cinemeta couldn't match \"" + lookupTitle + Chrome.pick("\" — the title search helps · නම සොයන්න"), myGen);
                         fallbackEnglishTrack();
                         return;
                     }
@@ -1120,7 +1280,7 @@ public class PlayActivity extends Activity {
                         return;
                     }
                     if ("not-found".equals(status)) {
-                        setState("not-found", "මෙම තේමාවට උපසිරැසි හමු නොවීය — local .srt loader එක බාවිතා කරන්න · "
+                        setState("not-found", Chrome.pick("මෙම තේමාවට උපසිරැසි හමු නොවීය — local .srt loader එක බාවිතා කරන්න · ")
                             + "no subtitles found — use the local .srt loader", myGen);
                         fallbackEnglishTrack();
                         return;
@@ -1207,7 +1367,7 @@ public class PlayActivity extends Activity {
     /** The free translator core (thread context, gen-guarded). */
     private boolean freeTranslate(List<Cue> source, String key, int myGen, String how) {
         try {
-            setState("fetching", "නොමිලේ පරිවර්තනය (බිලක් නැති) වෙමින්… · free keyless translation…", myGen);
+            setState("fetching", Chrome.pick("නොමිලේ පරිවර්තනය (බිලක් නැති) වෙමින්… · free keyless translation…"), myGen);
             FreeSubTranslator.Result r = FreeSubTranslator.translate(getFilesDir(), source, activeLang, ms -> {
                 try { Thread.sleep(ms); } catch (InterruptedException ignored) { }
             });
@@ -1264,7 +1424,7 @@ public class PlayActivity extends Activity {
         final int myGen = fetchGen;
         new Thread(() -> {
             if (freeTranslateCurrentCues(null, myGen, "manual")) return;
-            setState("error", "පරිවර්තනය අසාර්ථක — නැවත උත්සාහ කරන්න · free translation failed — retry", myGen);
+            setState("error", Chrome.pick("පරිවර්තනය අසාර්ථක — නැවත උත්සාහ කරන්න · free translation failed — retry"), myGen);
         }, "si-free").start();
     }
 
@@ -1427,7 +1587,7 @@ public class PlayActivity extends Activity {
                 // download. This is the layer that makes "never fail" literally true.
                 liveTranslateOn = true;
                 setState(state, stateDetail
-                    + " · stream CC → සිංහල live (Layer 4) · tap for the subtitles sheet");
+                    + Chrome.pick(" · stream CC → සිංහල live (Layer 4) · tap for the subtitles sheet"));
                 Diag.i("subs", "Layer 4 ON — embedded stream captions will be translated live");
                 Troubleshooter.record("SUBS", "Layer 4 enabled: the stream's own text track is on, "
                     + "each line translated to Sinhala on the fly (in-memory cache, 400 lines)");
@@ -1535,7 +1695,7 @@ public class PlayActivity extends Activity {
     /** Free-translate a SPECIFIC cue list (the local-file path). */
     private void manualFreeTranslateWith(List<Cue> source, String name) {
         final int myGen = fetchGen;
-        setState("fetching", "නොමිලේ පරිවර්තනය වෙමින්… · free keyless translation…");
+        setState("fetching", Chrome.pick("නොමිලේ පරිවර්තනය වෙමින්… · free keyless translation…"));
         new Thread(() -> {
             if (freeTranslate(source, null, myGen, "local:" + name)) return;
             applyCues(source, "local " + name + " (source track)");
@@ -1588,7 +1748,7 @@ public class PlayActivity extends Activity {
             polishWatchToken = null;
             main.post(() -> {
                 cues = got;                       // SubtitleStore swap without touching playback
-                setState(state, "Cinema Polish Ready · සිනමා ප්‍රඥප්තිය සූදානම්");
+                setState(state, Chrome.pick("Cinema Polish Ready · සිනමා ප්‍රඥප්තිය සූදානම්"));
                 Diag.i("subs", "cinema polish hot-swapped (" + got.size() + " cues)");
             });
             saveCues(key, got);
@@ -2159,17 +2319,17 @@ public class PlayActivity extends Activity {
         p.setBackground(bg);
         p.setPadding(dp(14), dp(12), dp(14), dp(12));
 
-        p.addView(label("අකුරේ ප්‍රමාණය · Font size"));
+        p.addView(label(Chrome.pick("අකුරේ ප්‍රමාණය · Font size")));
         p.addView(step("−", "+", () -> fontSp(-1), () -> fontSp(1)));
-        p.addView(label("පසුබිම් අඳුන · Mask"));
+        p.addView(label(Chrome.pick("පසුබිම් අඳුන · Mask")));
         p.addView(step("−", "+", () -> mask(-10), () -> mask(10)));
-        p.addView(label("කාල ගැලපුම · Sync nudge"));
+        p.addView(label(Chrome.pick("කාල ගැලපුම · Sync nudge")));
         p.addView(step("−1s", "+1s", () -> nudge(-1000), () -> nudge(1000)));
         final long syncStep = AppPrefs.syncStepMs(prefs);      // v3.1.0: 0.1/0.25/0.5 s
         final String syncLabel = syncStep >= 1000 ? "1s" : (syncStep / 1000f) + "s";
         p.addView(step("−" + syncLabel, "+" + syncLabel, () -> nudge(-syncStep), () -> nudge(syncStep)));
 
-        Button retry = btn("නැවත ලබාගන්න · Refetch subs");
+        Button retry = btn(Chrome.pick("නැවත ලබාගන්න · Refetch subs"));
         retry.setOnClickListener(v -> { panel.setVisibility(View.GONE); fetchSinhala(); });
         p.addView(retry);
 
@@ -2211,7 +2371,7 @@ public class PlayActivity extends Activity {
         // SubDL / OpenSubtitles + a DuckDuckGo fallback). One tap opens the app's
         // Web tab on that site's real search for THIS movie; every .zip/.srt the
         // user then taps is captured, unzipped and attached to this very player.
-        Button lk = btn(R.drawable.ic_srilanka_sub, "Find Sinhala Sub (SL sites) · සිංහල සොයන්න");
+        Button lk = btn(R.drawable.ic_srilanka_sub, Chrome.pick("Find Sinhala Sub (SL sites) · සිංහල සොයන්න"));
         lk.setOnClickListener(v -> { panel.setVisibility(View.GONE); openLkFinder(); });
         p.addView(lk);
 
@@ -2219,7 +2379,7 @@ public class PlayActivity extends Activity {
         load.setOnClickListener(v -> pickLocal());
         p.addView(load);
 
-        Button close = btn("වසන්න · Close");
+        Button close = btn(Chrome.pick("වසන්න · Close"));
         close.setOnClickListener(v -> panel.setVisibility(View.GONE));
         p.addView(close);
         return p;
@@ -2249,7 +2409,7 @@ public class PlayActivity extends Activity {
         s.addView(head, new LinearLayout.LayoutParams(-1, -2));
 
         // playback speed — the LIVE parameter (0.5x..2.0x, applied instantly)
-        s.addView(label("ධාවන වේගය · Playback speed"));
+        s.addView(label(Chrome.pick("ධාවන වේගය · Playback speed")));
         LinearLayout speedRow = new LinearLayout(this);
         speedRow.setOrientation(LinearLayout.HORIZONTAL);
         final TextView speedVal = new TextView(this);
@@ -2277,7 +2437,7 @@ public class PlayActivity extends Activity {
         s.addView(speedRow, new LinearLayout.LayoutParams(-1, -2));
 
         // aspect ratio quick cycle (fit → fill → zoom)
-        s.addView(label("රූප පරිමාණය · Aspect"));
+        s.addView(label(Chrome.pick("රූප පරිමාණය · Aspect")));
         Button aspect = btn("Fit ⇄ Fill ⇄ Zoom");
         aspect.setOnClickListener(v -> {
             cycleAspect();      // v3.3.0 — Fit → Fill → 16:9 → Stretch, applied live
@@ -2285,15 +2445,15 @@ public class PlayActivity extends Activity {
         s.addView(aspect);
 
         // LIVE subtitle style sliders (the same studio knobs, applied instantly)
-        s.addView(label("අකුරු ප්‍රමාණය · Font size"));
+        s.addView(label(Chrome.pick("අකුරු ප්‍රමාණය · Font size")));
         s.addView(step("−", "+", () -> fontSp(-1), () -> fontSp(1)));
-        s.addView(label("පසුබිම් අඳුන · Mask"));
+        s.addView(label(Chrome.pick("පසුබිම් අඳුන · Mask")));
         s.addView(step("−", "+", () -> mask(-10), () -> mask(10)));
-        s.addView(label("කාල ගැලපුම · Sync nudge"));
+        s.addView(label(Chrome.pick("කාල ගැලපුම · Sync nudge")));
         s.addView(step("−0.25s", "+0.25s", () -> nudge(-250), () -> nudge(250)));
 
         // the language quick switch (8 chips, the "subs" essentials)
-        s.addView(label("භාෂාව · Language"));
+        s.addView(label(Chrome.pick("භාෂාව · Language")));
         LinearLayout langQuick = new LinearLayout(this);
         langQuick.setOrientation(LinearLayout.HORIZONTAL);
         for (final Langs.Lang l : Langs.chips()) {
@@ -2306,7 +2466,7 @@ public class PlayActivity extends Activity {
         }
         s.addView(langQuick, new LinearLayout.LayoutParams(-1, -2));
 
-        Button close = btn("වසන්න · Done");
+        Button close = btn(Chrome.pick("වසන්න · Done"));
         close.setOnClickListener(v -> sheet.setVisibility(View.GONE));
         s.addView(close);
         return s;
@@ -2558,7 +2718,7 @@ public class PlayActivity extends Activity {
      *  non-Sinhala, attach to the playing video. */
     private void loadSubsFromUrl(String subUrl) {
         final int myGen = fetchGen;
-        setState("fetching", "URL උපසිරැසි ලබාගනිමින්… · fetching the subtitle URL…", myGen);
+        setState("fetching", Chrome.pick("URL උපසිරැසි ලබාගනිමින්… · fetching the subtitle URL…"), myGen);
         new Thread(() -> {
             try {
                 byte[] raw = httpGet(subUrl, null);
@@ -3045,7 +3205,7 @@ public class PlayActivity extends Activity {
         fetchGen++;
         fetching = false;
         cues = new ArrayList<>();
-        setState("fetching", Langs.nativeOf(code) + " උපසිරැසි ලබාගනිමින්… · fetching " + Langs.englishOf(code) + " subtitles…");
+        setState("fetching", Langs.nativeOf(code) + Chrome.pick(" උපසිරැසි ලබාගනිමින්… · fetching ") + Langs.englishOf(code) + " subtitles…");
         fetchSinhala();
         // v3.4.2 — the floating rows are gone; nothing to hide any more.
     }
@@ -3058,7 +3218,7 @@ public class PlayActivity extends Activity {
             labels[i] = l.nativeName + " (" + l.english + ")";
         }
         new android.app.AlertDialog.Builder(this)
-            .setTitle("Subtitle language · උපසිරැසි භාෂාව")
+            .setTitle(Chrome.pick("Subtitle language · උපසිරැසි භාෂාව"))
             .setItems(labels, (d, which) -> switchLang(Langs.ALL.get(which).code))
             .setNegativeButton(android.R.string.cancel, null)
             .show();
@@ -3068,7 +3228,7 @@ public class PlayActivity extends Activity {
     private void toggleRegister() {
         registerOverride = registerOverride == null ? "spoken" : ("spoken".equals(registerOverride) ? "formal" : null);
         String label = registerOverride == null ? "auto (genre)" : registerOverride;
-        setState(state, "Register: " + label + " — refetching… · රටාව: " + label);
+        setState(state, "Register: " + label + Chrome.pick(" — refetching… · රටාව: ") + label);
         fetchGen++; fetching = false;
         fetchSinhala();
     }
@@ -3691,6 +3851,10 @@ public class PlayActivity extends Activity {
     /** Rebuild the player at {@code pos} with the CURRENT httpHeaders (the retry leg). */
     private void rebuildAt(long pos) {
         hold();   // v3.4.1 — a rebuild is a TRANSITION, never a stop (defect #2)
+        // v3.4.3 — BOUNDED recovery: the ladder may never hold the remote on
+        // TRANSITIONING forever (Replit QA-0024). statusJson() reports idle once this
+        // deadline passes, so a genuinely dead stream ends instead of hanging.
+        recoveryDeadline = android.os.SystemClock.uptimeMillis() + RECOVERY_CAP_MS;
         try {
             if (player != null) { player.release(); player = null; }
         } catch (Throwable ignored) { }
@@ -3887,7 +4051,7 @@ public class PlayActivity extends Activity {
                 if (subUrl == null) flash("no receiver — subtitles not attached");
             } catch (Throwable t) {
                 Diag.w("vlc", "chooser: " + t);
-                flash("No external player installed · බාහිර player එකක් නැත");
+                flash(Chrome.pick("No external player installed · බාහිර player එකක් නැත"));
             }
         } catch (Throwable t) {
             // the ONLY thing the user sees: an honest message, never a crash dialog

@@ -77,6 +77,17 @@ public final class AppPrefs {
     public static final String K_LOCK_ON_START = "lockOnStart";         // v3.3.0: bool (start with the HUD locked)
     /** v3.4.1 — the first-time 3-step Quick-Start banner was dismissed ("Got it"). */
     public static final String K_QUICKSTART_DONE = "quickstartDone";
+    /**
+     * v3.4.3 — the 5-stage first-launch onboarding state.
+     *
+     * <p>DELIBERATELY **NOT** IN {@link #BACKUP_KEYS}: onboarding completion and the
+     * wizard's stage describe THIS DEVICE's setup and permission state. Exporting them
+     * would let a restore on another phone claim a permission it never had — the app
+     * always re-checks real permissions instead. `lab/verify_ui_completeness.py`
+     * carries the explicit exclusion list.
+     */
+    public static final String K_ONBOARDING_DONE = "onboardingDone";
+    public static final String K_ONBOARDING_STAGE = "onboardingStage";
     public static final String K_DOH_DIAG = "dohDiag";               // bool
     public static final String K_RECEIVER_NAME = "receiverName";     // free text (trimmed, ≤64)
     public static final String K_RECEIVER_PORT = "receiverPort";      // v3.2.0: 1024..65535 (8765 default)
@@ -145,6 +156,13 @@ public final class AppPrefs {
     public static final String K_MIDNIGHT_DIM_PCT = "midnightDimPct";  // 10..70
 
     /** Every key SettingsBackup carries (ordered — the export JSON is stable). */
+    /**
+     * v3.4.3 — keys that must NEVER travel in a backup (device/permission state).
+     * They are the documented exception to "every pref is backed up".
+     */
+    public static final List<String> DEVICE_STATE_KEYS = Arrays.asList(
+        K_ONBOARDING_DONE, K_ONBOARDING_STAGE);
+
     public static final List<String> BACKUP_KEYS = Arrays.asList(
         K_THEME_MODE, K_DYNAMIC_COLOR, K_ACCENT, K_ACCENT_HEX, K_UI_LANG, K_DENSITY, K_CARD_RADIUS,
         K_SHOW_WEB_TAB, K_SHOW_QUICK_ACTIONS,
@@ -572,6 +590,35 @@ public final class AppPrefs {
     public static String accentHex(SharedPreferences p) { return normalizeAccentHex(p.getString(K_ACCENT_HEX, "")); }
     public static String uiLang(SharedPreferences p) { return normalizeUiLang(p.getString(K_UI_LANG, UI_EN)); }
     public static boolean spacious(SharedPreferences p) { return DENSITY_SPACIOUS.equals(normalizeDensity(p.getString(K_DENSITY, DENSITY_COMFORTABLE))); }
+
+    // ── v3.4.3 — the onboarding contract (never backed up, always re-checked) ──
+    /** True once the user tapped "Finish setup" (the ONLY writer is OnboardingWizard). */
+    public static boolean onboardingDone(SharedPreferences p) {
+        return p != null && p.getBoolean(K_ONBOARDING_DONE, false);
+    }
+
+    public static void setOnboardingDone(SharedPreferences p, boolean done) {
+        if (p == null) return;
+        p.edit().putBoolean(K_ONBOARDING_DONE, done).apply();
+    }
+
+    /** The stage the wizard reopens on (0..4), so rotation and process death keep it. */
+    public static int onboardingStage(SharedPreferences p) {
+        int s = p == null ? 0 : p.getInt(K_ONBOARDING_STAGE, 0);
+        if (s < 0) return 0;
+        return s > 4 ? 4 : s;
+    }
+
+    public static void setOnboardingStage(SharedPreferences p, int stage) {
+        if (p == null) return;
+        p.edit().putInt(K_ONBOARDING_STAGE, stage < 0 ? 0 : (stage > 4 ? 4 : stage)).apply();
+    }
+
+    /** "Run setup wizard": forget completion so the wizard opens again from stage 1. */
+    public static void resetOnboarding(SharedPreferences p) {
+        if (p == null) return;
+        p.edit().putBoolean(K_ONBOARDING_DONE, false).putInt(K_ONBOARDING_STAGE, 0).apply();
+    }
     /** v3.3.1 — the Card-corner-radius preference, normalized (sharp|rounded|apple-pill). */
     public static String cardRadius(SharedPreferences p) {
         return normalizeCardRadius(p.getString(K_CARD_RADIUS, RADIUS_ROUNDED));

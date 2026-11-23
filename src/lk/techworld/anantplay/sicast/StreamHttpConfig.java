@@ -475,7 +475,93 @@ final class StreamHttpConfig {
     /** The URL a stage-3 request must hit: the signed stream when we have one, else the upstream. */
     static String directUrl(Relay r) {
         if (r == null || !r.isRelay) return null;
-        return r.hasDirect() ? r.direct : r.upstream;
+        String u = r.hasDirect() ? r.direct : r.upstream;
+        // v3.4.3 (QA-0025) — a token whose `url=` is a RELATIVE path must be resolved
+        // against the token's own `b` base (or the decoded upstream origin), never left
+        // relative: a relative stage-3 URL is a request for nothing at all.
+        if (u != null && schemeOf(u) == null) {
+            String base = (r.base != null && !r.base.trim().isEmpty()) ? r.base : r.upstreamOrigin;
+            u = resolveRef(base, u);
+        }
+        return u;
+    }
+
+    // ── v3.4.3 — DASH/segment URL resolution (Replit QA-0025) ────────────────
+    //
+    // Official AnantPlay's DLNA relay proxies HLS and passes DASH through UNTOUCHED
+    // (Chromecast.java:348-354), so a manifest it serves still contains RELATIVE
+    // <BaseURL> / SegmentTemplate media references. Media3 resolves those against the
+    // URL it fetched — which, through the relay, is the relay URL WITHOUT the base64
+    // origin segment, so the relay cannot tell which upstream to fetch and answers 404.
+    // These three helpers make that arithmetic explicit and provable.
+
+    /** The directory part of a URL (everything up to and including the last '/'). */
+    static String dirOf(String url) {
+        if (url == null) return null;
+        String u = url.trim();
+        int q = u.indexOf('?');
+        if (q >= 0) u = u.substring(0, q);
+        int hash = u.indexOf('#');
+        if (hash >= 0) u = u.substring(0, hash);
+        int se = u.indexOf("://");
+        int lastSlash = u.lastIndexOf('/');
+        if (lastSlash < 0 || lastSlash <= se + 2) return u + "/";
+        return u.substring(0, lastSlash + 1);
+    }
+
+    /** Resolve {@code ref} against {@code base} (RFC-3986 style, enough for DASH/HLS). */
+    static String resolveRef(String base, String ref) {
+        if (ref == null || ref.trim().isEmpty()) return base == null ? "" : base.trim();
+        String r = ref.trim();
+        String lower = r.toLowerCase(Locale.US);
+        if (lower.startsWith("http://") || lower.startsWith("https://")) return r;
+        if (base == null || base.trim().isEmpty()) return r;
+        String b = base.trim();
+        if (r.startsWith("//")) {                       // protocol-relative
+            String scheme = schemeOf(b);
+            return (scheme == null ? "https" : scheme) + ":" + r;
+        }
+        if (r.startsWith("/")) {                        // origin-absolute
+            String origin = originOf(b);
+            return (origin == null ? b : origin) + r;
+        }
+        return dirOf(b) + r;                             // document-relative
+    }
+
+    /**
+     * The absolute base a DASH manifest's relative references hang off: its own
+     * directory, or its {@code <BaseURL>} when that element is present.
+     */
+    static String dashBase(String manifestUrl, String baseUrlTag) {
+        if (baseUrlTag == null || baseUrlTag.trim().isEmpty()) return dirOf(manifestUrl);
+        return resolveRef(manifestUrl, baseUrlTag.trim());
+    }
+
+    /**
+     * v3.4.3 — RE-BASE A RELAY-RELATIVE SEGMENT URL (Replit QA-0025).
+     *
+     * <p>When a segment request lands on the relay's host but WITHOUT the base64 origin
+     * segment in its path, the relay has no idea what to fetch. This re-inserts the
+     * segment the original relay URL carried. Any request that is not on the relay host
+     * (a real CDN segment) is returned untouched.
+     */
+    static String rebaseOntoRelay(String relayUrl, String requestUrl) {
+        Relay r = relay(relayUrl);
+        if (!r.isRelay || requestUrl == null || requestUrl.trim().isEmpty()) return requestUrl;
+        String req = requestUrl.trim();
+        if (!schemeOf(relayUrl).equals(schemeOf(req))) return req;
+        if (!hostOf(relayUrl).equals(hostOf(req))) return req;
+        int se = relayUrl.indexOf("://");
+        int hostEnd = relayUrl.indexOf('/', se + 3);
+        if (hostEnd < 0) return req;
+        int segEnd = relayUrl.indexOf('/', hostEnd + 1);
+        String seg = segEnd < 0 ? relayUrl.substring(hostEnd + 1) : relayUrl.substring(hostEnd + 1, segEnd);
+        if (seg.isEmpty()) return req;
+        int reqSe = req.indexOf("://");
+        int reqHostEnd = req.indexOf('/', reqSe + 3);
+        String reqPath = reqHostEnd < 0 ? "/" : req.substring(reqHostEnd);
+        if (reqPath.startsWith("/" + seg + "/") || reqPath.equals("/" + seg)) return req;
+        return req.substring(0, reqHostEnd < 0 ? req.length() : reqHostEnd) + "/" + seg + reqPath;
     }
 
     /** Loopback, link-local, or any RFC1918 private address (a LAN peer, never a CDN). */
@@ -599,6 +685,200 @@ final class StreamHttpConfig {
         java.util.TreeSet<String> names = new java.util.TreeSet<>();
         for (String k : headers.keySet()) names.add(k);
         return String.join(", ", names);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // v3.4.3 — CREDENTIAL SCOPING, THE HTTPS-DOWNGRADE GUARD AND SECRET STRIPPING
+    //
+    // THE BUG THIS KILLS (Replit QA-0017 / QA-0018, and the `WatchHistory` hygiene
+    // gap Replit missed):
+    //
+    //  1. v3.4.2 put the cast's `Cookie` INSIDE
+    //     `DefaultHttpDataSource.Factory.setDefaultRequestProperties(...)`. A default
+    //     request property is attached to EVERY request that factory makes — including
+    //     the segment requests Media3 sends to a completely different CDN host. So a
+    //     cookie that belongs to Origin A was silently replayed to Host B, which is a
+    //     credential leak to a third party, not a playback nicety.
+    //     v3.4.3 keeps the cookie OUT of the defaults and hands it to the
+    //     ResolvingDataSource, which applies it ONLY when the request host is the
+    //     validated origin host (or a same-site suffix of it).
+    //
+    //  2. `setAllowCrossProtocolRedirects(true)` let an authenticated HTTPS request be
+    //     redirected to plaintext HTTP and still carry its Cookie/Authorization.
+    //     `isSafeRedirect()` is the pure policy: an HTTPS → HTTP hop is refused while
+    //     credentials are in play, EXCEPT for a deliberate private/LAN relay (the
+    //     AnantPlay DLNA relay on 192.168.x.x), which is the one HTTP leg we ship on
+    //     purpose. `allowCrossProtocolRedirects()` decides what the data source may
+    //     follow at all.
+    //
+    //  3. `WatchHistory` persisted the raw cast `headers` blob — Cookie included — in
+    //     SharedPreferences (and in a backup export). `stripSecrets*` is the ONE
+    //     funnel that removes those before anything is written to disk.
+    //
+    // Everything here is pure (no Android types, no I/O), so the lab drives it.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /** Header names that carry a credential and must never be persisted or forwarded
+     *  outside their own origin. Lower-case, compared case-insensitively. */
+    static final String[] SECRET_HEADERS = {
+        "cookie", "authorization", "proxy-authorization", "set-cookie",
+        "x-auth-token", "x-api-key", "x-csrf-token"
+    };
+
+    /** True when this header name carries a credential (Cookie / Authorization / …). */
+    static boolean isSecretHeader(String name) {
+        if (name == null) return false;
+        String l = name.trim().toLowerCase(Locale.US);
+        for (String s : SECRET_HEADERS) if (s.equals(l)) return true;
+        return false;
+    }
+
+    /** A copy of {@code headers} with every credential header removed (never null). */
+    static Map<String, String> stripSecrets(Map<String, String> headers) {
+        LinkedHashMap<String, String> out = new LinkedHashMap<>();
+        if (headers == null) return out;
+        for (Map.Entry<String, String> e : headers.entrySet()) {
+            if (e.getKey() == null || e.getValue() == null) continue;
+            if (isSecretHeader(e.getKey())) continue;
+            out.put(e.getKey(), e.getValue());
+        }
+        return out;
+    }
+
+    /** True when the map carries ANY credential header. */
+    static boolean hasCredentials(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) return false;
+        for (String k : headers.keySet()) if (isSecretHeader(k)) return true;
+        return false;
+    }
+
+    /**
+     * The persisted-safe form of a cast/WebView headers payload: the same header map
+     * with every credential removed, re-serialised as a flat JSON object. A blob that
+     * is not JSON is returned unchanged (it carries no parsable credentials).
+     */
+    static String stripSecretsJson(String headersJson) {
+        if (headersJson == null || headersJson.trim().isEmpty()) return "";
+        Map<String, String> parsed = parseHeaders(headersJson);
+        if (parsed.isEmpty()) return headersJson;
+        Map<String, String> safe = stripSecrets(parsed);
+        StringBuilder sb = new StringBuilder(128).append('{');
+        boolean first = true;
+        for (Map.Entry<String, String> e : safe.entrySet()) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append(MiniJson.quote(e.getKey())).append(':').append(MiniJson.quote(e.getValue()));
+        }
+        return sb.append('}').toString();
+    }
+
+    /** True when a headers payload still contains a credential (legacy history rows). */
+    static boolean hasSecrets(String headersJson) {
+        if (headersJson == null || headersJson.trim().isEmpty()) return false;
+        return hasCredentials(parseHeaders(headersJson));
+    }
+
+    /** The lower-case scheme of a URL ("http"/"https"), or null when it has none. */
+    static String schemeOf(String url) {
+        if (url == null) return null;
+        String u = url.trim();
+        int se = u.indexOf("://");
+        if (se <= 0) return null;
+        return u.substring(0, se).toLowerCase(Locale.US);
+    }
+
+    /** The lower-case host of a URL (no port, no brackets), or null. */
+    static String hostOf(String url) {
+        if (url == null) return null;
+        String u = url.trim();
+        int se = u.indexOf("://");
+        if (se <= 0) return null;
+        int start = se + 3;
+        int end = start;
+        while (end < u.length()) {
+            char c = u.charAt(end);
+            if (c == '/' || c == '?' || c == '#' || c == ':') break;
+            end++;
+        }
+        if (end <= start) return null;
+        return u.substring(start, end).toLowerCase(Locale.US);
+    }
+
+    /**
+     * True when two hosts belong to the same site: identical, or one is a dotted
+     * suffix of the other ({@code cdn.foo.com} vs {@code foo.com}). Never true for a
+     * blank host, and never true across unrelated domains (origin A ≠ CDN host B).
+     */
+    static boolean sameSiteHost(String a, String b) {
+        if (a == null || b == null) return false;
+        String x = a.trim().toLowerCase(Locale.US);
+        String y = b.trim().toLowerCase(Locale.US);
+        if (x.isEmpty() || y.isEmpty()) return false;
+        if (x.equals(y)) return true;
+        return x.endsWith("." + y) || y.endsWith("." + x);
+    }
+
+    /**
+     * v3.4.3 — THE REDIRECT POLICY (Replit QA-0018).
+     *
+     * <p>True when following {@code fromUrl → toUrl} is safe. The one dangerous hop is
+     * an <b>HTTPS → HTTP downgrade while credentials are being forwarded</b>: the
+     * Cookie/Authorization would then travel in clear text to whoever answered the
+     * redirect. That hop is refused for every public host.
+     *
+     * <p>Deliberately still allowed:
+     * <ul>
+     *   <li>same-scheme redirects (http→http, https→https) — nothing is downgraded;</li>
+     *   <li>an HTTP → HTTPS upgrade — strictly stronger;</li>
+     *   <li>HTTPS → HTTP toward a private/loopback host — the AnantPlay LAN relay is a
+     *       deliberate plaintext peer on the user's own network, and refusing it would
+     *       break the relay ladder the app exists for.</li>
+     * </ul>
+     */
+    static boolean isSafeRedirect(String fromUrl, String toUrl, boolean hasCredentials) {
+        if (toUrl == null || toUrl.trim().isEmpty()) return false;
+        String toScheme = schemeOf(toUrl);
+        if (toScheme == null) return false;                       // file:, data:, intent: …
+        if (!toScheme.equals("http") && !toScheme.equals("https")) return false;
+        String fromScheme = schemeOf(fromUrl);
+        if (fromScheme == null) return true;                      // nothing to downgrade from
+        if (fromScheme.equals(toScheme)) return true;            // same-protocol hop
+        if (toScheme.equals("https")) return true;                // upgrade, always fine
+        // toScheme == http and fromScheme == https → the downgrade
+        if (!hasCredentials) return true;                         // nothing secret to expose
+        return isPrivateHost(hostOf(toUrl));                      // only the LAN relay may
+    }
+
+    /**
+     * Whether Media3's {@code DefaultHttpDataSource} may follow cross-protocol
+     * redirects for this request. An authenticated HTTPS request may not (that is the
+     * only way to guarantee the downgrade guard above is never bypassed by the
+     * data source itself); everything else — including the plaintext LAN relay, whose
+     * whole point is that it can upgrade to the real upstream — may.
+     */
+    static boolean allowCrossProtocolRedirects(String url, boolean hasCredentials) {
+        String scheme = schemeOf(url);
+        if (!"https".equals(scheme)) return true;                  // relay / LAN / plain http
+        return !hasCredentials;
+    }
+
+    /**
+     * The Cookie header value a request to {@code requestUrl} may carry.
+     *
+     * <p>Empty when the request host is not the validated origin host (or a same-site
+     * suffix of it) — that is the whole point of the fix: the Origin A cookie is never
+     * replayed to an unrelated CDN Host B. When the request host IS in scope, the
+     * cast cookie is returned so the caller can merge it with the WebView's own
+     * per-host {@code CookieManager} entry.
+     */
+    static String scopedCookie(String requestUrl, String originUrl, String castCookie) {
+        if (castCookie == null || castCookie.trim().isEmpty()) return "";
+        String origin = hostOf(originUrl);
+        String req = hostOf(requestUrl);
+        if (!sameSiteHost(req, origin)) return "";
+        // and never across a downgrade that would expose it
+        if (!isSafeRedirect(originUrl, requestUrl, true)) return "";
+        return castCookie.trim();
     }
 
     // ───────────────────────────────────────────────────────────────────────────

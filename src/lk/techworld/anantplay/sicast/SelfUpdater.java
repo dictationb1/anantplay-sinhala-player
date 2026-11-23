@@ -341,7 +341,7 @@ public final class SelfUpdater {
             if (!c.getSharedPreferences("sicast", Context.MODE_PRIVATE).getBoolean("autoUpdate", true)) {
                 Diag.i("selfupd", "new release " + rel.version + " but Auto-Update is OFF — notifying only");
                 App.notifyUpdateReady(c, rel.version);
-                fire("අලුත් සංස්කරණයක් ඇත · v" + rel.version + " available — Settings → Updates → Check now");
+                fire(Chrome.pick("අලුත් සංස්කරණයක් ඇත · v") + rel.version + " available — Settings → Updates → Check now");
                 return "available " + rel.version;
             }
             // the pre-download gates: https-only, declared size within the cap
@@ -382,7 +382,7 @@ public final class SelfUpdater {
                     + ", expected " + rel.sha256Expected + ")");
                 apk.delete();
                 App.notifyUpdateFailed(c, rel.version);
-                fire("බාගැනීම අසාර්ථක (SHA-256 නොගැලපේ) · download failed verification");
+                fire(Chrome.pick("බාගැනීම අසාර්ථක (SHA-256 නොගැලපේ) · download failed verification"));
                 return "sha-mismatch";
             }
             Diag.i("selfupd", "sha256 verified (" + sha + ") — handing off to PackageInstaller");
@@ -391,7 +391,7 @@ public final class SelfUpdater {
             if (!c.getPackageManager().canRequestPackageInstalls()) {
                 Diag.w("selfupd", "canRequestPackageInstalls=false — posting the 1-tap permission prompt");
                 notifyInstallPermission(c, rel.version);
-                fire("ස්ථාපන අවසරය අවශ්‍යයි — දැනුම්දීම ඔබන්න · install permission needed — tap the notification");
+                fire(Chrome.pick("ස්ථාපන අවසරය අවශ්‍යයි — දැනුම්දීම ඔබන්න · install permission needed — tap the notification"));
                 return "needs-install-permission";
             }
 
@@ -400,7 +400,7 @@ public final class SelfUpdater {
             install(c, apk);
             apk.delete();              // the handoff is complete — storage cleared NOW
             sweepUpdates(c);           // and nothing else lingers either
-            fire("v" + rel.version + " සූදානම් — 1-tap ස්ථාපනය · ready to install (1 tap)");
+            fire("v" + rel.version + Chrome.pick(" සූදානම් — 1-tap ස්ථාපනය · ready to install (1 tap)"));
             return "installing " + rel.version;
         } catch (Throwable t) {
             // v3.2.0 — a thrown failure arms the SAME 15-minute backoff
@@ -408,7 +408,7 @@ public final class SelfUpdater {
                 sp.edit().putLong("lastFailedCheck", System.currentTimeMillis()).apply();
             } catch (Throwable ignored) { }
             Diag.w("selfupd", "check: " + t);
-            fire("යාවත්කාලීන පරීක්ෂාව අසාර්ථක — මිනිත්තුවකින් නැවත · update check failed — retrying within 15 min");
+            fire(Chrome.pick("යාවත්කාලීන පරීක්ෂාව අසාර්ථක — මිනිත්තුවකින් නැවත · update check failed — retrying within 15 min"));
             Troubleshooter.record("UPDATER", "check threw: " + t.getClass().getSimpleName() + " — 15-min backoff engaged");
             return "offline";
         } finally {
