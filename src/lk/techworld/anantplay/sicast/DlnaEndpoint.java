@@ -512,6 +512,20 @@ public final class DlnaEndpoint {
 
     /** The UPnP transport state AnantPlay's remote renders (Dlna.java:218-221). */
     public static String transportState(Map<String, Object> status) {
+        return transportState(status, false);
+    }
+
+    /**
+     * v3.4.3 — the BOUNDED-RECOVERY aware transport state (Replit QA-0024).
+     *
+     * <p>{@code recovering == true} means an automatic 403 stage or a header-recovery
+     * retry is in flight. The remote must see {@code TRANSITIONING} for that, never
+     * {@code NO_MEDIA_PRESENT} — {@code NO_MEDIA_PRESENT} is reserved for a real stop /
+     * end, which is exactly what makes AnantPlay's remote stop tearing the cast down.
+     */
+    public static String transportState(Map<String, Object> status, boolean recovering) {
+        if (status == null) return "NO_MEDIA_PRESENT";
+        if (recovering) return "TRANSITIONING";        // never a stop while a stage runs
         if (status.containsKey("idle")) return "NO_MEDIA_PRESENT";
         if (status.containsKey("loading")) return "TRANSITIONING";
         if (Boolean.TRUE.equals(status.get("playing"))) return "PLAYING";

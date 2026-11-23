@@ -66,21 +66,57 @@ final class LkSubFinder {
      */
     static List<Site> sites() {
         List<Site> l = new ArrayList<>();
-        // ── Sri Lankan (human-verified Sinhala) — always tried first ──
-        l.add(new Site("Baiscope", "https://www.baiscope.lk/", "https://www.baiscope.lk/?s={q}", true));
+        // ══ v3.4.3 — THE LIVE-TESTED ORDER (Replit QA-1451 … QA-1464) ═════════════
+        // The order is no longer a guess: it is what Replit's live HTTP audit measured
+        // on 2026-11-23. Tier 1 answers 200/206 to a plain GET and is tried first;
+        // Tier 2 is behind a Cloudflare/JS challenge and only works inside the
+        // interactive Chromium WebView, so it is labelled as browser-mediated.
+        //
+        // ── TIER 1a — Sri Lankan, live HTTP 200, human-verified Sinhala ──
         l.add(new Site("Zoom.lk", "https://zoom.lk/", "https://zoom.lk/?s={q}", true));
         l.add(new Site("PirateLK", "https://piratelk.com/", "https://piratelk.com/?s={q}", true));
-        l.add(new Site("Cineru.lk", "https://cineru.lk/", "https://cineru.lk/?s={q}", true));
-        l.add(new Site("Subz.lk", "https://subzlk.com/", "https://subzlk.com/?s={q}", true));
-        // ── global catalogues (English/other → auto-translate to Sinhala) ──
+        // v3.4.3 — subz.lk is the canonical host (HTTP 200 verified); subzlk.com was the
+        // v3.4.2 URL and stays recognised as an alias by canonical() below.
+        l.add(new Site("Subz.lk", "https://subz.lk/", "https://subz.lk/?s={q}", true));
+        // ── TIER 1b — global catalogues, live HTTP 200/206 ──
         l.add(new Site("SubDL", "https://subdl.com/", "https://subdl.com/search/{q}", false));
-        l.add(new Site("OpenSubtitles", "https://www.opensubtitles.org/",
-            "https://www.opensubtitles.org/en/search2/sublanguageid-sin/moviename-{q}", false));
         l.add(new Site("Subsource", "https://subsource.net/", "https://subsource.net/search/{q}", false));
         l.add(new Site("YIFY", "https://yifysubtitles.ch/", "https://yifysubtitles.ch/search?q={q}", false));
+        // ── TIER 2 — challenge-protected: browser-mediated only, labelled as such ──
+        l.add(new Site("Baiscope", "https://www.baiscope.lk/", "https://www.baiscope.lk/?s={q}", true));
+        l.add(new Site("Cineru.lk", "https://cineru.lk/", "https://cineru.lk/?s={q}", true));
+        l.add(new Site("OpenSubtitles", "https://www.opensubtitles.org/",
+            "https://www.opensubtitles.org/en/search2/sublanguageid-sin/moviename-{q}", false));
         l.add(new Site("Podnapisi", "https://www.podnapisi.net/",
             "https://www.podnapisi.net/subtitles/search/?keywords={q}", false));
         return l;
+    }
+
+    /** Tier-1 sites answered 200/206 to a plain GET in the live audit. */
+    static final java.util.Set<String> LIVE_OK = new java.util.HashSet<>(java.util.Arrays.asList(
+        "Zoom.lk", "PirateLK", "Subz.lk", "SubDL", "Subsource", "YIFY"));
+
+    /** Tier-2 sites are Cloudflare/JS-challenge protected: interactive WebView only. */
+    static final java.util.Set<String> BROWSER_MEDIATED = new java.util.HashSet<>(java.util.Arrays.asList(
+        "Baiscope", "Cineru.lk", "OpenSubtitles", "Podnapisi"));
+
+    /** True when the site must be opened in the interactive browser (never a plain GET). */
+    static boolean isBrowserMediated(String siteName) {
+        return siteName != null && BROWSER_MEDIATED.contains(siteName);
+    }
+
+    /** The honest one-word provenance the sheet shows beside a site. */
+    static String tierLabel(String siteName) {
+        if (siteName == null) return "";
+        if (LIVE_OK.contains(siteName)) return "live ✓";
+        if (BROWSER_MEDIATED.contains(siteName)) return "browser only";
+        return "";
+    }
+
+    /** The canonical host for a site (subzlk.com → subz.lk), or the input unchanged. */
+    static String canonical(String urlOrHost) {
+        if (urlOrHost == null) return "";
+        return urlOrHost.replace("subzlk.com", "subz.lk").replace("www.subzlk.com", "subz.lk");
     }
 
     // ───────────────────────────────────────────────────────────────────────────

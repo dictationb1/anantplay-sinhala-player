@@ -240,7 +240,15 @@ public class WebBrowserView extends FrameLayout {
         }
         s.setGeolocationEnabled(false);
         s.setSaveFormData(false);
-        if (Build.VERSION.SDK_INT >= 21) s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        // ══ v3.4.3 — P0 FIX #3 (Replit QA-0008): MIXED CONTENT IS BLOCKED BY DEFAULT ══
+        // v3.4.2 defaulted to MIXED_CONTENT_COMPATIBILITY_MODE, which silently upgrades
+        // or allows plaintext sub-resources (scripts included) on an HTTPS page — the
+        // exact downgrade an on-path attacker wants. The default is now NEVER_ALLOW.
+        // A legacy site that genuinely needs it can be opted in PER SESSION from the
+        // ⋮ sheet (setMixedContentCompatibility), and that choice never persists.
+        if (Build.VERSION.SDK_INT >= 21) s.setMixedContentMode(mixedContentCompat
+            ? WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            : WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         // THE POPUP BLOCKER: no window.open targets at all — redirect popups of
         // streaming sites die right here instead of covering the video.
         s.setSupportMultipleWindows(true);
@@ -395,6 +403,15 @@ public class WebBrowserView extends FrameLayout {
             }
         });
         web.addJavascriptInterface(new JsBridge(), "SniJS");
+        // v3.4.3 — the capture-session window: a real tap inside the page opens it.
+        // Without one, the Blob bridge accepts nothing (see BridgeGuard).
+        web.setOnTouchListener((v, ev) -> {
+            try {
+                if (ev != null && ev.getActionMasked() == android.view.MotionEvent.ACTION_UP)
+                    captureGestureAt = android.os.SystemClock.uptimeMillis();
+            } catch (Throwable ignored) { }
+            return false;                       // never consume: the page keeps its taps
+        });
         webHost.addView(web, new FrameLayout.LayoutParams(-1, -1));
 
         // ── the floating pill + ⚡Auto chip ──
@@ -878,6 +895,18 @@ public class WebBrowserView extends FrameLayout {
         UiGroup.divider(act, g, p, prefs);
         UiGroup.row(act, g, p, prefs, R.drawable.ic_close, "Clear cache & cookies",
             null, null, false, v -> clearWebData());
+        // v3.4.3 — the ONLY way mixed content ever comes back: an explicit, per-session
+        // opt-in from the user for a legacy site. It is never persisted.
+        UiGroup.divider(act, g, p, prefs);
+        UiGroup.row(act, g, p, prefs, R.drawable.ic_alert,
+            "Allow mixed content (this session only)",
+            mixedContentCompat ? "On" : "Off — blocked", null, false, v -> {
+                setMixedContentCompatibility(!mixedContentCompat);
+                toast(mixedContentCompat
+                    ? "Mixed content allowed for this session"
+                    : "Mixed content blocked again");
+                reload();
+            });
         body.addView(g, new LinearLayout.LayoutParams(-1, -2));
         UiSheet.show(act, p, prefs, body, 62, null);
     }
@@ -1034,10 +1063,18 @@ public class WebBrowserView extends FrameLayout {
             report(new StreamSniffer.Hit().url(s).kind(kind == null ? "VIDEO" : kind));
         }
 
-        /** v3.4.1 — Layer 5: a client-side Blob subtitle (tools.newzone.top, any site). */
+        /**
+         * v3.4.1 — Layer 5: a client-side Blob subtitle (tools.newzone.top, any site).
+         *
+         * <p>v3.4.3 — AUDITED (Replit QA-0011): every {@code @JavascriptInterface} method
+         * is reachable from EVERY frame of EVERY page, so neither this one nor
+         * {@link #onVideo} trusts its caller. The reported page URL is verified against
+         * the WebView's real top-document URL inside {@link #onBlobDownload}, and the
+         * payload only reaches a decoder when the user interacted recently.
+         */
         @JavascriptInterface
-        public void onBlobDownload(String base64, String name) {
-            WebBrowserView.this.onBlobDownload(base64, name);
+        public void onBlobDownload(String base64, String name, String pageUrl) {
+            WebBrowserView.this.onBlobDownload(base64, name, pageUrl);
         }
     }
 
@@ -1059,7 +1096,16 @@ public class WebBrowserView extends FrameLayout {
     // ══════════════════════════════════════════════════════════════════════════
 
     /** The largest Blob we will carry across the bridge (matches SrtLoader's cap). */
-    private static final int BLOB_CAP = 5 * 1024 * 1024;
+    private static final int BLOB_CAP = BridgeGuard.BLOB_CAP;
+
+    /** v3.4.3 — the per-session mixed-content opt-in (default: never allow). */
+    private volatile boolean mixedContentCompat;
+    /** v3.4.3 — the last user tap inside the page (opens the capture window). */
+    private volatile long captureGestureAt;
+    /** v3.4.3 — the last accepted blob (single-flight rate limit). */
+    private volatile long lastBlobAtMs;
+    /** v3.4.3 — true while a blob decode is running (one at a time, ever). */
+    private volatile boolean blobInFlight;
 
     /** Install the Blob hook (idempotent: the page flag survives re-injection). */
     private void injectBlobHook(WebView v) {
@@ -1073,10 +1119,12 @@ public class WebBrowserView extends FrameLayout {
     /** The shim: wrap createObjectURL, catch <a download>, fetch the blob in-page. */
     private static final String BLOB_HOOK_JS =
         "(function(){if(window.__siBlobHook)return;window.__siBlobHook=1;" +
+        "if(window.top!==window)return;" +            // v3.4.3 — TOP DOCUMENT ONLY (no iframes)
+        "if(!/^https?:/i.test(String(location.href)))return;" +
         "var grab=function(u,n){try{fetch(u).then(function(r){return r.blob()})" +
         ".then(function(b){if(!b||b.size>" + BLOB_CAP + ")return;" +
         "var fr=new FileReader();fr.onload=function(){try{var s=String(fr.result||'');" +
-        "var i=s.indexOf(',');if(i>0&&window.SniJS)SniJS.onBlobDownload(s.substring(i+1),n||'subtitle.srt');}catch(e){}};" +
+        "var i=s.indexOf(',');if(i>0&&window.SniJS)SniJS.onBlobDownload(s.substring(i+1),n||'subtitle.srt',String(location.href));}catch(e){}};" +
         "fr.readAsDataURL(b);}).catch(function(){});}catch(e){}};" +
         "var orig=URL.createObjectURL?URL.createObjectURL.bind(URL):null;" +
         "if(orig){URL.createObjectURL=function(b){try{" +
@@ -1091,27 +1139,66 @@ public class WebBrowserView extends FrameLayout {
     /** Called from JS on a worker thread: a base64 subtitle Blob, straight to the player.
      *  Reached through {@link JsBridge#onBlobDownload} — SniJS is the ONE interface
      *  registered with the WebView, so the shim's `SniJS.onBlobDownload(...)` resolves. */
-    void onBlobDownload(final String base64, final String name) {
-        if (base64 == null || base64.isEmpty()) return;
-        if (base64.length() > BLOB_CAP * 4 / 3 + 16) {
-            Diag.w("web", "blob refused: " + base64.length() + " b64 chars > 5 MB cap");
+    void onBlobDownload(final String base64, final String name, final String pageUrl) {
+        final long now = android.os.SystemClock.uptimeMillis();
+        String current = null;
+        try { current = web == null ? null : web.getUrl(); } catch (Throwable ignored) { }
+        // ══ v3.4.3 — THE HARDENED BRIDGE GATE (Replit QA-0011) ══════════════════
+        // Every rule lives in the pure, lab-proven BridgeGuard: single flight, the
+        // TOP-DOCUMENT origin match, the user-gesture capture window, and the 5 MB
+        // PRE-decode cap. Nothing is allocated until all four pass.
+        final String refuse = BridgeGuard.refuseReason(current, pageUrl, base64,
+            now, captureGestureAt, lastBlobAtMs, blobInFlight);
+        if (!refuse.isEmpty()) {
+            Diag.w("web", "blob refused: " + refuse);
+            Troubleshooter.record("WEB", "blob bridge refused — " + refuse);
             return;
         }
+        blobInFlight = true;
+        lastBlobAtMs = now;
         new Thread(() -> {
-            byte[] bytes;
+            byte[] bytes = null;
             try {
                 bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
             } catch (Throwable t) {
                 Diag.w("web", "blob decode: " + t);
-                return;
+            } finally {
+                blobInFlight = false;               // single-flight ends with the decode
             }
             if (bytes == null || bytes.length == 0) return;
+            if (bytes.length > BLOB_CAP) {          // belt and braces after the estimate
+                Diag.w("web", "blob refused: decoded " + bytes.length + " B > cap");
+                return;
+            }
             final byte[] b = bytes;
             final String nm = name == null || name.isEmpty() ? "blob-subtitle.srt" : name;
             Diag.i("web", "blob subtitle captured (" + b.length + " B, " + nm + ")");
             act.runOnUiThread(() -> attachBytes(b, nm));
         }, "blob-sub").start();
     }
+
+    /**
+     * v3.4.3 — THE PER-SESSION MIXED-CONTENT OPT-IN (Replit QA-0008).
+     *
+     * <p>Off by default and never persisted: a legacy site can be given
+     * {@code MIXED_CONTENT_COMPATIBILITY_MODE} for THIS browser session only, from the
+     * ⋮ sheet. Leaving the tab (or the app) drops it back to NEVER_ALLOW.
+     */
+    void setMixedContentCompatibility(boolean on) {
+        mixedContentCompat = on;
+        try {
+            if (Build.VERSION.SDK_INT >= 21 && web != null)
+                web.getSettings().setMixedContentMode(on
+                    ? WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                    : WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        } catch (Throwable t) { Diag.w("web", "mixed content: " + t); }
+        Diag.i("web", "mixed content compatibility = " + on + " (this session only)");
+        Troubleshooter.record("WEB", "mixed content compatibility " + (on ? "ON" : "OFF")
+            + " for this session");
+    }
+
+    /** True while this session allows mixed content (the ⋮ row shows it). */
+    boolean mixedContentCompatibility() { return mixedContentCompat; }
 
     /** Attach already-in-memory subtitle bytes to the live player (shared with the
      *  Blob bridge; the download path reuses the same tail). */

@@ -1,6 +1,6 @@
 name: Release APK (signed, Obtainium-ready)
 
-# v3.4.2 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
+# v3.4.3 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
 # this keeps the runner clock interpretable (the same commit → the same SHA-256).
 env:
   TZ: UTC
@@ -38,7 +38,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.0.1 — no leading v)'
         required: true
-        default: '3.4.2'
+        default: '3.4.3'
 
 concurrency:
   group: release-${{ github.ref }}

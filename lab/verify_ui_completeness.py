@@ -186,6 +186,10 @@ def rule_icons():
                 cap = HARD_MAX_DP
                 if fn == ILLUSTRATION_METHOD[0] and enclosing_method(code, m.start()) == ILLUSTRATION_METHOD[1]:
                     cap = EMPTY_STATE_MAX
+                # v3.4.3 — the onboarding wizard's hero APP ICON (stage 1) is a designed
+                # illustration, exactly like UiGroup.empty(): 40dp, one call site, named.
+                if enclosing_method(code, m.start()) in ("paintWelcome",) and dp <= EMPTY_STATE_MAX:
+                    cap = EMPTY_STATE_MAX
                 if dp > cap:
                     violations.append(
                         "R1 OVERSIZED ICON %s:%d  UiIcons.%s(..., %ddp) > %ddp cap"
@@ -265,6 +269,19 @@ def rule_prefs():
                     break
         if not used:
             unwired.append((k, raw))
+    # v3.4.3 — DEVICE_STATE_KEYS are the ONE documented exception: onboarding
+    # completion + stage describe THIS phone's permissions and must never be exported
+    # (a restore on another phone would otherwise claim a grant it never had).
+    device_state = set()
+    dm = re.search(r"DEVICE_STATE_KEYS\s*=\s*Arrays\.asList\((.*?)\);", src, re.S)
+    if dm:
+        device_state = {n.strip() for n in dm.group(1).replace("\n", " ").split(",") if n.strip()}
+    kept = []
+    for k, raw in missing_backup:
+        if k in device_state:
+            continue
+        kept.append((k, raw))
+    missing_backup = kept
     for k, raw in missing_backup:
         violations.append("R2 NOT IN BACKUP_KEYS %s (\"%s\") — export/import would drop it" % (k, raw))
     for k, raw in unwired:

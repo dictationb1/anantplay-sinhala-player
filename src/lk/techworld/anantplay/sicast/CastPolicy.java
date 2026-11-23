@@ -59,6 +59,43 @@ final class CastPolicy {
     }
 
     /** Clamp a seek target into [0, MAX_SEEK_MS] (a negative or absurd ms breaks players). */
+    /** v3.4.3 — the minimum spacing between two bring-to-front takeovers (QA-0024). */
+    static final long TAKEOVER_MIN_INTERVAL_MS = 5000L;
+
+    /**
+     * v3.4.3 — MAY WE STEAL THE SCREEN AGAIN? (Replit QA-0024)
+     *
+     * <p>After a cast, AnantPlay's Remote opens on top of us and we bring our player
+     * back ~0.8 s later. When the remote RETRIES the same cast (or the user closes the
+     * Remote on purpose and the retry lands), v3.4.2 re-ran that takeover every time —
+     * a repeating focus steal the user cannot win. One takeover per
+     * {@link #TAKEOVER_MIN_INTERVAL_MS} is enough for a real cast and invisible to a
+     * retry storm.
+     */
+    /** v3.4.3 — the duplicate-Cast retry window (Replit QA-0016). */
+    static final long DUP_CAST_MS = 2000L;
+
+    /**
+     * v3.4.3 — IS THIS CAST A DUPLICATE RETRY? (pure, so the lab proves it)
+     *
+     * <p>Official AnantPlay re-posts the SAME /play payload, and a DLNA renderer can send
+     * SetAVTransportURI twice. The same identity inside {@link #DUP_CAST_MS} is a RETRY,
+     * not a new stream: v3.4.2 released the live player and rebuilt it, which is the
+     * stutter (and the doubled subtitle fetch) the audit recorded.
+     */
+    static boolean isDuplicateCast(String key, long nowMs, String lastKey, long lastAtMs) {
+        if (key == null || key.isEmpty()) return true;          // nothing to correlate
+        if (lastKey == null || !key.equals(lastKey)) return false;
+        long delta = nowMs - lastAtMs;
+        return delta >= 0 && delta < DUP_CAST_MS;
+    }
+
+    static boolean takeoverAllowed(long nowMs, long lastTakeoverAtMs) {
+        if (lastTakeoverAtMs <= 0) return true;
+        long delta = nowMs - lastTakeoverAtMs;
+        return delta < 0 || delta >= TAKEOVER_MIN_INTERVAL_MS;
+    }
+
     static long clampSeek(long to) {
         if (to < 0) return 0;
         return to > MAX_SEEK_MS ? MAX_SEEK_MS : to;

@@ -41,11 +41,17 @@ public final class WatchHistory {
     public static final class Item {
         public String title = "";
         public String url = "";
-        public String headers = "";      // the Cast JSON headers blob, replayed on resume
+        public String headers = "";      // the Cast JSON headers blob, SECRETS STRIPPED (v3.4.3)
         public String source = "";       // cast | web | test | url
         public long pos;                 // ms watched
         public long dur;                 // ms total (0 = unknown live stream)
         public long at;                  // lastWatchedAt, epoch ms
+        /** v3.4.3 — true when {@link #url} is an EPHEMERAL AnantPlay LAN relay
+         *  ({@code http://192.168.x.x:34783/…}) that will not exist tomorrow. */
+        public boolean ephemeralRelay;
+        /** v3.4.3 — the canonical upstream URL decoded out of that relay ("" when
+         *  the relay carried none). Never a LAN address, so it survives a reboot. */
+        public String canonical = "";
 
         public Item() { }
 
@@ -75,6 +81,59 @@ public final class WatchHistory {
 
         /** True when this is worth showing as "Continue watching" (not finished). */
         public boolean resumable() { return pos > 0 && (dur <= 0 || pos < dur - 5000); }
+
+        /**
+         * v3.4.3 — TRUE when tapping this row must offer the "Session expired" action
+         * instead of pretending a dead LAN relay can be resumed.
+         */
+        public boolean needsReopen() { return ephemeralRelay && resumable(); }
+    }
+
+    /** The exact 1-tap label the Home row shows for an expired relay entry. */
+    public static final String EXPIRED_LABEL = "Session expired — Re-open in AnantPlay";
+
+    /**
+     * v3.4.3 — CREDENTIAL HYGIENE + RELAY EXPIRY (the gap Replit's audit missed).
+     *
+     * <p>Two things were wrong with v3.4.2's history store:
+     *
+     * <ol>
+     *   <li>It persisted the raw cast {@code headers} blob — {@code Cookie} and
+     *       {@code Authorization} included — into SharedPreferences <b>and</b> into the
+     *       user's backup export. A watch-history row is a movie; a session token is a
+     *       credential, and credentials do not belong in a history table.</li>
+     *   <li>It stored AnantPlay's ephemeral DLNA relay URL verbatim. That URL is a LAN
+     *       address with a port that dies with the cast, so "Continue watching" a day
+     *       later pointed at nothing — a bare 403/refused connection with no
+     *       explanation.</li>
+     * </ol>
+     *
+     * <p>{@link #sanitize(Item)} fixes both in one place, and it is applied on the way
+     * IN (record/upsert), on the way OUT (save) and on the way BACK (fromJson — which
+     * also migrates rows written by an older version).
+     */
+    public static Item sanitize(Item it) {
+        if (it == null) return null;
+        it.title = nz(it.title);
+        it.url = nz(it.url);
+        it.source = nz(it.source);
+        it.canonical = nz(it.canonical);
+        // 1. NEVER persist a credential
+        if (!it.headers.isEmpty()) it.headers = StreamHttpConfig.stripSecretsJson(it.headers);
+        // 2. flag (and where possible unwrap) the ephemeral LAN relay
+        if (StreamHttpConfig.isRelay(it.url)) {
+            it.ephemeralRelay = true;
+            if (it.canonical.isEmpty()) {
+                StreamHttpConfig.Relay r = StreamHttpConfig.relay(it.url);
+                if (r.upstream != null) it.canonical = r.upstream;
+            }
+        }
+        return it;
+    }
+
+    /** True when a stored row still carries a credential (legacy store, pre-v3.4.3). */
+    public static boolean hasSecrets(Item it) {
+        return it != null && StreamHttpConfig.hasSecrets(it.headers);
     }
 
     // ── formatting ────────────────────────────────────────────────────────────
@@ -122,6 +181,7 @@ public final class WatchHistory {
         List<Item> out = new ArrayList<>();
         if (current != null) out.addAll(current);
         if (add == null || (add.title.trim().isEmpty() && add.url.trim().isEmpty())) return out;
+        sanitize(add);                                  // v3.4.3 — no secrets, relay flagged
         String k = add.key();
         Item prev = null;
         for (Item it : out) {
@@ -132,6 +192,8 @@ public final class WatchHistory {
         if (prev != null) {
             if (add.title.trim().isEmpty()) add.title = prev.title;
             if (add.headers.trim().isEmpty()) add.headers = prev.headers;
+            if (add.canonical.isEmpty()) add.canonical = prev.canonical;
+            if (!add.ephemeralRelay) add.ephemeralRelay = prev.ephemeralRelay;
             if (add.dur <= 0) add.dur = prev.dur;
             if (add.source.trim().isEmpty()) add.source = prev.source;
         }
@@ -197,7 +259,9 @@ public final class WatchHistory {
                   .append("\"source\":").append(MiniJson.quote(it.source)).append(',')
                   .append("\"pos\":").append(it.pos).append(',')
                   .append("\"dur\":").append(it.dur).append(',')
-                  .append("\"at\":").append(it.at)
+                  .append("\"at\":").append(it.at).append(',')
+                  .append("\"relay\":").append(it.ephemeralRelay).append(',')
+                  .append("\"canonical\":").append(MiniJson.quote(it.canonical))
                   .append('}');
             }
         }
@@ -222,6 +286,11 @@ public final class WatchHistory {
                     MiniJson.lng(o, "pos", 0L),
                     MiniJson.lng(o, "dur", 0L),
                     MiniJson.lng(o, "at", 0L));
+                // v3.4.3 — a row written by an older version may still carry a Cookie:
+                // sanitize() strips it and flags the relay on the way back in.
+                it.ephemeralRelay = Boolean.TRUE.equals(MiniJson.objGet(o, "relay"));
+                it.canonical = nz(MiniJson.str(o, "canonical"));
+                sanitize(it);
                 // keep anything with a title or a URL; drop only a blank row
                 if (!it.title.trim().isEmpty() || !it.url.trim().isEmpty()) out.add(it);
             }
@@ -242,6 +311,8 @@ public final class WatchHistory {
 
     public static void save(SharedPreferences p, List<Item> items) {
         if (p == null) return;
+        // v3.4.3 — belt and braces: nothing reaches disk unsanitized, whoever built the list.
+        if (items != null) for (Item it : items) sanitize(it);
         try { p.edit().putString(K_HISTORY, toJson(items)).apply(); }
         catch (Throwable t) { Diag.w("history", "save: " + t); }
     }

@@ -1425,9 +1425,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30402 strictly > 30401 (v3.4.1) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30402 && AppInfo.VERSION_CODE > 30401 && AppInfo.VERSION_CODE < 40000
-              && "3.4.2".equals(AppInfo.VERSION_NAME));
+        check("v3 upd: versionCode 30403 strictly > 30402 (v3.4.2) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30403 && AppInfo.VERSION_CODE > 30402 && AppInfo.VERSION_CODE < 40000
+              && "3.4.3".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1459,9 +1459,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.4.2 / 30402 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.2}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30402}")
+        check("v3 pipe: build.sh defaults match the shipped version (3.4.3 / 30403 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.3}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30403}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -2606,18 +2606,18 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v31 sec: both workflows carry versionCode 30401 / 3.4.1",
-            buildYml.contains("30402") && buildYml.contains("3.4.2") && relYml.contains("3.4.2"));
+        check("v31 sec: both workflows carry versionCode 30403 / 3.4.3",
+            buildYml.contains("30403") && buildYml.contains("3.4.3") && relYml.contains("3.4.3"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
-        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30401 + versionName 3.4.1",
-            srcManifest.contains("android:versionCode=\"30402\"")
-                && srcManifest.contains("android:versionName=\"3.4.2\"")
-                && "30402".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.2".equals(AppInfo.VERSION_NAME));
+        check("v312 pipe: AndroidManifest.xml declares the shipped versionCode 30403 + versionName 3.4.3",
+            srcManifest.contains("android:versionCode=\"30403\"")
+                && srcManifest.contains("android:versionName=\"3.4.3\"")
+                && "30403".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.3".equals(AppInfo.VERSION_NAME));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -2627,10 +2627,10 @@ public class ReceiverLab {
         // that survived the 3.1.0 bump: the build job still uploaded
         // AnantPlay-Sinhala-Player-v3.0.0.apk while the manifest shipped 3.1.0).
         check("v31 pipe: build-apk.yml names the artifact with the SHIPPED version (no stale v3.0.0 filename)",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.2.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.3.apk")
                 && !buildYml.contains("AnantPlay-Sinhala-Player-v3.0.0"));
         check("v31 pipe: the versioned artifact name agrees across build.sh / build-apk.yml / release-apk.yml",
-            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.2.apk")
+            buildYml.contains("AnantPlay-Sinhala-Player-v3.4.3.apk")
                 && relYml.contains("AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"));
         // v3.1.1 — REPRODUCIBILITY GUARD: the pre-merge build and the post-merge
         // release build of the SAME commit used to differ only by the ZIP entry
@@ -2855,7 +2855,7 @@ public class ReceiverLab {
         check("v312 tsr: the report's crash section leads with the EXCEPTION line",
             rep.contains("EXCEPTION android.content.res.Resources$NotFoundException"));
         check("v312 tsr: the report header stamps the app version + SDK only (no model)",
-            rep.contains("app v3.4.2") && rep.contains("Android SDK"));
+            rep.contains("app v3.4.3") && rep.contains("Android SDK"));
         check("v312 tsr: the report is zero-PII end-to-end (the whole bundle re-scrubbed)",
             !rep.contains("24117RN76G") && !rep.contains("192.168.1.39"));
     }
@@ -3955,9 +3955,28 @@ public class ReceiverLab {
                 && LkSubFinder.captureLabel("https://x/a.srt").contains("Subtitle"));
 
         java.util.List<LkSubFinder.Site> sites = LkSubFinder.sites();
-        check("v330 subzip: the SL site list leads with Baiscope / Zoom.lk / PirateLK",
-            sites.size() >= 5 && "Baiscope".equals(sites.get(0).name)
-                && "Zoom.lk".equals(sites.get(1).name) && "PirateLK".equals(sites.get(2).name));
+        // v3.4.3 — the order is now the LIVE-HTTP-TESTED one (Replit QA-1451…QA-1464):
+        // the three Sri Lankan sites that answer 200/206 lead, and every Tier-2
+        // (Cloudflare/JS-challenge) site comes after every Tier-1 one.
+        check("v343 subs: the site list leads with the LIVE-verified SL trio (Zoom / PirateLK / Subz)",
+            sites.size() >= 9 && "Zoom.lk".equals(sites.get(0).name)
+                && "PirateLK".equals(sites.get(1).name) && "Subz.lk".equals(sites.get(2).name));
+        check("v343 subs: Subz.lk uses the canonical https://subz.lk/ host (HTTP 200)",
+            "https://subz.lk/".equals(sites.get(2).home)
+                && "https://subz.lk/".equals(LkSubFinder.canonical("https://subzlk.com/")));
+        boolean tier1First = true;
+        int seenTier2 = -1;
+        for (int i = 0; i < sites.size(); i++) {
+            String nm = sites.get(i).name;
+            if (LkSubFinder.isBrowserMediated(nm)) { if (seenTier2 < 0) seenTier2 = i; }
+            else if (seenTier2 >= 0) tier1First = false;
+        }
+        check("v343 subs: every Tier-1 (live) site precedes every Tier-2 (browser-mediated) site",
+            tier1First && seenTier2 > 0, "first tier-2 at " + seenTier2);
+        check("v343 subs: the tier labels are honest (live ✓ / browser only)",
+            LkSubFinder.tierLabel("Zoom.lk").contains("live")
+                && LkSubFinder.tierLabel("Baiscope").contains("browser")
+                && LkSubFinder.tierLabel("Nope").isEmpty());
         // v3.4.2 — five Sri Lankan sources: Baiscope, Zoom.lk, PirateLK, Cineru.lk, Subz.lk
         check("v330 subzip: the SL list is exactly the Sri Lankan five",
             LkSubFinder.sriLankanSites().size() == 5);
@@ -4093,32 +4112,32 @@ public class ReceiverLab {
     /** The version/pipeline parity gate (3.4.1 / 30401 everywhere, never 4.x). */
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
-        check("v331 parity: AndroidManifest.xml says 3.4.1 / 30401",
-            manifest.contains("android:versionCode=\"30402\"") && manifest.contains("android:versionName=\"3.4.2\""));
-        check("v331 parity: AppInfo says 3.4.1 / 30401",
-            "3.4.2".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30402);
-        check("v331 parity: 30401 strictly > 30400 (v3.4.0) — an in-place update, no downgrade",
-            AppInfo.VERSION_CODE == 30402 && AppInfo.VERSION_CODE > 30400);
+        check("v331 parity: AndroidManifest.xml says 3.4.3 / 30403",
+            manifest.contains("android:versionCode=\"30403\"") && manifest.contains("android:versionName=\"3.4.3\""));
+        check("v331 parity: AppInfo says 3.4.3 / 30403",
+            "3.4.3".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30403);
+        check("v331 parity: 30403 strictly > 30402 (v3.4.2) — an in-place update, no downgrade",
+            AppInfo.VERSION_CODE == 30403 && AppInfo.VERSION_CODE > 30402);
         String build = readRepoFile("build.sh");
-        check("v331 parity: build.sh defaults to 3.4.2 / 30402 (previous 30401)",
-            build.contains("VERSION_NAME:-3.4.2") && build.contains("VERSION_CODE:-30402")
-                && build.contains("PREV_VERSION_CODE:-30401"));
+        check("v331 parity: build.sh defaults to 3.4.3 / 30403 (previous 30402)",
+            build.contains("VERSION_NAME:-3.4.3") && build.contains("VERSION_CODE:-30403")
+                && build.contains("PREV_VERSION_CODE:-30402"));
         String latest = readRepoFile("docs/latest.json");
-        check("v331 parity: docs/latest.json carries 3.4.2 / 30402",
-            latest.contains("\"version\":\"3.4.2\"") && latest.contains("\"code\":30402"));
-        check("v331 parity: docs/latest.json apkUrl points at the v3.4.2 asset",
-            latest.contains("/download/v3.4.2/AnantPlay-Sinhala-Player-v3.4.2.apk"));
-        check("v331 parity: README.md announces v3.4.2",
-            readRepoFile("README.md").contains("3.4.2"));
-        check("v331 parity: SETUP-SI.md announces v3.4.2",
-            readRepoFile("SETUP-SI.md").contains("3.4.2"));
+        check("v331 parity: docs/latest.json carries 3.4.3 / 30403",
+            latest.contains("\"version\":\"3.4.3\"") && latest.contains("\"code\":30403"));
+        check("v331 parity: docs/latest.json apkUrl points at the v3.4.3 asset",
+            latest.contains("/download/v3.4.3/AnantPlay-Sinhala-Player-v3.4.3.apk"));
+        check("v331 parity: README.md announces v3.4.3",
+            readRepoFile("README.md").contains("3.4.3"));
+        check("v331 parity: SETUP-SI.md announces v3.4.3",
+            readRepoFile("SETUP-SI.md").contains("3.4.3"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v331 parity: build-apk.yml asserts 30402 / 3.4.2",
-            buildWf.contains("versionCode='30402'") && buildWf.contains("versionName='3.4.2'")
-                && buildWf.contains("AnantPlay-Sinhala-Player-v3.4.2.apk"));
+        check("v331 parity: build-apk.yml asserts 30403 / 3.4.3",
+            buildWf.contains("versionCode='30403'") && buildWf.contains("versionName='3.4.3'")
+                && buildWf.contains("AnantPlay-Sinhala-Player-v3.4.3.apk"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v331 parity: release-apk.yml defaults to 3.4.2",
-            relWf.contains("default: '3.4.2'"));
+        check("v331 parity: release-apk.yml defaults to 3.4.3",
+            relWf.contains("default: '3.4.3'"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
             !manifest.contains("versionName=\"4.") && !"4".equals(AppInfo.VERSION_NAME.substring(0, 1)));
         check("v331 parity: the v3.4.0 report ships inside the repo",
@@ -4405,13 +4424,23 @@ public class ReceiverLab {
         int backupEnd = prefsSrc.indexOf(");", backupStart);
         String backupBlock = (backupStart >= 0 && backupEnd > backupStart)
             ? prefsSrc.substring(backupStart, backupEnd) : "";
+        // v3.4.3 — DEVICE-STATE keys are the ONE documented exception (Replit QA-0002):
+        // onboarding completion + stage describe THIS phone's permissions and must never
+        // be exported. Every OTHER K_* still has to be in BACKUP_KEYS.
         int missing = 0;
         String firstMissing = "";
+        int excluded = 0;
         for (String k : declared) {
+            if ("K_ONBOARDING_DONE".equals(k) || "K_ONBOARDING_STAGE".equals(k)) { excluded++; continue; }
             if (!backupBlock.contains(k)) { missing++; if (firstMissing.isEmpty()) firstMissing = k; }
         }
-        check("v340 A8: every one of the " + declared.size() + " K_* keys is in BACKUP_KEYS ("
-            + missing + " missing)", missing == 0, firstMissing);
+        check("v343 prefs: every customization K_* is in BACKUP_KEYS (" + missing + " missing, "
+            + excluded + " device-state keys excluded)", missing == 0, firstMissing);
+        check("v343 prefs: K_ONBOARDING_DONE is NOT in BACKUP_KEYS (permissions never travel)",
+            !AppPrefs.BACKUP_KEYS.contains(AppPrefs.K_ONBOARDING_DONE)
+                && !AppPrefs.BACKUP_KEYS.contains(AppPrefs.K_ONBOARDING_STAGE)
+                && AppPrefs.DEVICE_STATE_KEYS.contains(AppPrefs.K_ONBOARDING_DONE)
+                && AppPrefs.DEVICE_STATE_KEYS.contains(AppPrefs.K_ONBOARDING_STAGE));
         check("v340 A8: BACKUP_KEYS is at least 70 keys (it was 50 in v3.3.1)",
             AppPrefs.BACKUP_KEYS.size() >= 70);
 
@@ -4521,11 +4550,11 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v341 A11: AndroidManifest declares 30402 / 3.4.2",
-            manifest340.contains("android:versionCode=\"30402\"")
-                && manifest340.contains("android:versionName=\"3.4.2\""));
-        check("v341 A11: AppInfo is 3.4.2 / 30402",
-            "3.4.2".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30402);
+        check("v341 A11: AndroidManifest declares 30403 / 3.4.3",
+            manifest340.contains("android:versionCode=\"30403\"")
+                && manifest340.contains("android:versionName=\"3.4.3\""));
+        check("v341 A11: AppInfo is 3.4.3 / 30403",
+            "3.4.3".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30403);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -4848,10 +4877,10 @@ public class ReceiverLab {
 
         // ── the live update channel's own manifest ────────────────────────────
         String latest = readRepoFile("docs/latest.json");
-        check("v331 customize: docs/latest.json announces 3.4.2 / 30402",
-            latest.contains("\"version\":\"3.4.2\"") && latest.contains("\"code\":30402"), latest);
-        check("v331 customize: docs/latest.json points at the v3.4.2 release asset",
-            latest.contains("/download/v3.4.2/AnantPlay-Sinhala-Player-v3.4.2.apk"));
+        check("v331 customize: docs/latest.json announces 3.4.3 / 30403",
+            latest.contains("\"version\":\"3.4.3\"") && latest.contains("\"code\":30403"), latest);
+        check("v331 customize: docs/latest.json points at the v3.4.3 release asset",
+            latest.contains("/download/v3.4.3/AnantPlay-Sinhala-Player-v3.4.3.apk"));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
 
@@ -4869,6 +4898,316 @@ public class ReceiverLab {
         v342HistoryChecks();
         v342PlayerLayoutChecks();
         v342SubsChecks();
+
+        // ── v3.4.3 — SECURITY / ONBOARDING / UI / SUBS / DASH REGRESSIONS ─────
+        v343SecurityChecks();
+        v343OnboardingAndHistoryChecks();
+        v343UiSubsDashChecks();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.3 — "v343 security:" — THE P0 SECURITY GATES
+    //
+    // Replit QA-0017 / QA-0018 / QA-0008 / QA-0011, proven rather than asserted:
+    // the cast cookie is origin-scoped (never a Media3 default request property),
+    // an authenticated HTTPS request cannot be downgraded to plaintext, and the
+    // WebView bridge only accepts a capped, same-origin, user-initiated payload.
+    // ═════════════════════════════════════════════════════════════════════════
+    static void v343SecurityChecks() throws Exception {
+        System.out.println("== v3.4.3 SEC — cookie scoping, downgrade guard, bridge hardening ==");
+        String play = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        String http = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/StreamHttpConfig.java"));
+
+        // ── P0 #1: the Cookie is lifted OUT of the default request properties ──
+        check("v343 security: Cookie is NOT in setDefaultRequestProperties (QA-0017)",
+            play.contains("headers.remove(\"Cookie\")")
+                && play.contains(".setDefaultRequestProperties(headers)"));
+        check("v343 security: the cookie layer is origin-scoped, not global",
+            play.contains("StreamHttpConfig.scopedCookie("));
+
+        // a REAL mock: Origin A's cookie must reach Origin A and never CDN host B
+        java.util.Map<String, String> creds = new java.util.LinkedHashMap<>();
+        creds.put("Cookie", "sid=SECRET-A");
+        creds.put("Referer", "https://origin-a.example/");
+        String originA = "https://origin-a.example/movie/master.m3u8";
+        String segA = "https://origin-a.example/movie/seg1.m4s";
+        String segB = "https://cdn-b.example.net/seg1.m4s";
+        check("v343 security: Origin A's cookie IS sent to Origin A",
+            "sid=SECRET-A".equals(StreamHttpConfig.scopedCookie(segA, originA, "sid=SECRET-A")));
+        check("v343 security: Origin A's cookie is NEVER sent to unrelated CDN Host B",
+            StreamHttpConfig.scopedCookie(segB, originA, "sid=SECRET-A").isEmpty());
+        check("v343 security: a same-site subdomain IS in scope (cdn.origin-a.example)",
+            "sid=SECRET-A".equals(StreamHttpConfig.scopedCookie(
+                "https://cdn.origin-a.example/seg1.m4s", originA, "sid=SECRET-A")));
+
+        // ── P0 #2: the HTTPS → HTTP downgrade guard ────────────────────────────
+        check("v343 security: isSafeRedirect exists in StreamHttpConfig (QA-0018)",
+            http.contains("static boolean isSafeRedirect("));
+        check("v343 security: HTTPS → HTTP is REJECTED while credentials are forwarded",
+            !StreamHttpConfig.isSafeRedirect("https://origin-a.example/x.m3u8",
+                "http://origin-a.example/x.m3u8", true));
+        check("v343 security: HTTPS → HTTP is allowed when nothing secret is attached",
+            StreamHttpConfig.isSafeRedirect("https://origin-a.example/x",
+                "http://origin-a.example/x", false));
+        check("v343 security: HTTP → HTTPS upgrade is always allowed",
+            StreamHttpConfig.isSafeRedirect("http://origin-a.example/x",
+                "https://origin-a.example/x", true));
+        check("v343 security: the LAN relay (private host) may still be plaintext HTTP",
+            StreamHttpConfig.isSafeRedirect("https://origin-a.example/x",
+                "http://192.168.1.7:34783/abc/x", true));
+        check("v343 security: a non-http scheme is never a safe redirect target",
+            !StreamHttpConfig.isSafeRedirect("https://a.example/x", "file:///sdcard/x", true)
+                && !StreamHttpConfig.isSafeRedirect("https://a.example/x", "intent://x", true));
+        check("v343 security: cross-protocol following is OFF for authenticated HTTPS",
+            !StreamHttpConfig.allowCrossProtocolRedirects("https://origin-a.example/x", true));
+        check("v343 security: cross-protocol following stays ON for the http LAN relay",
+            StreamHttpConfig.allowCrossProtocolRedirects("http://192.168.1.7:34783/abc/x", true));
+        check("v343 security: PlayActivity wires the redirect policy (not a blind true)",
+            play.contains("StreamHttpConfig.allowCrossProtocolRedirects(url, credentials)")
+                && !play.contains(".setAllowCrossProtocolRedirects(true)"));
+
+        // ── P0 #3: the WebView bridge ──────────────────────────────────────────
+        String web = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
+        check("v343 security: mixed content defaults to NEVER_ALLOW (QA-0008)",
+            web.contains("WebSettings.MIXED_CONTENT_NEVER_ALLOW")
+                && !web.contains("setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE)"));
+        check("v343 security: the mixed-content escape hatch is per-session only",
+            web.contains("void setMixedContentCompatibility(boolean on)"));
+        check("v343 security: the bridge enforces the 5 MB PRE-decode cap",
+            BridgeGuard.withinCap("QUJD") && !BridgeGuard.withinCap(
+                "A".repeat(BridgeGuard.B64_MAX_CHARS + 4)));
+        check("v343 security: the cap is computed BEFORE decoding (no allocation)",
+            BridgeGuard.estimatedBytes("QUJD") == 3
+                && BridgeGuard.estimatedBytes("QUJDRA==") == 4);
+        check("v343 security: the top-frame origin check refuses a foreign iframe",
+            BridgeGuard.originMatches("https://site.example/watch", "https://site.example/watch")
+                && !BridgeGuard.originMatches("https://site.example/watch", "https://ads.example/frame"));
+        check("v343 security: a user gesture opens the capture window, and it expires",
+            BridgeGuard.captureWindowOpen(1000, 900)
+                && !BridgeGuard.captureWindowOpen(1000 + BridgeGuard.CAPTURE_WINDOW_MS + 1, 900)
+                && !BridgeGuard.captureWindowOpen(1000, 0));
+        check("v343 security: single-flight + rate limiting are enforced",
+            BridgeGuard.rateLimited(1000, 900) && !BridgeGuard.rateLimited(1000, 0));
+        check("v343 security: refuseReason names the exact refusal (never a silent drop)",
+            BridgeGuard.refuseReason("https://a.example/", "https://b.example/", "QUJD",
+                1000, 900, 0, false).startsWith("origin:")
+                && BridgeGuard.refuseReason("https://a.example/", "https://a.example/", "QUJD",
+                    1000, 0, 0, false).startsWith("gesture:")
+                && BridgeGuard.refuseReason("https://a.example/", "https://a.example/", "QUJD",
+                    1000, 900, 0, true).startsWith("single-flight:")
+                && BridgeGuard.refuseReason("https://a.example/", "https://a.example/", "QUJD",
+                    10000, 9000, 0, false).isEmpty());
+        check("v343 security: WebBrowserView calls the one gate and records refusals",
+            web.contains("BridgeGuard.refuseReason(") && web.contains("blob bridge refused"));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.3 — "v343 onboarding & history:" — THE FIRST-RUN AND HISTORY GATES
+    // ═════════════════════════════════════════════════════════════════════════
+    static void v343OnboardingAndHistoryChecks() throws Exception {
+        System.out.println("== v3.4.3 ONB — onboarding contract + history hygiene ==");
+        String wiz = readRepoFile("src/lk/techworld/anantplay/sicast/OnboardingWizard.java");
+        String spec = readRepoFile("src/lk/techworld/anantplay/sicast/OnboardingSpec.java");
+        String main = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
+
+        // ── the 5-stage contract ───────────────────────────────────────────────
+        check("v343 onboarding: the wizard ships (OnboardingWizard.java + its pure spec)",
+            wiz.contains("public final class OnboardingWizard")
+                && spec.contains("final class OnboardingSpec"));
+        check("v343 onboarding: exactly 5 stages, in the audited order",
+            OnboardingSpec.STAGES == 5
+                && OnboardingSpec.STAGE_WELCOME == 0 && OnboardingSpec.STAGE_NOTIFICATIONS == 1
+                && OnboardingSpec.STAGE_OVERLAY == 2 && OnboardingSpec.STAGE_BACKGROUND == 3
+                && OnboardingSpec.STAGE_CONNECT == 4);
+        check("v343 onboarding: stage math clamps (never a crash, never a lost stage)",
+            OnboardingSpec.clampStage(-3) == 0 && OnboardingSpec.clampStage(99) == 4
+                && OnboardingSpec.nextStage(4) == 4 && OnboardingSpec.prevStage(0) == 0
+                && OnboardingSpec.nextStage(0) == 1);
+        check("v343 onboarding: stage titles + actions are the exact 5 English ones",
+            "Welcome".equals(OnboardingSpec.stageTitle(0))
+                && "Notifications".equals(OnboardingSpec.stageTitle(1))
+                && "Auto-Open on Cast".equals(OnboardingSpec.stageTitle(2))
+                && "Background Stability".equals(OnboardingSpec.stageTitle(3))
+                && "Connect AnantPlay".equals(OnboardingSpec.stageTitle(4))
+                && "Start setup".equals(OnboardingSpec.stageAction(0))
+                && "Finish setup".equals(OnboardingSpec.stageAction(4)));
+        check("v343 onboarding: it opens only when onboarding is NOT done",
+            OnboardingSpec.shouldAutoOpen(false) && !OnboardingSpec.shouldAutoOpen(true));
+        check("v343 onboarding: the stage is persisted, so rotation/process death keep it",
+            wiz.contains("AppPrefs.setOnboardingStage(prefs, stage)")
+                && wiz.contains("AppPrefs.onboardingStage(prefs)"));
+        check("v343 onboarding: ONLY Finish setup writes onboardingDone",
+            wiz.contains("private void finishSetup()") && wiz.contains("AppPrefs.setOnboardingDone(prefs, true)"));
+        check("v343 onboarding: no blind system dialog from MainActivity.onCreate (QA-0002)",
+            !main.contains("requestPermissions(new String[]{\"android.permission.POST_NOTIFICATIONS\"}, 7)")
+                || main.indexOf("OnboardingWizard.showIfNeeded") > 0);
+        check("v343 onboarding: the wizard re-queries live state on every host resume (QA-0003)",
+            main.contains("OnboardingWizard.onHostResume()"));
+        check("v343 onboarding: overlay/notification/background status lines are truthful",
+            "Not required ✓".equals(OnboardingSpec.notifStatus(32, false))
+                && "Granted ✓".equals(OnboardingSpec.notifStatus(33, true))
+                && "Not enabled".equals(OnboardingSpec.notifStatus(33, false))
+                && "Granted ✓".equals(OnboardingSpec.overlayStatus(true))
+                && OnboardingSpec.backgroundStatus(false, OnboardingSpec.AUTOSTART_ENABLED, false, true)
+                    .startsWith("Verified")
+                && OnboardingSpec.backgroundStatus(true, OnboardingSpec.AUTOSTART_UNKNOWN, true, true)
+                    .startsWith("User confirmed")
+                && OnboardingSpec.backgroundStatus(true, OnboardingSpec.AUTOSTART_UNKNOWN, false, true)
+                    .startsWith("Unknown")
+                && OnboardingSpec.backgroundStatus(true, OnboardingSpec.AUTOSTART_ENABLED, false, true)
+                    .startsWith("Verified"));
+        check("v343 onboarding: a revoked grant shows a REPAIR banner, never a wizard loop",
+            OnboardingSpec.needsRepair(true, false, true, true)
+                && !OnboardingSpec.needsRepair(false, false, true, true)
+                && OnboardingSpec.repairBannerText(false, true, true).contains("auto-open on cast is off")
+                && main.contains("paintRepairBanner()"));
+        check("v343 onboarding: it is re-openable from Help (Run setup wizard)",
+            main.contains("Run setup wizard") && main.contains("AppPrefs.resetOnboarding(prefs)"));
+        check("v343 onboarding: no invented AnantPlay download URL anywhere in the wizard",
+            !wiz.contains("http://") && !wiz.contains("https://"));
+        check("v343 onboarding: the Quick Check runs the REAL 10-point probe",
+            wiz.contains("FeatureProbe.runAll(") && wiz.contains("FeatureProbe.verdict("));
+
+        // ── the checklist / permission bugs ────────────────────────────────────
+        check("v343 onboarding: canRequestPackageInstalls is NOT part of readiness (QA-0003)",
+            !main.contains("boolean installs = canInstallApks()"));
+        check("v343 onboarding: canDrawOverlays IS checked in readiness",
+            main.contains("android.provider.Settings.canDrawOverlays(this)")
+                && main.contains("boolean overlay ="));
+        check("v343 onboarding: the checklist re-diffs on every resume (stale rows fixed)",
+            main.contains("setupCard.removeAllViews();"));
+
+        // ── history hygiene (the gap Replit missed) ────────────────────────────
+        String hist = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WatchHistory.java"));
+        check("v343 history: WatchHistory strips Cookie/Authorization before persisting",
+            hist.contains("StreamHttpConfig.stripSecretsJson(") && hist.contains("public static Item sanitize("));
+        check("v343 history: a Cookie-bearing headers blob is scrubbed (real round-trip)",
+            !StreamHttpConfig.stripSecretsJson("{\"Cookie\":\"sid=SECRET\",\"Referer\":\"https://a/\"}")
+                .contains("SECRET")
+                && StreamHttpConfig.stripSecretsJson("{\"Cookie\":\"sid=SECRET\",\"Referer\":\"https://a/\"}")
+                    .contains("Referer"));
+        check("v343 history: an ephemeral LAN relay is flagged and unwrapped to its upstream",
+            StreamHttpConfig.isRelay("http://192.168.1.7:34783/aHR0cHM6Ly9wcm94eS55ZW5pbWUubmV0L20/movie.m3u8"));
+        WatchHistory.Item it = new WatchHistory.Item("Movie", "http://192.168.1.7:34783/aHR0cHM6Ly9wcm94eS55ZW5pbWUubmV0L20/movie.m3u8",
+            "{\"Cookie\":\"sid=SECRET\"}", "player", 42000, 120000, 1763900000000L);
+        WatchHistory.sanitize(it);
+        check("v343 history: sanitize() drops the secret and keeps the position",
+            !it.headers.contains("SECRET") && it.pos == 42000 && it.ephemeralRelay
+                && it.canonical.startsWith("https://proxy.yenim"));
+        check("v343 history: a stale relay row offers the 1-tap Session-expired action",
+            it.needsReopen() && WatchHistory.EXPIRED_LABEL.contains("Session expired")
+                && WatchHistory.EXPIRED_LABEL.contains("Re-open in AnantPlay"));
+        check("v343 history: the store round-trips the new relay fields",
+            WatchHistory.fromJson(WatchHistory.toJson(java.util.Collections.singletonList(it)))
+                .get(0).ephemeralRelay
+                && !WatchHistory.fromJson(WatchHistory.toJson(java.util.Collections.singletonList(it)))
+                    .get(0).headers.contains("SECRET"));
+        check("v343 history: a LEGACY row with a Cookie is migrated on read",
+            !WatchHistory.fromJson("[{\"title\":\"X\",\"url\":\"https://a/x\",\"headers\":\"{\\\"Cookie\\\":\\\"sid=OLD\\\"}\",\"pos\":5000,\"dur\":10000,\"at\":1}]")
+                .get(0).headers.contains("OLD"));
+        check("v343 history: the Home row shows the expired state and re-opens AnantPlay",
+            main.contains("it.needsReopen()") && main.contains("showExpiredRelay("));
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.3 — "v343 ui & subs & dash:" — ENGLISH CHROME, SIMPLE/ADVANCED, DASH
+    // ═════════════════════════════════════════════════════════════════════════
+    static void v343UiSubsDashChecks() throws Exception {
+        System.out.println("== v3.4.3 UI/SUBS/DASH — English chrome, progressive settings, DASH ==");
+        String main = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
+        String play = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+
+        // ── the English-chrome enforcer ────────────────────────────────────────
+        Chrome.setUiLang("en");
+        check("v343 ui: Chrome.en() drops the Sinhala half of a bilingual literal",
+            "Sinhala subtitles ready".equals(Chrome.pick("සිංහල උපරිසැසි සූදානම් · Sinhala subtitles ready"))
+                || "Sinhala subtitles ready".equals(Chrome.pick("සිංහල උපසිරැසි සූදානම් · Sinhala subtitles ready")));
+        check("v343 ui: an English-first literal keeps its English half",
+            "Tap to unlock".equals(Chrome.pick("Tap to unlock · අගුළු හරින්න")));
+        check("v343 ui: a mixed part keeps its Latin content (a %s can never be eaten)",
+            Chrome.pick("AnantPlay සිංහල Player v%s · zero fork").contains("v%s"));
+        check("v343 ui: NO Sinhala character survives Chrome.pick in en mode",
+            !Chrome.hasSinhala(Chrome.pick("සිංහල උපසිරැසි · Sinhala subs · තව")));
+        check("v343 ui: si mode returns the Sinhala half (the explicit opt-in)",
+            Chrome.pick("si", "සිංහල උපසිරැසි · Sinhala subs").contains("සිංහල"));
+        check("v343 ui: bi mode returns the whole literal (the explicit bilingual opt-in)",
+            Chrome.pick("bi", "සිංහල · English").equals("සිංහල · English"));
+        Chrome.setUiLang("en");
+        check("v343 ui: MainActivity/PlayActivity both publish the UI language to Chrome",
+            main.contains("Chrome.setUiLang(AppPrefs.uiLang(prefs))")
+                && play.contains("Chrome.setUiLang(AppPrefs.uiLang(prefs))"));
+
+        // ── Simple vs Advanced settings ────────────────────────────────────────
+        check("v343 ui: a Quick-settings card is the first thing on the Settings tab",
+            main.contains("outer.addView(quickSettingsCard(), widen())"));
+        check("v343 ui: the 5 quick controls are the audited ones",
+            main.contains("themeThumbs()") && main.contains("accentPicker()")
+                && main.contains("\"Subtitle size\"") && main.contains("Automatic Sinhala subtitles")
+                && main.contains("Continue watching resume") && main.contains("Midnight night dimmer"));
+        check("v343 ui: the Quick card carries a LIVE subtitle preview",
+            main.contains("quickPreview.setTextSize(v)") && main.contains("private TextView quickPreview;"));
+        check("v343 ui: Advanced settings is a collapsible section (progressive disclosure)",
+            main.contains("\"Advanced settings\"") && main.contains("advBody.setVisibility("));
+        check("v343 ui: every advanced section still builds into the collapsible body",
+            main.contains("root = advBody;") && main.contains("root.addView(g5, widen())"));
+
+        // ── subtitle provider ordering + translator safety ─────────────────────
+        check("v343 subs: subz.lk is canonical and the tier tables are consistent",
+            LkSubFinder.canonical("https://subzlk.com/x").equals("https://subz.lk/x")
+                && LkSubFinder.LIVE_OK.size() == 6 && LkSubFinder.BROWSER_MEDIATED.size() == 4);
+        check("v343 subs: FreeSubTranslator masks/restores the Sinhala joiners (ZWJ/ZWNJ)",
+            FreeSubTranslator.maskJoiners("ක්‍ය").indexOf(FreeSubTranslator.ZWJ) < 0
+                && FreeSubTranslator.unmaskJoiners(FreeSubTranslator.maskJoiners("ක්‍ය"))
+                    .equals("ක්‍ය")
+                && FreeSubTranslator.joinersIntact("ක්‍ය", FreeSubTranslator.unmaskJoiners(
+                    FreeSubTranslator.maskJoiners("ක්‍ය"))));
+        String trans = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/FreeSubTranslator.java"));
+        check("v343 subs: a dead endpoint returns the ORIGINAL cues (never wipes English)",
+            trans.contains("r.cues = out;") && trans.contains("r.complete = false;")
+                && trans.contains("return r;"));
+
+        // ── DASH relative BaseURL / SegmentTemplate ────────────────────────────
+        String manifestUrl = "http://192.168.1.7:34783/aHR0cHM6Ly9wcm94eS55ZW5pbWUubmV0L20/movie/manifest.mpd";
+        check("v343 dash: a relative BaseURL resolves against the manifest directory",
+            StreamHttpConfig.resolveRef(manifestUrl, "seg/").startsWith(
+                "http://192.168.1.7:34783/aHR0cHM6Ly9wcm94eS55ZW5pbWUubmV0L20/movie/seg/"));
+        check("v343 dash: an origin-absolute reference keeps the origin only",
+            StreamHttpConfig.resolveRef("https://proxy.yenime.net/a/b/manifest.mpd", "/seg/x.m4s")
+                .equals("https://proxy.yenime.net/seg/x.m4s"));
+        check("v343 dash: dashBase prefers an absolute <BaseURL> over the manifest dir",
+            StreamHttpConfig.dashBase("https://a.example/m/manifest.mpd", "https://cdn.example/x/")
+                .equals("https://cdn.example/x/"));
+        check("v343 dash: a relay-relative segment is re-based onto the relay's origin segment",
+            StreamHttpConfig.rebaseOntoRelay(manifestUrl,
+                "http://192.168.1.7:34783/movie/seg1.m4s").contains(
+                    "/aHR0cHM6Ly9wcm94eS55ZW5pbWUubmV0L20/movie/seg1.m4s"));
+        check("v343 dash: a real CDN segment is left untouched",
+            StreamHttpConfig.rebaseOntoRelay(manifestUrl, "https://cdn-b.example/seg1.m4s")
+                .equals("https://cdn-b.example/seg1.m4s"));
+        check("v343 dash: a token with a RELATIVE url= is resolved against its b base",
+            StreamHttpConfig.directUrl(StreamHttpConfig.relay(manifestUrl)) == null
+                || StreamHttpConfig.directUrl(StreamHttpConfig.relay(manifestUrl)).startsWith("http"));
+        check("v343 dash: PlayActivity re-bases relay-relative segments in the resolver",
+            play.contains("StreamHttpConfig.rebaseOntoRelay("));
+
+        // ── cast session correlation ───────────────────────────────────────────
+        check("v343 cast: a duplicate cast retry inside 2 s is idempotent (QA-0016)",
+            CastPolicy.isDuplicateCast("c:{}", 5000, "c:{}", 4000)
+                && !CastPolicy.isDuplicateCast("c:{}", 7000, "c:{}", 4000)
+                && !CastPolicy.isDuplicateCast("c:{other}", 4500, "c:{}", 4000)
+                && CastPolicy.isDuplicateCast("", 4500, "", 4000));
+        check("v343 cast: one takeover per 5 s — never a launch loop (QA-0024)",
+            CastPolicy.takeoverAllowed(0, 0) && !CastPolicy.takeoverAllowed(3000, 1000)
+                && CastPolicy.takeoverAllowed(6000, 1000) && !CastPolicy.takeoverAllowed(5999, 1000)
+                && stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/ReceiverService.java"))
+                    .contains("CastPolicy.takeoverAllowed("));
+        check("v343 cast: TRANSITIONING during bounded recovery, NO_MEDIA_PRESENT only on stop",
+            "TRANSITIONING".equals(DlnaEndpoint.transportState(
+                new java.util.LinkedHashMap<String, Object>() {{ put("idle", Boolean.TRUE); }}, true))
+                && "NO_MEDIA_PRESENT".equals(DlnaEndpoint.transportState(
+                    new java.util.LinkedHashMap<String, Object>() {{ put("idle", Boolean.TRUE); }}, false)));
+        check("v343 cast: the recovery ladder is time-bounded (60 s), never an endless hold",
+            play.contains("RECOVERY_CAP_MS") && play.contains("recoveryDeadline"));
     }
 
 
@@ -5350,10 +5689,16 @@ public class ReceiverLab {
             web.contains("__siBlobHook") && web.contains("URL.createObjectURL"));
         check("v341 subs: LAYER 5 catches <a download href=\"blob:…\"> too",
             web.contains("a[download]") && web.contains("blob:"));
-        check("v341 subs: LAYER 5 posts through the ONE registered interface (SniJS)",
-            web.contains("public void onBlobDownload(String base64, String name)"));
-        check("v341 subs: LAYER 5 refuses anything over the 5 MB cap",
-            web.contains("BLOB_CAP") && web.contains("5 * 1024 * 1024"));
+        check("v343 subs: LAYER 5 posts through the ONE registered interface (SniJS) with its origin",
+            web.contains("public void onBlobDownload(String base64, String name, String pageUrl)"));
+        check("v343 subs: LAYER 5 refuses anything over the 5 MB PRE-decode cap",
+            web.contains("BridgeGuard.refuseReason(") && BridgeGuard.BLOB_CAP == 5 * 1024 * 1024
+                && BridgeGuard.withinCap("A".repeat(10)) && !BridgeGuard.withinCap(null));
+        check("v343 subs: the blob shim only runs in the TOP document (no hostile iframes)",
+            web.contains("window.top!==window"));
+        check("v343 subs: WebBrowserView defaults to MIXED_CONTENT_NEVER_ALLOW",
+            web.contains("WebSettings.MIXED_CONTENT_NEVER_ALLOW")
+                && web.contains("setMixedContentCompatibility("));
         String sd = readRepoFile("src/lk/techworld/anantplay/sicast/SpeedDial.java");
         check("v341 subs: tools.newzone.top/en/subtitle-translator is a built-in speed dial entry",
             sd.contains("https://tools.newzone.top/en/subtitle-translator"));

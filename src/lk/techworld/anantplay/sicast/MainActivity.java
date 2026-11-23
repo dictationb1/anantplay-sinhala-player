@@ -102,6 +102,10 @@ public class MainActivity extends Activity {
     private TextView heroPill, updateBanner;
     private android.widget.ProgressBar updateBar;
     private LinearLayout setupCard, guideCard, guideBody;
+    /** v3.4.3 — the one-line Home repair banner (only after onboarding is complete). */
+    private TextView repairBanner;
+    /** v3.4.3 — the Quick-Settings live subtitle preview (updated by its slider). */
+    private TextView quickPreview;
     private final List<Runnable> refreshers = new ArrayList<>();
 
     // diagnostics widgets
@@ -170,12 +174,15 @@ public class MainActivity extends Activity {
         restorePlace();
         applyMidnightDimmer();
         ReceiverService.arm(this, "main");
-        // Android 13+ runtime notification permission (sideloaded apps need the
-        // "Allow restricted settings" unlock first — the setup checklist walks it).
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
-            != PackageManager.PERMISSION_GRANTED) {
-            try { requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7); } catch (Throwable ignored) { }
-        }
+        // ══ v3.4.3 — Replit QA-0001/QA-0002: NO COLD PERMISSION POP-UP ═════════════
+        // v3.4.2 fired the Android 13 notification dialog right here, before the app
+        // had explained itself. That request now lives in the onboarding wizard's
+        // stage 2, where the user has just read WHY it is being asked for.
+        main.post(() -> {
+            try { OnboardingWizard.showIfNeeded(this, prefs); } catch (Throwable t) {
+                Diag.w("onboarding", "auto-open: " + t);
+            }
+        });
         if (getIntent().getBooleanExtra("needMedia", false)) requestMediaPermission();
         if (getIntent().getBooleanExtra("runTest", false)) { selectTab(TAB_TROUBLE); runFullTroubleshoot(); }
         // v3.3.0 — the Cinema Player's 🇱🇰 mini web-picker hands a search URL over here:
@@ -185,7 +192,7 @@ public class MainActivity extends Activity {
         // throttled since v3.1.0 — the banner is the ONLY visible update noise)
         SelfUpdater.setUiListener(new SelfUpdater.UiListener() {
             @Override public void onUpdateAvailable(String version) {
-                main.post(() -> showUpdateBanner("v" + version + " — නිහඬව බාගැනෙමින්… · downloading quietly…", 0));
+                main.post(() -> showUpdateBanner("v" + version + Chrome.pick(" — නිහඬව බාගැනෙමින්… · downloading quietly…"), 0));
             }
             @Override public void onDownloadProgress(int percent) {
                 main.post(() -> showUpdateBanner(null, percent));
@@ -200,6 +207,9 @@ public class MainActivity extends Activity {
      *  when dynamic color is on AND Android 12+) and paint the window.
      *  v3.2.0 — the custom hex accent rides the same palette call. */
     private void applyTheme() {
+        // v3.4.3 — the English-chrome enforcer learns the UI language before any
+        // string is built (Replit QA-0005). Every Activity sets it on create.
+        Chrome.setUiLang(AppPrefs.uiLang(prefs));
         String mode = AppPrefs.themeMode(prefs);
         if (AppPrefs.THEME_SYSTEM.equals(mode)) {
             boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
@@ -250,6 +260,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // v3.4.3 — the wizard re-queries every permission LIVE on return from a system
+        // screen (Replit QA-0003: v3.4.2 trusted "the user came back", so the rows lied).
+        OnboardingWizard.onHostResume();
         refresh();
         main.postDelayed(this::refresh, 1200);   // let the receiver/nsd state settle
         main.postDelayed(this::measureShell, 260);   // v3.3.0: prove the nav shell every resume
@@ -691,8 +704,12 @@ public class MainActivity extends Activity {
         catch (Throwable ignored) { }
         bar.addView(pb, new LinearLayout.LayoutParams(0, dp(4), 1f));
         TextView ts = new TextView(this);
-        ts.setText(it.progressLabel());
-        ts.setTextColor(P.desc);
+        // v3.4.3 — an EPHEMERAL relay row says so up front instead of failing silently
+        // when it is tapped a day later (the timestamp stays exactly as saved).
+        ts.setText(it.needsReopen()
+            ? it.progressLabel() + " · " + t("කල් ඉකුත් විය", "expired")
+            : it.progressLabel());
+        ts.setTextColor(it.needsReopen() ? P.warn : P.desc);
         ts.setTextSize(10.5f);
         ts.setPadding(dp(8), 0, 0, 0);
         bar.addView(ts, new LinearLayout.LayoutParams(-2, -2));
@@ -700,7 +717,7 @@ public class MainActivity extends Activity {
         r.addView(col, new LinearLayout.LayoutParams(0, -2, 1f));
 
         TextView go = new TextView(this);
-        go.setText(t("නැවත", "Resume"));
+        go.setText(it.needsReopen() ? t("නැවත විවෘත", "Re-open") : t("නැවත", "Resume"));
         go.setTextColor(P.accent);
         go.setTextSize(11.5f);
         go.setTypeface(Typeface.DEFAULT_BOLD);
@@ -713,13 +730,32 @@ public class MainActivity extends Activity {
         return r;
     }
 
-    /** Re-open the player at the saved millisecond (subtitles fetch exactly as before). */
-    private void resumeFrom(WatchHistory.Item it) {
+    /** Re-open the player at the saved millisecond (subtitles fetch exactly as before).
+     *
+     * <p>v3.4.3 — an EPHEMERAL AnantPlay relay entry is resumed from its CANONICAL
+     * upstream URL when one was decoded out of the relay, with the dead session's
+     * headers dropped (its token died with the cast; replaying it would only earn a
+     * 403). The saved timestamp is preserved either way. When there is no canonical
+     * URL the user gets the honest 1-tap "Session expired — Re-open in AnantPlay"
+     * sheet instead of a silent failure.
+     */
+    private void resumeFrom(final WatchHistory.Item it) {
         try {
+            String target = it.url;
+            String headers = it.headers;
+            if (it.ephemeralRelay) {
+                if (it.canonical != null && !it.canonical.trim().isEmpty()) {
+                    target = it.canonical;      // the address that outlives the LAN relay
+                    headers = "";              // never replay a dead session's credentials
+                } else {
+                    showExpiredRelay(it);
+                    return;
+                }
+            }
             Intent i = new Intent(this, PlayActivity.class)
-                .putExtra("url", it.url)
+                .putExtra("url", target)
                 .putExtra("title", it.title)
-                .putExtra("headers", it.headers)
+                .putExtra("headers", headers)
                 .putExtra("startMs", it.pos)
                 .putExtra("source", it.source == null || it.source.isEmpty() ? "history" : it.source);
             startActivity(i);
@@ -727,6 +763,53 @@ public class MainActivity extends Activity {
             Diag.e("ui", "resume: " + t);
             toast(t("නැවත විවෘත කළ නොහැක", "could not resume — please retry"));
         }
+    }
+
+    /**
+     * v3.4.3 — THE "SESSION EXPIRED" SHEET (Replit-adjacent: the ephemeral relay gap).
+     *
+     * <p>Calm, one screen, no dead end: the timestamp is kept, and the user is handed the
+     * one action that actually works — re-open the movie in official AnantPlay and cast
+     * again. "Try anyway" still attempts the stored URL for a relay that happens to be
+     * alive on this Wi-Fi right now.
+     */
+    private void showExpiredRelay(final WatchHistory.Item it) {
+        try {
+            String msg = t(
+                "මෙම සැසිය කල් ඉකුත් වී ඇත — ඔබ නතර කළ තැන (" + WatchHistory.clock(it.pos)
+                    + ") සුරකිනු ලැබේ. නැවත AnantPlay තුළින් විවෘත කර Cast කරන්න.",
+                "This cast session has expired — your position (" + WatchHistory.clock(it.pos)
+                    + ") is kept. Re-open the movie in AnantPlay and cast again.");
+            new android.app.AlertDialog.Builder(this)
+                .setTitle(WatchHistory.EXPIRED_LABEL)
+                .setMessage(msg)
+                .setPositiveButton(t("AnantPlay විවෘත කරන්න", "Open AnantPlay"),
+                    (d, w) -> openOfficialAnantPlay())
+                .setNeutralButton(t("එසේ වුවත් උත්සාහ", "Try anyway"), (d, w) -> {
+                    try {
+                        startActivity(new Intent(this, PlayActivity.class)
+                            .putExtra("url", it.url).putExtra("title", it.title)
+                            .putExtra("startMs", it.pos).putExtra("source", "history"));
+                    } catch (Throwable t2) { toast("could not open"); }
+                })
+                .setNegativeButton(t("වසන්න", "Close"), null)
+                .show();
+        } catch (Throwable t) {
+            Diag.w("ui", "expired sheet: " + t);
+            toast(WatchHistory.EXPIRED_LABEL);
+        }
+    }
+
+    /** Launch official AnantPlay when it is installed, else explain where it lives.
+     *  v3.4.3 — NEVER an invented download URL (the audit's explicit rule). */
+    private void openOfficialAnantPlay() {
+        final String pkg = "me.champdev.weblock";
+        try {
+            Intent i = getPackageManager().getLaunchIntentForPackage(pkg);
+            if (i != null) { startActivity(i); return; }
+        } catch (Throwable ignored) { }
+        toast(t("AnantPlay ස්ථාපිත නැත — Play Store / GitHub වෙතින් ලබාගන්න",
+            "AnantPlay is not installed — get it from its official Play Store / GitHub page"));
     }
 
     /**
@@ -990,6 +1073,19 @@ public class MainActivity extends Activity {
         });
         root.addView(guideCard, widen());
 
+        // ── v3.4.3 — THE CALM REPAIR BANNER (one line, only when a grant was revoked) ──
+        repairBanner = new TextView(this);
+        repairBanner.setTextColor(P.warn);
+        repairBanner.setTextSize(11.5f);
+        repairBanner.setPadding(dp(2), dp(8), dp(2), dp(8));
+        repairBanner.setVisibility(View.GONE);
+        repairBanner.setOnClickListener(v -> {
+            AppPrefs.resetOnboarding(prefs);
+            OnboardingWizard.show(this, prefs);
+        });
+        root.addView(repairBanner, widen());
+        refreshers.add(() -> paintRepairBanner());
+
         // ── the setup checklist (hidden once everything is green) ──
         setupCard = card(0xFF1F1508);
         root.addView(setupCard, widen());
@@ -997,13 +1093,31 @@ public class MainActivity extends Activity {
 
         TextView foot = new TextView(this);
         foot.setText(String.format(Locale.US,
-            "AnantPlay සිංහල Player v%s · zero fork · zero accessibility · official AnantPlay stays untouched",
+            Chrome.pick("AnantPlay සිංහල Player v%s · zero fork · zero accessibility · official AnantPlay stays untouched"),
             AppInfo.VERSION_NAME));
         foot.setTextColor(P.desc);
         foot.setTextSize(10.5f);
         foot.setPadding(0, dp(10), 0, dp(6));
         root.addView(foot, widen());
         return scroll;
+    }
+
+    /**
+     * v3.4.3 — THE REPAIR BANNER (Replit QA-0004).
+     *
+     * <p>After onboarding is complete, a REVOKED permission must not drag the user back
+     * through the wizard (the endless-loop failure mode the audit called out). One
+     * honest line, one tap to fix, nothing else.
+     */
+    private void paintRepairBanner() {
+        if (repairBanner == null) return;
+        boolean done = AppPrefs.onboardingDone(prefs);
+        boolean overlay = android.provider.Settings.canDrawOverlays(this);
+        boolean notif = Miui.notifGranted(this);
+        boolean battery = Miui.batteryUnrestricted(this);
+        boolean repair = OnboardingWizard.needsRepair(done, overlay, notif, battery);
+        repairBanner.setVisibility(repair ? View.VISIBLE : View.GONE);
+        if (repair) repairBanner.setText(OnboardingWizard.repairBannerText(overlay, notif, battery));
     }
 
     /** The setup checklist: ONLY the REQUIRED items, the whole card stays GONE
@@ -1013,11 +1127,19 @@ public class MainActivity extends Activity {
     private void paintSetupChecklist() {
         boolean notif = Miui.notifGranted(this);
         boolean battery = Miui.batteryUnrestricted(this);
-        boolean installs = canInstallApks();
         boolean autostart = Miui.autostartOk(this);
-        boolean allOk = notif && battery && autostart && installs;
+        // v3.4.3 — Replit QA-0002: "Install unknown apps" is NOT part of playback or
+        // cast readiness. It is only ever needed when the user taps "Install update",
+        // so asking for it on Home was a permission the app does not need yet.
+        // v3.4.3 — Replit QA-0003: the OVERLAY grant IS part of readiness (it is what
+        // makes a cast open the player instead of posting a notification), and it is
+        // re-read on every resume so the row can never go stale.
+        boolean overlay = android.provider.Settings.canDrawOverlays(this);
+        boolean allOk = notif && battery && autostart && overlay;
         setupCard.setVisibility(allOk ? View.GONE : View.VISIBLE);
-        if (allOk || setupCard.getChildCount() > 0) return;
+        if (allOk) { setupCard.removeAllViews(); return; }
+        // every resume re-diffs: a revoked grant must REAPPEAR, a granted one must clear
+        setupCard.removeAllViews();
         LinearLayout head2 = row();
         head2.setGravity(Gravity.CENTER_VERTICAL);
         TextView h = new TextView(this);
@@ -1056,9 +1178,9 @@ public class MainActivity extends Activity {
                 },
                 v -> Miui.openAutostart(this)));
         }
-        if (!installs) setupCard.addView(setupRow(
-            "Install unknown apps — " + t("APK යාවත්කාලීන සඳහා", "for APK updates"),
-            null, null, v -> openInstallPermission()));
+        if (!overlay) setupCard.addView(setupRow(
+            "Auto-open on cast — " + t("වෙනත් යෙදුම් මත දර්ශනය", "Display over other apps"),
+            null, null, v -> Miui.openOverlay(this)));
     }
 
     /** One setup row: label + optional [✓ Done] + [Open]. The Done button is
@@ -1157,7 +1279,47 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
         LinearLayout root = column();
+        final LinearLayout outer = root;                 // v3.4.3 — the page itself
         scroll.addView(root, new ViewGroup.LayoutParams(-1, -2));
+
+        // ══════════════════════════════════════════════════════════════════════
+        // v3.4.3 — QUICK SETTINGS (Replit QA-0006 / QA-0007): the five controls a
+        // beginner actually changes, always visible, zero jargon. Everything else
+        // lives below in ONE collapsible "Advanced settings" container, so the tab
+        // opens calm instead of as a 76-preference wall.
+        // ══════════════════════════════════════════════════════════════════════
+        outer.addView(quickSettingsCard(), widen());
+
+        final LinearLayout advHeader = new LinearLayout(this);
+        advHeader.setOrientation(LinearLayout.HORIZONTAL);
+        advHeader.setGravity(Gravity.CENTER_VERTICAL);
+        advHeader.setPadding(dp(4), dp(14), dp(4), dp(8));
+        final TextView advTitle = new TextView(this);
+        advTitle.setText(t("උසස් සැකසුම්", "Advanced settings"));
+        advTitle.setTextColor(P.title);
+        advTitle.setTextSize(14f);
+        advTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        advHeader.addView(advTitle, new LinearLayout.LayoutParams(0, -2, 1f));
+        final TextView advChevron = new TextView(this);
+        advChevron.setTextColor(P.desc);
+        advChevron.setTextSize(14f);
+        advHeader.addView(advChevron, new LinearLayout.LayoutParams(-2, -2));
+        outer.addView(advHeader, widen());
+
+        final LinearLayout advBody = column();
+        outer.addView(advBody, widen());
+        final boolean[] expanded = {false};
+        Runnable paintAdv = () -> {
+            advBody.setVisibility(expanded[0] ? View.VISIBLE : View.GONE);
+            advChevron.setText(expanded[0] ? "▴" : "▾");
+            advTitle.setText(t("උසස් සැකසුම්", "Advanced settings")
+                + (expanded[0] ? "" : t(" · සියලු 76 සැකසුම්", " · all 76 preferences")));
+        };
+        paintAdv.run();
+        advHeader.setOnClickListener(v -> { expanded[0] = !expanded[0]; paintAdv.run(); });
+
+        // every existing section below now builds into advBody (one reference change)
+        root = advBody;
 
         // ══ 1. APPEARANCE ══════════════════════════════════════════════════════
         LinearLayout g1 = UiGroup.make(this, P, prefs, "පෙනුම", "Appearance");
@@ -1358,6 +1520,48 @@ public class MainActivity extends Activity {
             "සැකසුම් 100% දේශීයයි — කිසිදු දත්ත එළියට නොයයි. සියල්ල Backup එකේ ඇතුළත්.",
             "All settings stay on this phone — nothing leaves it, and every one is in the backup.")));
         return scroll;
+    }
+
+    /**
+     * v3.4.3 — THE QUICK SETTINGS CARD (Replit QA-0006).
+     *
+     * <p>Five controls, no acronyms: theme, accent, subtitle size (with a LIVE preview),
+     * automatic Sinhala subtitles, and the two "comfort" switches (resume + night
+     * dimmer). Every one of them is a real preference — nothing here is decorative.
+     */
+    private View quickSettingsCard() {
+        LinearLayout card = UiGroup.make(this, P, prefs, "ඉක්මන් සැකසුම්", "Quick settings");
+        card.addView(themeThumbs(), widen());
+        card.addView(accentPicker(), widen());
+        UiGroup.divider(this, card, P, prefs);
+        // subtitle size + the live preview (the Studio preview itself stays Sinhala on purpose)
+        card.addView(UiSlider.make(this, P, prefs, "උපසිරැසි අකුරු", "Subtitle size",
+            14, 40, AppPrefs.fontSp(prefs), "sp", v -> {
+                prefs.edit().putInt(AppPrefs.K_FONT_SP, v).apply();
+                quickPreview.setTextSize(v);
+                quickPreview.setText(t("ශ්‍රී ලංකාවේ චිත්‍රපටිය — අකුරු හරිම පැහැදිලියි!",
+                    "Subtitle preview — this is how every line will look."));
+            }), widen());
+        quickPreview = new TextView(this);
+        quickPreview.setText(t("ශ්‍රී ලංකාවේ චිත්‍රපටිය — අකුරු හරිම පැහැදිලියි!",
+            "Subtitle preview — this is how every line will look."));
+        quickPreview.setTextColor(P.title);
+        quickPreview.setTextSize(AppPrefs.fontSp(prefs));
+        quickPreview.setTypeface(UiTokens.si(this, false));
+        quickPreview.setGravity(Gravity.CENTER);
+        quickPreview.setPadding(dp(6), dp(8), dp(6), dp(8));
+        quickPreview.setBackground(rounded(P.card2, dp(12)));
+        card.addView(quickPreview, widen());
+        UiGroup.divider(this, card, P, prefs);
+        UiGroup.switchRow(this, card, P, prefs, R.drawable.ic_subtitles,
+            "සිංහල උපසිරැසි ස්වයංක්‍රීයව", "Automatic Sinhala subtitles", AppPrefs.K_AUTO_FETCH, true);
+        UiGroup.divider(this, card, P, prefs);
+        UiGroup.switchRow(this, card, P, prefs, R.drawable.ic_play_filled,
+            "නැවත බලන්න සිහිපත් කරන්න", "Continue watching resume", AppPrefs.K_AUTO_RESUME, true);
+        UiGroup.divider(this, card, P, prefs);
+        UiGroup.switchRow(this, card, P, prefs, R.drawable.ic_settings,
+            "මධ්‍යම රාත්‍රී අඳුරු", "Midnight night dimmer", AppPrefs.K_MIDNIGHT_DIMMER, true);
+        return card;
     }
 
     // ── Customize helpers (v3.4.0) ────────────────────────────────────────────
@@ -2802,6 +3006,16 @@ public class MainActivity extends Activity {
         copyRep.setOnClickListener(v -> copyTroubleshootReport());
         hero2.addView(copyRep, new LinearLayout.LayoutParams(0, -2, 1f));
         root.addView(hero2, widen());
+        // ══ v3.4.3 — HELP → "RUN SETUP WIZARD" (Replit QA-0001) ══════════════════
+        // The wizard is re-openable at any time from here; it never re-runs by itself
+        // once completed (a revoked permission shows the calm Home banner instead).
+        Button rerun = iconBtn(R.drawable.ic_check_circle,
+            t("සැකසුම් විශාරදය නැවත ධාවනය කරන්න", "Run setup wizard"));
+        rerun.setOnClickListener(v -> {
+            AppPrefs.resetOnboarding(prefs);
+            OnboardingWizard.show(this, prefs);
+        });
+        root.addView(rerun, widen());
         root.addView(caption(t("10-ජංගම ස්වයං-පරීක්ෂණය: receiver · DLNA · mDNS · යාවත්කාලීන · worker · උපසිරැසි · පරිවර්තක · zip · ෆොන්ට් · නිර්ණාමකය — 100% රහස්‍යතා-ආරක්ෂිතයි.",
             "10-point live self-test: receiver · DLNA · mDNS · updater · worker · subtitles · translator · zip · font · customizer — 100% privacy-safe.")));
 

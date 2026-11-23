@@ -225,7 +225,7 @@ public final class Troubleshooter {
             out.add(new Issue('X',
                 "ධාවනය අසාර්ථක (" + (f.playerError.isEmpty() ? "?" : f.playerError) + ")",
                 "playback failed (" + (f.playerError.isEmpty() ? "?" : f.playerError) + ")",
-                "error box එක ඔබන්න — අවසාන ස්ථානයෙන් නැවත · tap the error box to retry"));
+                Chrome.pick("error box එක ඔබන්න — අවසාන ස්ථානයෙන් නැවත · tap the error box to retry")));
         }
         // 2. receiver down
         if (!f.receiverUp) {
@@ -239,12 +239,12 @@ public final class Troubleshooter {
             out.add(new Issue('X',
                 "Cast සොයාගැනීම අක්‍රීයයි — mDNS + DLNA + NSD තුනම නිහඬයි",
                 "cast discovery is fully down (mDNS + DLNA + NSD all off)",
-                "Wi-Fi ON ද? Settings → Cast & Network → දෙපැත්තම ON · turn both pillars on"));
+                Chrome.pick("Wi-Fi ON ද? Settings → Cast & Network → දෙපැත්තම ON · turn both pillars on")));
         } else if (f.receiverUp && !f.mdnsResponderUp && !f.dlnaUp) {
             out.add(new Issue('W',
                 "cast පැති දෙකම නිහඬයි — AnantPlay අපව නොදකියි",
                 "both cast pillars are silent — AnantPlay cannot see this receiver",
-                "Self-Test ධාවනය කරන්න · run the Self-Test for the exact layer that died"));
+                Chrome.pick("Self-Test ධාවනය කරන්න · run the Self-Test for the exact layer that died")));
         }
         // 4. NSD daemon pending (the Android 16 no-callback hang)
         if (f.receiverUp && f.mdnsEnabled && !f.nsdAnnounced && f.mdnsResponderUp) {
@@ -263,12 +263,12 @@ public final class Troubleshooter {
             out.add(new Issue('X',
                 "Worker සාමාන්‍ය පිළිතුරු දෙන්නේ නැත",
                 "the subtitle Worker is not answering",
-                "Cast & Network → Worker ping; internet/WARP පරීක්ෂා කරන්න · check connectivity"));
+                Chrome.pick("Cast & Network → Worker ping; internet/WARP පරීක්ෂා කරන්න · check connectivity")));
         } else if ("cache+memory".equals(f.workerStorage)) {
             out.add(new Issue('W',
                 "Worker KV බඳින ලද්දක් නැත — cache එක පමණයි",
                 "Worker KV is not bound — cache-only storage",
-                "Cloudflare dashboard → the Worker → SUBS_KV bind කරන්න · bind SUBS_KV"));
+                Chrome.pick("Cloudflare dashboard → the Worker → SUBS_KV bind කරන්න · bind SUBS_KV")));
         }
         // 6. subtitles
         if ("needs-key".equals(f.subsState)) {
@@ -280,7 +280,7 @@ public final class Troubleshooter {
             out.add(new Issue('W',
                 "මෙම තේමාවට උපසිරැසි හමු නොවීය",
                 "no subtitles were found for this title",
-                "සිං බොත්තම → title override · ⏱ or the local .srt loader"));
+                Chrome.pick("සිං බොත්තම → title override · ⏱ or the local .srt loader")));
         } else if ("error".equals(f.subsState)) {
             out.add(new Issue('X',
                 "උපසිරැසි ලබාගැනීම බිඳ වැටුණි" + (f.subsDetail.isEmpty() ? "" : " — " + f.subsDetail),

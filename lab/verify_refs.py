@@ -65,10 +65,44 @@ def main():
                 refs.add(nm)
 
     allowed = ('java/', 'javax/', 'jdk/', 'sun/', 'com/sun/', 'android/', 'lk/techworld/')
+
+    # ── v3.4.3 — NO BLIND PASS ON INTERNAL CLASSES (Replit QA-0023) ──────────
+    # v3.4.2 accepted EVERY 'lk/techworld/*' reference without looking. A typo'd or
+    # deleted internal class therefore verified "OK" here and only failed on a phone
+    # (NoClassDefFoundError). An internal reference must now resolve to one of:
+    #   · a compiled lab class (lab/out/classes/**),
+    #   · a shipped source (src/**/*.java),
+    #   · a class inside libs/*.jar or the platform android.jar.
+    compiled = set()
+    for p in root.rglob('*.class'):
+        compiled.add(str(p.relative_to(root))[:-len('.class')].replace('\\', '/'))
+    sources = set()
+    for p in pathlib.Path('src').rglob('*.java'):
+        sources.add(str(p.relative_to('src'))[:-len('.java')].replace('\\', '/'))
+    jars = set()
+    import os
+    platform_jars = [pathlib.Path('android.jar')]
+    sdk = os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
+    if sdk:
+        for p in sorted(pathlib.Path(sdk).glob('platforms/android-*/android.jar'), reverse=True):
+            platform_jars.append(p)
+            break
+    for jar in list(pathlib.Path('libs').glob('*.jar')) + platform_jars:
+        if not jar.exists():
+            continue
+        try:
+            import zipfile
+            with zipfile.ZipFile(jar) as z:
+                for n in z.namelist():
+                    if n.endswith('.class'):
+                        jars.add(n[:-len('.class')])
+        except Exception:
+            pass
     bad = []
+    missing_internal = []
     for ref in sorted(refs):
         r = ref
-        if r.startswith('['):              # array descriptors
+        if r.startswith('['):
             d = r.lstrip('[')
             if d.startswith('L') and d.endswith(';'):
                 d = d[1:-1]
@@ -77,16 +111,29 @@ def main():
             else:
                 continue
             r = d
+        if r.startswith('lk/techworld/'):
+            base = r.split('$')[0]           # inner classes ride their outer class
+            if base in compiled or base in sources or base in jars:
+                continue
+            missing_internal.append(r.replace('/', '.'))
+            continue
         if any(r.startswith(p) for p in allowed):
             continue
         bad.append(r.replace('/', '.'))
 
+    if missing_internal:
+        print('BYTECODE VERIFIER FAILED — internal classes that do not exist:')
+        for b in sorted(set(missing_internal)):
+            print('  ', b, '(not in lab/out/classes, src/ or libs/*.jar)')
+        sys.exit(1)
     if bad:
         print('BYTECODE VERIFIER FAILED — unresolved references:')
         for b in sorted(set(bad)):
             print('  ', b)
         sys.exit(1)
-    print(f'bytecode verifier: OK — {len(refs)} distinct referenced types, '
+    internal = sum(1 for r in refs if r.startswith('lk/techworld/'))
+    print(f'bytecode verifier: OK — {len(refs)} distinct referenced types '
+          f'({internal} internal, each resolved against compiled output + src + jars), '
           'all resolvable (lab classes + JDK + android.*)')
 
 

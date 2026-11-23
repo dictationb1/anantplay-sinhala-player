@@ -55,6 +55,8 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
      *  a finished PlayActivity can never leak an Activity through the service. */
     private static volatile String subsSrt;
     private final Handler main = new Handler(Looper.getMainLooper());
+    /** v3.4.3 — the last bring-to-front takeover (Replit QA-0024: never a launch loop). */
+    private volatile long lastTakeoverAtMs;
     private ReceiverServer server;
     private NsdAnnouncer nsd;
     private DlnaEndpoint dlnaEndpoint;
@@ -411,6 +413,17 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
      *  keeps working — Cast.Remote polls only while resumed, and on our finish it
      *  sees {"idle":true} and hands the position back to AnantPlay's own player. */
     private void scheduleTakeover() {
+        // v3.4.3 — Replit QA-0024: ONE takeover per 5 s. A cast retry (or a Remote the
+        // user closed on purpose) must never re-steal the screen in a launch loop.
+        long now = android.os.SystemClock.uptimeMillis();
+        if (!CastPolicy.takeoverAllowed(now, lastTakeoverAtMs)) {
+            Diag.i("takeover", "skipped — another takeover was less than "
+                + CastPolicy.TAKEOVER_MIN_INTERVAL_MS + " ms ago (cast retry)");
+            Troubleshooter.record("CAST", "takeover skipped (retry within "
+                + CastPolicy.TAKEOVER_MIN_INTERVAL_MS + " ms)");
+            return;
+        }
+        lastTakeoverAtMs = now;
         main.postDelayed(() -> {
             try {
                 PlayActivity p = PlayActivity.current();

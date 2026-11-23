@@ -39,6 +39,9 @@ javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes \
   src/lk/techworld/anantplay/sicast/SubtitleStore.java \
   src/lk/techworld/anantplay/sicast/Diag.java \
   src/lk/techworld/anantplay/sicast/PrivacyScrubber.java \
+  src/lk/techworld/anantplay/sicast/Chrome.java \
+  src/lk/techworld/anantplay/sicast/BridgeGuard.java \
+  src/lk/techworld/anantplay/sicast/OnboardingSpec.java \
   src/lk/techworld/anantplay/sicast/Troubleshooter.java \
   src/lk/techworld/anantplay/sicast/MdnsWire.java \
   src/lk/techworld/anantplay/sicast/MdnsResponder.java \
