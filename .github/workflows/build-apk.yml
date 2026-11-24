@@ -900,95 +900,33 @@ jobs:
           disable-animations: true
           disable-spellchecker: true
           script: |
-            # POSIX sh (dash on ubuntu runners — the action execs /usr/bin/sh):
-            # dash has NO `pipefail`, and `set -o pipefail` exits 2 instantly.
-            # Every pipeline below is already guarded (|| true / if grep), so
-            # only -u is needed; probes must keep running on failure, so no -e.
-            set -u
-            dump_diagnostics() {
-              {
-                echo ''
-                echo '### Android Emulator Launch Smoke Test — diagnostics'
-                echo ''
-                echo '#### adb logcat -d -b crash (FULL)'
-                echo '```'
-                adb logcat -d -b crash 2>&1 | tail -250
-                echo '```'
-                echo '#### adb logcat -d "*:E" | AndroidRuntime / flutter / FATAL'
-                echo '```'
-                adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|Flutter|FATAL|Fatal signal' | tail -250
-                echo '```'
-              } >> "$GITHUB_STEP_SUMMARY"
-              adb logcat -d -b crash 2>&1 | grep -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|AndroidRuntime' | head -40 | while IFS= read -r line; do
-                echo "::error title=launch-smoke crash buffer::${line}"
-              done
-              adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|Flutter' | head -40 | while IFS= read -r line; do
-                echo "::error title=launch-smoke logcat:E::${line}"
-              done
-            }
-
-            echo '── 1. clear logcat ──'
+            # The action does NOT run this block as one script: src/main.ts splits it
+            # into single lines (parseScript) and runs EACH LINE as its own `sh -c`.
+            # Therefore: no functions, no multi-line if/loops, NO state between lines
+            # (fresh shell every line — persist state in /tmp files and append-only
+            # $GITHUB_STEP_SUMMARY), and every failure branch must be ONE self-contained
+            # line ending in `exit 1` so the action's exec loop aborts the job.
+            echo '── 1/7 clear logcat ──'
             adb logcat -c || true
-
-            echo '── 2. install the x86_64 release twin ──'
-            if ! adb install -r "$SMOKE_APK"; then
-              echo '::error title=launch-smoke::adb install failed'
-              dump_diagnostics
-              exit 1
-            fi
-
-            echo '── 3. am start -W (the launch the v3.4.6 build could not survive) ──'
+            echo '── 2/7 install the x86_64 release twin ──'
+            if ! adb install -r "$SMOKE_APK"; then echo '::error title=launch-smoke::adb install failed'; { echo '### launch-smoke FAIL: adb install failed'; echo '```';  echo '```'; echo '#### crash buffer (FULL)'; echo '```'; adb logcat -d -b crash 2>&1 | tail -250; echo '```'; echo '#### logcat *:E (AndroidRuntime|flutter|FATAL|Fatal signal)'; echo '```'; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|FATAL|Fatal signal' | tail -250; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; adb logcat -d -b crash 2>&1 | grep -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke crash::${line}"; done; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke logcat:E::${line}"; done; exit 1; fi
+            echo '── 3/7 am start -W (the launch the v3.4.6 build could not survive) ──'
             adb shell am start -W -n lk.techworld.anantplay.sicast/.MainActivity | tee /tmp/amstart.txt
-            if ! grep -q 'Status: ok' /tmp/amstart.txt; then
-              echo '::error title=launch-smoke::am start -W did not report Status: ok — the app does not OPEN'
-              dump_diagnostics
-              exit 1
-            fi
-
-            echo '── 4. wait 12 seconds ──'
+            if ! grep -q 'Status: ok' /tmp/amstart.txt; then echo '::error title=launch-smoke::am start -W did not report Status: ok — the app does not OPEN'; { echo '### launch-smoke FAIL: am start -W did not report Status: ok — the app does not OPEN'; echo '```';  echo '```'; echo '#### crash buffer (FULL)'; echo '```'; adb logcat -d -b crash 2>&1 | tail -250; echo '```'; echo '#### logcat *:E (AndroidRuntime|flutter|FATAL|Fatal signal)'; echo '```'; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|FATAL|Fatal signal' | tail -250; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; adb logcat -d -b crash 2>&1 | grep -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke crash::${line}"; done; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke logcat:E::${line}"; done; exit 1; fi
+            echo '── 4/7 wait 12 seconds ──'
             sleep 12
-
-            PID=$(adb shell pidof lk.techworld.anantplay.sicast | tr -d '\r' || true)
-            if [ -z "$PID" ]; then
-              echo '::error title=launch-smoke::process died within 12 s of launch'
-              dump_diagnostics
-              exit 1
-            fi
-            echo "launch-smoke: process alive (pid $PID) 12 s after launch"
-
-            FOCUS=$(adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' || true)
-            echo "$FOCUS"
-            if ! echo "$FOCUS" | grep -q 'lk.techworld.anantplay.sicast'; then
-              echo '::error title=launch-smoke::MainActivity is not the focused window (mCurrentFocus/mFocusedApp)'
-              dump_diagnostics
-              exit 1
-            fi
-
-            echo '── 5. the crash buffer must be EMPTY ──'
+            adb shell pidof lk.techworld.anantplay.sicast | tr -d '\r' > /tmp/pid.txt || true
+            if ! grep -q '[0-9]' /tmp/pid.txt; then echo '::error title=launch-smoke::process died within 12 s of launch (pidof empty)'; { echo '### launch-smoke FAIL: process died within 12 s of launch (pidof empty)'; echo '```';  echo '```'; echo '#### crash buffer (FULL)'; echo '```'; adb logcat -d -b crash 2>&1 | tail -250; echo '```'; echo '#### logcat *:E (AndroidRuntime|flutter|FATAL|Fatal signal)'; echo '```'; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|FATAL|Fatal signal' | tail -250; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; adb logcat -d -b crash 2>&1 | grep -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke crash::${line}"; done; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke logcat:E::${line}"; done; exit 1; fi
+            echo "launch-smoke: process alive (pid $(cat /tmp/pid.txt)) 12 s after launch"
+            echo '── 5/7 MainActivity must hold window focus ──'
+            adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' > /tmp/focus.txt || true
+            cat /tmp/focus.txt
+            if ! grep -q 'lk.techworld.anantplay.sicast' /tmp/focus.txt; then echo '::error title=launch-smoke::MainActivity is not the focused window (mCurrentFocus/mFocusedApp)'; { echo '### launch-smoke FAIL: MainActivity is not the focused window (mCurrentFocus/mFocusedApp)'; echo '```'; echo '```'; cat /tmp/focus.txt; echo '```';  echo '```'; echo '#### crash buffer (FULL)'; echo '```'; adb logcat -d -b crash 2>&1 | tail -250; echo '```'; echo '#### logcat *:E (AndroidRuntime|flutter|FATAL|Fatal signal)'; echo '```'; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|FATAL|Fatal signal' | tail -250; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; adb logcat -d -b crash 2>&1 | grep -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke crash::${line}"; done; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke logcat:E::${line}"; done; exit 1; fi
+            echo '── 6/7 crash buffer must be EMPTY ──'
             adb logcat -d -b crash > /tmp/crashbuf.txt 2>&1 || true
-            if grep -qE 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' /tmp/crashbuf.txt; then
-              echo '::error title=launch-smoke::crash buffer is NOT empty (FATAL/SIGSEGV/SIGABRT found)'
-              dump_diagnostics
-              exit 1
-            fi
-
-            # belt+braces: a FATAL that only reached the main/system buffers
-            adb logcat -d -b main 2>/dev/null | grep -E 'FATAL EXCEPTION' > /tmp/fatal-main.txt || true
-            adb logcat -d '*:E' 2>/dev/null | grep -E 'AndroidRuntime.*FATAL|Fatal signal' >> /tmp/fatal-main.txt || true
-            if [ -s /tmp/fatal-main.txt ]; then
-              echo '::error title=launch-smoke::FATAL entries found outside the crash buffer'
-              dump_diagnostics
-              exit 1
-            fi
-
-            # record every logcat:E line (Flutter/Dart/AndroidRuntime) for humans
-            adb logcat -d '*:E' > /tmp/errlog.txt 2>&1 || true
-            {
-              echo ''
-              echo '### launch-smoke logcat "*:E" (inspection)'
-              echo '```'
-              tail -80 /tmp/errlog.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-
-            echo "::notice title=launch-smoke::install + am start -W (Status: ok) + live pid $PID after 12 s + MainActivity focused + ZERO crash-buffer FATAL/SIGSEGV/SIGABRT — the APK OPENS."
+            if grep -qE 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' /tmp/crashbuf.txt; then echo '::error title=launch-smoke::crash buffer is NOT empty (FATAL/SIGSEGV/SIGABRT found)'; { echo '### launch-smoke FAIL: crash buffer is NOT empty (FATAL/SIGSEGV/SIGABRT found)'; echo '```'; echo '```'; cat /tmp/crashbuf.txt; echo '```';  echo '```'; echo '#### crash buffer (FULL)'; echo '```'; adb logcat -d -b crash 2>&1 | tail -250; echo '```'; echo '#### logcat *:E (AndroidRuntime|flutter|FATAL|Fatal signal)'; echo '```'; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|FATAL|Fatal signal' | tail -250; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; adb logcat -d -b crash 2>&1 | grep -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke crash::${line}"; done; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke logcat:E::${line}"; done; exit 1; fi
+            adb logcat -d -b main 2>/dev/null | grep -E 'FATAL EXCEPTION|Fatal signal' > /tmp/fatal-main.txt || true
+            if [ -s /tmp/fatal-main.txt ]; then echo '::error title=launch-smoke::FATAL entries outside the crash buffer'; { echo '### launch-smoke FAIL: FATAL outside the crash buffer'; echo '```'; cat /tmp/fatal-main.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; while IFS= read -r line; do echo "::error title=launch-smoke fatal::${line}"; done < /tmp/fatal-main.txt; exit 1; fi
+            echo '── 7/7 record logcat *:E for humans (inspection) ──'
+            { echo '### launch-smoke logcat "*:E" (inspection)'; echo '```'; adb logcat -d '*:E' 2>&1 | tail -80; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=launch-smoke::install + am start -W (Status: ok) + live pid $(cat /tmp/pid.txt) after 12 s + MainActivity focused + ZERO crash-buffer FATAL/SIGSEGV/SIGABRT — the APK OPENS."
