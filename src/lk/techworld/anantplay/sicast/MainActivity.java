@@ -80,8 +80,23 @@ public class MainActivity extends FlutterActivity {
 
     @Override
     protected void onCreate(Bundle b) {
-        super.onCreate(b);
+        // v3.4.6.a — THE REAL v3.4.6 STARTUP ROOT CAUSE (live KVM emulator
+        // logcat, Android 16 / API 36): FlutterActivity.onCreate(...) runs
+        // configureFlutterEngine(...) INSIDE super.onCreate(...), and that
+        // method reads `prefs` (the auto-update check:
+        // prefs.getBoolean(AppPrefs.K_AUTO_UPDATE, true)). With the original
+        // order — super.onCreate(b) FIRST, prefs assigned AFTER — `prefs` was
+        // still null at that moment:
+        //   FATAL EXCEPTION: main
+        //   java.lang.RuntimeException: Unable to start activity ComponentInfo
+        //     {…/.MainActivity}: java.lang.NullPointerException: Attempt to
+        //     invoke interface method 'boolean android.content.SharedPreferences
+        //     .getBoolean(java.lang.String, boolean)' on a null object reference
+        // → the activity never opened → the build was dead on arrival.
+        // getSharedPreferences(...) is legal here: attachBaseContext has
+        // already run by onCreate, so the ContextWrapper is live.
         prefs = getSharedPreferences("sicast", MODE_PRIVATE);
+        super.onCreate(b);
     }
 
     @Override
