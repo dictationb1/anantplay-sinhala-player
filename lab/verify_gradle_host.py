@@ -200,5 +200,7 @@ if os.path.isdir(path(".git")):
                           capture_output=True, text=True).stdout.strip()
     check("no .zip is tracked right now", zips == "")
 
+for f in failures:
+    print("::error title=gradle-host::%s" % f)
 print("v3.4.6 gradle host: %d checks, %d failed" % (checks, len(failures)))
 sys.exit(1 if failures else 0)

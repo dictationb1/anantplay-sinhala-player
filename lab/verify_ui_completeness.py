@@ -362,6 +362,8 @@ def main():
         print("FAIL — %d violation(s):" % len(violations))
         for v in violations:
             print("  " + v)
+            # v3.4.6 — check-run annotations survive where job logs do not.
+            print("::error title=ui_completeness::%s" % v[:800])
         if notes:
             print("notes (%d):" % len(notes))
             for n in notes[:20]:

@@ -479,6 +479,18 @@ def selftest():
     return 0 if bad == 0 else 1
 
 
+def _annotate(problems):
+    """v3.4.6 — check-run annotations survive where job logs do not, so every
+    violation is echoed in the format GitHub parses into a line annotation."""
+    for pr in problems:
+        txt = str(pr)
+        m = re.match(r"([^:]+):(\d+)", txt)
+        if m:
+            print("::error file=%s,line=%s,title=verify_layouts::%s" % (m.group(1), m.group(2), txt[:800]))
+        else:
+            print("::error title=verify_layouts::%s" % txt[:800])
+
+
 def main():
     if '--selftest' in sys.argv:
         return selftest()
@@ -502,6 +514,7 @@ def main():
           f'{len(fails)} problem(s)')
     for f in fails[:60]:
         print('  FAIL ' + f)
+    _annotate(fails)   # v3.4.6 — one check-run annotation per violation
     if len(fails) > 60:
         print(f'  ... and {len(fails) - 60} more')
     if fails:

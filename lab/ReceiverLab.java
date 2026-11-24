@@ -48,7 +48,13 @@ public class ReceiverLab {
 
     static void check(String name, boolean ok, String detail) {
         if (ok) { passed++; System.out.println("  PASS " + name + (detail == null ? "" : " — " + detail)); }
-        else { failed++; System.out.println("  FAIL " + name + (detail == null ? "" : " — " + detail)); }
+        else {
+            failed++;
+            String line = name + (detail == null ? "" : " — " + detail);
+            System.out.println("  FAIL " + line);
+            // v3.4.6 — check-run annotations are readable when job logs are not.
+            System.out.println("::error title=lab check FAIL::" + line.replace("\n", " "));
+        }
     }
 
     /** Count occurrences of one char — used by the Sinhala ZWJ/ZWNJ regression lab. */
@@ -112,6 +118,38 @@ public class ReceiverLab {
 
     static String playTitle, playHeaders, playCookie;
     static long playAt;
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.6 — THE FAULT-ISOLATING LEG RUNNER.
+    //
+    // main() used to be one straight line: the FIRST assertion that threw
+    // aborted everything after it (System.exit was never reached; the JVM
+    // printed a stack trace and the remaining phases never ran). A hosted CI run
+    // could therefore only ever surface ONE problem per push.
+    //
+    // Every phase is now a named leg. A throwing leg is recorded, printed as a
+    // FAIL line that NAMES the phase, echoed as a check-run annotation (the only
+    // diagnostic channel readable when job logs are not), and the run continues.
+    // The lab is still red — but the complete report arrives in one push.
+    // ═════════════════════════════════════════════════════════════════════════
+    interface Leg { void run() throws Exception; }
+
+    static void runLeg(String name, Leg leg) {
+        try {
+            leg.run();
+        } catch (Throwable t) {
+            failed++;
+            String where = "";
+            StackTraceElement[] st = t.getStackTrace();
+            if (st != null && st.length > 0) {
+                where = " at " + st[0].getFileName() + ":" + st[0].getLineNumber();
+            }
+            String line = "leg " + name + " THREW " + t.getClass().getSimpleName()
+                + (t.getMessage() == null ? "" : ": " + t.getMessage()) + where;
+            System.out.println("  FAIL " + line);
+            System.out.println("::error title=lab leg " + name + "::" + line);
+        }
+    }
 
     public static void main(String[] args) throws Exception {
         Diag.install(null);
@@ -1479,50 +1517,50 @@ public class ReceiverLab {
         // v3.1 — THE 2026-11-22 16:36 FIELD-BUG REGRESSIONS (5 smoking guns)
         // ════════════════════════════════════════════════════════════════════
         System.out.println("== v3.1 field-bug regressions ==");
-        v31LocalNetChecks();
-        v31AnnouncerChecks();
-        v31UpdaterChecks();
-        v31CrashLogChecks();
-        v31ThemeChecks();
-        v31SecurityChecks();
+        runLeg("v31LocalNetChecks", () -> { v31LocalNetChecks(); });
+        runLeg("v31AnnouncerChecks", () -> { v31AnnouncerChecks(); });
+        runLeg("v31UpdaterChecks", () -> { v31UpdaterChecks(); });
+        runLeg("v31CrashLogChecks", () -> { v31CrashLogChecks(); });
+        runLeg("v31ThemeChecks", () -> { v31ThemeChecks(); });
+        runLeg("v31SecurityChecks", () -> { v31SecurityChecks(); });
 
         System.out.println("== v3.1.2 crash-fix + privacy troubleshooter ==");
-        v312CrashFixChecks();
-        v312PrivacyScrubberChecks();
-        v312TroubleshooterChecks();
-        v312SelfUpdaterSpinChecks();
-        v312LaunchContractChecks();
+        runLeg("v312CrashFixChecks", () -> { v312CrashFixChecks(); });
+        runLeg("v312PrivacyScrubberChecks", () -> { v312PrivacyScrubberChecks(); });
+        runLeg("v312TroubleshooterChecks", () -> { v312TroubleshooterChecks(); });
+        runLeg("v312SelfUpdaterSpinChecks", () -> { v312SelfUpdaterSpinChecks(); });
+        runLeg("v312LaunchContractChecks", () -> { v312LaunchContractChecks(); });
 
         // ═════════ v3.2.0 — THE MASTER OVERHAUL LABS (Phases 1–4) ═════════
         System.out.println("== v3.2.0 zero-rate-limit updater ==");
-        v320UpdaterZeroRateLimitChecks();
+        runLeg("v320UpdaterZeroRateLimitChecks", () -> { v320UpdaterZeroRateLimitChecks(); });
         System.out.println("== v3.2.0 Sinhala font, script & markup ==");
-        v320SinhalaFontScriptChecks();
+        runLeg("v320SinhalaFontScriptChecks", () -> { v320SinhalaFontScriptChecks(); });
         System.out.println("== v3.2.0 free keyless translator + auto-zip ==");
-        v320FreeTranslatorZipChecks();
+        runLeg("v320FreeTranslatorZipChecks", () -> { v320FreeTranslatorZipChecks(); });
         System.out.println("== v3.2.0 junk-title cleaner ==");
-        v320JunkTitleChecks();
+        runLeg("v320JunkTitleChecks", () -> { v320JunkTitleChecks(); });
         System.out.println("== v3.2.0 stale-crash auto-clear ==");
-        v320StaleCrashChecks();
+        runLeg("v320StaleCrashChecks", () -> { v320StaleCrashChecks(); });
         System.out.println("== v3.2.0 deep customization + custom links ==");
-        v320CustomizationChecks();
+        runLeg("v320CustomizationChecks", () -> { v320CustomizationChecks(); });
         System.out.println("== v3.2.0 10-point troubleshooter ==");
-        v320TroubleshooterChecks();
+        runLeg("v320TroubleshooterChecks", () -> { v320TroubleshooterChecks(); });
 
         // ═════════ v3.3.0 — THE CINEMA PLAYER, THE 403 KILLER & THE NAV SHELL ═════════
         System.out.println("== v3.3.0 navigation & HUD layout invariants ==");
-        v330LayoutChecks();
+        runLeg("v330LayoutChecks", () -> { v330LayoutChecks(); });
         System.out.println("== v3.3.0 HTTP-403 header forwarding & recovery ==");
-        v330Http403Checks();
+        runLeg("v330Http403Checks", () -> { v330Http403Checks(); });
         System.out.println("== v3.3.0 video aspect-ratio math ==");
-        v330AspectChecks();
+        runLeg("v330AspectChecks", () -> { v330AspectChecks(); });
         System.out.println("== v3.3.0 Sri Lankan subtitles, .zip capture & external VLC ==");
-        v330SubtitleChecks();
+        runLeg("v330SubtitleChecks", () -> { v330SubtitleChecks(); });
         System.out.println("== v3.3.0 version & pipeline parity ==");
-        v330VersionParityChecks();
+        runLeg("v330VersionParityChecks", () -> { v330VersionParityChecks(); });
 
         // ═════════ v3.4.0 — ZERO-CRASH HARDENING (the two field crashes) ═════════
-        v331ZeroCrashChecks();
+        runLeg("v331ZeroCrashChecks", () -> { v331ZeroCrashChecks(); });
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);

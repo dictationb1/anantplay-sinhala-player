@@ -22,6 +22,8 @@ def check(name, condition):
     else:
         failures += 1
         print(f"  FAIL v345 UI: {name}")
+        # v3.4.6 — check-run annotations survive where job logs do not.
+        print(f"::error title=v345-ui::{name}")
 
 
 prefs = read("src/lk/techworld/anantplay/sicast/AppPrefs.java")
@@ -155,9 +157,13 @@ check("build workflow rejects an APK at or above 50 MiB",
       'SIZE" -lt 52428800' in build_workflow)
 check("release workflow rejects an APK at or above 50 MiB",
       'SIZE" -lt 52428800' in release_workflow)
+# v3.4.6 — the workflow resolves the identity from the Gradle host (AGP 9 owns
+# it) AND from AppInfo, then asserts both against the pinned 3.4.6 / 30406.
 check("build workflow validates version 3.4.6 / 30406",
       'test "$VERSION" = "3.4.6"' in build_workflow
-      and 'test "$CODE" = "30406"' in build_workflow)
+      and 'test "$CODE" = "30406"' in build_workflow
+      and 'test "$GRADLE_VERSION" = "$VERSION"' in build_workflow
+      and 'test "$APPINFO_CODE" = "$CODE"' in build_workflow)
 check("release workflow defaults to version 3.4.6",
       "default: '3.4.6'" in release_workflow)
 

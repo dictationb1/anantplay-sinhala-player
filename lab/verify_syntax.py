@@ -47,6 +47,34 @@ SYNTAX = re.compile(
 )
 
 
+def flutter_embedding_jars():
+    """v3.4.6 — the Flutter embedding classes the host activity imports.
+
+    MainActivity/Media3TextureBridge extend FlutterActivity and use MethodChannel,
+    so a compile against android.jar alone reports ~40 "cannot find symbol"
+    diagnostics that the real Gradle build does not have. The embedding jars live
+    in the pub cache once `flutter pub get` has run (ui/.dart_tool/package_config
+    points at flutter's sdk package). We locate them generically:
+      <flutter>/.pub-cache/hosted/pub.dev/flutter_embedding_*/jars/*.jar
+    and silently skip when none exist (the SYNTAX-only mode then still runs)."""
+    found = []
+    roots = []
+    home = os.environ.get("HOME", "")
+    if home:
+        roots.append(os.path.join(home, ".pub-cache", "hosted"))
+    fr = os.environ.get("FLUTTER_ROOT")
+    if fr:
+        roots.append(os.path.join(fr, ".pub-cache", "hosted"))
+    for root in roots:
+        for pattern in ("pub.dev", "pub.dartlang.org", "*"):
+            base = os.path.join(root, pattern)
+            if not os.path.isdir(base):
+                continue
+            found.extend(glob.glob(os.path.join(base, "flutter_embedding_*", "jars", "*.jar")))
+            found.extend(glob.glob(os.path.join(base, "flutter_embedding_*", "*.jar")))
+    return sorted(set(found))
+
+
 def find_javac():
     exe = shutil.which("javac")
     if exe:
@@ -130,12 +158,24 @@ def main():
 
     mode = "SYNTAX"
     if android:
-        cp = [android] + sorted(glob.glob(os.path.join(ROOT, "libs", "*.jar")))
+        # v3.4.6 — the APK is packaged by the Gradle host, whose app module
+        # embeds the Flutter engine. MainActivity/Media3TextureBridge import
+        # io.flutter.*, so the FULL compile must see the embedding jars or it
+        # reports false "cannot find symbol" failures the real build never has.
+        embed = flutter_embedding_jars()
+        cp = [android] + embed + sorted(glob.glob(os.path.join(ROOT, "libs", "*.jar")))
         rjava, fields = gen_stub_r(files)
         cmd += ["-cp", os.pathsep.join(cp)] + files + [rjava]
         mode = "FULL"
-        print("verify_syntax: FULL mode — android.jar %s + %d libs, stub R with %d ids"
-              % (os.path.basename(os.path.dirname(android)), len(cp) - 1, fields))
+        print("verify_syntax: FULL mode — android.jar %s + %d libs + %d flutter-embedding jars, stub R with %d ids"
+              % (os.path.basename(os.path.dirname(android)), len(cp) - len(embed) - 1,
+                 len(embed), fields))
+        if not embed:
+            # No pub cache: the embedding imports cannot resolve, so failures
+            # mentioning io.flutter are EXPECTED. Downgrade those specific
+            # diagnostics to a note instead of a false red gate.
+            print("verify_syntax: NOTE — no flutter_embedding jars found (run `flutter pub get` "
+                  "in ui/ first); io.flutter.* symbols are not checked in this run")
     else:
         cmd += files
         print("verify_syntax: SYNTAX mode — no android.jar found "
@@ -146,6 +186,9 @@ def main():
 
     if mode == "FULL":
         hits = [ln.strip() for ln in text.splitlines() if "error:" in ln]
+        if android and not embed:
+            # a missing embedding jar is not a syntax defect in our sources
+            hits = [h for h in hits if "io.flutter" not in h and "package io." not in h]
     else:
         hits = [ln.strip() for ln in text.splitlines()
                 if "error:" in ln and SYNTAX.search(ln)]

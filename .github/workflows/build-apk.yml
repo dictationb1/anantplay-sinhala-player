@@ -395,7 +395,7 @@ jobs:
             echo "::warning title=Debug-signed build::KS_BASE64 is not set — this APK is signed with the throwaway debug key"
           fi
           set +e
-          ( cd android && ./gradlew assembleRelease --no-daemon --stacktrace $SIGN_ARGS ) > /tmp/gradle.log 2>&1
+          ( cd android && ./gradlew assembleRelease --no-daemon --stacktrace --info $SIGN_ARGS ) > /tmp/gradle.log 2>&1
           RC=$?
           set -e
           {
@@ -406,10 +406,19 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$RC" -ne 0 ]; then
-            grep -E "^e: |error:|FAILURE|error •|Caused by|What went wrong|Could not|Cannot|Execution failed" /tmp/gradle.log \
-              | head -40 | cut -c1-900 | while IFS= read -r line; do
+            # v3.4.6 — a bare "What went wrong" is useless without the log, so the
+            # first *specific* diagnostics are the ones annotated: javac errors,
+            # missing symbols, unresolved dependencies, plugin/AGP errors, and the
+            # first 3 stack-trace frames of the root cause.
+            grep -nE "^e: |error:|Caused by:|Unresolved reference|Could not find|Could not resolve|Could not determine|Cannot locate|does not exist|not found|Plugin \[id|incompatible|Failed to apply|Unsupported|requires|missing|Execution failed" /tmp/gradle.log \
+              | grep -vE "^\s*$" | head -40 | cut -c1-900 | while IFS= read -r line; do
                 echo "::error title=gradle::${line}"
               done
+            # the raw tail as ONE annotation guarantees something arrives even
+            # when the grep above matches nothing useful
+            tail -25 /tmp/gradle.log | cut -c1-900 | while IFS= read -r line; do
+              echo "::error title=gradle tail::${line}"
+            done
             exit 1
           fi
           mkdir -p dist
