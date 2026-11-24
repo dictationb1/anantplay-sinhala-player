@@ -4272,8 +4272,11 @@ public class ReceiverLab {
         boolean latestCurrent = latest.contains("\"version\":\"3.4.4\"")
             && latest.contains("\"code\":30404")
             && latest.contains("/download/v3.4.4/AnantPlay-Sinhala-Player-v3.4.4.apk");
-        check("v344 parity: latest.json is either the prior signed release or the new signed release",
-            (latestPrevious || latestCurrent)
+        boolean latestRelease = latest.contains("\"version\":\"3.4.5\"")
+            && latest.contains("\"code\":30405")
+            && latest.contains("/download/v3.4.5/AnantPlay-Sinhala-Player-v3.4.5.apk");
+        check("v345 parity: latest.json is a valid previous or current signed release",
+            (latestPrevious || latestCurrent || latestRelease)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         String readme = readRepoFile("README.md");
         String setupSi = readRepoFile("SETUP-SI.md");
@@ -5035,8 +5038,11 @@ public class ReceiverLab {
         boolean latestIsCurrentSigned = latest.contains("\"version\":\"3.4.4\"")
             && latest.contains("\"code\":30404")
             && latest.contains("/download/v3.4.4/AnantPlay-Sinhala-Player-v3.4.4.apk");
-        check("v344 customize: latest.json remains a valid previously signed release until the new APK exists",
-            (latestIsPriorSigned || latestIsCurrentSigned)
+        boolean latestIsCurrentRelease = latest.contains("\"version\":\"3.4.5\"")
+            && latest.contains("\"code\":30405")
+            && latest.contains("/download/v3.4.5/AnantPlay-Sinhala-Player-v3.4.5.apk");
+        check("v345 customize: latest.json points to a valid signed release",
+            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));

@@ -30,8 +30,10 @@ Canva was not connected in this workspace, so no Canva designs were queried or e
 - **3,238 total checks passed; 0 failed.**
 - UI completeness, layout-parameter, reference, and Java syntax gates passed. The syntax gate parsed **66 Java sources**; the preference audit found **80 / 80** backup keys present and wired to UI.
 - No literal app-chrome text size below **10sp** was found.
-- Hosted PR run [45301457397](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45301457397) passed the Android SDK 36 build, signing, `apksigner`, `zipalign`, and manifest checks. The CI APK is **3,508,510 bytes**, version **3.4.5 / 30405**, SHA-256 `0bf145fc95d732af39689ad04a4a06169cab2fad44b2c169356cee1cda3325ad` (strictly below 50 MiB).
-- The local container has no Android SDK, so device-rendered verification was not available. The permanent-key GitHub release and `docs/latest.json` update will be verified after the authorized PR merge.
+- Post-merge Android build [45301894440](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45301894440) and signed release [45301894463](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45301894463) both passed.
+- Published [v3.4.5](https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.4.5) with exactly two assets: `AnantPlay-Sinhala-Player-v3.4.5.apk` (**3,508,510 bytes**) and `SHA256SUMS.txt`. Downloaded the APK and verified it against the checksum file.
+- Release SHA-256 is `0bf145fc95d732af39689ad04a4a06169cab2fad44b2c169356cee1cda3325ad`. `docs/latest.json` on `main` reports version **3.4.5**, code **30405**, the same SHA-256, and the v3.4.5 APK download URL.
+- The local container has no Android SDK, so device-rendered verification was not available.
 
 ## සිංහල
 
@@ -63,5 +65,7 @@ Canva was not connected in this workspace, so no Canva designs were queried or e
 - **මුළු පරීක්ෂණ 3,238ක් සමත්; අසමත් 0යි.**
 - UI completeness, layout-parameter, reference සහ Java syntax gates සමත්. Syntax gate එක Java source **66ක්** පරීක්ෂා කළා; backup keys **80 / 80ක්** UI වෙත සම්බන්ධව backup ලැයිස්තුවේ ඇත.
 - App chrome තුළ literal text size **10spට අඩු** එකක් හමු නොවීය.
-- [45301457397 hosted PR run](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45301457397) Android SDK 36 build, signing, `apksigner`, `zipalign`, සහ manifest පරීක්ෂණ සමත්. CI APK එක **3,508,510 bytes**, version **3.4.5 / 30405**, SHA-256 `0bf145fc95d732af39689ad04a4a06169cab2fad44b2c169356cee1cda3325ad` — 50 MiB ට අඩුයි.
-- Local container එකේ Android SDK නොමැති නිසා device-rendered UI පරීක්ෂා කළේ නැහැ. අනුමත PR merge එකෙන් පසු permanent-key GitHub release එක සහ `docs/latest.json` යාවත්කාලීනය තහවුරු කරමි.
+- Post-merge Android build [45301894440](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45301894440) සහ signed release [45301894463](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45301894463) දෙකම සමත්.
+- [v3.4.5 නිකුතුව](https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.4.5) තුළ assets දෙකක් පමණයි: `AnantPlay-Sinhala-Player-v3.4.5.apk` (**3,508,510 bytes**) සහ `SHA256SUMS.txt`. Download කළ APK එක checksum file එකෙන් තහවුරු කළා.
+- Release SHA-256 අගය `0bf145fc95d732af39689ad04a4a06169cab2fad44b2c169356cee1cda3325ad`. `main` හි `docs/latest.json` version **3.4.5**, code **30405**, එම SHA-256 අගය, සහ v3.4.5 APK download URL එක පෙන්වයි.
+- Local container එකේ Android SDK නොමැති නිසා device-rendered UI පරීක්ෂා කළේ නැහැ.
