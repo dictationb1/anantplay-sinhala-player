@@ -195,6 +195,7 @@ public final class OnboardingWizard {
         private final ThemeEngine.Palette p;
         private Dialog dialog;
         private int stage;
+        private LinearLayout root;
         private LinearLayout body;
         private TextView title;
         private TextView dots;
@@ -222,7 +223,7 @@ public final class OnboardingWizard {
             dialog = new Dialog(act);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             dialog.setCanceledOnTouchOutside(false);
-            LinearLayout root = new LinearLayout(act);
+            root = new LinearLayout(act);
             root.setOrientation(LinearLayout.VERTICAL);
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(p.bg);
