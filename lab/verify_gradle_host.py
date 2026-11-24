@@ -201,6 +201,14 @@ check("the release workflow publishes the versioned APK path it later verifies",
 check("SHA256SUMS.txt is written in dist/ (the directory the upload step reads)",
       "cd dist" in rel_wf and "sha256sum \"$APK\" > SHA256SUMS.txt" in rel_wf)
 
+# ── G4c: the flutter extension must point the plugin at ui/ ─────────────────
+# The plugin's default source is "../.." (a standalone Flutter app's shape), which
+# resolves to the REPO ROOT here and makes `flutter assemble` exit 1 with no
+# message. It must be spelled out.
+check("the flutter extension points at the module (ui/, lib/main.dart)",
+      re.search(r"^flutter \{\s*\n\s*source = \"\.\./ui\"", host, re.M) is not None
+      and 'target = "lib/main.dart"' in host)
+
 # ── G5: the Flutter module contract ──────────────────────────────────────────
 pubspec = read("ui/pubspec.yaml")
 check("pubspec declares version 3.4.6+30406", "version: 3.4.6+30406" in pubspec)

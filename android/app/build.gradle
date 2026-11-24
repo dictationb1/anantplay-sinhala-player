@@ -152,3 +152,25 @@ dependencies {
     // The Flutter module AAR binding (include_flutter.groovy → :flutter).
     implementation project(":flutter")
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v3.4.6 — THE FLUTTER SOURCE DIRECTORY (the actual cause of the failed
+// :app:compileFlutterBuildRelease).
+//
+// The flutter-gradle-plugin derives the `flutter assemble` WORKING DIRECTORY
+// from FlutterExtension.source (grep FlutterPluginUtils.getFlutterSourceDirectory),
+// whose default is "../.." — correct for a standalone Flutter app, where
+// app/build.gradle sits at flutter_app/android/app. This host is not that shape:
+// android/app is android/app, so "../.." resolves to the REPO ROOT, where there is
+// no pubspec.yaml. `flutter assemble` therefore exited 1 with nothing but
+// "Process ... finished with non-zero exit value 1", while an identical
+// invocation inside ui/ succeeded.
+//
+// The extension is set explicitly here, so the rule runs in ui/ and targets
+// lib/main.dart. (Note: the extension is type-checked by the Flutter plugin, so
+// this block must stay AFTER the plugins block at the top of the file.)
+// ═════════════════════════════════════════════════════════════════════════════
+flutter {
+    source = "../ui"
+    target = "lib/main.dart"
+}

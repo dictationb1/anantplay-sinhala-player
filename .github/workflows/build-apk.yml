@@ -438,6 +438,10 @@ jobs:
       - name: Pre-flight the Flutter AOT bundle (the exact rule Gradle assembles)
         run: |
           set +e
+          # the plugin runs flutter assemble with workingDir = FlutterExtension.source
+          # (verified in ui/app/build.gradle → "../ui"); assert that explicitly
+          grep -q 'source = "../ui"' android/app/build.gradle \
+            || { echo "::error title=flutter extension::app/build.gradle does not pin flutter.source to ../ui"; exit 1; }
           cd ui
           flutter assemble --no-version-check \
             --depfile /tmp/flutter_build.d --output /tmp/flutter_aot \
