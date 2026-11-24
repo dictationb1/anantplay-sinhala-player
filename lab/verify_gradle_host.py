@@ -112,7 +112,8 @@ check("the app module applies dev.flutter.flutter-gradle-plugin",
       'id "dev.flutter.flutter-gradle-plugin"' in host)
 check("the app module depends on the :flutter project", 'project(":flutter")' in host)
 check("the app module references the Media3/Guava jars in place",
-      'implementation fileTree(dir: "../libs", include: ["*.jar"])' in host)
+      'include: ["*.jar"]' in host and 'annotation-experimental-*.jar' in host
+      and 'project.rootProject.projectDir.parentFile' in host)
 check("the host compiles at Java 17 (Flutter 3.50.1's floor)",
       "VERSION_17" in host and "VERSION_1_8" not in host)
 check("minSdk 26 / targetSdk 36 / compileSdk 36 are pinned",
