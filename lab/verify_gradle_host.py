@@ -206,7 +206,8 @@ check("SHA256SUMS.txt is written in dist/ (the directory the upload step reads)"
 # resolves to the REPO ROOT here and makes `flutter assemble` exit 1 with no
 # message. It must be spelled out.
 check("the flutter extension points at the module (ui/, lib/main.dart)",
-      re.search(r"^flutter \{\s*\n\s*source = \"\.\./ui\"", host, re.M) is not None
+      re.search(r"^flutter \{", host, re.M) is not None
+      and 'new File(project.rootProject.projectDir.parentFile, "ui").absolutePath' in host
       and 'target = "lib/main.dart"' in host)
 
 # ── G5: the Flutter module contract ──────────────────────────────────────────

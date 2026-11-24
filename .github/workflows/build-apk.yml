@@ -440,8 +440,10 @@ jobs:
           set +e
           # the plugin runs flutter assemble with workingDir = FlutterExtension.source
           # (verified in ui/app/build.gradle → "../ui"); assert that explicitly
-          grep -q 'source = "../ui"' android/app/build.gradle \
-            || { echo "::error title=flutter extension::app/build.gradle does not pin flutter.source to ../ui"; exit 1; }
+          grep -q 'target = "lib/main.dart"' android/app/build.gradle \
+            || { echo "::error title=flutter extension::android/app/build.gradle does not pin flutter.target to lib/main.dart"; exit 1; }
+          grep -q 'projectDir.parentFile, "ui").absolutePath' android/app/build.gradle \
+            || { echo "::error title=flutter extension::android/app/build.gradle does not pin flutter.source to <repo>/ui"; exit 1; }
           cd ui
           flutter assemble --no-version-check \
             --depfile /tmp/flutter_build.d --output /tmp/flutter_aot \

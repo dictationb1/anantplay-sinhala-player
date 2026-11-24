@@ -166,11 +166,16 @@ dependencies {
 // "Process ... finished with non-zero exit value 1", while an identical
 // invocation inside ui/ succeeded.
 //
-// The extension is set explicitly here, so the rule runs in ui/ and targets
-// lib/main.dart. (Note: the extension is type-checked by the Flutter plugin, so
-// this block must stay AFTER the plugins block at the top of the file.)
+// The extension is set explicitly here (ABSOLUTE, because it is resolved against
+// android/app), so the rule runs in ui/ and targets lib/main.dart. (Note: the
+// extension is type-checked by the Flutter plugin, so this block must stay AFTER
+// the plugins block at the top of the file.)
 // ═════════════════════════════════════════════════════════════════════════════
 flutter {
-    source = "../ui"
+    // `source` is resolved with project.file(), i.e. against THIS module's
+    // directory (android/app) — the default "../.." lands on the repo root and
+    // "../ui" lands on android/ui (AGP: "Invalid Flutter source directory").
+    // Absolute, like the source sets and the libs dir above.
+    source = new File(project.rootProject.projectDir.parentFile, "ui").absolutePath
     target = "lib/main.dart"
 }
