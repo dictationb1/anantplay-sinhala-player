@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused source/resource gates for the v3.4.6 Mornye Flutter UI and updater release."""
+"""Focused source/resource gates for the v3.4.6.a crash-fix + full-Mornye-parity release."""
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -157,15 +157,15 @@ check("build workflow rejects an APK at or above 50 MiB",
       'SIZE" -lt 52428800' in build_workflow)
 check("release workflow rejects an APK at or above 50 MiB",
       'SIZE" -lt 52428800' in release_workflow)
-# v3.4.6 — the workflow resolves the identity from the Gradle host (AGP 9 owns
-# it) AND from AppInfo, then asserts both against the pinned 3.4.6 / 30406.
-check("build workflow validates version 3.4.6 / 30406",
-      'test "$VERSION" = "3.4.6"' in build_workflow
-      and 'test "$CODE" = "30406"' in build_workflow
+# v3.4.6.a — the workflow resolves the identity from the Gradle host (AGP 9 owns
+# it) AND from AppInfo, then asserts both against the pinned 3.4.6.a / 30407.
+check("build workflow validates version 3.4.6.a / 30407",
+      'test "$VERSION" = "3.4.6.a"' in build_workflow
+      and 'test "$CODE" = "30407"' in build_workflow
       and 'test "$GRADLE_VERSION" = "$VERSION"' in build_workflow
       and 'test "$APPINFO_CODE" = "$CODE"' in build_workflow)
-check("release workflow defaults to version 3.4.6",
-      "default: '3.4.6'" in release_workflow)
+check("release workflow defaults to version 3.4.6.a",
+      "default: '3.4.6.a'" in release_workflow)
 
 # Adaptive launcher icon remains a valid layered vector resource.
 try:

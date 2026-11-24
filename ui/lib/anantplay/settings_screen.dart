@@ -1,7 +1,14 @@
-// AnantPlay Sinhala Player v3.4.6 — the Mornye Appearance & Customization
+// AnantPlay Sinhala Player v3.4.6.a — the Mornye Appearance & Customization
 // Studio: Quick Settings (theme cards, accent, glass clarity, motion) plus
 // collapsible connected advanced groups, and Backup/About.
+// v3.4.6.a — FULL MORNYE PARITY: the whole list is now the upstream
+// CONNECTED SETTINGS LIST — SettingsGroup (radiusCard = 24, one surface per
+// section, dividers between rows exactly like upstream's appearance page)
+// instead of floating per-tile cards. Switch rows keep their real prefs.
 import 'package:material_ui/material_ui.dart';
+
+import 'package:anantplay_ui/mornye_ui/widgets/settings_group.dart';
+import 'package:anantplay_ui/mornye_ui/widgets/app_switch.dart';
 
 import 'app_state.dart';
 import 'bridge.dart';
@@ -13,6 +20,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppState.of(context);
+    final scope = state.scope;
     return Scaffold(
       backgroundColor: const Color(0xFF0F2E30),
       appBar: AppBar(
@@ -21,68 +29,81 @@ class SettingsScreen extends StatelessWidget {
         surfaceTintColor: Colors.transparent,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
         children: [
           _SectionHeader('Appearance'),
-          _ThemeCards(current: state.settings.themeMode),
-          const SizedBox(height: 14),
-          _AccentRow(current: state.settings.accent),
-          const SizedBox(height: 14),
-          _SliderTile(
-            title: 'Glass clarity',
-            value: state.settings.glassClarity / 100.0,
-            label: '${state.settings.glassClarity}%',
-            onChanged: (v) => AppState.of(context)
-                .scope
-                .putInt(SettingsMirror.kGlassClarity, (v * 100).round().clamp(10, 95)),
-          ),
-          _SwitchTile(
-            title: 'Glass outlines',
-            value: state.settings.glassOutlines,
-            onChanged: (v) =>
-                AppState.of(context).scope.putBool(SettingsMirror.kGlassOutlines, v),
-          ),
-          _SwitchTile(
-            title: 'Animations',
-            value: state.settings.motionEnabled,
-            onChanged: (v) => AppState.of(context).scope.putBool(SettingsMirror.kMotion, v),
-          ),
+          // v3.4.6.a — the connected list: one SettingsGroup card per section,
+          // rows separated by dividers inside the surface (upstream contract:
+          // radiusCard = 24, showDivider on every row except the last).
+          SettingsGroup(children: [
+            _ThemeCards(current: state.settings.themeMode),
+            const SizedBox(height: 14),
+            _AccentRow(current: state.settings.accent),
+          ]),
+          SettingsGroup(children: [
+            _SliderRow(
+              title: 'Glass clarity',
+              value: state.settings.glassClarity / 100.0,
+              label: '${state.settings.glassClarity}%',
+              onChanged: (v) => scope.putInt(
+                  SettingsMirror.kGlassClarity, (v * 100).round().clamp(10, 95)),
+            ),
+            _SwitchRow(
+              title: 'Glass outlines',
+              value: state.settings.glassOutlines,
+              onChanged: (v) =>
+                  scope.putBool(SettingsMirror.kGlassOutlines, v),
+            ),
+            _SwitchRow(
+              title: 'Animations',
+              value: state.settings.motionEnabled,
+              onChanged: (v) => scope.putBool(SettingsMirror.kMotion, v),
+            ),
+          ]),
           const SizedBox(height: 10),
           _SectionHeader('Subtitles'),
-          _SwitchTile(
-            title: 'Auto Sinhala subtitles',
-            value: state.settings.b(SettingsMirror.kAutoFetch, true),
-            onChanged: (v) =>
-                AppState.of(context).scope.putBool(SettingsMirror.kAutoFetch, v),
-          ),
-          _SwitchTile(
-            title: 'On-device translator',
-            value: state.settings.b(SettingsMirror.kFreeTranslator, true),
-            onChanged: (v) =>
-                AppState.of(context).scope.putBool(SettingsMirror.kFreeTranslator, v),
-          ),
+          SettingsGroup(children: [
+            _SwitchRow(
+              title: 'Auto Sinhala subtitles',
+              value: state.settings.b(SettingsMirror.kAutoFetch, true),
+              onChanged: (v) =>
+                  scope.putBool(SettingsMirror.kAutoFetch, v),
+            ),
+            _SwitchRow(
+              title: 'On-device translator',
+              value: state.settings.b(SettingsMirror.kFreeTranslator, true),
+              onChanged: (v) =>
+                  scope.putBool(SettingsMirror.kFreeTranslator, v),
+            ),
+          ]),
           const SizedBox(height: 10),
           _SectionHeader('Updates'),
-          _SwitchTile(
-            title: 'Auto-update',
-            value: state.settings.autoUpdate,
-            onChanged: (v) =>
-                AppState.of(context).scope.putBool(SettingsMirror.kAutoUpdate, v),
-          ),
+          SettingsGroup(children: [
+            _SwitchRow(
+              title: 'Auto-update',
+              value: state.settings.autoUpdate,
+              onChanged: (v) => scope.putBool(SettingsMirror.kAutoUpdate, v),
+            ),
+          ]),
           const SizedBox(height: 10),
           _SectionHeader('Backup'),
-          _ActionTile(title: 'Export backup', onTap: () => _export(context)),
-          _ActionTile(title: 'Import backup', onTap: () => _import(context)),
-          _ActionTile(
-              title: 'Reset all settings',
-              destructive: true,
-              onTap: () => _reset(context)),
+          SettingsGroup(children: [
+            _ActionRow(title: 'Export backup', onTap: () => _export(context)),
+            _ActionRow(
+                title: 'Import backup', onTap: () => _import(context)),
+            _ActionRow(
+                title: 'Reset all settings',
+                destructive: true,
+                onTap: () => _reset(context)),
+          ]),
           const SizedBox(height: 10),
           _SectionHeader('About'),
-          _ActionTile(
-              title: 'Open-source licenses (LGPL-3.0-only)',
-              onTap: () => _licenses(context)),
-          const _VersionFooter(),
+          SettingsGroup(children: [
+            _ActionRow(
+                title: 'Open-source licenses (LGPL-3.0-only)',
+                onTap: () => _licenses(context)),
+            const _VersionFooter(),
+          ]),
         ],
       ),
     );
@@ -130,7 +151,7 @@ class SettingsScreen extends StatelessWidget {
     showLicensePage(
       context: context,
       applicationName: 'AnantPlay Sinhala Player',
-      applicationVersion: '3.4.6',
+      applicationVersion: '3.4.6.a',
       applicationIcon: const SizedBox(width: 48, height: 48),
     );
   }
@@ -145,8 +166,11 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // v3.4.6.a — connected-list contract: the group owns the horizontal
+    // inset, so the header pads itself to the same 16 dp the group uses
+    // upstream (settingsHorizontalInset at phone width).
     return Padding(
-      padding: const EdgeInsets.only(top: 6, bottom: 8),
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
       child: Text(title.toUpperCase(),
           style: const TextStyle(
               color: Color(0x73F2F7F7), fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
@@ -168,17 +192,22 @@ class _ThemeCards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        for (final (id, label, icon) in _themes)
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: _ThemeCard(
-                  id: id, label: label, icon: icon, selected: current == id),
+    // v3.4.6.a — inside the connected group, pad the row to the group's
+    // own 16 dp inset (the group surface itself is edge-to-edge).
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          for (final (id, label, icon) in _themes)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: _ThemeCard(
+                    id: id, label: label, icon: icon, selected: current == id),
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -233,7 +262,10 @@ class _AccentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    // v3.4.6.a — inside the connected group, pad to the group's 16 dp inset.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+      child: SizedBox(
       height: 44,
       child: Row(
         children: [
@@ -257,12 +289,16 @@ class _AccentRow extends StatelessWidget {
             ),
         ],
       ),
+      ),
     );
   }
 }
 
-class _SliderTile extends StatelessWidget {
-  const _SliderTile({
+// ── v3.4.6.a — the connected rows (upstream SettingsItem shapes, Mornye
+// paddings from context.tokens, divider between rows by the group) ──────────
+
+class _SliderRow extends StatelessWidget {
+  const _SliderRow({
     required this.title,
     required this.value,
     required this.label,
@@ -276,8 +312,12 @@ class _SliderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.tokens;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: EdgeInsets.symmetric(
+        horizontal: tokens.rowPaddingH,
+        vertical: 12,
+      ),
       child: Row(
         children: [
           Expanded(
@@ -293,18 +333,19 @@ class _SliderTile extends StatelessWidget {
             ),
           ),
           SizedBox(
-              width: 40,
-              child: Text(label,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(color: Color(0x99F2F7F7), fontSize: 12))),
+            width: 40,
+            child: Text(label,
+                textAlign: TextAlign.right,
+                style: const TextStyle(color: Color(0x99F2F7F7), fontSize: 12)),
+          ),
         ],
       ),
     );
   }
 }
 
-class _SwitchTile extends StatelessWidget {
-  const _SwitchTile({required this.title, required this.value, required this.onChanged});
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({required this.title, required this.value, required this.onChanged});
 
   final String title;
   final bool value;
@@ -312,37 +353,37 @@ class _SwitchTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SwitchListTile(
-      title: Text(title, style: const TextStyle(color: Color(0xFFF2F7F7), fontSize: 14)),
-      value: value,
-      onChanged: onChanged,
-      activeThumbColor: const Color(0xFF3E8E8F),
-      contentPadding: EdgeInsets.zero,
+    // v3.4.6.a — the upstream connected-list switch row: SettingsItem's own
+    // row chrome (padding from tokens, divider kept by the group) with the
+    // Mornye AppSwitch as the trailing control, exactly as upstream's
+    // settings pages place their switches.
+    return SettingsItem(
+      title: title,
+      trailing: AppSwitch(value: value, onChanged: onChanged),
     );
   }
 }
 
-class _ActionTile extends StatelessWidget {
-  const _ActionTile({
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({
     required this.title,
     required this.onTap,
     this.destructive = false,
+    this.isLast = false,
   });
 
   final String title;
   final VoidCallback onTap;
   final bool destructive;
+  final bool isLast;
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      title: Text(title,
-          style: TextStyle(
-              color: destructive ? const Color(0xFFFF6482) : const Color(0xFFF2F7F7),
-              fontSize: 14)),
-      trailing: const Icon(Icons.chevron_right_rounded, color: Color(0x66F2F7F7)),
-      contentPadding: EdgeInsets.zero,
+    return SettingsItem(
+      title: title,
       onTap: onTap,
+      showDivider: !isLast,
+      trailing: const Icon(Icons.chevron_right_rounded, color: Color(0x66F2F7F7)),
     );
   }
 }
@@ -353,9 +394,9 @@ class _VersionFooter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Padding(
-      padding: EdgeInsets.only(top: 18),
+      padding: EdgeInsets.only(top: 18, bottom: 6),
       child: Center(
-        child: Text('AnantPlay Sinhala Player v3.4.6 (30406)',
+        child: Text('AnantPlay Sinhala Player v3.4.6.a (30407)',
             style: TextStyle(color: Color(0x59F2F7F7), fontSize: 11.5)),
       ),
     );

@@ -1,4 +1,4 @@
-// AnantPlay Sinhala Player v3.4.6 — the Option-A host app module.
+// AnantPlay Sinhala Player v3.4.6.a — the Option-A host app module.
 //
 // WRAPS THE EXISTING PURE-JAVA BACKEND 100% INTACT:
 //   · src/     → java.srcDirs   (lk.techworld.anantplay.sicast backend, unchanged)
@@ -21,7 +21,7 @@
 //      KS_KEYPASS) exactly the way the release workflow passes them.
 //
 // Signing reads the same permanent secrets build.sh has always used
-// (KS_BASE64 → decoded keystore, KS_PASS / KS_KEYPASS / KS_ALIAS) so v3.4.6
+// (KS_BASE64 → decoded keystore, KS_PASS / KS_KEYPASS / KS_ALIAS) so v3.4.6.a
 // updates in place over v3.4.5 — the zero-uninstall Obtainium contract.
 plugins {
     id "com.android.application"
@@ -31,6 +31,14 @@ plugins {
 def ksFile = project.findProperty("KS_FILE")
 def hasReleaseKey = ksFile != null && file(ksFile).exists()
 
+// v3.4.6.a — TRAP #3 (CI emulator smoke ABI): `-PsmokeAbi=x86_64` rebuilds the
+// EXACT release (same Java/Dart/Manifest/R8/ProGuard, same signing path) for
+// the KVM x86_64 Android emulator that runs the Launch Smoke Test. Unset (the
+// shipping path) → arm64-v8a, the one-ABI release contract.
+def smokeAbi = project.hasProperty("smokeAbi") ? project.property("smokeAbi").toString() : null
+def keepAbi = smokeAbi != null ? smokeAbi : "arm64-v8a"
+def dropAbis = ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"].findAll { it != keepAbi }
+
 android {
     namespace = "lk.techworld.anantplay.sicast"
     compileSdk = 36
@@ -39,15 +47,25 @@ android {
         applicationId = "lk.techworld.anantplay.sicast"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30406
-        versionName = "3.4.6"
+        versionCode = 30407
+        versionName = "3.4.6.a"
         multiDexEnabled = true
 
         // v3.4.6 — the CI contract is ONE arm64 artifact below 50 MiB. The Flutter
         // engine AAR ships every ABI, so the app filters to arm64-v8a explicitly
         // (armeabi-v7a/x86_64 video decoders are not part of this release).
+        // v3.4.6.a — TRAP #3: `-PsmokeAbi=x86_64` swaps this filter for the CI
+        // emulator's ABI so the KVM smoke job builds the SAME release config
+        // (same Java/Dart/Manifest/R8/ProGuard) as an x86_64 installable APK.
+        // The literal stays what the Gradle-host structural gate greps; when the
+        // Flutter plugin later re-populates ndk.abiFilters with its platform
+        // list, the jniLibs `excludes` below remain the enforcing mechanism.
         ndk {
             abiFilters "arm64-v8a"
+            if (smokeAbi != null) {
+                abiFilters.clear()
+                abiFilters.add(smokeAbi)
+            }
         }
     }
 
@@ -104,7 +122,23 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging = true
+            // v3.4.6.a — TRAP #2: useLegacyPackaging=false stores every .so
+            // UNCOMPRESSED in the APK (extractNativeLibs="false") so the Android
+            // 16 linker can mmap it straight from the package — which makes the
+            // zip-level 16 KiB offset contract real. That contract is produced
+            // by `zipalign -P 16 -f 4` in the workflows and verified by
+            // `zipalign -c -P 16 4` + lab/verify_apk_launch_integrity.py (L1z).
+            // (v3.4.6 shipped useLegacyPackaging=true, which HID every zip
+            // alignment defect behind install-time extraction.)
+            useLegacyPackaging = false
+            // THE ABI ENFORCER. The flutter-gradle-plugin re-populates
+            // ndk.abiFilters with its full platform list (armeabi-v7a +
+            // arm64-v8a + x86_64) at apply() time, so abiFilters alone cannot
+            // hold the one-ABI contract — these packaging-time excludes drop
+            // every non-target engine at merge, whatever the resolved artifact
+            // carried. Shipping path drops all but arm64-v8a; the CI smoke path
+            // (-PsmokeAbi=x86_64) drops all but x86_64 instead.
+            excludes += dropAbis.collect { "lib/${it}/**" }
         }
         resources {
             excludes += ["META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*"]
@@ -151,6 +185,25 @@ configurations.configureEach {
     exclude group: "androidx.annotation", module: "annotation-experimental"
     exclude group: "androidx.concurrent", module: "concurrent-futures"
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v3.4.6.a — TRAP #2: THE BOGUS ENGINE SUBSTITUTION IS GONE.
+//
+// The shipped delta substituted `io.flutter:flutter-release` →
+// `io.flutter:flutter-arm64-v8a-release` (and -debug/-profile), claiming the
+// flutter-gradle-plugin resolves a hyphenated universal engine artifact.
+// AUDIT VERDICT: those coordinates DO NOT EXIST. The real Flutter Maven
+// engine coordinates use UNDERSCORES — the embedding is
+// `io.flutter:flutter_embedding_<mode>` and the per-ABI native payload is
+// `io.flutter:arm64_v8a_<mode>` / `x86_64_<mode>` / `armeabi_v7a_<mode>`
+// (see FlutterPlugin/FlutterGradlePlugin resolution at flutter/flutter
+// 3.50.1). A substitution against hyphenated phantom modules never fires —
+// it only obfuscated the real ABI policy. The engine the APK ships is the
+// one the plugin resolves normally; the ABI contract is enforced cleanly by
+// `ndk.abiFilters` + the jniLibs `excludes` above (and `zipalign -P 16`
+// below in CI makes its zip offsets Android-16-safe), with `-PsmokeAbi`
+// swapping the target for the CI emulator build.
+// ═════════════════════════════════════════════════════════════════════════════
 
 dependencies {
     // The existing Media3 1.11.1 + Guava jars — referenced in place, never copied.

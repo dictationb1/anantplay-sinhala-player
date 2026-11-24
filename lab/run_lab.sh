@@ -161,6 +161,78 @@ python3 lab/verify_ui_completeness.py
 python3 lab/verify_gradle_host.py
 
 # ─────────────────────────────────────────────────────────────────────────────
+# v3.4.6.a — THE APK LAUNCH-INTEGRITY SELFTEST (seventh gating auditor)
+#
+# verify_apk_launch_integrity.py audits the BUILT APK in CI (wired into both
+# workflows). This local selftest proves the auditor still CATCHES the defect
+# class it exists for: it synthesizes the exact v3.4.6 pathology (a 4 KB-page
+# ELF, three ABIs) in a tiny in-memory APK fixture and asserts the gate FAILS
+# on it — a green light here means the gate cannot silently rot.
+# ─────────────────────────────────────────────────────────────────────────────
+set +e
+python3 - <<'PYTEST'
+import struct, sys, zipfile, io
+sys.path.insert(0, 'lab')
+import verify_apk_launch_integrity as gate
+
+# ── the dead-on-arrival fixture: 4 KB-congruent PT_LOADs (the v3.4.6 shape) ──
+def elf(congruent16k):
+    phoff = 0x40
+    loads = []
+    def add(off, vaddr):
+        loads.append((off, vaddr, 65536 if congruent16k else 4096, 5, 0x1000))
+    if congruent16k:
+        add(0x0, 0x0); add(0x180000, 0x180000); add(0x400000, 0x400000)
+    else:
+        add(0x0, 0x0); add(0xa74140, 0xa84140); add(0xad01c0, 0xaf01c0)
+    ehdr = bytearray(64)
+    ehdr[:4] = b"\x7fELF"; ehdr[4] = 2; ehdr[5] = 1
+    struct.pack_into("<Q", ehdr, 0x20, phoff)
+    struct.pack_into("<H", ehdr, 0x36, 56)
+    struct.pack_into("<H", ehdr, 0x38, len(loads))
+    body = b""
+    for (off, vaddr, align, flags, filesz) in loads:
+        ph = struct.pack("<IIQQQQQQ", 1, flags, off, vaddr, vaddr, filesz, filesz, align)
+        body += ph
+    return bytes(ehdr) + body + b"\x00" * 0x1000
+
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w") as zf:
+    zf.writestr("AndroidManifest.xml", b"\x03\x00\x08\x00")
+    zf.writestr("lib/arm64-v8a/libflutter.so", elf(False))
+    zf.writestr("lib/arm64-v8a/libapp.so", elf(True))
+    zf.writestr("lib/armeabi-v7a/libflutter.so", b"\x7fELF\x01" + b"\x00" * 128)
+    zf.writestr("lib/x86_64/libflutter.so", elf(False))
+    zf.writestr("assets/flutter_assets/AssetManifest.bin", b"x")
+    zf.writestr("assets/flutter_assets/FontManifest.json", b"{}")
+    zf.writestr("assets/flutter_assets/assets/shaders/mornye_selection_mask.frag", b"x")
+tmp = "/tmp/doad-fixture.apk"
+open(tmp, "wb").write(buf.getvalue())
+
+gate.failures.clear(); gate.checks = 0
+import contextlib
+with contextlib.redirect_stdout(io.StringIO()):
+    rc = gate.main.__wrapped__() if hasattr(gate.main, "__wrapped__") else None
+# call main() with the fixture argument:
+gate.failures.clear(); gate.checks = 0
+import sys
+sys.argv = ["verify_apk_launch_integrity.py", tmp]
+with contextlib.redirect_stdout(io.StringIO()):
+    rc = gate.main()
+assert rc == 1, "the gate must FAIL on the v3.4.6-shaped fixture"
+names = "\n".join(gate.failures)
+for expected in ("16 KB-page ready", "exactly one ABI"):
+    assert expected in names, "expected failure %r in: %s" % (expected, names)
+print("SELFTEST OK: the launch gate refuses the dead-on-arrival shape")
+PYTEST
+SELFTEST=$?
+set -e
+if [ "$SELFTEST" -ne 0 ]; then
+  echo "LAB FAILED: verify_apk_launch_integrity selftest exited $SELFTEST" >&2
+  exit 1
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # v3.4.1 — THE JAVAC SYNTAX GATE (fourth gating auditor)
 #
 # run_lab.sh compiles only the PURE engines; the four Activity classes are compiled

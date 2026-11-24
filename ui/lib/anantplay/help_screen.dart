@@ -1,8 +1,12 @@
-// AnantPlay Sinhala Player v3.4.6 — the Help & Troubleshoot hub: 1-tap full
+// AnantPlay Sinhala Player v3.4.6.a — the Help & Troubleshoot hub: 1-tap full
 // probe run, the report copy/share, manual update check, and the wizard
 // re-run.
+// v3.4.6.a — FULL MORNYE PARITY: the action cards reveal on the upstream
+// StaggeredListItem ladder (the exact upstream list-entry effect).
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+
+import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
 
 import 'app_state.dart';
 import 'bridge.dart';
@@ -52,29 +56,41 @@ class _HelpScreenState extends State<HelpScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          _ActionCard(
-            icon: Icons.health_and_safety_rounded,
-            title: _running ? 'Running the 10-point probe…' : 'Run full app troubleshoot',
-            subtitle: 'Receiver · cast · subtitles · updater — all 10 probes.',
-            onTap: _running ? null : _run,
+          StaggeredListItem(
+            index: 0,
+            child: _ActionCard(
+              icon: Icons.health_and_safety_rounded,
+              title: _running ? 'Running the 10-point probe…' : 'Run full app troubleshoot',
+              subtitle: 'Receiver · cast · subtitles · updater — all 10 probes.',
+              onTap: _running ? null : _run,
+            ),
           ),
-          _ActionCard(
-            icon: Icons.copy_rounded,
-            title: 'Copy privacy-safe report',
-            subtitle: 'Zero personal data — IMDb IDs and milliseconds only.',
-            onTap: () => _copy(),
+          StaggeredListItem(
+            index: 1,
+            child: _ActionCard(
+              icon: Icons.copy_rounded,
+              title: 'Copy privacy-safe report',
+              subtitle: 'Zero personal data — IMDb IDs and milliseconds only.',
+              onTap: () => _copy(),
+            ),
           ),
-          _ActionCard(
-            icon: Icons.update_rounded,
-            title: 'Check for update',
-            subtitle: 'Direct release check — no API calls.',
-            onTap: () => AnantPlay.instance.checkForUpdate(),
+          StaggeredListItem(
+            index: 2,
+            child: _ActionCard(
+              icon: Icons.update_rounded,
+              title: 'Check for update',
+              subtitle: 'Direct release check — no API calls.',
+              onTap: () => AnantPlay.instance.checkForUpdate(),
+            ),
           ),
-          _ActionCard(
-            icon: Icons.restart_alt_rounded,
-            title: 'Run setup wizard',
-            subtitle: 'Replay the first-launch checklist.',
-            onTap: () => AppState.of(context).scope.putBool('onboardingDone', false),
+          StaggeredListItem(
+            index: 3,
+            child: _ActionCard(
+              icon: Icons.restart_alt_rounded,
+              title: 'Run setup wizard',
+              subtitle: 'Replay the first-launch checklist.',
+              onTap: () => AppState.of(context).scope.putBool('onboardingDone', false),
+            ),
           ),
           if (_results.isNotEmpty) ...[
             const SizedBox(height: 10),

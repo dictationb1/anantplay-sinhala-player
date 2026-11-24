@@ -1,6 +1,6 @@
-# AnantPlay Player (SI Cast Receiver) v3.4.6
+# AnantPlay Player (SI Cast Receiver) v3.4.6.a (versionCode 30407)
 
-> **v3.4.6 — MORNYE v5.4.0 LIQUID-GLASS FLUTTER UI (Option A) · PURE-SVG CINEMA ASSETS · 55 MB UPDATER TIER.**
+> **v3.4.6.a — THE ANDROID 16 CRASH FIX · MORNYE v5.4.0 FULL PARITY · 16 KB-PAGE ENGINE · 55 MB UPDATER TIER.**
 > Mornye Glass is now the default surface, with live 10–95% clarity, optional rim
 > outlines, glass icon medallions, and System/Midnight/AMOLED/Clean Light themes.
 > Inter is bundled for modern Latin UI text with Noto Sinhala fallback; System,

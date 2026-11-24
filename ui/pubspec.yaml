@@ -1,9 +1,9 @@
 name: anantplay_ui
 description: >-
-  AnantPlay Sinhala Player v3.4.6 — the Mornye v5.4.0 Liquid-Glass Flutter UI
+  AnantPlay Sinhala Player v3.4.6.a — the Mornye v5.4.0 Liquid-Glass Flutter UI
   (vendored under LGPL-3.0-only) over the native Media3 cast/player backend.
 publish_to: "none"
-version: 3.4.6+30406
+version: 3.4.6.a+30407
 
 environment:
   sdk: ^3.10.0

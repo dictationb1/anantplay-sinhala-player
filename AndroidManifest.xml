@@ -4,7 +4,7 @@
      reads it - android/app/build.gradle (namespace, applicationId, versionCode,
      versionName). build.sh (the pure-Java recipe) passes the same identity
      explicitly via the aapt2 link version flags, so BOTH packaging
-     paths stamp 30406 / 3.4.6. Nothing else in this file changed.
+     paths stamp 30407 / 3.4.6.a. Nothing else in this file changed.
      NOTE: an XML comment may not contain a double hyphen, so this file is
      deliberately punctuation-clean. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">

@@ -30,7 +30,7 @@ general-purpose bundled typeface.
 only by the compiler and never reaches `dist/AnantPlay-Sinhala-Player.apk` (verify with
 `unzip -l dist/AnantPlay-Sinhala-Player.apk`).
 
-## v3.4.6 — the Mornye v5.4.0 Liquid-Glass Flutter UI (LGPL-3.0-only)
+## v3.4.6.a — the Mornye v5.4.0 Liquid-Glass Flutter UI (LGPL-3.0-only)
 
 The `ui/` Flutter module vendors the visual engine of **Mornye**
 (`mornyeapp/Mornye`, commit `c4a1c7b812eb135d6e1a295b6b25e11abbd72a7e`,
@@ -43,7 +43,7 @@ version **5.4.0**, **Copyright 2026 zarzet**) under the
 | Pinned commit | `c4a1c7b812eb135d6e1a295b6b25e11abbd72a7e` (v5.4.0) |
 | Vendored path | `ui/lib/mornye_ui/` |
 | Licence texts shipped | `ui/lib/mornye_ui/LICENSE` (LGPL-3.0), `ui/lib/mornye_ui/COPYING` (GPL-3.0 base), `ui/lib/mornye_ui/NOTICE` (SPDX `LGPL-3.0-only`, Copyright 2026 zarzet) — also packaged into the APK under `assets/mornye/` (listed in `ui/pubspec.yaml`) next to Flutter's own licence registry, which the in-app **Settings → Open-source licenses** page (`showLicensePage`) renders |
-| What was vendored | `theme/`, `widgets/`, `utils/`, `controllers/`, `providers/`, `models/`, `shims/` (the Liquid-Glass visual engine + its theme tokens and motion curves) |
+| What was vendored | `theme/`, `widgets/`, `utils/`, `controllers/`, `providers/`, `models/`, `shims/` (the Liquid-Glass visual engine + its theme tokens and motion curves). v3.4.6.a adds `widgets/mornye_glass_preparation.dart` (verbatim) and the `StaggeredListItem` extract inside `widgets/animation_utils.dart` (verbatim upstream lines 24-112 + the `loadedFadeFirstFrame` constant from `widgets/loaded_sliver_fade_in.dart`), each carrying its own provenance header |
 | What was **not** vendored | Mornye's application shell, its music/metadata features, its Rust/FFI backend, its networking and storage layers |
 
 **LGPL-3.0-only compliance.** This application does not modify the vendored engine

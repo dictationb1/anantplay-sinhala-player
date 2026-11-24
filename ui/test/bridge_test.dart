@@ -19,7 +19,7 @@ void main() {
       case 'status':
         return <String, Object>{'up': true, 'port': 8765, 'discoverable': true, 'mdns': true};
       case 'pending':
-        return <String, Object>{'pending': true, 'version': '3.4.6'};
+        return <String, Object>{'pending': true, 'version': '3.4.6.a'};
       case 'list':
         return '[{"title":"ශ්‍රී ලංකාවේ චිත්‍රපටිය","url":"https://example.com/v.m3u8","source":"cast","pos":120000,"dur":600000,"at":1,"ephemeralRelay":false}]';
       case 'getAll':
@@ -78,7 +78,7 @@ void main() {
   test('pendingUpdate decodes the pending map', () async {
     final pending = await AnantPlay.instance.pendingUpdate();
     expect(pending.pending, isTrue);
-    expect(pending.version, '3.4.6');
+    expect(pending.version, '3.4.6.a');
   });
 
   test('playUrl sends the open method with url/headers/title keys', () async {

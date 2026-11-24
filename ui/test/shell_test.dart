@@ -83,9 +83,9 @@ void main() {
     expect(find.text('Glass clarity'), findsOneWidget);
     // the lazy ListView builds children on demand — scroll the studio open
     await tester.scrollUntilVisible(
-        find.text('AnantPlay Sinhala Player v3.4.6 (30406)'), 240,
+        find.text('AnantPlay Sinhala Player v3.4.6.a (30407)'), 240,
         scrollable: find.byType(Scrollable).first);
-    expect(find.text('AnantPlay Sinhala Player v3.4.6 (30406)'), findsOneWidget);
+    expect(find.text('AnantPlay Sinhala Player v3.4.6.a (30407)'), findsOneWidget);
     expect(find.text('BACKUP'), findsOneWidget);   // revealed by the scroll
   });
 

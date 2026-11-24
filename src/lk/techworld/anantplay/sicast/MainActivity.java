@@ -56,6 +56,13 @@ public class MainActivity extends FlutterActivity {
     private static final String CH_HISTORY = "anantplay/history";
     private static final String CH_UPDATER = "anantplay/updater";
     private static final String CH_TROUBLE = "anantplay/troubleshoot";
+    // v3.4.6.a — THE DART-SIDE CRASH REPORTER. Uncaught Dart errors (a null
+    // deref in a widget build, a broken asset path, anything FlutterError /
+    // PlatformDispatcher surfaces during startup) are forwarded INTO the same
+    // persistent CrashLog the native layer uses — so a "won't start" report
+    // is on disk even when logcat was never attached. Inverse of a crash loop:
+    // the forwarder itself is fully guarded and CANNOT throw back into Dart.
+    private static final String CH_CRASHLOG = "anantplay/crashlog";
 
     private SharedPreferences prefs;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -97,6 +104,9 @@ public class MainActivity extends FlutterActivity {
                 .setMethodCallHandler(this::onUpdaterCall);
         new MethodChannel(engine.getDartExecutor().getBinaryMessenger(), CH_TROUBLE)
                 .setMethodCallHandler(this::onTroubleCall);
+        // v3.4.6.a — the Dart-side crash reporter channel (see CH_CRASHLOG).
+        new MethodChannel(engine.getDartExecutor().getBinaryMessenger(), CH_CRASHLOG)
+                .setMethodCallHandler(this::onCrashlogCall);
 
         // ── EventChannels ──
         new EventChannel(engine.getDartExecutor().getBinaryMessenger(), CH_CAST + "/events")
@@ -488,6 +498,43 @@ public class MainActivity extends FlutterActivity {
     }
 
     // ── anantplay/troubleshoot ───────────────────────────────────────────────
+
+    // v3.4.6.a — the Dart-side crash reporter (see CH_CRASHLOG). The payload is
+    // {kind: 'FlutterError'|'PlatformError', zone: str, error: str, stack: str}.
+    // The report lands in the SAME CrashLog file the native recorder writes,
+    // stamped with THIS build's versionCode so stale reports auto-clear on the
+    // next update. Every branch is guarded: a crash inside the crash reporter
+    // must never itself crash the app — the worst case is a Diag ring entry.
+    private void onCrashlogCall(MethodCall call, MethodChannel.Result result) {
+        try {
+            if (!"report".equals(call.method)) { result.notImplemented(); return; }
+            final Object kindArg = call.argument("kind");
+            final Object zoneArg = call.argument("zone");
+            final Object errorArg = call.argument("error");
+            final Object stackArg = call.argument("stack");
+            final String kind = kindArg instanceof String ? (String) kindArg : "Dart";
+            final String zone = zoneArg instanceof String ? (String) zoneArg : "main";
+            final String error = errorArg instanceof String ? (String) errorArg : "unknown";
+            final String stack = stackArg instanceof String ? (String) stackArg : "";
+            final String deviceInfo = "sdk " + Build.VERSION.SDK_INT + " (Dart " + kind + ", zone " + zone + ")";
+            final String report = CrashLog.format(
+                    System.currentTimeMillis(), AppInfo.VERSION_NAME, AppInfo.VERSION_CODE,
+                    deviceInfo, "flutter-main",
+                    new IllegalStateException(error + "\n" + stack));
+            new Thread(() -> {
+                try {
+                    boolean ok = CrashLog.writeAtomically(getFilesDir(), report);
+                    Diag.e("crashlog", "dart-side crash recorded (" + kind + ", persisted=" + ok + ")");
+                } catch (Throwable t) {
+                    Diag.e("crashlog", "dart-side crash persist refused: " + t);
+                }
+            }, "crashlog").start();
+            result.success(true);
+        } catch (Throwable t) {
+            Diag.e("crashlog", "report handler refused: " + t);
+            try { result.success(false); } catch (Throwable ignored) { }
+        }
+    }
 
     private void onTroubleCall(MethodCall call, MethodChannel.Result result) {
         try {

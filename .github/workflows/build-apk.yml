@@ -11,7 +11,7 @@ name: Build Sinhala Player APK
 #   · android/local.properties is NEVER committed: CI writes it from FLUTTER_ROOT.
 #
 # v3.4.5 kept: reproducible-APK notes, build-tools 35.0.1 hard requirement, and
-# the version-lock assertions (3.4.6 / 30406 everywhere).
+# the version-lock assertions (3.4.6.a / 30407 everywhere).
 env:
   TZ: UTC
 
@@ -50,8 +50,8 @@ jobs:
           GRADLE_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)
           APPINFO_VERSION=$(sed -n 's/.*VERSION_NAME = "\([^"]*\)".*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
           APPINFO_CODE=$(sed -n 's/.*VERSION_CODE = \([0-9]*\).*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
-          test "$VERSION" = "3.4.6"
-          test "$CODE" = "30406"
+          test "$VERSION" = "3.4.6.a"
+          test "$CODE" = "30407"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -314,6 +314,12 @@ jobs:
     name: APK build (Gradle 9.5.0 + AGP 9.3.1 + SDK 36, signed + verified)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      # v3.4.6.a — the version identity of the artifact (published as run
+      # annotations; the launch-smoke job below builds its own x86_64 twin
+      # and resolves the same version independently).
+      version: ${{ steps.app-version.outputs.version }}
+      code: ${{ steps.app-version.outputs.code }}
     steps:
       - uses: actions/checkout@v4
 
@@ -330,8 +336,8 @@ jobs:
           GRADLE_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)
           APPINFO_VERSION=$(sed -n 's/.*VERSION_NAME = "\([^"]*\)".*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
           APPINFO_CODE=$(sed -n 's/.*VERSION_CODE = \([0-9]*\).*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
-          test "$VERSION" = "3.4.6"
-          test "$CODE" = "30406"
+          test "$VERSION" = "3.4.6.a"
+          test "$CODE" = "30407"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -526,7 +532,55 @@ jobs:
           cp "$APK_OUT" dist/AnantPlay-Sinhala-Player.apk
           test -s dist/AnantPlay-Sinhala-Player.apk
 
-      - name: Assert the artifact is a real, signed, installable v3.4.6 APK
+      # v3.4.6.a — TRAP #1: THE 16 KB ZIP PASS, THEN apksigner. AGP signs
+      # during assembleRelease, but alignment REWRITES the zip and invalidates
+      # any signature — so the auditable order is: zipalign -P 16 -f 4 →
+      # apksigner sign (v1+v2+v3) → zipalign -c -P 16 4 → apksigner verify →
+      # verify_apk_launch_integrity.py. `-P 16` (not plain -f 4!) puts every
+      # uncompressed .so on a 16,384-byte offset INSIDE the APK, which is what
+      # Android 16's linker requires when it mmaps straight from the package
+      # (extractNativeLibs=false / useLegacyPackaging=false).
+      - name: 'zipalign -P 16 (Android 16 KB zip contract) + apksigner re-sign'
+        env:
+          KS_BASE64: ${{ secrets.KS_BASE64 }}
+          KS_PASS: ${{ secrets.KS_PASS }}
+          KS_KEYPASS: ${{ secrets.KS_KEYPASS }}
+          KS_ALIAS: ${{ secrets.KS_ALIAS }}
+        run: |
+          set -euo pipefail
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          SRC=dist/AnantPlay-Sinhala-Player.apk
+          test -s "$SRC"
+          "$BT/zipalign" -P 16 -f 4 "$SRC" dist/aligned.apk
+          test -s dist/aligned.apk
+          echo "zipalign -P 16 -f 4: exit 0"
+          if [ -n "${KS_BASE64:-}" ]; then
+            printf '%s' "$KS_BASE64" | base64 -d > build_release.keystore
+            test -s build_release.keystore
+            KS_FILE=build_release.keystore
+            KS_P="$KS_PASS"; KS_KP="${KS_KEYPASS:-$KS_PASS}"; KS_AL="${KS_ALIAS:-sicast}"
+          else
+            # Same fallback contract as the build step: a throwaway debug key
+            # keeps the artifact installable (and the warning visible).
+            echo "::warning title=Debug-signed build::KS_BASE64 is not set — re-signing the aligned APK with a throwaway debug key"
+            keytool -genkeypair -keystore smoke_debug.keystore -storepass android \
+              -keypass android -alias androiddebugkey -keyalg RSA -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US" > /dev/null 2>&1
+            KS_FILE=smoke_debug.keystore
+            KS_P=android; KS_KP=android; KS_AL=androiddebugkey
+          fi
+          "$BT/apksigner" sign \
+            --ks "$KS_FILE" --ks-pass "pass:$KS_P" --key-pass "pass:$KS_KP" \
+            --ks-key-alias "$KS_AL" \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+            --out dist/signed.apk dist/aligned.apk
+          test -s dist/signed.apk
+          mv dist/signed.apk "$SRC"
+          rm -f dist/aligned.apk
+          "$BT/zipalign" -c -P 16 4 "$SRC"
+          echo "::notice title=zipalign::zipalign -P 16 -f 4 applied, zipalign -c -P 16 4 OK"
+
+      - name: Assert the artifact is a real, signed, installable v3.4.6.a APK
         run: |
           set -euo pipefail
           # v3.4.6 — every gate below publishes its verdict as a check-run
@@ -552,8 +606,10 @@ jobs:
           grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt \
             || { echo "::error::the APK is not v3-signed (the release contract is v2+v3)"; exit 1; }
           notice "apksigner" "v2 true + v3 true (exit 0)"
-          "$BT/zipalign" -c 4 "$APK"
-          notice "zipalign" "zipalign -c 4 exit 0 (4-byte aligned)"
+          # v3.4.6.a — TRAP #1: the REAL Android 16 check, -P 16 (16 KiB .so
+          # offsets inside the zip), not the legacy plain -c 4.
+          "$BT/zipalign" -c -P 16 4 "$APK"
+          notice "zipalign" "zipalign -c -P 16 4 exit 0 (16 KiB .so offsets)"
           "$BT/aapt2" dump badging "$APK" | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)"
           notice "badging" "$("$BT/aapt2" dump badging "$APK" | grep -E "^(package|sdkVersion|targetSdkVersion)" | tr '\n' ' ')"
           notice "flutter engine" "$(unzip -l "$APK" | grep -m1 'lib/arm64-v8a/libflutter.so' | awk '{print $1" bytes: "$4}')"
@@ -566,6 +622,15 @@ jobs:
           # the Flutter engine really is inside the APK (libflutter.so is the proof)
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libflutter.so"
           unzip -l "$APK" | grep -E "classes.*dex|lib/arm64-v8a/libflutter.so"
+          # v3.4.6.a — THE LAUNCH-INTEGRITY GATE (the v3.4.6 post-mortem's own
+          # audit, hard-wired into CI): every packaged .so must be 16 KB-page
+          # ready (PT_LOAD congruent modulo 16384 in file AND vaddr), exactly
+          # ONE ABI, the launch-critical libapp.so + asset pair present, the
+          # compiled manifest identity correct, v2+v3 signed. v3.4.6 shipped
+          # with ALL of these broken while every gate here was green — this
+          # step is the one that refuses to let that happen again.
+          python3 lab/verify_apk_launch_integrity.py "$APK" "$VERSION"
+          notice "launch-integrity" "16 KB ELF audit + ABI + manifest + assets + signing: PASS"
           sha256sum "$APK" | tee dist/sha256.txt
           echo "::notice title=APK version::${VERSION} (versionCode ${CODE})"
 
@@ -620,3 +685,262 @@ jobs:
               echo "| sha256 | $(cut -d' ' -f1 dist/sha256.txt) |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+  # ── v3.4.6.a — THE REAL LAUNCH SMOKE TEST (audit TRAP #3, fixed) ───────────
+  # The v3.4.6 incident in one sentence: an APK that installed fine and crashed
+  # on EVERY launch shipped 100% green, because no CI job ever STARTED the app.
+  #
+  # WHY THIS SHAPE (the first smoke job was broken twice over):
+  #  · ubuntu-latest runners are x86_64 CPUs — booting an arm64-v8a emulator
+  #    here has NO KVM and hangs until timeout. The smoke therefore runs on a
+  #    KVM-accelerated x86_64 Android 16 (API 36) emulator — and this job
+  #    BUILDS THE MATCHING x86_64 RELEASE APK itself
+  #    (`-PsmokeAbi=x86_64 -Ptarget-platform=android-x64`) from the EXACT
+  #    same Java/Dart/Manifest/R8/ProGuard/signing configuration as the
+  #    shipping arm64 artifact (same build.gradle, same release build type,
+  #    same keystore path).
+  #  · The test itself is the moment of truth: `adb logcat -c`, install,
+  #    `am start -W`, wait 12 SECONDS, then demand a LIVE pid, MainActivity
+  #    in mCurrentFocus, and a crash buffer with ZERO FATAL EXCEPTIONS /
+  #    SIGSEGV / SIGABRT — with the FULL crash log + AndroidRuntime:E +
+  #    flutter:E lines published to $GITHUB_STEP_SUMMARY and ::error::
+  #    check-run annotations on any failure.
+  launch-smoke:
+    name: Android Emulator Launch Smoke Test (KVM x86_64 — am start -W, alive 12 s, zero crash)
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve and verify the app version
+        id: app-version
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^VERSION_NAME=${VERSION_NAME:-\([^}]*\)}$/\1/p' build.sh | head -1)
+          CODE=$(sed -n 's/^VERSION_CODE=${VERSION_CODE:-\([^}]*\)}$/\1/p' build.sh | head -1)
+          test "$VERSION" = "3.4.6.a"
+          test "$CODE" = "30407"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.1
+          cache: true
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Prepare Android SDK (platform 36 + build-tools 35.0.1)
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          [ -d "$SDK" ] || SDK="$HOME/android-sdk"
+          SDKM=""
+          for c in "$SDK/cmdline-tools/latest/bin/sdkmanager" "$SDK/cmdline-tools/bin/sdkmanager" "$(command -v sdkmanager || true)"; do
+            [ -x "$c" ] && { SDKM="$c"; break; }
+          done
+          if [ -n "$SDKM" ]; then
+            yes 2>/dev/null | "$SDKM" --sdk_root="$SDK" --licenses > /dev/null 2>&1 || true
+          fi
+          NEED=""
+          [ -f "$SDK/platforms/android-36/android.jar" ] || NEED="$NEED platforms;android-36"
+          [ -x "$SDK/build-tools/35.0.1/aapt2" ] || NEED="$NEED build-tools;35.0.1"
+          if [ -n "$NEED" ]; then
+            echo "installing:$NEED"
+            [ -n "$SDKM" ] || { echo "::error::no sdkmanager available to install$NEED"; exit 1; }
+            "$SDKM" --sdk_root="$SDK" --install $NEED < /dev/null
+          fi
+          [ -f "$SDK/platforms/android-36/android.jar" ] || { echo "::error::android-36 platform missing"; exit 1; }
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+
+      - name: Fetch the pinned fonts + resolve the Flutter module
+        run: |
+          set -euo pipefail
+          cd ui
+          for f in InterVariable.ttf GoogleSansFlex.ttf Inter-LICENSE.txt GoogleSansFlex-LICENSE.txt; do
+            if [ ! -s "assets/fonts/$f" ]; then
+              curl -fsSL --max-time 120 -o "assets/fonts/$f" \
+                "https://github.com/mornyeapp/Mornye/raw/c4a1c7b812eb135d6e1a295b6b25e11abbd72a7e/assets/fonts/$f"
+              test -s "assets/fonts/$f"
+            fi
+          done
+          if [ -f pubspec.lock ]; then
+            flutter pub get --enforce-lockfile || flutter pub get
+          else
+            flutter pub get
+          fi
+          cd ..
+          printf 'flutter.sdk=%s\n' "$FLUTTER_ROOT" > android/local.properties
+          test -f ui/.android/include_flutter.groovy || { echo "::error::ui/.android/include_flutter.groovy missing"; exit 1; }
+
+      - name: Build the x86_64 release smoke APK (identical config, -PsmokeAbi=x86_64)
+        env:
+          KS_BASE64: ${{ secrets.KS_BASE64 }}
+          KS_PASS: ${{ secrets.KS_PASS }}
+          KS_KEYPASS: ${{ secrets.KS_KEYPASS }}
+          KS_ALIAS: ${{ secrets.KS_ALIAS }}
+        run: |
+          set -euo pipefail
+          # ALWAYS signed — the permanent release key when configured (the
+          # same in-place-update contract), otherwise a throwaway debug key.
+          if [ -n "${KS_BASE64:-}" ]; then
+            printf '%s' "$KS_BASE64" | base64 -d > build_release.keystore
+            test -s build_release.keystore
+            SIGN_ARGS="-PKS_FILE=$PWD/build_release.keystore -PKS_PASS=$KS_PASS -PKS_KEYPASS=${KS_KEYPASS:-$KS_PASS} -PKS_ALIAS=${KS_ALIAS:-sicast}"
+          else
+            echo "::warning title=Debug-signed smoke::KS_BASE64 is not set — the smoke APK is signed with a throwaway debug key"
+            keytool -genkeypair -keystore smoke_debug.keystore -storepass android \
+              -keypass android -alias androiddebugkey -keyalg RSA -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US" > /dev/null 2>&1
+            SIGN_ARGS="-PKS_FILE=$PWD/smoke_debug.keystore -PKS_PASS=android -PKS_KEYPASS=android -PKS_ALIAS=androiddebugkey"
+          fi
+          set +e
+          ( cd android && ./gradlew assembleRelease --no-daemon --stacktrace \
+              -PsmokeAbi=x86_64 -Ptarget-platform=android-x64 $SIGN_ARGS ) > /tmp/gradle-smoke.log 2>&1
+          RC=$?
+          set -e
+          if [ "$RC" -ne 0 ]; then
+            {
+              echo '### Smoke APK Gradle build (x86_64)'
+              echo ''
+              echo '```'
+              tail -140 /tmp/gradle-smoke.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            sed -n '/^FAILURE: Build failed/,/^\* Try:/p' /tmp/gradle-smoke.log | head -45 | while IFS= read -r line; do
+              echo "::error title=smoke gradle failure::${line}"
+            done
+            grep -nE "^e: |error:|Caused by:|Unresolved reference|Could not resolve|Execution failed" /tmp/gradle-smoke.log | head -25 | while IFS= read -r line; do
+              echo "::error title=smoke gradle::${line}"
+            done
+            exit 1
+          fi
+          mkdir -p dist
+          APK_OUT=$(find android/app/build/outputs/apk/release -name 'app-release*.apk' | head -1)
+          test -n "$APK_OUT"
+          cp "$APK_OUT" dist/smoke-x86_64.apk
+          test -s dist/smoke-x86_64.apk
+          # the smoke APK must be an x86_64-ONLY twin of the release contract
+          ABIS=$(unzip -l dist/smoke-x86_64.apk | grep -oE 'lib/[^/]+/' | sort -u || true)
+          echo "ABIs in smoke APK:"; echo "${ABIS:-none}"
+          echo "$ABIS" | grep -qx 'lib/x86_64/' || { echo "::error::smoke APK carries no lib/x86_64/"; exit 1; }
+          if echo "$ABIS" | grep -vqx 'lib/x86_64/'; then
+            echo "::error::smoke APK carries non-x86_64 ABIs: $ABIS"; exit 1
+          fi
+          # same signature contract as the shipping artifact (v2+v3, installable)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --verbose dist/smoke-x86_64.apk > /tmp/smoke-sign.txt 2>&1
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/smoke-sign.txt \
+            || { echo "::error::smoke APK is not v2-signed"; cat /tmp/smoke-sign.txt; exit 1; }
+          grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/smoke-sign.txt \
+            || { echo "::error::smoke APK is not v3-signed"; exit 1; }
+          echo "::notice title=smoke-apk::x86_64 release twin built (same Java/Dart/Manifest/R8 config), ABI-locked, v2+v3 signed — $(stat -c %s dist/smoke-x86_64.apk) bytes"
+
+      - name: Boot the KVM x86_64 Android 16 emulator, install, launch, watch 12 s
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          SMOKE_APK: dist/smoke-x86_64.apk
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            set -uo pipefail
+            # NO -e here: every probe must run so the failure report is complete.
+            dump_diagnostics() {
+              {
+                echo ''
+                echo '### Android Emulator Launch Smoke Test — diagnostics'
+                echo ''
+                echo '#### adb logcat -d -b crash (FULL)'
+                echo '```'
+                adb logcat -d -b crash 2>&1 | tail -250
+                echo '```'
+                echo '#### adb logcat -d "*:E" | AndroidRuntime / flutter / FATAL'
+                echo '```'
+                adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|Flutter|FATAL|Fatal signal' | tail -250
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
+              adb logcat -d -b crash 2>&1 | grep -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|AndroidRuntime' | head -40 | while IFS= read -r line; do
+                echo "::error title=launch-smoke crash buffer::${line}"
+              done
+              adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|Flutter' | head -40 | while IFS= read -r line; do
+                echo "::error title=launch-smoke logcat:E::${line}"
+              done
+            }
+
+            echo '── 1. clear logcat ──'
+            adb logcat -c || true
+
+            echo '── 2. install the x86_64 release twin ──'
+            if ! adb install -r "$SMOKE_APK"; then
+              echo '::error title=launch-smoke::adb install failed'
+              dump_diagnostics
+              exit 1
+            fi
+
+            echo '── 3. am start -W (the launch the v3.4.6 build could not survive) ──'
+            adb shell am start -W -n lk.techworld.anantplay.sicast/.MainActivity | tee /tmp/amstart.txt
+            if ! grep -q 'Status: ok' /tmp/amstart.txt; then
+              echo '::error title=launch-smoke::am start -W did not report Status: ok — the app does not OPEN'
+              dump_diagnostics
+              exit 1
+            fi
+
+            echo '── 4. wait 12 seconds ──'
+            sleep 12
+
+            PID=$(adb shell pidof lk.techworld.anantplay.sicast | tr -d '\r' || true)
+            if [ -z "$PID" ]; then
+              echo '::error title=launch-smoke::process died within 12 s of launch'
+              dump_diagnostics
+              exit 1
+            fi
+            echo "launch-smoke: process alive (pid $PID) 12 s after launch"
+
+            FOCUS=$(adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' || true)
+            echo "$FOCUS"
+            if ! echo "$FOCUS" | grep -q 'lk.techworld.anantplay.sicast'; then
+              echo '::error title=launch-smoke::MainActivity is not the focused window (mCurrentFocus/mFocusedApp)'
+              dump_diagnostics
+              exit 1
+            fi
+
+            echo '── 5. the crash buffer must be EMPTY ──'
+            adb logcat -d -b crash > /tmp/crashbuf.txt 2>&1 || true
+            if grep -qE 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' /tmp/crashbuf.txt; then
+              echo '::error title=launch-smoke::crash buffer is NOT empty (FATAL/SIGSEGV/SIGABRT found)'
+              dump_diagnostics
+              exit 1
+            fi
+
+            # belt+braces: a FATAL that only reached the main/system buffers
+            adb logcat -d -b main 2>/dev/null | grep -E 'FATAL EXCEPTION' > /tmp/fatal-main.txt || true
+            adb logcat -d '*:E' 2>/dev/null | grep -E 'AndroidRuntime.*FATAL|Fatal signal' >> /tmp/fatal-main.txt || true
+            if [ -s /tmp/fatal-main.txt ]; then
+              echo '::error title=launch-smoke::FATAL entries found outside the crash buffer'
+              dump_diagnostics
+              exit 1
+            fi
+
+            # record every logcat:E line (Flutter/Dart/AndroidRuntime) for humans
+            adb logcat -d '*:E' > /tmp/errlog.txt 2>&1 || true
+            {
+              echo ''
+              echo '### launch-smoke logcat "*:E" (inspection)'
+              echo '```'
+              tail -80 /tmp/errlog.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            echo "::notice title=launch-smoke::install + am start -W (Status: ok) + live pid $PID after 12 s + MainActivity focused + ZERO crash-buffer FATAL/SIGSEGV/SIGABRT — the APK OPENS."

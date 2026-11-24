@@ -1,8 +1,14 @@
-// AnantPlay Sinhala Player v3.4.6 — the Home shell: Mornye collapsing large
+// AnantPlay Sinhala Player v3.4.6.a — the Home shell: Mornye collapsing large
 // title, receiver hero glass card (pulsing dot + Start/Stop), the instant
 // in-app auto-update glass banner (live % + 1-tap Update Now), quick-action
 // tiles, and Continue Watching (WatchHistory with progress + resume).
+// v3.4.6.a — FULL MORNYE PARITY: the entry reveal is now Mornye's
+// StaggeredListItem (the upstream Home exact effect: each section springs up
+// after its own delay on the spatial spring, opacity on the effects spring,
+// reduced-motion and scrolled-page aware), matching the upstream reveal.
 import 'package:material_ui/material_ui.dart';
+
+import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
 
 import 'app_state.dart';
 import 'bridge.dart';
@@ -38,14 +44,32 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _UpdateBanner(event: state.updaterEvent),
+                    // v3.4.6.a — the Mornye entry reveal (upstream Home's
+                    // StaggeredListItem): 0.2 s spatial spring per section,
+                    // 40 ms stagger. animate:false is never needed here — the
+                    // widget itself skips on scrolled/reduced-motion.
+                    StaggeredListItem(
+                      index: 0,
+                      duration: const Duration(milliseconds: 250),
+                      staggerDelay: const Duration(milliseconds: 40),
+                      child: _UpdateBanner(event: state.updaterEvent),
+                    ),
                     const SizedBox(height: 16),
-                    _ReceiverHero(status: state.castStatus),
+                    StaggeredListItem(
+                      index: 1,
+                      child: _ReceiverHero(status: state.castStatus),
+                    ),
                     const SizedBox(height: 16),
-                    _QuickStartCard(settings: state.settings),
-                    const _QuickActions(),
+                    StaggeredListItem(
+                      index: 2,
+                      child: _QuickStartCard(settings: state.settings),
+                    ),
+                    StaggeredListItem(index: 3, child: const _QuickActions()),
                     const SizedBox(height: 20),
-                    _ContinueWatching(history: state.history),
+                    StaggeredListItem(
+                      index: 4,
+                      child: _ContinueWatching(history: state.history),
+                    ),
                     const SizedBox(height: 28),
                   ],
                 ),
