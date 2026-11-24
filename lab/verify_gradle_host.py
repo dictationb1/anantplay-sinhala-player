@@ -156,8 +156,14 @@ for name, text in version_pins.items():
     check("%s carries 3.4.6 + 30406" % name, "3.4.6" in text and "30406" in text)
 check("the manifest no longer carries the AGP-9-obsolete package attribute",
       'package="lk.techworld' not in manifest)
-check("the manifest pins minSdk 26 + targetSdk 36",
-      'android:minSdkVersion="26"' in manifest and 'android:targetSdkVersion="36"' in manifest)
+# v3.4.6 — AGP 9 rejects <uses-sdk>; the SDK levels are owned by the Gradle host
+# (minSdk 26 / targetSdk 36) and mirrored by build.sh's aapt2 link flags.
+# (the parsed TREE, not the text: the explanatory comment names the tag on purpose)
+check("the manifest carries NO <uses-sdk> (AGP 9 forbids it)",
+      not any(_c.tag.endswith("uses-sdk") for _c in list(_root)))
+check("the SDK levels are pinned where both packaging paths read them",
+      "minSdk = 26" in host and "targetSdk = 36" in host and "compileSdk = 36" in host
+      and "TARGET_SDK=" in buildsh and "36" in buildsh)
 check("Gradle 9.5.0 is the pinned wrapper distribution (AGP 9.3.1's floor)",
       "gradle-9.5.0-bin.zip" in read("android/gradle/wrapper/gradle-wrapper.properties"))
 check("the gradle-wrapper.jar ships (the wrapper must not download it)",

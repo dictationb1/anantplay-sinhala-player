@@ -2695,10 +2695,12 @@ public class ReceiverLab {
                 && hostGradle.contains("versionName = \"3.4.6\"")
                 && "30406".equals(String.valueOf(AppInfo.VERSION_CODE))
                 && "3.4.6".equals(AppInfo.VERSION_NAME));
-        check("v346 pipe: the manifest keeps minSdk 26 / targetSdk 36 and drops the AGP-9-era package attribute",
-            srcManifest.contains("android:minSdkVersion=\"26\"")
-                && srcManifest.contains("android:targetSdkVersion=\"36\"")
-                && !srcManifest.contains("package=\"lk.techworld"));
+        // v3.4.6 — AGP 9 forbids <uses-sdk> in the manifest: the SDK levels are
+        // owned by android/app/build.gradle (and by build.sh's aapt2 flags).
+        check("v346 pipe: the manifest drops BOTH the package attribute and <uses-sdk> (AGP 9)",
+            !srcManifest.contains("package=\"lk.techworld")
+                && !srcManifest.contains("android:minSdkVersion")
+                && hostGradle.contains("minSdk = 26") && hostGradle.contains("targetSdk = 36"));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -4293,7 +4295,7 @@ public class ReceiverLab {
         String hostAppGradle = readRepoFile("android/app/build.gradle");
         check("v346 parity: android/app/build.gradle says 3.4.6 / 30406",
             hostAppGradle.contains("versionCode = 30406") && hostAppGradle.contains("versionName = \"3.4.6\"")
-                && manifest.contains("android:targetSdkVersion=\"36\""));
+                && hostAppGradle.contains("targetSdk = 36") && !manifest.contains("android:minSdkVersion"));
         check("v346 parity: AppInfo says 3.4.6 / 30406",
             "3.4.6".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30406);
         check("v346 parity: 30406 strictly > 30405 — an in-place update, no downgrade",
@@ -4745,7 +4747,8 @@ public class ReceiverLab {
         check("v346 A11: the Gradle host declares 30406 / 3.4.6 (AGP 9 owns the identity)",
             readRepoFile("android/app/build.gradle").contains("versionCode = 30406")
                 && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6\"")
-                && manifest340.contains("android:targetSdkVersion=\"36\""));
+                && readRepoFile("android/app/build.gradle").contains("targetSdk = 36")
+                && !manifest340.contains("android:minSdkVersion"));
         check("v346 A11: AppInfo is 3.4.6 / 30406",
             "3.4.6".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30406);
         check("v340 A11: still v3.x (never v4)",
@@ -5527,7 +5530,7 @@ public class ReceiverLab {
         // v3.4.6 — AGP 9 owns the app identity in android/app/build.gradle.
         check("v346 identity: the Gradle host declares app version 3.4.6 / code 30406",
             readRepoFile("android/app/build.gradle").contains("versionCode = 30406") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6\"")
-                && readRepoFile("AndroidManifest.xml").contains("android:targetSdkVersion=\"36\""));;
+                && readRepoFile("android/app/build.gradle").contains("targetSdk = 36"));;
         check("v346 identity: AppInfo matches the manifest",
             readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30406"));;
         check("v346 identity: build.sh defaults and downgrade floor use 3.4.6 / 30405",

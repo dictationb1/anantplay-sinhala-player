@@ -47,40 +47,55 @@ SYNTAX = re.compile(
 )
 
 
+_probed_roots = []
+
+
 def flutter_embedding_jars():
     """v3.4.6 — the Flutter embedding classes the host activity imports.
 
     MainActivity/Media3TextureBridge extend FlutterActivity and use MethodChannel,
     so a FULL compile against android.jar alone reports dozens of false
-    "package io.flutter... does not exist" diagnostics that the real Gradle build
-    never has (the Gradle host resolves the embedding from the Flutter engine's
-    own maven repo).
+    "package io.flutter... does not exist" diagnostics the real Gradle build
+    never has (the Gradle host resolves the embedding from the engine's maven
+    repo).
 
-    The embedding AAR is unpacked into the pub cache by `flutter pub get`:
-        ~/.pub-cache/hosted/pub.dev/flutter_embedding_*/jars/*.jar
-    We look there, and ALSO under $FLUTTER_ROOT (the SDK ships its own
-    .pub-cache) — a job that never ran pub get simply finds nothing and the
-    io.flutter diagnostics are downgraded to a note (see main()).
+    The embedding AAR is unpacked into a pub cache by `flutter pub get`:
+        <cache>/hosted/pub.dev/flutter_embedding_*/jars/*.jar
+    subosito/flutter-action keeps that cache under RUNNER_TOOL_CACHE, and Flutter
+    honours PUB_CACHE / FLUTTER_ROOT, so every plausible root is probed. A job
+    that never resolved simply finds nothing; io.flutter diagnostics are then
+    downgraded to a note (see main()).
     """
+    global _probed_roots
     found = []
     roots = []
-    home = os.environ.get("HOME", "")
-    if home:
-        roots.append(os.path.join(home, ".pub-cache"))
-    fr = os.environ.get("FLUTTER_ROOT") or ""
-    if fr:
-        roots.append(os.path.join(fr, ".pub-cache"))
+    for env in ("PUB_CACHE", "FLUTTER_ROOT", "RUNNER_TOOL_CACHE", "HOME"):
+        v = os.environ.get(env)
+        if v:
+            roots.append(v if env != "FLUTTER_ROOT" else os.path.join(v, ".pub-cache"))
+            if env == "FLUTTER_ROOT":
+                # the engine artifacts (incl. the embedding jars) live in bin/cache
+                roots.append(os.path.join(v, "bin", "cache"))
+    if os.environ.get("HOME"):
+        roots.append(os.path.join(os.environ["HOME"], ".pub-cache"))
+        roots.append(os.path.join(os.environ["HOME"], ".pub-cache", "hosted"))
+    seen = set()
+    _probed_roots = roots
     for root in roots:
-        if not os.path.isdir(root):
+        if not root or root in seen or not os.path.isdir(root):
             continue
+        seen.add(root)
         for dirpath, dirs, files in os.walk(root):
-            # keep the walk shallow: <root>/hosted/<repo>/flutter_embedding_*/jars
-            if os.path.basename(dirpath).startswith("flutter_embedding_"):
-                for sub in ("jars", ""):
-                    d = os.path.join(dirpath, sub) if sub else dirpath
-                    if os.path.isdir(d):
-                        found.extend(os.path.join(d, f) for f in os.listdir(d) if f.endswith(".jar"))
-            if dirpath.count(os.sep) - root.count(os.sep) > 4:
+            base = os.path.basename(dirpath)
+            if base.startswith("flutter_embedding_") or base == "maven":
+                for f in files:
+                    if f.endswith(".jar") and "flutter" in f.lower():
+                        found.append(os.path.join(dirpath, f))
+                jd = os.path.join(dirpath, "jars")
+                if os.path.isdir(jd):
+                    found.extend(os.path.join(jd, f) for f in os.listdir(jd) if f.endswith(".jar"))
+                dirs[:] = []
+            if dirpath.count(os.sep) - root.count(os.sep) >= 6:
                 dirs[:] = []
     return sorted(set(found))
 
@@ -186,6 +201,7 @@ def main():
             # diagnostics to a note instead of a false red gate.
             print("verify_syntax: NOTE — no flutter_embedding jars found (run `flutter pub get` "
                   "in ui/ first); io.flutter.* symbols are not checked in this run")
+            print("verify_syntax: NOTE — searched %s" % ", ".join(p for p in _probed_roots if p))
     else:
         cmd += files
         print("verify_syntax: SYNTAX mode — no android.jar found "
@@ -197,8 +213,20 @@ def main():
     if mode == "FULL":
         hits = [ln.strip() for ln in text.splitlines() if "error:" in ln]
         if android and not embed:
-            # a missing embedding jar is not a syntax defect in our sources
-            hits = [h for h in hits if "io.flutter" not in h and "package io." not in h]
+            # A missing embedding jar is not a syntax defect in our sources. javac
+            # reports the unresolved EMBEDDING SYMBOLS in several shapes
+            # ("package io.flutter.x does not exist", "package MethodChannel does
+            # not exist", "cannot find symbol ... FlutterActivity"), so drop only
+            # the diagnostics that name one of them — everything else still fails.
+            _EMBED = re.compile(r"io\.flutter|package io\.|MethodChannel|EventChannel|"
+                                r"MethodCall|BinaryMessenger|FlutterActivity|FlutterEngine|"
+                                r"FlutterView|FlutterPlugin|PluginRegistry|StandardMethodCodec|"
+                                r"PlatformView|FlutterFragment")
+            _dropped = [h for h in hits if _EMBED.search(h)]
+            hits = [h for h in hits if not _EMBED.search(h)]
+            if _dropped:
+                print("verify_syntax: NOTE — %d embedding-only diagnostic(s) suppressed "
+                      "(no flutter_embedding jar on this runner)" % len(_dropped))
     else:
         hits = [ln.strip() for ln in text.splitlines()
                 if "error:" in ln and SYNTAX.search(ln)]
