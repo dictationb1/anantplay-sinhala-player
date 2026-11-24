@@ -228,8 +228,10 @@ jobs:
         run: |
           set -euo pipefail
           cd ui
+          # v3.4.6 — start from a clean line, and keep the reason visible even
+          # when a test only logs (never fails) with an unhandled message.
           set +e
-          flutter test > /tmp/test.log 2>&1
+          flutter test --reporter expanded > /tmp/test.log 2>&1
           RC=$?
           set -e
           {
@@ -240,12 +242,16 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$RC" -ne 0 ]; then
-            echo "--- last 120 lines of flutter test ---"
-            tail -120 /tmp/test.log
-            grep -nE "FAILED|Error|Exception|Expected:|Actual:|Which:|failed to load|Unable to load" /tmp/test.log \
-              | head -30 | cut -c1-900 | while IFS= read -r line; do
+            echo "--- last 150 lines of flutter test ---"
+            tail -150 /tmp/test.log
+            # the per-test failure header, then the expectation/exception lines
+            grep -nE "^[0-9]{2}:[0-9]{2} \+[0-9]+( -[0-9]+)?: .*(\[E\]|failed)|FAILED|Expected:|Actual:|Which:|The following|Exception|Error:|failed to load|Unable to load|\[E\]" /tmp/test.log \
+              | head -40 | cut -c1-900 | while IFS= read -r line; do
                 echo "::error title=flutter test::${line}"
               done
+            tail -30 /tmp/test.log | cut -c1-900 | while IFS= read -r line; do
+              echo "::error title=flutter test tail::${line}"
+            done
             exit 1
           fi
           grep -E "All tests passed" /tmp/test.log
@@ -406,19 +412,18 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$RC" -ne 0 ]; then
-            # v3.4.6 — a bare "What went wrong" is useless without the log, so the
-            # first *specific* diagnostics are the ones annotated: javac errors,
-            # missing symbols, unresolved dependencies, plugin/AGP errors, and the
-            # first 3 stack-trace frames of the root cause.
-            grep -nE "^e: |error:|Caused by:|Unresolved reference|Could not find|Could not resolve|Could not determine|Cannot locate|does not exist|not found|Plugin \[id|incompatible|Failed to apply|Unsupported|requires|missing|Execution failed" /tmp/gradle.log \
-              | grep -vE "^\s*$" | head -40 | cut -c1-900 | while IFS= read -r line; do
+            # v3.4.6 — publish the FAILURE BLOCK first: "What went wrong",
+            # "Where/How to fix", and the root-cause frames. Those are the lines
+            # that actually explain the break; --info noise comes after them.
+            sed -n '/^FAILURE: Build failed/,/^\* Try:/p' /tmp/gradle.log \
+              | head -45 | cut -c1-900 | while IFS= read -r line; do
+                echo "::error title=gradle failure::${line}"
+              done
+            # then the first specific compiler/dependency diagnostics
+            grep -nE "^e: |error:|Caused by:|Unresolved reference|Could not find|Could not resolve|Could not determine|Unsupported|requires|Execution failed" /tmp/gradle.log \
+              | head -25 | cut -c1-900 | while IFS= read -r line; do
                 echo "::error title=gradle::${line}"
               done
-            # the raw tail as ONE annotation guarantees something arrives even
-            # when the grep above matches nothing useful
-            tail -25 /tmp/gradle.log | cut -c1-900 | while IFS= read -r line; do
-              echo "::error title=gradle tail::${line}"
-            done
             exit 1
           fi
           mkdir -p dist
