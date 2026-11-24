@@ -3,7 +3,7 @@
 **Release line:** `v3.4.6` / `versionCode 30406` (version locked — no jump to 3.5 or 4.0)
 **Delta integrated:** `v3.4.6-option-a-delta.zip` (Option A: Mornye v5.4.0 Liquid-Glass
 Flutter add-to-app UI over the untouched Java/Media3 backend)
-**Branch:** `arena/bdd02ad3-anantplay-sinhala-player` → `main`
+**Branch:** `arena/bdd02ad3-anantplay-sinhala-player` → `main` (PR **#27**)
 
 ---
 
@@ -48,6 +48,7 @@ annotation-based failure reporting to every gate.
 | 6 | `checkReleaseDuplicateClasses`: `concurrent-futures 1.2.0` vs `1.1.0` | same | see below |
 | 7 | `checkReleaseDuplicateClasses`: `guava` vs `com.google.guava:listenablefuture:1.0` | same | **one policy** (below) |
 | 8 | `:app:compileFlutterBuildRelease` → `Process 'flutter' finished with non-zero exit value 1` (no message) | `FlutterExtension.source` defaults to `../..`; for a standalone Flutter app that is the project root, but here (`android/app`) it resolved to the **repo root**, which has no `pubspec.yaml` | `flutter { source = <repo>/ui; target = "lib/main.dart" }` (absolute — `source` goes through `project.file()`, so `../ui` would be `android/ui`) |
+| 9 | `apksigner`: **`Verified using v3 scheme: false`** on an otherwise green build | AGP derives the v3 scheme from min/maxSdk and, with minSdk 26, left it OFF — the release was v2-only | `enableV3Signing true` (v1/v2 retained) **and** both workflows now grep for `...v2...: true` *and* `...v3...: true` and fail otherwise |
 
 **Duplicate-class policy (5–7).** After three separate pairs surfaced one per CI run, the rule
 was made explicit instead of chasing versions: *`libs/` is the provider of record.* The Maven
@@ -65,10 +66,10 @@ No jar was deleted, moved or renamed — `build.sh` still compiles against exact
 |---|---|
 | Cast protocol lab (gating) | ✅ **3170/3170 PASS, 0 FAIL — Lab result: ALL 1252 PASSED** |
 | Flutter analyze & test (Mornye Liquid-Glass module) | ✅ **No issues found**; **All tests passed** (14 tests: 10 bridge + 4 shell) |
-| APK build (Gradle 9.5.0 + AGP 9.3.1 + SDK 36, signed + verified) | ✅ APK bytes **46,699,053** (< 50 MiB), sha256 `7b9d0518262f050bf3ab7d3e092839fedd9f5e3d5d78ce7aced13ee84bb44ff2`, version **3.4.6 (versionCode 30406)** |
+| APK build (Gradle 9.5.0 + AGP 9.3.1 + SDK 36, signed + verified) | ✅ APK bytes **46,778,555** (< 50 MiB), sha256 `4d3552f314755ab5cca110d3269b95ed0568f4eb1be349b1beee85382398920b`, version **3.4.6 (versionCode 30406)**, **apksigner v2 true + v3 true** |
 
 Every assertion in the APK job publishes a check-run annotation, so the artifact's identity is
-provable from the API: `zipalign -c 4` exit 0, `apksigner verify` v2+v3, badging
+provable from the API: `zipalign -c 4` exit 0, `apksigner verify` **v2 true + v3 true**, badging
 `lk.techworld.anantplay.sicast` / `targetSdkVersion 36`, `lib/arm64-v8a/libflutter.so` present,
 `assets/fonts/NotoSansSinhala-Regular.ttf` present.
 
@@ -101,8 +102,9 @@ provable from the API: `zipalign -c 4` exit 0, `apksigner verify` v2+v3, badging
   Java/Media3 backend එකට හානියක් නොකර එකතු කර ඇත — `libs/*.jar` 13 ම, `res/`, `assets/` සහ
   වෙනස් නොකළ `.java` ගොනු 68 එලෙසම පවතී.
 - අනුවාදය **3.4.6 (versionCode 30406)** ලෙසම රඳවා ඇත; APK එක **46.7 MB** (< 50 MiB).
-- APK එක `lk.techworld.anantplay.sicast` ලෙස, **targetSdk 36**, arm64-v8a, v2+v3 අත්සනින්
-  (zipalign 4-byte) — පෙර v3.4.5 උඩින් ස්ථාපනය කළ හැක (Obtainium update contract).
+- APK එක `lk.techworld.anantplay.sicast` ලෙස, **targetSdk 36**, arm64-v8a, **v2 + v3** අත්සනින්
+  (දෙකම `apksigner` මගින් තහවුරු කර ඇත, zipalign 4-byte) — පෙර v3.4.5 උඩින් ස්ථාපනය කළ හැක
+  (Obtainium update contract).
 - CI සියලු job 3 **සම්පූර්ණයෙන් සාර්ථක**: lab **3170/3170 PASS**, Flutter test **14/14**,
   APK build signed + verified.
 - නිදහස් මෘදුකාංග බලපත්‍ර (`THIRD_PARTY.md`) යාවත්කාලීන කර ඇත; `.zip`/`.apk` ගොනු Git
