@@ -80,7 +80,7 @@ provable from the API: `zipalign -c 4` exit 0, `apksigner verify` **v2 true + v3
 | Job | Result |
 |---|---|
 | Lab gate → signed APK → GitHub Release | ✅ `Lab: 3170/3170 PASS — releasing v3.4.6` |
-| Build Sinhala Player APK (4563851894 → 45363481994) | ✅ |
+| Build Sinhala Player APK (run 45363481994) | ✅ 3/3 jobs |
 | Release **v3.4.6** | ✅ live, **exactly 2 assets** |
 
 **Release:** https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.4.6
