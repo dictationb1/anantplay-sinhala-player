@@ -122,35 +122,33 @@ android {
     }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// v3.4.6 — ONE DUPLICATE-CLASS POLICY, NOT A GAME OF WHACK-A-MOLE.
+//
+// libs/ IS THE PROVIDER OF RECORD. Every jar in it is a real, shipped artifact
+// that build.sh also uses. Media3/Guava's Maven POMs drag in the same libraries
+// (sometimes older, sometimes newer) and AGP's :app:checkReleaseDuplicateClasses
+// then finds two copies of the same class — annotation-experimental,
+// concurrent-futures and listenablefuture all came up that way in CI.
+//
+// So the Maven copies of the libraries that libs/ already provides are excluded
+// globally. The jars stay in dex exactly as shipped, nothing is deleted, and the
+// resolved graph can never contain a second copy.
+// ═════════════════════════════════════════════════════════════════════════════
 configurations.configureEach {
-    // the Maven copy of anything excluded above must WIN, at a pinned version,
-    // so the resolved graph never contains two copies of the same class
-    resolutionStrategy {
-        force "androidx.annotation:annotation-experimental:1.4.0"
-        force "androidx.concurrent:concurrent-futures:1.1.0"
-    }
+    exclude group: "com.google.guava", module: "guava"
+    exclude group: "com.google.guava", module: "failureaccess"
+    exclude group: "com.google.guava", module: "listenablefuture"
+    exclude group: "androidx.annotation", module: "annotation-experimental"
+    exclude group: "androidx.concurrent", module: "concurrent-futures"
 }
 
 dependencies {
     // The existing Media3 1.11.1 + Guava jars — referenced in place, never copied.
-    // v3.4.6 — `../libs` is resolved against the MODULE dir (android/app), which
-    // put the jars on android/app/../libs = android/libs (absent) and left
-    // ExoPlayer/Media3 off the compile classpath. Absolute, like the sourceSets.
-    // ── v3.4.6 DUPLICATE-CLASS POLICY ────────────────────────────────────────
-    // libs/ ships two AndroidX artifacts that Media3 1.11.1 ALSO pulls as
-    // transitive Maven dependencies (annotation-experimental 1.3.1 vs 1.4.0,
-    // concurrent-futures 1.2.0 vs 1.1.0 — exactly the pairs AGP named in
-    // :app:checkReleaseDuplicateClasses). Dexing both copies makes
-    // :app:checkReleaseDuplicateClasses fail. Rather than chase versions one at
-    // a time, the jar COPIES are excluded from the Gradle dex graph and the
-    // normalized Maven artifacts supply those classes; every jar stays in the
-    // tree, untouched, and build.sh (which has no Maven graph) still uses them.
-    // NOTE: only jars AGP actually reported as duplicates are excluded — nothing
-    // is excluded speculatively, so the Maven graph can always supply the copy.
+    // `../libs` is resolved against the MODULE dir (android/app), so the dir is
+    // computed from the ROOT project, exactly like the source sets above.
     implementation fileTree(dir: new File(project.rootProject.projectDir.parentFile, "libs"),
-            include: ["*.jar"],
-            exclude: ["annotation-experimental-*.jar",
-                      "concurrent-futures-*.jar"])
+            include: ["*.jar"])
     // The Flutter module AAR binding (include_flutter.groovy → :flutter).
     implementation project(":flutter")
 }

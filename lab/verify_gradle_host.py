@@ -21,6 +21,7 @@ the shipped delta had (all four were hard build failures, not warnings):
   G6  THE GPG-FREE HYGIENE.  Build output (.gradle/, build/, .dart_tool/) is
       git-ignored; the fonts and pubspec.lock are NOT.
 """
+import glob
 import os
 import re
 import sys
@@ -112,14 +113,25 @@ check("the app module applies dev.flutter.flutter-gradle-plugin",
       'id "dev.flutter.flutter-gradle-plugin"' in host)
 check("the app module depends on the :flutter project", 'project(":flutter")' in host)
 check("the app module references the Media3/Guava jars in place",
-      'include: ["*.jar"]' in host and 'annotation-experimental-*.jar' in host
-      and 'concurrent-futures-*.jar' in host
+      'include: ["*.jar"]' in host
       and 'project.rootProject.projectDir.parentFile' in host)
-check("every jar AGP reported as a duplicate class is excluded from the dex graph",
-      all(art + "-*.jar" in host for art in ("annotation-experimental", "concurrent-futures")))
-check("the Maven copies of the excluded jars are pinned (resolutionStrategy)",
-      'force "androidx.annotation:annotation-experimental:1.4.0"' in host
-      and 'force "androidx.concurrent:concurrent-futures:1.1.0"' in host)
+# v3.4.6 — one policy instead of whack-a-mole: every library libs/ already ships
+# is excluded from the MAVEN graph, so AGP can never see two copies of a class.
+check("the Maven copies of the libraries libs/ provides are excluded globally",
+      all(('exclude group: "%s", module: "%s"' % gm) in host for gm in
+          (("com.google.guava", "guava"), ("com.google.guava", "failureaccess"),
+           ("com.google.guava", "listenablefuture"),
+           ("androidx.annotation", "annotation-experimental"),
+           ("androidx.concurrent", "concurrent-futures"))))
+check("every shipped jar is still referenced in place (nothing deleted or moved)",
+      sorted(os.path.basename(j) for j in glob.glob(path("libs/*.jar"))) == [
+          "annotation-experimental-1.3.1.jar", "concurrent-futures-1.2.0.jar",
+          "failureaccess-1.0.2.jar", "guava-33.3.1-android.jar",
+          "media3-common-1.11.1.jar", "media3-container-1.11.1.jar",
+          "media3-database-1.11.1.jar", "media3-datasource-1.11.1.jar",
+          "media3-decoder-1.11.1.jar", "media3-exoplayer-1.11.1.jar",
+          "media3-exoplayer-dash-1.11.1.jar", "media3-exoplayer-hls-1.11.1.jar",
+          "media3-extractor-1.11.1.jar"])
 check("the host compiles at Java 17 (Flutter 3.50.1's floor)",
       "VERSION_17" in host and "VERSION_1_8" not in host)
 check("minSdk 26 / targetSdk 36 / compileSdk 36 are pinned",

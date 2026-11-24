@@ -182,31 +182,37 @@ def main():
     cmd = [jc, "-encoding", "UTF-8", "-nowarn", "-proc:none", "-d", out_dir]
 
     mode = "SYNTAX"
+    embed = []
     if android:
-        # v3.4.6 — the APK is packaged by the Gradle host, whose app module
-        # embeds the Flutter engine. MainActivity/Media3TextureBridge import
-        # io.flutter.*, so the FULL compile must see the embedding jars or it
-        # reports false "cannot find symbol" failures the real build never has.
+        # v3.4.6 — MainActivity/Media3TextureBridge extend FlutterActivity and use
+        # io.flutter.* channels. Type-checking those needs the Flutter embedding
+        # jars. When they are NOT on this machine (a lab runner never runs
+        # `flutter pub get` for the module; the engine AAR is resolved by the
+        # GRADLE build), a FULL compile against android.jar alone produces a
+        # cascade — unresolved FlutterActivity makes `super`, MODE_PRIVATE and
+        # every @Override "not an override" — i.e. dozens of errors that describe
+        # the missing jar, not our sources.
+        #
+        # So: FULL (android.jar + libs + embedding) when the embedding is present;
+        # otherwise SYNTAX (parse-level, the historical gate) with an explicit
+        # note that the io.flutter type-check is the hosted Gradle APK build's job.
         embed = flutter_embedding_jars()
-        cp = [android] + embed + sorted(glob.glob(os.path.join(ROOT, "libs", "*.jar")))
-        rjava, fields = gen_stub_r(files)
-        cmd += ["-cp", os.pathsep.join(cp)] + files + [rjava]
-        mode = "FULL"
-        print("verify_syntax: FULL mode — android.jar %s + %d libs + %d flutter-embedding jars, stub R with %d ids"
-              % (os.path.basename(os.path.dirname(android)), len(cp) - len(embed) - 1,
-                 len(embed), fields))
-        if not embed:
-            # No pub cache: the embedding imports cannot resolve, so failures
-            # mentioning io.flutter are EXPECTED. Downgrade those specific
-            # diagnostics to a note instead of a false red gate.
-            print("verify_syntax: NOTE — no flutter_embedding jars found (run `flutter pub get` "
-                  "in ui/ first); io.flutter.* symbols are not checked in this run")
-            print("verify_syntax: NOTE — searched %s" % ", ".join(p for p in _probed_roots if p))
-    else:
-        cmd += files
-        print("verify_syntax: SYNTAX mode — no android.jar found "
-              "(set ANDROID_JAR or ANDROID_HOME for a full compile)")
-
+        if embed:
+            cp = [android] + embed + sorted(glob.glob(os.path.join(ROOT, "libs", "*.jar")))
+            rjava, fields = gen_stub_r(files)
+            cmd += ["-cp", os.pathsep.join(cp)] + files + [rjava]
+            mode = "FULL"
+            print("verify_syntax: FULL mode — android.jar %s + %d libs + %d flutter-embedding jars, stub R with %d ids"
+                  % (os.path.basename(os.path.dirname(android)), len(cp) - len(embed) - 1,
+                     len(embed), fields))
+        else:
+            cmd += files
+            print("verify_syntax: NOTE — no flutter_embedding jars on this runner "
+                  "(searched %s); falling back to the SYNTAX gate. The io.flutter "
+                  "type-check is performed by the Gradle APK build."
+                  % ", ".join(x for x in _probed_roots if x))
+        print("::warning title=javac gate::no flutter_embedding jars — SYNTAX gate only "
+              "(the Gradle APK job type-checks io.flutter)")
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
     text = proc.stdout + proc.stderr
 
@@ -251,21 +257,6 @@ def main():
 
     if mode == "FULL":
         hits = _blocks(text)
-        if android and not embed:
-            # A missing embedding jar is not a syntax defect in our sources. javac
-            # reports the unresolved EMBEDDING SYMBOLS in several shapes
-            # ("package io.flutter.x does not exist", "package MethodChannel does
-            # not exist", "cannot find symbol ... FlutterActivity"), so drop only
-            # the diagnostics that name one of them — everything else still fails.
-            _EMBED = re.compile(r"io\.flutter|package io\.|MethodChannel|EventChannel|"
-                                r"MethodCall|BinaryMessenger|FlutterActivity|FlutterEngine|"
-                                r"FlutterView|FlutterPlugin|PluginRegistry|StandardMethodCodec|"
-                                r"PlatformView|FlutterFragment")
-            _dropped = [h for h in hits if _EMBED.search(h)]
-            hits = [h for h in hits if not _EMBED.search(h)]
-            if _dropped:
-                print("verify_syntax: NOTE — %d embedding-only diagnostic(s) suppressed "
-                      "(no flutter_embedding jar on this runner)" % len(_dropped))
     else:
         hits = [ln.strip() for ln in text.splitlines()
                 if "error:" in ln and SYNTAX.search(ln)]
