@@ -56,3 +56,17 @@ ui/.packages
 ui/.metadata
 **/ephemeral/
 # ui/pubspec.lock IS tracked (reproducible resolution) and so are the .ttf fonts
+
+# ── v3.4.6.b — repo hygiene: the accidental-upload junk must never come back ──
+# 40+ Xcode/Storyboard/Podfile files for an iOS target this project does not ship
+ui/.ios/
+**/.ios/
+# the Flutter module's generated plugin manifest is machine-local state
+ui/.flutter-plugins-dependencies
+**/.flutter-plugins-dependencies
+# python bytecode (the verifiers are always run from source)
+**/*.pyc
+**/__pycache__/
+# the uploaded source archive itself is never tracked (0 .zip / 0 .apk contract)
+*.7z
+*.tar.gz

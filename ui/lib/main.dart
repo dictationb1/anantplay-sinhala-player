@@ -1,4 +1,4 @@
-// AnantPlay Sinhala Player v3.4.6.a — the Mornye Liquid-Glass shell entry.
+// AnantPlay Sinhala Player v3.4.6.b — the Mornye Liquid-Glass shell entry.
 //
 // Hosts the vendored Mornye v5.4.0 engine (ui/lib/mornye_ui, LGPL-3.0-only)
 // and routes between the screens: onboarding (first launch), home, settings,
@@ -17,7 +17,7 @@ import 'anantplay/app_state.dart';
 import 'anantplay/home_screen.dart';
 import 'anantplay/onboarding_screen.dart';
 
-// ── v3.4.6.a — THE DART-SIDE CRASH REPORTER ─────────────────────────────────
+// ── v3.4.6.b — THE DART-SIDE CRASH REPORTER ─────────────────────────────────
 // The native layer exposes `anantplay/crashlog` (MainActivity.onCrashlogCall),
 // which persists the report into the SAME CrashLog file native crashes use.
 // Both hooks below are registered BEFORE runApp() and guard themselves: a
@@ -64,7 +64,7 @@ class AnantPlayApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // v3.4.6.a — FULL MORNYE PARITY: ProviderScope (the riverpod root the
+    // v3.4.6.b — FULL MORNYE PARITY: ProviderScope (the riverpod root the
     // vendored Mornye providers — glass level, runtime profile — resolve
     // against) + MornyeGlassPreparation (upstream app.dart's exact placement:
     // inside the app widget tree, wrapping the shell; it fires the one-time

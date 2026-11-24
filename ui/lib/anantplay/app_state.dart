@@ -87,10 +87,34 @@ class AppStateNotifier extends ChangeNotifier {
     await refresh();
   }
 
-  Future<void> completeOnboarding() async {
-    await AnantPlay.instance.putBool(SettingsMirror.kOnboardingDone, true);
-    await AnantPlay.instance.putInt(SettingsMirror.kOnboardingStage, 4);
-    await refresh();
+  /// v3.4.6.b — THE UNBREAKABLE FINISH. Three guarantees the old path lacked:
+  ///   1. The in-memory snapshot flips to onboardingDone = true SYNCHRONOUSLY
+  ///      (a local overlay on the current settings map) and notifyListeners()
+  ///      fires before any await — the shell animates into HomeScreen even if
+  ///      a platform call is slow or the channel is briefly down;
+  ///   2. Persistence rides the DEDICATED native `finishOnboarding` channel
+  ///      (MainActivity → AppPrefs.setOnboardingDone) — a writer no allowlist
+  ///      (BACKUP_KEYS filtering, normalizeValue) can ever drop;
+  ///   3. The v3.4.6.b root cause is fixed at the source too: gatherSettings()
+  ///      now returns onboardingDone/onboardingStage live, so even the
+  ///      refreshed map the shell rebuilds from carries the flag.
+  void completeOnboarding() {
+    // 1 — the synchronous local publish (the UI never waits on the channel).
+    settings = SettingsMirror.fromJavaMap({
+      ...settings.raw,
+      SettingsMirror.kOnboardingDone: true,
+      SettingsMirror.kOnboardingStage: 5,
+    });
+    notifyListeners();
+    // 2 — the dedicated persistence path (fire-and-forget is fine: step 1
+    //     already moved the UI; this only makes it survive a restart).
+    AnantPlay.instance.finishOnboarding().catchError((Object e) {
+      // The channel hiccupped — retry once through the generic setter so the
+      // flag still lands in SharedPreferences before next relaunch.
+      return AnantPlay.instance
+          .putBool(SettingsMirror.kOnboardingDone, true)
+          .catchError((Object _) {});
+    });
   }
 
   /// v3.4.6 — the Home quick-start card is a one-time surface: this is where it
@@ -132,43 +156,55 @@ class AppStateScopeData extends State<AppStateScope> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // v3.4.6.b — THE OTHER HALF OF THE FINISH BUG: completeOnboarding's
+    // synchronous notifyListeners() only reaches dependents if this scope
+    // ALSO rebuilds its AppState wrapper (the InheritedNotifier's child
+    // widget still carries the OLD settings map otherwise — exactly why a
+    // Finish tap in v3.4.6.b never swapped OnboardingScreen for HomeScreen
+    // even though the pref had persisted). The scope now listens to its own
+    // notifier and republishes through setState on every mutation.
+    _notifier.addListener(_republish);
     _load();
     _castSub = AnantPlay.instance.castStatus().listen(_onCast);
     _updaterSub = AnantPlay.instance.updaterEvents().listen(_onUpdater);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _notifier.removeListener(_republish);
+    _castSub?.cancel();
+    _updaterSub?.cancel();
+    _notifier.dispose();
+    super.dispose();
+  }
+
+  /// Any notifier mutation (completeOnboarding's synchronous flip included)
+  /// rebuilds the AppState wrapper this frame — ShellRoot re-reads
+  /// onboardingDone and swaps OnboardingScreen → HomeScreen immediately.
+  void _republish() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _load() async {
     final settings = await AnantPlay.instance.loadSettings();
     final history = await AnantPlay.instance.history();
     if (!mounted) return;
-    _publish(settings, history);
-  }
-
-  void _publish(SettingsMirror settings, List<HistoryItem> history) {
     _notifier.publish(settings, _notifier.cast, _notifier.updater, history);
-    // republish through setState too so this scope rebuilds the InheritedWidget
     setState(() {});
   }
 
   void _onCast(CastStatus s) {
     if (!mounted) return;
+    // publish → notifyListeners → _republish → setState (the one path).
     _notifier.publish(_notifier.settings, s, _notifier.updater, _notifier.history);
-    setState(() {});
   }
 
   void _onUpdater(UpdaterEvent e) {
     if (!mounted) return;
     _notifier.publish(_notifier.settings, _notifier.cast, e, _notifier.history);
-    setState(() {});
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _castSub?.cancel();
-    _updaterSub?.cancel();
-    _notifier.dispose();
-    super.dispose();
+    // _republish already fires through the notifier listener — no direct
+    // setState here (a double setState in one frame throws).
   }
 
   @override

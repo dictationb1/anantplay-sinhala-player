@@ -1,6 +1,6 @@
-# AnantPlay Player (SI Cast Receiver) v3.4.6.a (versionCode 30407)
+# AnantPlay Player (SI Cast Receiver) v3.4.6.b (versionCode 30408)
 
-> **v3.4.6.a — THE ANDROID 16 CRASH FIX · MORNYE v5.4.0 FULL PARITY · 16 KB-PAGE ENGINE · 55 MB UPDATER TIER.**
+> **v3.4.6.b — THE ANDROID 16 CRASH FIX · MORNYE v5.4.0 FULL PARITY · 16 KB-PAGE ENGINE · 55 MB UPDATER TIER.**
 > Mornye Glass is now the default surface, with live 10–95% clarity, optional rim
 > outlines, glass icon medallions, and System/Midnight/AMOLED/Clean Light themes.
 > Inter is bundled for modern Latin UI text with Noto Sinhala fallback; System,
@@ -310,7 +310,7 @@ scripts/troubleshoot-adb.*   PC ADB capture helpers (sh + PowerShell 5.1), priva
 
 Built on the 2026-11-22 Xiaomi Android 16 field log, every defect root-caused
 with file:line proof and covered by new regression checks in
-`lab/ReceiverLab.java` (see `V3_1_2_CRASH_FIX_AND_PRIVACY_TROUBLESHOOTER_REPORT.md`):
+`lab/ReceiverLab.java` (see `docs/reports/V3_1_2_CRASH_FIX_AND_PRIVACY_TROUBLESHOOTER_REPORT.md`):
 
 - **Bug 1 — the `PlayActivity` "keeps stopping" crash FIXED.**
   `PlayActivity.buildUi()` called `notice.setBackgroundResource(0x88000000)`;
@@ -392,7 +392,7 @@ with file:line proof and covered by new regression checks in
 
 Built on the 2026-11-22 16:36 Xiaomi Android 16 field log, every defect
 root-caused with file:line proof and covered by new regression checks in
-`lab/ReceiverLab.java` (see `V3_1_CAST_CRASH_FIX_AND_MORNYE_UI_REPORT.md`):
+`lab/ReceiverLab.java` (see `docs/reports/V3_1_CAST_CRASH_FIX_AND_MORNYE_UI_REPORT.md`):
 
 - **Bug 1 — `GET /dlna/desc.xml -> refused-nonlocal` FIXED.** v3.0.0's
   `ReceiverServer.isSelf()` relied solely on a `NetworkInterface` enumeration
@@ -435,7 +435,7 @@ root-caused with file:line proof and covered by new regression checks in
 ## What's new in v3.0.0 (TRUE Android 16 cast fix · WebView cinema browser · 4-tab UI · merge-to-release CI)
 
 The complete overhaul, built on the 2026-11-22 15:15 real-device log (Xiaomi
-Android 16, sdk 36). Full story: `V3_MASTER_ARCHITECTURE_AND_ANDROID16_REPORT.md`.
+Android 16, sdk 36). Full story: `docs/reports/V3_MASTER_ARCHITECTURE_AND_ANDROID16_REPORT.md`.
 
 - **Cast fixed at the root** — the log DISPROVED the sabotage theory (the
   responder was off while `announced` was already false) and the router theory

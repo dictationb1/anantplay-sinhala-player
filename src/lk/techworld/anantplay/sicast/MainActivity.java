@@ -176,6 +176,33 @@ public class MainActivity extends FlutterActivity {
     protected void onResume() {
         super.onResume();
         pushCastStatus();          // the auto-open overlay re-check reads this live
+        // v3.4.6.b — the onboarding resume contract: a fresh status blob ALSO
+        // carries the live permission/install bits (overlay, notifications,
+        // battery, unknown-sources, official-app presence), so the wizard's
+        // WidgetsBindingObserver re-query resolves from ONE native push.
+        pushOnboardingStatus();
+        // the official APK handed to PackageInstaller leaves a cache copy
+        // behind when the user cancels the 1-tap sheet — sweep it on resume.
+        if (AnantPlayInstaller.anantplayInstalled(this)) {
+            AnantPlayInstaller.sweepCache(this);
+        }
+    }
+
+    /** v3.4.6.b — the permission/install snapshot the wizard auto-advance reads. */
+    private Map<String, Object> onboardingStatusMap() {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("t", "onboardingStatus");
+        m.put("overlay", Settings.canDrawOverlays(this));
+        m.put("notif", Miui.notifGranted(this));
+        m.put("battery", Miui.batteryUnrestricted(this));
+        m.put("installs", AnantPlayInstaller.canRequestPackageInstalls(this));
+        m.put("official", AnantPlayInstaller.anantplayInstalled(this));
+        return m;
+    }
+
+    private void pushOnboardingStatus() {
+        EventChannel.EventSink s = castSink;
+        if (s != null) s.success(onboardingStatusMap());
     }
 
     @Override
@@ -225,12 +252,65 @@ public class MainActivity extends FlutterActivity {
                 result.success(true);
             } else if ("officialInstalled".equals(m)) {
                 result.success(officialInstalled());
+            } else if ("officialVersion".equals(m)) {
+                result.success(AnantPlayInstaller.anantplayVersion(this));
+            } else if ("onboardingStatus".equals(m)) {
+                // v3.4.6.b — the on-demand permission/install snapshot (the
+                // same blob resume pushes; the wizard's initState re-query).
+                result.success(onboardingStatusMap());
+            } else if ("officialVersion".equals(m)) {
+                result.success(AnantPlayInstaller.anantplayVersion(this));
             } else if ("openOfficial".equals(m)) {
                 Miui.openAnantPlay(this);
                 result.success(true);
             } else if ("testPlayer".equals(m)) {
                 startActivity(new Intent(this, PlayActivity.class).putExtra("test", true));
                 result.success(true);
+            } else if ("finishOnboarding".equals(m)) {
+                // v3.4.6.b — THE UNBREAKABLE FINISH PATH: a DEDICATED writer that
+                // persists K_ONBOARDING_DONE directly through AppPrefs' own
+                // setter — bypassing nothing (putBool would work too, but this
+                // channel is the one surface that can NEVER be filtered by any
+                // allowlist, backup or otherwise, and it pins the stage to 5).
+                AppPrefs.setOnboardingDone(prefs, true);
+                AppPrefs.setOnboardingStage(prefs, 5);
+                result.success(true);
+            } else if ("canRequestPackageInstalls".equals(m)) {
+                result.success(AnantPlayInstaller.canRequestPackageInstalls(this));
+            } else if ("openUnknownSources".equals(m)) {
+                result.success(AnantPlayInstaller.openUnknownSources(this));
+            } else if ("installOfficialAnantPlay".equals(m)) {
+                // v3.4.6.b — Slide 2's in-app installer: resolve the official
+                // release → stream with live percent events → PackageInstaller
+                // 1-tap sheet. Progress arrives on this channel's EventChannel.
+                AnantPlayInstaller.installOfficial(this, new AnantPlayInstaller.Listener() {
+                    @Override public void onProgress(final int percent, final String version) {
+                        main.post(() -> pushInstallEvent("installProgress", percent, version));
+                    }
+                    @Override public void onState(final String state) {
+                        main.post(() -> pushInstallEvent("installState", 0, state));
+                    }
+                });
+                result.success(true);
+            } else if ("copyToClipboard".equals(m)) {
+                // v3.4.6.b — Slide 6's 1-tap Copy Index URL (the Sources &
+                // Index Helper: paste into AnantPlay's Settings → Sources).
+                copyToClipboard(call.<String>argument("text"));
+                result.success(true);
+            } else if ("saveIndexUrl".equals(m)) {
+                // v3.4.6.b — the editable Saved Index URL box (one URL, trimmed;
+                // K_INDEX_URL is a normal backed-up pref so it survives reset).
+                String url = call.argument("url");
+                String clean = url == null ? "" : url.trim();
+                prefs.edit().putString(AppPrefs.K_INDEX_URL, clean).apply();
+                result.success(clean);
+            } else if ("openBatteryOptimization".equals(m)) {
+                // v3.4.6.b — the universal background-stability deep link (every
+                // device), with the OEM-aware page Miui already resolves.
+                Miui.requestBattery(this);
+                result.success(true);
+            } else if ("oemName".equals(m)) {
+                result.success(String.valueOf(Build.MANUFACTURER));
             } else {
                 result.notImplemented();
             }
@@ -261,6 +341,30 @@ public class MainActivity extends FlutterActivity {
     private void pushCastStatus() {
         EventChannel.EventSink s = castSink;
         if (s != null) s.success(castStatusMap());
+    }
+
+    /** v3.4.6.b — Slide 2's live installer stream (progress/state on the cast events channel). */
+    private void pushInstallEvent(String t, int v, String extra) {
+        EventChannel.EventSink s = castSink;
+        if (s == null) return;
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("t", t);
+        m.put("v", String.valueOf(v));
+        m.put("x", extra == null ? "" : extra);
+        s.success(m);
+    }
+
+    /** v3.4.6.b — the 1-tap Copy Index URL (system clipboard, guarded). */
+    private void copyToClipboard(String text) {
+        try {
+            android.content.ClipboardManager cm =
+                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null && text != null) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("AnantPlay index", text));
+            }
+        } catch (Throwable t) {
+            Diag.w("cast", "clipboard refused: " + t);
+        }
     }
 
     private void pushUpdateEvent(String t, String v) {
@@ -400,6 +504,17 @@ public class MainActivity extends FlutterActivity {
     /** The exact BACKUP_KEYS surface v3.4.5 exported (typed readers). */
     private Map<String, Object> gatherSettings() {
         Map<String, Object> m = new LinkedHashMap<>();
+        // v3.4.6.b — THE FINISH-BUTTON ROOT CAUSE FIX: the shell decides
+        // Onboarding vs Home from this map, and onboardingDone/onboardingStage
+        // were NEVER included (deliberately kept out of the BACKUP surface —
+        // but gatherSettings() is the LIVE mirror, not the backup export!).
+        // The wizard tapped Finish → putBool persisted the flag → refresh()
+        // re-read this map → the key was still missing → ShellRoot kept
+        // rendering OnboardingScreen forever (the "dead Finish" lockout).
+        // Live values are read through AppPrefs' own typed readers so a
+        // corrupt stored value is normalized exactly like every other key.
+        m.put(AppPrefs.K_ONBOARDING_DONE, AppPrefs.onboardingDone(prefs));
+        m.put(AppPrefs.K_ONBOARDING_STAGE, AppPrefs.onboardingStage(prefs));
         m.put(AppPrefs.K_THEME_MODE, AppPrefs.themeMode(prefs));
         m.put(AppPrefs.K_DYNAMIC_COLOR, AppPrefs.dynamicColor(prefs));
         m.put(AppPrefs.K_ACCENT, AppPrefs.accent(prefs));
@@ -463,7 +578,10 @@ public class MainActivity extends FlutterActivity {
         m.put(AppPrefs.K_SKIP_VERSION, prefs.getString(AppPrefs.K_SKIP_VERSION, ""));
         m.put(AppPrefs.K_WEB_TABS, prefs.getString(AppPrefs.K_WEB_TABS, ""));
         m.put(AppPrefs.K_MIDNIGHT_DIMMER, AppPrefs.midnightDimmer(prefs));
+        m.put(AppPrefs.K_MIDNIGHT_DIMMER, AppPrefs.midnightDimmer(prefs));
         m.put(AppPrefs.K_MIDNIGHT_DIM_PCT, AppPrefs.midnightDimPct(prefs));
+        // v3.4.6.b — the Sources & Index Helper's saved URL (backed-up key).
+        m.put(AppPrefs.K_INDEX_URL, prefs.getString(AppPrefs.K_INDEX_URL, AppPrefs.DEFAULT_INDEX_URL));
         return m;
     }
 

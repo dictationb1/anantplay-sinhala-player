@@ -88,6 +88,19 @@ public final class AppPrefs {
      */
     public static final String K_ONBOARDING_DONE = "onboardingDone";
     public static final String K_ONBOARDING_STAGE = "onboardingStage";
+    /**
+     * v3.4.6.b — the Sources & Index Helper's saved URL (onboarding Slide 6).
+     *
+     * <p>The official AnantPlay app (me.champdev.weblock) exposes NO exported
+     * deep-link/Intent for adding an index (SourcesActivity is exported=false,
+     * the manifest has no VIEW filters — audited against AnantPlay/android
+     * main), so the helper's contract is: save the user's favorite index URL
+     * here (a normal BACKED-UP key), and offer 1-tap Copy + Open AnantPlay.
+     */
+    public static final String K_INDEX_URL = "indexUrl";
+    /** The helper's out-of-the-box default (AnantPlay's own index feed). */
+    public static final String DEFAULT_INDEX_URL =
+        "https://raw.githubusercontent.com/AnantPlay/index/main/index.json";
     public static final String K_DOH_DIAG = "dohDiag";               // bool
     public static final String K_RECEIVER_NAME = "receiverName";     // free text (trimmed, ≤64)
     public static final String K_RECEIVER_PORT = "receiverPort";      // v3.2.0: 1024..65535 (8765 default)
@@ -192,7 +205,9 @@ public final class AppPrefs {
         K_READER_DARK, K_FAVICONS, K_SHOW_BLOCK_COUNT, K_WEB_TABS,
         K_ORIENTATION, K_EXTERNAL_PLAYER, K_VOLUME_BOOST, K_SLEEP_TIMER_MS, K_SKIP_VERSION,
         // v3.4.2 - the Midnight Night Dimmer rides the same lossless backup
-        K_MIDNIGHT_DIMMER, K_MIDNIGHT_DIM_PCT);
+        K_MIDNIGHT_DIMMER, K_MIDNIGHT_DIM_PCT,
+        // v3.4.6.b - the Sources & Index Helper's saved URL travels with it
+        K_INDEX_URL);
 
     // ── the normalizers (pure — Mornye's normalizeXxx pattern) ─────────────────
 
@@ -626,16 +641,18 @@ public final class AppPrefs {
         p.edit().putBoolean(K_ONBOARDING_DONE, done).apply();
     }
 
-    /** The stage the wizard reopens on (0..4), so rotation and process death keep it. */
+    /** The stage the wizard reopens on (0..5), so rotation and process death keep it.
+     *  v3.4.6.b — the wizard grew to six slides (Welcome → Install official
+     *  AnantPlay → Notifications → Overlay → Background → Sources/Finish). */
     public static int onboardingStage(SharedPreferences p) {
         int s = p == null ? 0 : p.getInt(K_ONBOARDING_STAGE, 0);
         if (s < 0) return 0;
-        return s > 4 ? 4 : s;
+        return s > 5 ? 5 : s;
     }
 
     public static void setOnboardingStage(SharedPreferences p, int stage) {
         if (p == null) return;
-        p.edit().putInt(K_ONBOARDING_STAGE, stage < 0 ? 0 : (stage > 4 ? 4 : stage)).apply();
+        p.edit().putInt(K_ONBOARDING_STAGE, stage < 0 ? 0 : (stage > 5 ? 5 : stage)).apply();
     }
 
     /** "Run setup wizard": forget completion so the wizard opens again from stage 1. */

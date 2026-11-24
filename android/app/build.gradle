@@ -1,4 +1,4 @@
-// AnantPlay Sinhala Player v3.4.6.a — the Option-A host app module.
+// AnantPlay Sinhala Player v3.4.6.b — the Option-A host app module.
 //
 // WRAPS THE EXISTING PURE-JAVA BACKEND 100% INTACT:
 //   · src/     → java.srcDirs   (lk.techworld.anantplay.sicast backend, unchanged)
@@ -21,8 +21,8 @@
 //      KS_KEYPASS) exactly the way the release workflow passes them.
 //
 // Signing reads the same permanent secrets build.sh has always used
-// (KS_BASE64 → decoded keystore, KS_PASS / KS_KEYPASS / KS_ALIAS) so v3.4.6.a
-// updates in place over v3.4.5 — the zero-uninstall Obtainium contract.
+// (KS_BASE64 → decoded keystore, KS_PASS / KS_KEYPASS / KS_ALIAS) so v3.4.6.b
+// updates in place over v3.4.6.a — the zero-uninstall Obtainium contract.
 plugins {
     id "com.android.application"
     id "dev.flutter.flutter-gradle-plugin"
@@ -31,7 +31,7 @@ plugins {
 def ksFile = project.findProperty("KS_FILE")
 def hasReleaseKey = ksFile != null && file(ksFile).exists()
 
-// v3.4.6.a — TRAP #3 (CI emulator smoke ABI): `-PsmokeAbi=x86_64` rebuilds the
+// v3.4.6.b — TRAP #3 (CI emulator smoke ABI): `-PsmokeAbi=x86_64` rebuilds the
 // EXACT release (same Java/Dart/Manifest/R8/ProGuard, same signing path) for
 // the KVM x86_64 Android emulator that runs the Launch Smoke Test. Unset (the
 // shipping path) → arm64-v8a, the one-ABI release contract.
@@ -47,14 +47,14 @@ android {
         applicationId = "lk.techworld.anantplay.sicast"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30407
-        versionName = "3.4.6.a"
+        versionCode = 30408
+        versionName = "3.4.6.b"
         multiDexEnabled = true
 
         // v3.4.6 — the CI contract is ONE arm64 artifact below 50 MiB. The Flutter
         // engine AAR ships every ABI, so the app filters to arm64-v8a explicitly
         // (armeabi-v7a/x86_64 video decoders are not part of this release).
-        // v3.4.6.a — TRAP #3: `-PsmokeAbi=x86_64` swaps this filter for the CI
+        // v3.4.6.b — TRAP #3: `-PsmokeAbi=x86_64` swaps this filter for the CI
         // emulator's ABI so the KVM smoke job builds the SAME release config
         // (same Java/Dart/Manifest/R8/ProGuard) as an x86_64 installable APK.
         // The literal stays what the Gradle-host structural gate greps; when the
@@ -122,7 +122,7 @@ android {
 
     packaging {
         jniLibs {
-            // v3.4.6.a — TRAP #2: useLegacyPackaging=false stores every .so
+            // v3.4.6.b — TRAP #2: useLegacyPackaging=false stores every .so
             // UNCOMPRESSED in the APK (extractNativeLibs="false") so the Android
             // 16 linker can mmap it straight from the package — which makes the
             // zip-level 16 KiB offset contract real. That contract is produced
@@ -187,7 +187,7 @@ configurations.configureEach {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// v3.4.6.a — TRAP #2: THE BOGUS ENGINE SUBSTITUTION IS GONE.
+// v3.4.6.b — TRAP #2: THE BOGUS ENGINE SUBSTITUTION IS GONE.
 //
 // The shipped delta substituted `io.flutter:flutter-release` →
 // `io.flutter:flutter-arm64-v8a-release` (and -debug/-profile), claiming the

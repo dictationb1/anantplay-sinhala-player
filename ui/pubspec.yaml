@@ -1,14 +1,19 @@
 name: anantplay_ui
 description: >-
-  AnantPlay Sinhala Player v3.4.6.a — the Mornye v5.4.0 Liquid-Glass Flutter UI
+  AnantPlay Sinhala Player v3.4.6.b — the Mornye v5.4.0 Liquid-Glass Flutter UI
   (vendored under LGPL-3.0-only) over the native Media3 cast/player backend.
 publish_to: "none"
-# v3.4.6.a — pub_semver forbids a 4-part core ("3.4.6.a" → Version.parse
+# v3.4.6.b — pub_semver forbids a 4-part core ("3.4.6.a" → Version.parse
 # throws, which kills EVERY `flutter pub get`: .dart_tool/package_graph.json
 # embeds p.version verbatim). The identity therefore rides as build metadata
-# on the valid 3.4.6 core, while the description above carries "v3.4.6.a".
-# The APK identity stays in android/app/build.gradle (3.4.6.a / 30407).
-version: 3.4.6+30407.a
+# on the valid 3.4.6 core, while the description above carries "v3.4.6.b".
+# The build number is a PURE INTEGER ("+30408", never "+30408.b"): the Flutter
+# Gradle plugin types `flutter.versionCode` as Integer and the AOT/`flutter
+# assemble` path forwards BuildNumber verbatim, so a trailing ".b" would be a
+# NumberFormatException the moment any tool reads it. The `.b` lives in
+# android/app/build.gradle (versionName "3.4.6.b") and in AppInfo.
+# The APK identity stays in android/app/build.gradle (3.4.6.b / 30408).
+version: 3.4.6+30408
 
 environment:
   sdk: ^3.10.0

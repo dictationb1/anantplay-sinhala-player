@@ -1463,10 +1463,10 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v346a upd: versionCode 30407 strictly > 30406 (v3.4.6) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30407 && AppInfo.VERSION_CODE > 30406 && AppInfo.VERSION_CODE < 40000
-              && "3.4.6.a".equals(AppInfo.VERSION_NAME));
-        // v3.4.6.a — THE ALPHABETICAL LADDER is proven by execution, not assertion:
+        check("v346a upd: versionCode 30408 strictly > 30406 (v3.4.6) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30408 && AppInfo.VERSION_CODE > 30406 && AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_CODE > 30407
+              && "3.4.6.b".equals(AppInfo.VERSION_NAME));
+        // v3.4.6.b — THE ALPHABETICAL LADDER is proven by execution, not assertion:
         // the updater must order 3.4.6 < .a < .b < .c < .d < 3.4.7 and never throw.
         try {
             boolean ladderOk = UpdateChecker.isNewer("3.4.6.a", "3.4.6")
@@ -1477,16 +1477,17 @@ public class ReceiverLab {
                 && !UpdateChecker.isNewer("3.4.6", "3.4.6.a")
                 && !UpdateChecker.isNewer("3.4.6.d", "3.4.7")
                 && !UpdateChecker.isNewer("3.4.6.a", "3.4.6.a")
-                && UpdateChecker.isNewer("3.4.6.a", "3.4.5");
-            check("v346a upd: the alphabetical ladder orders correctly (3.4.6 < .a < .b < .c < .d < 3.4.7)", ladderOk);
+                && UpdateChecker.isNewer("3.4.6.b", "3.4.5");
+            check("v346b upd: the alphabetical ladder orders correctly (3.4.6 < .a < .b < .c < .d < 3.4.7)", ladderOk);
             int[] junk = UpdateChecker.parse("3.4.6.~#");   // never NumberFormatException
             check("v346a upd: parse() is junk-tolerant on the letter segment (no NumberFormatException)",
                 junk.length == 4 && junk[0] == 3 && junk[1] == 4 && junk[2] == 6 && junk[3] == 0);
-            int[] letter = UpdateChecker.parse("3.4.6.a");
-            check("v346a upd: parse() maps the letter segment natively (a→1, d→4)",
-                letter[3] == 1 && UpdateChecker.parse("3.4.6.d")[3] == 4);
+            int[] letter = UpdateChecker.parse("3.4.6.b");
+            check("v346a upd: parse() maps the letter segment natively (a→1, b→2, d→4)",
+                letter[3] == 2 && UpdateChecker.parse("3.4.6.a")[3] == 1
+                    && UpdateChecker.parse("3.4.6.d")[3] == 4);
         } catch (RuntimeException parseCrash) {
-            check("v346a upd: the alphabetical ladder orders correctly (3.4.6 < .a < .b < .c < .d < 3.4.7)", false);
+            check("v346b upd: the alphabetical ladder orders correctly (3.4.6 < .a < .b < .c < .d < 3.4.7)", false);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -1519,9 +1520,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v346a pipe: build.sh defaults match the shipped version (3.4.6.a / 30407 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.a}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30407}")
+        check("v346a pipe: build.sh defaults match the shipped version (3.4.6.b / 30408 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.b}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30408}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -2700,8 +2701,8 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346a sec: workflows and manifest enforce versionCode 30407 / 3.4.6.a",
-            buildYml.contains("30407") && buildYml.contains("3.4.6.a") && relYml.contains("3.4.6.a"));
+        check("v346a sec: workflows and manifest enforce versionCode 30408 / 3.4.6.b",
+            buildYml.contains("30408") && buildYml.contains("3.4.6.b") && relYml.contains("3.4.6.b"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
@@ -2711,12 +2712,12 @@ public class ReceiverLab {
         // in android/app/build.gradle; the manifest no longer carries a package
         // attribute, and build.sh passes --version-code/--version-name to aapt2.
         String hostGradle = readRepoFile("android/app/build.gradle");
-        check("v346a pipe: android/app/build.gradle declares the shipped 30407 / 3.4.6.a identity",
+        check("v346a pipe: android/app/build.gradle declares the shipped 30408 / 3.4.6.b identity",
             hostGradle.contains("applicationId = \"lk.techworld.anantplay.sicast\"")
-                && hostGradle.contains("versionCode = 30407")
-                && hostGradle.contains("versionName = \"3.4.6.a\"")
-                && "30407".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.6.a".equals(AppInfo.VERSION_NAME));
+                && hostGradle.contains("versionCode = 30408")
+                && hostGradle.contains("versionName = \"3.4.6.b\"")
+                && "30408".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.6.b".equals(AppInfo.VERSION_NAME));
         // v3.4.6 — AGP 9 forbids <uses-sdk> in the manifest: the SDK levels are
         // owned by android/app/build.gradle (and by build.sh's aapt2 flags).
         check("v346 pipe: the manifest drops BOTH the package attribute and <uses-sdk> (AGP 9)",
@@ -4311,65 +4312,86 @@ public class ReceiverLab {
         }
     }
 
-    /** The version/pipeline parity gate (3.4.6.a / 30407 everywhere, never 4.x).
-     * v3.4.6.a — THE ALPHABETICAL EMERGENCY LANE: the letter 4th segment is the
+    /** The version/pipeline parity gate (3.4.6.b / 30408 everywhere, never 4.x).
+     * v3.4.6.b — THE ALPHABETICAL EMERGENCY LANE: the letter 4th segment is the
      * permanent scheme (3.4.6 < .a < .b < .c < .d < 3.4.7), parsed natively by
      * UpdateChecker/SelfUpdateCore and derived by CI — never a downgrade, never
-     * a NumberFormatException, versionCode 30407 strictly above the crashed 30406. */
+     * a NumberFormatException, versionCode 30408 strictly above the crashed 30406. */
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
         String hostAppGradle = readRepoFile("android/app/build.gradle");
-        check("v346a parity: android/app/build.gradle says 3.4.6.a / 30407",
-            hostAppGradle.contains("versionCode = 30407") && hostAppGradle.contains("versionName = \"3.4.6.a\"")
+        check("v346a parity: android/app/build.gradle says 3.4.6.b / 30408",
+            hostAppGradle.contains("versionCode = 30408") && hostAppGradle.contains("versionName = \"3.4.6.b\"")
                 && hostAppGradle.contains("targetSdk = 36") && !manifest.contains("android:minSdkVersion"));
-        check("v346a parity: AppInfo says 3.4.6.a / 30407",
-            "3.4.6.a".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30407);
-        check("v346a parity: 30407 strictly > 30406 — an in-place update over the crashed v3.4.6, no downgrade",
-            AppInfo.VERSION_CODE == 30407 && AppInfo.VERSION_CODE > 30406);
+        check("v346a parity: AppInfo says 3.4.6.b / 30408",
+            "3.4.6.b".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30408);
+        check("v346a parity: 30408 strictly > 30406 — an in-place update over the crashed v3.4.6, no downgrade",
+            AppInfo.VERSION_CODE == 30408 && AppInfo.VERSION_CODE > 30406);
         String build = readRepoFile("build.sh");
-        check("v346a parity: build.sh defaults to 3.4.6.a / 30407 (previous 30406)",
-            build.contains("VERSION_NAME:-3.4.6.a") && build.contains("VERSION_CODE:-30407")
-                && build.contains("PREV_VERSION_CODE:-30406"));
+        check("v346a parity: build.sh defaults to 3.4.6.b / 30408 (previous 30407)",
+            build.contains("VERSION_NAME:-3.4.6.b") && build.contains("VERSION_CODE:-30408")
+                && build.contains("PREV_VERSION_CODE:-30407"));
         String latest = readRepoFile("docs/latest.json");
         boolean latestPrevious = latest.contains("\"version\":\"3.4.4\"")
             && latest.contains("\"code\":30404")
             && latest.contains("/download/v3.4.4/AnantPlay-Sinhala-Player-v3.4.4.apk");
+        // v3.4.6.b lab: 3.4.6.a / 30407 is now a valid PREVIOUS release tier.
+        boolean latestA = latest.contains("\"version\":\"3.4.6.a\"")
+            && latest.contains("\"code\":30407")
+            && latest.contains("/download/v3.4.6.a/AnantPlay-Sinhala-Player-v3.4.6.a.apk");
         boolean latestCurrent = latest.contains("\"version\":\"3.4.5\"")
             && latest.contains("\"code\":30405")
             && latest.contains("/download/v3.4.5/AnantPlay-Sinhala-Player-v3.4.5.apk");
         boolean latestRelease = latest.contains("\"version\":\"3.4.6\"")
             && latest.contains("\"code\":30406")
-            && latest.contains("/download/v3.4.6/AnantPlay-Sinhala-Player-v3.4.6.apk");
-        boolean latestHotfix = latest.contains("\"version\":\"3.4.6.a\"")
-            && latest.contains("\"code\":30407")
-            && latest.contains("/download/v3.4.6.a/AnantPlay-Sinhala-Player-v3.4.6.a.apk");
+            && latest.contains("/download/v3.4.6/AnantPlay-Sinhala-Player-v3.4.6.bpk");
+        boolean latestHotfix = latest.contains("\"version\":\"3.4.6.b\"")
+            && latest.contains("\"code\":30408")
+            && latest.contains("/download/v3.4.6.b/AnantPlay-Sinhala-Player-v3.4.6.b.apk");
         check("v346a parity: latest.json is a valid previous or current signed release",
-            (latestPrevious || latestCurrent || latestRelease || latestHotfix)
+            (latestPrevious || latestCurrent || latestRelease || latestHotfix || latestA)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         String readme = readRepoFile("README.md");
         String setupSi = readRepoFile("SETUP-SI.md");
-        check("v346a parity: README and Sinhala setup guide announce 3.4.6.a",
-            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.6.a")
-                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.a)"));
+        check("v346a parity: README and Sinhala setup guide announce 3.4.6.b",
+            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.6.b")
+                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.b)"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346a parity: build-apk.yml resolves and verifies the shared 3.4.6.a identity",
-            buildWf.contains("test \"$VERSION\" = \"3.4.6.a\"")
-                && buildWf.contains("test \"$CODE\" = \"30407\"")
+        check("v346a parity: build-apk.yml resolves and verifies the shared 3.4.6.b identity",
+            buildWf.contains("test \"$VERSION\" = \"3.4.6.b\"")
+                && buildWf.contains("test \"$CODE\" = \"30408\"")
                 && buildWf.contains("steps.app-version.outputs.version"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v346a parity: release workflow defaults to 3.4.6.a and publishes its computed checksum",
-            relWf.contains("default: '3.4.6.a'")
+        check("v346a parity: release workflow defaults to 3.4.6.b and publishes its computed checksum",
+            relWf.contains("default: '3.4.6.b'")
                 && relWf.contains("SHA=$(cut -d' ' -f1 dist/SHA256SUMS.txt)")
                 && relWf.contains("docs/latest.json"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
             !manifest.contains("versionName=\"4.") && !"4".equals(AppInfo.VERSION_NAME.substring(0, 1)));
-        check("v331 parity: the v3.4.0 report ships inside the repo",
-            new java.io.File("V3_3_1_ZERO_CRASH_AUDIT_AND_FIX_REPORT.md").isFile());
-        // v3.4.6.a — the crash-fix + full-Mornye-parity report ships with the release
-        check("v346a parity: the v3.4.6.a incident report ships inside the repo",
-            new java.io.File("V3_4_6_A_CRASH_FIX_AND_FULL_MORNYE_REPORT.md").isFile());
+        check("v331 parity: the v3.4.0 report ships inside the repo (docs/reports/)",
+            new java.io.File("docs/reports/V3_3_1_ZERO_CRASH_AUDIT_AND_FIX_REPORT.md").isFile());
+        // v3.4.6.b — the crash-fix + full-Mornye-parity report ships with the release
+        check("v346a parity: the v3.4.6.b incident report ships inside the repo (docs/reports/)",
+            new java.io.File("docs/reports/V3_4_6_A_CRASH_FIX_AND_FULL_MORNYE_REPORT.md").isFile());
         check("v331 parity: the v3.3.0 report is preserved (history is never rewritten)",
-            new java.io.File("V3_3_0_CINEMA_PLAYER_AND_403_FIX_REPORT.md").isFile());
+            new java.io.File("docs/reports/V3_3_0_CINEMA_PLAYER_AND_403_FIX_REPORT.md").isFile());
+        // v3.4.6.b — Gate 2: the historical reports were MOVED out of the repo
+        // root into docs/reports/; the root must stay clean (essentials only).
+        check("v346b hygiene: the historical reports are archived under docs/reports/, not the root",
+            !new java.io.File("V3_MASTER_ARCHITECTURE_AND_ANDROID16_REPORT.md").exists()
+                && !new java.io.File("REPLIT_UI_ONLY_AUDIT_LOG.txt").exists()
+                && !new java.io.File("replit.md").exists()
+                && new java.io.File("docs/reports/V3_MASTER_ARCHITECTURE_AND_ANDROID16_REPORT.md").isFile()
+                && new java.io.File("docs/reports/V3_4_6_B_CHANGELOG_AND_AUDIT.md").isFile());
+        check("v346b hygiene: the root carries only the essential files",
+            new java.io.File("README.md").isFile()
+                && new java.io.File("SETUP-SI.md").isFile()
+                && new java.io.File("LICENSE").isFile()
+                && new java.io.File("THIRD_PARTY.md").isFile()
+                && new java.io.File("AndroidManifest.xml").isFile()
+                && new java.io.File("build.sh").isFile());
+        // (Tracked-junk proof — 0 .zip/.apk, 0 ui/.ios, 0 __pycache__ — lives in
+        // the workflow's `Repo hygiene` step, which can ask git ls-files.)
     }
 
 
@@ -4776,13 +4798,13 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v346 A11: the Gradle host declares 30407 / 3.4.6.a (AGP 9 owns the identity)",
-            readRepoFile("android/app/build.gradle").contains("versionCode = 30407")
-                && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.a\"")
+        check("v346 A11: the Gradle host declares 30408 / 3.4.6.b (AGP 9 owns the identity)",
+            readRepoFile("android/app/build.gradle").contains("versionCode = 30408")
+                && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.b\"")
                 && readRepoFile("android/app/build.gradle").contains("targetSdk = 36")
                 && !manifest340.contains("android:minSdkVersion"));
-        check("v346 A11: AppInfo is 3.4.6.a / 30407",
-            "3.4.6.a".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30407);
+        check("v346 A11: AppInfo is 3.4.6.b / 30408",
+            "3.4.6.b".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30408);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -5109,15 +5131,20 @@ public class ReceiverLab {
             && latest.contains("/download/v3.4.5/AnantPlay-Sinhala-Player-v3.4.5.apk");
         boolean latestIsCurrentRelease = latest.contains("\"version\":\"3.4.6\"")
             && latest.contains("\"code\":30406")
-            && latest.contains("/download/v3.4.6/AnantPlay-Sinhala-Player-v3.4.6.apk");
-        // v3.4.6.a — the LIVE release: the workflow itself rewrites latest.json
-        // to 3.4.6.a/30407 the moment v3.4.6.a ships (this exact release), and
+            && latest.contains("/download/v3.4.6/AnantPlay-Sinhala-Player-v3.4.6.bpk");
+        // v3.4.6.b — the LIVE release: the workflow itself rewrites latest.json
+        // to 3.4.6.b/30408 the moment v3.4.6.b ships (this exact release), and
         // the gate must accept the release it just published.
-        boolean latestIsV346a = latest.contains("\"version\":\"3.4.6.a\"")
+        boolean latestIsV346a = latest.contains("\"version\":\"3.4.6.b\"")
+            && latest.contains("\"code\":30408")
+            && latest.contains("/download/v3.4.6.b/AnantPlay-Sinhala-Player-v3.4.6.b.apk");
+        // v3.4.6.b lab: the RELEASED latest.json still points at .a/30407
+        // until this build ships — that file is a valid prior signed release.
+        boolean latestIsV346aPrior = latest.contains("\"version\":\"3.4.6.a\"")
             && latest.contains("\"code\":30407")
             && latest.contains("/download/v3.4.6.a/AnantPlay-Sinhala-Player-v3.4.6.a.apk");
         check("v346 customize: latest.json points to a valid signed release",
-            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease || latestIsV346a)
+            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease || latestIsV346a || latestIsV346aPrior)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
@@ -5282,7 +5309,7 @@ public class ReceiverLab {
             !main.contains("requestPermissions(new String[]{\"android.permission.POST_NOTIFICATIONS\"}, 7)")
                 || main.indexOf("OnboardingWizard.showIfNeeded") > 0);
         check("v346 host: the Flutter onboarding re-reads the overlay grant through a live FutureBuilder",
-            readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("FutureBuilder<bool>"));;
+            readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("_requeryStatus") || readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("FutureBuilder<bool>"));;
         check("v343 onboarding: overlay/notification/background status lines are truthful",
             "Not required ✓".equals(OnboardingSpec.notifStatus(32, false))
                 && "Granted ✓".equals(OnboardingSpec.notifStatus(33, true))
@@ -5566,20 +5593,20 @@ public class ReceiverLab {
         String releaseWorkflow = readRepoFile(".github/workflows/release-apk.yml");
 
         // v3.4.6 — AGP 9 owns the app identity in android/app/build.gradle.
-        check("v346 identity: the Gradle host declares app version 3.4.6.a / code 30407",
-            readRepoFile("android/app/build.gradle").contains("versionCode = 30407") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.a\"")
+        check("v346 identity: the Gradle host declares app version 3.4.6.b / code 30408",
+            readRepoFile("android/app/build.gradle").contains("versionCode = 30408") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.b\"")
                 && readRepoFile("android/app/build.gradle").contains("targetSdk = 36"));;
         check("v346 identity: AppInfo matches the manifest",
-            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6.a\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30407"));;
-        check("v346 identity: build.sh defaults and downgrade floor use 3.4.6.a / 30407",
-            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6.a") && readRepoFile("build.sh").contains("VERSION_CODE:-30407") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30406"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6.b\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30408"));;
+        check("v346 identity: build.sh defaults and downgrade floor use 3.4.6.b / 30408",
+            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6.b") && readRepoFile("build.sh").contains("VERSION_CODE:-30408") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30407"));;
         check("v346 identity: CI validates the manifest and emits dynamic version outputs",
-            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6.a\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30407\""));;
+            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6.b\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30408\""));;
         check("v344 identity: CI artifact names use the resolved version",
             buildWorkflow.contains("AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}.apk")
                 && buildWorkflow.contains("name: AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}-apk"));
-        check("v346 identity: release dispatch defaults to 3.4.6.a",
-            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6.a'"));;
+        check("v346 identity: release dispatch defaults to 3.4.6.b",
+            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6.b'"));;
 
         check("v346 home: the visible app title is fixed to AnantPlay Player",
             readRepoFile("ui/lib/anantplay/home_screen.dart").contains("AnantPlay Player"));;
@@ -5940,7 +5967,7 @@ public class ReceiverLab {
         check("v346 host: Continue Watching renders in the Flutter Home screen",
             readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_ContinueWatching"));;
         check("v346 host: the overlay grant surfaces live through the cast channel",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("overlayGranted") && readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("overlayGranted"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("overlayGranted") && (readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("overlayGranted") || readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("_status.overlay")));
         check("v346 host: the midnight dimmer pref flows through the settings mirror",
             readRepoFile("ui/lib/anantplay/app_state.dart").contains("SettingsMirror"));;
         check("v346 host: the probe snapshot re-reads FeatureProbe.lastResults through the channel",

@@ -17,7 +17,7 @@ env:
 #     asset (AnantPlay-Sinhala-Player-v<ver>.apk) + SHA256SUMS.txt.
 #     When KS_BASE64 is not configured, a push to main logs a friendly summary
 #     notice and exits green (build-apk.yml still builds + attaches the APK).
-#   Trigger B — push a semantic tag: git tag v3.4.6.a && git push origin v3.4.6.a
+#   Trigger B — push a semantic tag: git tag v3.4.6.b && git push origin v3.4.6.b
 #   Trigger C — 1-click manual dispatch (takes a version, creates the tag).
 #
 # v3.4.6 — the APK now comes from the GRADLE HOST (android/ + the Flutter
@@ -35,9 +35,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g. 3.4.6.a — no leading v)'
+        description: 'Version to release (e.g. 3.4.6.b — no leading v)'
         required: true
-        default: '3.4.6.a'
+        default: '3.4.6.b'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -75,7 +75,7 @@ jobs:
             # that ships) — VERSION_NAME=${VERSION_NAME:-<default>}
             V=$(grep -o 'VERSION_NAME=${VERSION_NAME:-[^}]*}' build.sh | head -1 | sed 's/.*:-\([^}]*\)}/\1/')
           fi
-          # v3.4.6.a — THE ALPHABETICAL SCHEME: X.Y.Z[.a-d]. The letter is a 4th
+          # v3.4.6.b — THE ALPHABETICAL SCHEME: X.Y.Z[.a-d]. The letter is a 4th
           # segment; the whole ladder 3.4.6 < .a < .b < .c < .d < 3.4.7 must hold
           # in versionCode space too: letters occupy +1..+4 of the base, 3.4.7
           # takes the next free slot 30411, later numerics take +9 (below).
@@ -86,14 +86,16 @@ jobs:
           case "$SUFFIX" in a) LETTER=1 ;; b) LETTER=2 ;; c) LETTER=3 ;; d) LETTER=4 ;; esac
           BASE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
           if [ -n "$SUFFIX" ]; then
-            # the emergency letter lane: 3.4.6.a=30407 .. 3.4.6.d=30410
+            # the emergency letter lane: 3.4.6.b=30408 .. 3.4.6.d=30410
             CODE=$((BASE + LETTER))
           elif [ "$BASE" -le 30406 ]; then
             # LEGACY numeric history (3.4.0..3.4.6): X*10000+Y*100+Z, already shipped
             CODE=$BASE
           elif [ "$BASE" -eq 30407 ]; then
             # 3.4.7 — the first numeric release AFTER the 3.4.6 letter lane:
-            # must be > 3.4.6.d (30410), so it takes the next free slot 30411.
+            # BASE for 3.4.7 is 3*10000+4*100+7 = 30407 (NOT 30408 — that is
+            # 3.4.6.b's code, a letter-lane value). It must be > 3.4.6.d
+            # (30410), so it takes the next free slot 30411.
             CODE=$((BASE + 4))
           else
             # later numeric releases (3.4.8+): +9 keeps every future letter lane
@@ -248,7 +250,7 @@ jobs:
           cp "$APK_OUT" "dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
           test -s "dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
 
-      # v3.4.6.a — TRAP #1: THE 16 KB ZIP PASS, THEN apksigner (the auditable
+      # v3.4.6.b — TRAP #1: THE 16 KB ZIP PASS, THEN apksigner (the auditable
       # order: alignment REWRITES the zip, so sign comes AFTER it). `-P 16`
       # puts every uncompressed .so on a 16,384-byte offset inside the APK —
       # the Android 16 mmap-straight-from-package contract that
@@ -300,7 +302,7 @@ jobs:
             || { echo "::error::the APK is not v2-signed"; exit 1; }
           grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt \
             || { echo "::error::the APK is not v3-signed"; exit 1; }
-          # v3.4.6.a — TRAP #1: the REAL Android 16 check (-P 16), not plain -c 4
+          # v3.4.6.b — TRAP #1: the REAL Android 16 check (-P 16), not plain -c 4
           "$BT/zipalign" -c -P 16 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | head -2
           "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionCode='${{ steps.ver.outputs.code }}'" \
@@ -314,7 +316,7 @@ jobs:
           unzip -l "$APK" | grep -q "assets/fonts/NotoSansSinhala-Regular.ttf"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libflutter.so"
           unzip -l "$APK" | grep -E "classes.*dex|lib/arm64-v8a/libflutter.so"
-          # v3.4.6.a — THE LAUNCH-INTEGRITY GATE (same script as build-apk.yml):
+          # v3.4.6.b — THE LAUNCH-INTEGRITY GATE (same script as build-apk.yml):
           # 16 KB-page ELF audit of every packaged .so, one-ABI contract,
           # launch-critical libapp.so + asset pair, manifest identity, v2+v3.
           # v3.4.6 shipped dead-on-arrival with every gate above green — this
@@ -433,7 +435,7 @@ jobs:
               and install over the previous version (same permanent signing key).
             - Verify with `SHA256SUMS.txt`.
 
-            Full story: `V3_4_6_MORNYE_FLUTTER_UI_RELEASE_REPORT.md` in the repo.
+            Full story: `docs/reports/V3_4_6_MORNYE_FLUTTER_UI_RELEASE_REPORT.md` in the repo.
           files: |
             dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk
             dist/SHA256SUMS.txt

@@ -1,8 +1,8 @@
-// AnantPlay Sinhala Player v3.4.6.a — the Home shell: Mornye collapsing large
+// AnantPlay Sinhala Player v3.4.6.b — the Home shell: Mornye collapsing large
 // title, receiver hero glass card (pulsing dot + Start/Stop), the instant
 // in-app auto-update glass banner (live % + 1-tap Update Now), quick-action
 // tiles, and Continue Watching (WatchHistory with progress + resume).
-// v3.4.6.a — FULL MORNYE PARITY: the entry reveal is now Mornye's
+// v3.4.6.b — FULL MORNYE PARITY: the entry reveal is now Mornye's
 // StaggeredListItem (the upstream Home exact effect: each section springs up
 // after its own delay on the spatial spring, opacity on the effects spring,
 // reduced-motion and scrolled-page aware), matching the upstream reveal.
@@ -44,7 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // v3.4.6.a — the Mornye entry reveal (upstream Home's
+                    // v3.4.6.b — the Mornye entry reveal (upstream Home's
                     // StaggeredListItem): 0.2 s spatial spring per section,
                     // 40 ms stagger. animate:false is never needed here — the
                     // widget itself skips on scrolled/reduced-motion.

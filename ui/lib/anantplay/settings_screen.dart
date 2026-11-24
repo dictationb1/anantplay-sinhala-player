@@ -1,7 +1,7 @@
-// AnantPlay Sinhala Player v3.4.6.a — the Mornye Appearance & Customization
+// AnantPlay Sinhala Player v3.4.6.b — the Mornye Appearance & Customization
 // Studio: Quick Settings (theme cards, accent, glass clarity, motion) plus
 // collapsible connected advanced groups, and Backup/About.
-// v3.4.6.a — FULL MORNYE PARITY: the whole list is now the upstream
+// v3.4.6.b — FULL MORNYE PARITY: the whole list is now the upstream
 // CONNECTED SETTINGS LIST — SettingsGroup (radiusCard = 24, one surface per
 // section, dividers between rows exactly like upstream's appearance page)
 // instead of floating per-tile cards. Switch rows keep their real prefs.
@@ -33,7 +33,7 @@ class SettingsScreen extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
         children: [
           _SectionHeader('Appearance'),
-          // v3.4.6.a — the connected list: one SettingsGroup card per section,
+          // v3.4.6.b — the connected list: one SettingsGroup card per section,
           // rows separated by dividers inside the surface (upstream contract:
           // radiusCard = 24, showDivider on every row except the last).
           SettingsGroup(children: [
@@ -152,7 +152,7 @@ class SettingsScreen extends StatelessWidget {
     showLicensePage(
       context: context,
       applicationName: 'AnantPlay Sinhala Player',
-      applicationVersion: '3.4.6.a',
+      applicationVersion: '3.4.6.b',
       applicationIcon: const SizedBox(width: 48, height: 48),
     );
   }
@@ -167,7 +167,7 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // v3.4.6.a — connected-list contract: the group owns the horizontal
+    // v3.4.6.b — connected-list contract: the group owns the horizontal
     // inset, so the header pads itself to the same 16 dp the group uses
     // upstream (settingsHorizontalInset at phone width).
     return Padding(
@@ -193,7 +193,7 @@ class _ThemeCards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // v3.4.6.a — inside the connected group, pad the row to the group's
+    // v3.4.6.b — inside the connected group, pad the row to the group's
     // own 16 dp inset (the group surface itself is edge-to-edge).
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -263,7 +263,7 @@ class _AccentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // v3.4.6.a — inside the connected group, pad to the group's 16 dp inset.
+    // v3.4.6.b — inside the connected group, pad to the group's 16 dp inset.
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
       child: SizedBox(
@@ -295,7 +295,7 @@ class _AccentRow extends StatelessWidget {
   }
 }
 
-// ── v3.4.6.a — the connected rows (upstream SettingsItem shapes, Mornye
+// ── v3.4.6.b — the connected rows (upstream SettingsItem shapes, Mornye
 // paddings from context.tokens, divider between rows by the group) ──────────
 
 class _SliderRow extends StatelessWidget {
@@ -354,7 +354,7 @@ class _SwitchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // v3.4.6.a — the upstream connected-list switch row: SettingsItem's own
+    // v3.4.6.b — the upstream connected-list switch row: SettingsItem's own
     // row chrome (padding from tokens, divider kept by the group) with the
     // Mornye AppSwitch as the trailing control, exactly as upstream's
     // settings pages place their switches.
@@ -381,7 +381,7 @@ class _ActionRow extends StatelessWidget {
     return SettingsItem(
       title: title,
       onTap: onTap,
-      // v3.4.6.a: `isLast` was declared but never passed by any caller —
+      // v3.4.6.b: `isLast` was declared but never passed by any caller —
       // dart analyze fails CI on `unused_element_parameter` (WARNING).
       // The shipped rendering always showed the divider (default false →
       // showDivider: !false), so that behavior is preserved explicitly.
@@ -399,7 +399,7 @@ class _VersionFooter extends StatelessWidget {
     return const Padding(
       padding: EdgeInsets.only(top: 18, bottom: 6),
       child: Center(
-        child: Text('AnantPlay Sinhala Player v3.4.6.a (30407)',
+        child: Text('AnantPlay Sinhala Player v3.4.6.b (30408)',
             style: TextStyle(color: Color(0x59F2F7F7), fontSize: 11.5)),
       ),
     );
