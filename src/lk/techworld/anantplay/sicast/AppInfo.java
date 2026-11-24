@@ -2,6 +2,11 @@ package lk.techworld.anantplay.sicast;
 
 /** Version + identity constants (no Gradle BuildConfig — plain aapt2/javac/d8 build).
  *
+ *  v3.4.6 (code 30406): THE MORNYE LIQUID-GLASS FLUTTER UI (Option A) — the
+ *  Mornye v5.4.0 visual engine vendored under LGPL-3.0-only into ui/, hosted by a
+ *  FlutterActivity over the same pure-Java cast/player backend, with pure-SVG
+ *  Liquid-Glass Cinema assets and a 55 MB updater cap. Strictly v3.x — never v4.
+ *
  *  v3.4.0 (code 30400): THE VECTOR UI OVERHAUL — 63 VectorDrawables replace every
  *  emoji, a brand-new adaptive + monochrome launcher icon, two REAL Sinhala weights
  *  (400/600, 742 KB smaller than the variable original), the Mornye-grade shell with
@@ -18,8 +23,8 @@ package lk.techworld.anantplay.sicast;
  *  script-ratio validation) + the Mornye/Apple-grade customization hub + the
  *  dedicated 10-point Troubleshooter. Strictly v3.x — never v4. */
 final class AppInfo {
-    static final String VERSION_NAME = "3.4.5";
-    static final int VERSION_CODE = 30405;
+    static final String VERSION_NAME = "3.4.6";
+    static final int VERSION_CODE = 30406;
     static final String NAME = "AnantPlay Sinhala Player";
     private AppInfo() { }
 }

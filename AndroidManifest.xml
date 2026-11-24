@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="lk.techworld.anantplay.sicast"
-    android:versionCode="30405"
-    android:versionName="3.4.5">
+<!-- v3.4.6 — AGP 9 no longer honours (or permits) a package attribute here, and
+     it warns loudly when one is present. The app identity now lives where AGP 9
+     reads it: android/app/build.gradle → namespace + applicationId +
+     versionCode/versionName. build.sh (the pure-Java recipe) passes the same
+     identity explicitly via aapt2 link --version-code/--version-name, so BOTH
+     packaging paths stamp 30406 / 3.4.6. Nothing else in this file changed. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36"/>
 
     <!-- The cast-receiver permission set — a strict subset of what official AnantPlay
          itself holds (its AndroidManifest.xml). NO AccessibilityService, NO

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="288" height="288" viewBox="0 0 288 288">
+<defs>
+
+<linearGradient id="tealGrad" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#3E8E8F"/>
+  <stop offset="1" stop-color="#1E4E4F"/>
+</linearGradient>
+<radialGradient id="glassBulb" cx="0.5" cy="0.42" r="0.62">
+  <stop offset="0" stop-color="rgba(255,255,255,0.16)"/>
+  <stop offset="0.7" stop-color="rgba(120,190,190,0.06)"/>
+  <stop offset="1" stop-color="rgba(18,62,62,0.25)"/>
+</radialGradient>
+<linearGradient id="rimGrad" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="rgba(255,255,255,0.55)"/>
+  <stop offset="0.5" stop-color="rgba(255,255,255,0.18)"/>
+  <stop offset="1" stop-color="rgba(190,230,230,0.40)"/>
+</linearGradient>
+
+</defs>
+<rect width="288" height="288" rx="36" fill="#0F2E30"/>
+<g opacity="1">
+  <rect x="42.0" y="75.0" width="204" height="150" rx="32" fill="url(#glassBulb)" stroke="url(#rimGrad)" stroke-width="2"/>
+  <rect x="52.0" y="85.0" width="184" height="51.00000000000001" rx="22.4" fill="rgba(255,255,255,0.07)"/>
+</g>
+<path d="M96 170 L124 140 L152 158 L196 112" fill="none" stroke="url(#tealGrad)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="196" cy="112" r="10" fill="#3E8E8F" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
+<path d="M96 196 h100" stroke="rgba(255,255,255,0.25)" stroke-width="2" stroke-linecap="round"/>
+<path d="M96 210 h60" stroke="rgba(255,255,255,0.15)" stroke-width="2" stroke-linecap="round"/>
+<text x="144" y="240" text-anchor="middle" font-family="Inter" font-size="13" fill="rgba(242,247,247,0.62)">Receiver stays alive in background</text>
+
+</svg>

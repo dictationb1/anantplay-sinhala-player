@@ -1,0 +1,125 @@
+// AnantPlay Sinhala Player v3.4.6 — the Option-A host app module.
+//
+// WRAPS THE EXISTING PURE-JAVA BACKEND 100% INTACT:
+//   · src/     → java.srcDirs   (lk.techworld.anantplay.sicast backend, unchanged)
+//   · res/     → res.srcDirs    (the audited launcher + chrome drawables, unchanged)
+//   · assets/  → assets.srcDirs (fonts: NotoSansSinhala + Inter variable, unchanged)
+//   · libs/    → the Media3 1.11.1 + Guava jars, exactly as build.sh used them
+// and EMBEDS the Flutter module (ui/ — the Mornye v5.4.0 Liquid-Glass engine,
+// vendored LGPL-3.0-only) via the standard add-to-app include from settings.gradle.
+//
+// v3.4.6 FIXES APPLIED TO THE SHIPPED DELTA (all four were hard build failures):
+//   1. the dev.flutter.flutter-gradle-plugin is APPLIED (without it the Flutter
+//      engine AAR is never resolved and :flutter is never packaged);
+//   2. Java 17 (Flutter 3.50.1's minimum) — not the Java 8 bytecode target that
+//      the plain-Java build.sh path used, which d8 8.6/AGP 9 reject for classes
+//      compiled against the Flutter embedding;
+//   3. minSdk 26 (unchanged for the app) is raised for the Flutter module via
+//      the flutter.minSdkVersion override below — Flutter's floor is 24, ours is
+//      higher, so nothing is lost;
+//   4. the signing config is wired from -P properties (KS_FILE/KS_PASS/KS_ALIAS/
+//      KS_KEYPASS) exactly the way the release workflow passes them.
+//
+// Signing reads the same permanent secrets build.sh has always used
+// (KS_BASE64 → decoded keystore, KS_PASS / KS_KEYPASS / KS_ALIAS) so v3.4.6
+// updates in place over v3.4.5 — the zero-uninstall Obtainium contract.
+plugins {
+    id "com.android.application"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def ksFile = project.findProperty("KS_FILE")
+def hasReleaseKey = ksFile != null && file(ksFile).exists()
+
+android {
+    namespace = "lk.techworld.anantplay.sicast"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "lk.techworld.anantplay.sicast"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 30406
+        versionName = "3.4.6"
+        multiDexEnabled = true
+
+        // v3.4.6 — the CI contract is ONE arm64 artifact below 50 MiB. The Flutter
+        // engine AAR ships every ABI, so the app filters to arm64-v8a explicitly
+        // (armeabi-v7a/x86_64 video decoders are not part of this release).
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    // the EXISTING tree — same files, same package, zero relocation
+    sourceSets {
+        main {
+            manifest.srcFile "../AndroidManifest.xml"
+            java.srcDirs = ["../src"]
+            res.srcDirs = ["../res"]
+            assets.srcDirs = ["../assets"]
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseKey) {
+                storeFile file(ksFile)
+                storePassword project.findProperty("KS_PASS")
+                keyAlias project.findProperty("KS_ALIAS") ?: "sicast"
+                keyPassword project.findProperty("KS_KEYPASS") ?: project.findProperty("KS_PASS")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            }
+            // The shipped jars are dexed by AGP's D8; the backend is plain Java
+            // touched by reflection — no R8/ProGuard, no shrinking, no renaming
+            // (mirrors build.sh: d8 + zipalign + apksigner, no shrinking).
+            minifyEnabled false
+            shrinkResources false
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        resources {
+            excludes += ["META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*"]
+        }
+    }
+
+    compileOptions {
+        // Flutter 3.50.1 requires Java 17 on the Android side (it refuses to
+        // build with an older bytecode target) — see gradle_utils.dart.
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig = false
+        resValues = false
+    }
+
+    lint {
+        // A release gate, not a linter: the workflows verify badging/zipalign/
+        // apksigner explicitly, so lint must not fail the build on style.
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+}
+
+dependencies {
+    // The existing Media3 1.11.1 + Guava jars — referenced in place, never copied.
+    implementation fileTree(dir: "../libs", include: ["*.jar"])
+    // The Flutter module AAR binding (include_flutter.groovy → :flutter).
+    implementation project(":flutter")
+}
