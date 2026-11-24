@@ -118,6 +118,26 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # v3.4.6 — READ-ONLY DIAGNOSTICS. Job logs live behind a signed blob URL
+      # that is not always reachable from automation, but check-run annotations
+      # ARE part of the API. So the first failing lines (and the exact failing
+      # gate name) are republished as annotations, one per line.
+      - name: Publish lab failures as annotations (readable from the API)
+        if: failure()
+        run: |
+          set -euo pipefail
+          if [ -f lab/out/lab.txt ]; then
+            echo "--- last 40 report lines ---"
+            tail -40 lab/out/lab.txt
+            grep -n '  FAIL ' lab/out/lab.txt | head -10 | cut -c1-900 | while IFS= read -r line; do
+              echo "::error title=Lab FAIL line::${line}"
+            done
+            LAB_RESULT=$(grep -m1 'Lab result' lab/out/lab.txt || true)
+            echo "::error title=Lab result::${LAB_RESULT}"
+          else
+            echo "::error title=Lab::lab/out/lab.txt was never produced — the compile step failed (see the step above)"
+          fi
+
       # The proof travels with the run: the exact passed/failed counts are published
       # as a check-run annotation, so "N/N PASS" is verifiable from the API.
       - name: Publish the lab proof as a run annotation
@@ -220,9 +240,12 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$RC" -ne 0 ]; then
-            grep -E "FAILED|Error|Exception" /tmp/test.log | head -40 | while IFS= read -r line; do
-              echo "::error::${line}"
-            done
+            echo "--- last 120 lines of flutter test ---"
+            tail -120 /tmp/test.log
+            grep -nE "FAILED|Error|Exception|Expected:|Actual:|Which:|failed to load|Unable to load" /tmp/test.log \
+              | head -30 | cut -c1-900 | while IFS= read -r line; do
+                echo "::error title=flutter test::${line}"
+              done
             exit 1
           fi
           grep -E "All tests passed" /tmp/test.log
@@ -383,9 +406,10 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$RC" -ne 0 ]; then
-            grep -E "^e: |error:|FAILURE|error •|Caused by" /tmp/gradle.log | head -60 | while IFS= read -r line; do
-              echo "::error::${line}"
-            done
+            grep -E "^e: |error:|FAILURE|error •|Caused by|What went wrong|Could not|Cannot|Execution failed" /tmp/gradle.log \
+              | head -40 | cut -c1-900 | while IFS= read -r line; do
+                echo "::error title=gradle::${line}"
+              done
             exit 1
           fi
           mkdir -p dist
