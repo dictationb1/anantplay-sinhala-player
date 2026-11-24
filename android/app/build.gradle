@@ -74,6 +74,15 @@ android {
                 keyAlias project.findProperty("KS_ALIAS") ?: "sicast"
                 keyPassword project.findProperty("KS_KEYPASS") ?: project.findProperty("KS_PASS")
             }
+            // v3.4.6 — the release contract is apksigner v2 AND v3. AGP derives the
+            // v3 scheme from minSdk/maxSdk by default, and with minSdk 26 it left
+            // v3 OFF ("Verified using v3 scheme: false"), so both are requested
+            // explicitly. v1 stays on for pre-Nougat safety nets; the schemes are
+            // additive, so an API-26 phone verifies with v2 and an API-28+ phone
+            // with v3 — same key, same signature lineage.
+            v1SigningEnabled true
+            v2SigningEnabled true
+            enableV3Signing true
         }
     }
 

@@ -236,7 +236,12 @@ jobs:
           SIZE=$(stat -c %s "$APK")
           test "$SIZE" -lt 52428800 || { echo "::error::APK must be strictly below 50 MiB (got $SIZE bytes)"; exit 1; }
           echo "size: $SIZE bytes (< 50 MiB)"
-          "$BT/apksigner" verify --verbose --print-certs "$APK"
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | tee /tmp/apksigner.txt
+          # the release contract: BOTH schemes, verified, on the exact artifact
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/apksigner.txt \
+            || { echo "::error::the APK is not v2-signed"; exit 1; }
+          grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt \
+            || { echo "::error::the APK is not v3-signed"; exit 1; }
           "$BT/zipalign" -c 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | head -2
           "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionCode='${{ steps.ver.outputs.code }}'" \

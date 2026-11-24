@@ -547,7 +547,11 @@ jobs:
           echo "size: $SIZE bytes (< 50 MiB)"
           notice "size" "$SIZE bytes — under the 52428800-byte limit"
           "$BT/apksigner" verify --verbose --print-certs "$APK" > /tmp/apksigner.txt 2>&1
-          notice "apksigner" "$(grep -m1 'Verified using v2 scheme' /tmp/apksigner.txt || echo 'v2?') / $(grep -m1 'Verified using v3 scheme' /tmp/apksigner.txt || echo 'v3?') (exit 0)"
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/apksigner.txt \
+            || { echo "::error::the APK is not v2-signed"; exit 1; }
+          grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt \
+            || { echo "::error::the APK is not v3-signed (the release contract is v2+v3)"; exit 1; }
+          notice "apksigner" "v2 true + v3 true (exit 0)"
           "$BT/zipalign" -c 4 "$APK"
           notice "zipalign" "zipalign -c 4 exit 0 (4-byte aligned)"
           "$BT/aapt2" dump badging "$APK" | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)"

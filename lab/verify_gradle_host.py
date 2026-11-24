@@ -201,6 +201,19 @@ check("the release workflow publishes the versioned APK path it later verifies",
 check("SHA256SUMS.txt is written in dist/ (the directory the upload step reads)",
       "cd dist" in rel_wf and "sha256sum \"$APK\" > SHA256SUMS.txt" in rel_wf)
 
+# ── G4b2: the signature scheme contract ──────────────────────────────────────
+# AGP derives v3 from minSdk/maxSdk and, with minSdk 26, left it OFF — a v2-only
+# APK shipped. Both schemes must be requested AND both must be asserted in the
+# workflows that publish the artifact.
+check("the release signing config requests v1 + v2 + v3 explicitly",
+      "v1SigningEnabled true" in host and "v2SigningEnabled true" in host
+      and "enableV3Signing true" in host)
+check("both workflows FAIL the build unless apksigner reports v2 AND v3 true",
+      build_wf.count("Verified using v3 scheme (APK Signature Scheme v3): true") >= 1
+      and rel_wf.count("Verified using v3 scheme (APK Signature Scheme v3): true") >= 1
+      and build_wf.count("Verified using v2 scheme (APK Signature Scheme v2): true") >= 1
+      and rel_wf.count("Verified using v2 scheme (APK Signature Scheme v2): true") >= 1)
+
 # ── G4c: the flutter extension must point the plugin at ui/ ─────────────────
 # The plugin's default source is "../.." (a standalone Flutter app's shape), which
 # resolves to the REPO ROOT here and makes `flutter assemble` exit 1 with no
