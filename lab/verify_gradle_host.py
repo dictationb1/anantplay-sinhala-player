@@ -128,6 +128,19 @@ check("settings.gradle resolves the Flutter SDK from FLUTTER_ROOT (local.propert
 check("the Gradle host declares AndroidX on (the Flutter engine needs it)",
       "android.useAndroidX=true" in read("android/gradle.properties"))
 
+# ── G3b: the manifest must PARSE (an XML comment may not contain "--", and a
+#         single stray double hyphen turns :processReleaseMainManifest red)
+import xml.etree.ElementTree as _ET
+try:
+    _root = _ET.parse(path("AndroidManifest.xml")).getroot()
+    _manifest_ok = _root.tag.endswith("manifest")
+except Exception as _e:                                   # noqa: BLE001
+    _manifest_ok = False
+    print("  manifest parse error: %s" % _e)
+check("AndroidManifest.xml is well-formed XML", _manifest_ok)
+check("no XML comment in the manifest contains a double hyphen",
+      all("--" not in c for c in __import__("re").findall(r"<!--(.*?)-->", read("AndroidManifest.xml"), __import__("re").S)))
+
 # ── G4: the version triad + the toolchain pins ───────────────────────────────
 appinfo = read("src/lk/techworld/anantplay/sicast/AppInfo.java")
 buildsh = read("build.sh")

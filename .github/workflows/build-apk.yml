@@ -132,7 +132,14 @@ jobs:
             tail -20 /tmp/pubget-partial.log || true
           fi
           rm -rf .dart_tool .android   # leave the tree EXACTLY as checked out
-          ls -d "$HOME"/.pub-cache/hosted/pub.dev/flutter_embedding_* 2>/dev/null || echo "(no embedding in the pub cache)"
+          FOUND=$(find "$HOME/.pub-cache" -name 'flutter_embedding_*.jar' 2>/dev/null | head -5)
+          if [ -n "$FOUND" ]; then
+            echo "embedding jars:"; echo "$FOUND"
+          else
+            echo "::warning title=javac gate::no flutter_embedding jar in the pub cache — io.flutter symbols are not type-checked in this run"
+            find "$HOME/.pub-cache" -maxdepth 3 -type d 2>/dev/null | head -20
+            tail -30 /tmp/pubget-partial.log || true
+          fi
 
       - name: Compile the engines + run the cast-protocol lab (mandatory)
         run: |
@@ -256,6 +263,10 @@ jobs:
             exit 1
           fi
 
+      # v3.4.6 — these two steps also run in the `apk` job (after the full
+      # resolve), so the diagnostics must not depend on /tmp: everything is
+      # written under the workspace, and the step name is shared so both runs
+      # are searchable as one gate.
       - name: Flutter test (gating — widget + bridge contract tests)
         run: |
           set -euo pipefail

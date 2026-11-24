@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v3.4.6 — AGP 9 no longer honours (or permits) a package attribute here, and
+<!-- v3.4.6: AGP 9 no longer honours (or permits) a package attribute here, and
      it warns loudly when one is present. The app identity now lives where AGP 9
-     reads it: android/app/build.gradle → namespace + applicationId +
-     versionCode/versionName. build.sh (the pure-Java recipe) passes the same
-     identity explicitly via aapt2 link --version-code/--version-name, so BOTH
-     packaging paths stamp 30406 / 3.4.6. Nothing else in this file changed. -->
+     reads it - android/app/build.gradle (namespace, applicationId, versionCode,
+     versionName). build.sh (the pure-Java recipe) passes the same identity
+     explicitly via the aapt2 link version flags, so BOTH packaging
+     paths stamp 30406 / 3.4.6. Nothing else in this file changed.
+     NOTE: an XML comment may not contain a double hyphen, so this file is
+     deliberately punctuation-clean. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36"/>
 
