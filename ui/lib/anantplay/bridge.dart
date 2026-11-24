@@ -53,6 +53,59 @@ class CastStatus {
   }
 }
 
+/// v3.4.6.b — one frame of the onboarding permission/install snapshot the
+/// host pushes on every resume (and on demand): overlay · notif · battery ·
+/// unknown-sources · official-app presence, so the wizard's auto-advance and
+/// every Enabled ✓ pill resolve from live native state.
+class OnboardingStatus {
+  const OnboardingStatus({
+    required this.overlay,
+    required this.notif,
+    required this.battery,
+    required this.installs,
+    required this.official,
+  });
+
+  final bool overlay;
+  final bool notif;
+  final bool battery;
+  final bool installs;
+  final bool official;
+
+  static OnboardingStatus get unknown => const OnboardingStatus(
+        overlay: false, notif: false, battery: false, installs: false, official: false);
+
+  static OnboardingStatus fromMap(Object? map) {
+    if (map is! Map || map['t'] != 'onboardingStatus') return OnboardingStatus.unknown;
+    return OnboardingStatus(
+      overlay: map['overlay'] == true,
+      notif: map['notif'] == true,
+      battery: map['battery'] == true,
+      installs: map['installs'] == true,
+      official: map['official'] == true,
+    );
+  }
+}
+
+/// v3.4.6.b — the in-app official-AnantPlay installer stream (Slide 2):
+/// live download percent (`installProgress`, v = 0..100) and pipeline state
+/// (`installState`, v = resolving/needs-permission/confirm/…).
+class InstallEvent {
+  const InstallEvent({required this.type, required this.value, required this.extra});
+
+  factory InstallEvent.fromMap(Map<dynamic, dynamic> map) => InstallEvent(
+        type: (map['t'] as String?) ?? '',
+        value: (map['v'] as String?) ?? '',
+        extra: (map['x'] as String?) ?? '',
+      );
+
+  final String type;
+  final String value;
+  final String extra;
+
+  int get percent => int.tryParse(value) ?? 0;
+}
+
 /// One continue-watching row (WatchHistory.Item, JSON-decoded).
 class HistoryItem {
   const HistoryItem({
@@ -144,6 +197,8 @@ class AnantPlay {
   Stream<CastStatus>? _castStream;
   Stream<UpdaterEvent>? _updaterStream;
   Stream<List<ProbeOutcome>>? _probeStream;
+  Stream<OnboardingStatus>? _onboardingStream;
+  Stream<InstallEvent>? _installStream;
 
   /// Test seam: drops the cached broadcast streams so a fresh scope can listen.
   @visibleForTesting
@@ -151,6 +206,8 @@ class AnantPlay {
     _castStream = null;
     _updaterStream = null;
     _probeStream = null;
+    _onboardingStream = null;
+    _installStream = null;
   }
 
   /// The live receiver status stream (pushed on every change + resume).
@@ -203,6 +260,61 @@ class AnantPlay {
   Future<bool> officialInstalled() async => await _cast.invokeMethod('officialInstalled');
   Future<void> openOfficialApp() => _cast.invokeMethod('openOfficial');
   Future<void> runTestPlayer() => _cast.invokeMethod('testPlayer');
+
+  // ── v3.4.6.b — the unbreakable onboarding finish + in-app installer ─────────
+
+  /// THE dedicated persistence path: K_ONBOARDING_DONE = true through the
+  /// native `finishOnboarding` handler (AppPrefs.setOnboardingDone — a writer
+  /// no allowlist ever filters). Never silently dropped, never normalized away.
+  Future<void> finishOnboarding() => _cast.invokeMethod('finishOnboarding');
+
+  /// The live permission/install snapshot (overlay · notif · battery ·
+  /// installs · official app) — one native round-trip for the whole wizard.
+  Future<OnboardingStatus> onboardingStatus() async =>
+      OnboardingStatus.fromMap(await _cast.invokeMethod('onboardingStatus'));
+
+  /// The onboardingStatus stream: the host pushes a fresh frame on every
+  /// resume, so auto-advance and every Enabled ✓ pill reflect live state.
+  Stream<OnboardingStatus> onboardingStatusEvents() {
+    return _onboardingStream ??= _castEvents
+        .receiveBroadcastStream()
+        .map(OnboardingStatus.fromMap)
+        .where((s) => s != OnboardingStatus.unknown);
+  }
+
+  /// Slide 2's installer stream (installProgress/installState frames).
+  Stream<InstallEvent> installEvents() {
+    return _installStream ??= _castEvents
+        .receiveBroadcastStream()
+        .map((e) => e is Map ? InstallEvent.fromMap(e) : null)
+        .where((e) => e != null)
+        .cast<InstallEvent>()
+        .where((e) => e.type == 'installProgress' || e.type == 'installState');
+  }
+
+  Future<bool> canRequestPackageInstalls() async =>
+      await _cast.invokeMethod('canRequestPackageInstalls');
+
+  Future<void> openUnknownSources() => _cast.invokeMethod('openUnknownSources');
+
+  /// Slide 2's Install button: resolve the official latest release → live
+  /// percent → Android's 1-tap PackageInstaller sheet.
+  Future<void> installOfficialAnantPlay() =>
+      _cast.invokeMethod('installOfficialAnantPlay');
+
+  Future<String> officialVersion() async =>
+      await _cast.invokeMethod('officialVersion');
+
+  /// Slide 5's universal background stability entry (OEM-aware page).
+  Future<void> openBatteryOptimization() => _cast.invokeMethod('openBatteryOptimization');
+
+  /// Slide 6's 1-tap copy (Sources & Index Helper).
+  Future<void> copyToClipboard(String text) =>
+      _cast.invokeMethod('copyToClipboard', {'text': text});
+
+  /// The editable Saved Index URL box (backed-up pref, returns the stored value).
+  Future<String> saveIndexUrl(String url) async =>
+      await _cast.invokeMethod('saveIndexUrl', {'url': url});
 
   // ── anantplay/player ─────────────────────────────────────────────────────
 

@@ -11,7 +11,7 @@ name: Build Sinhala Player APK
 #   · android/local.properties is NEVER committed: CI writes it from FLUTTER_ROOT.
 #
 # v3.4.5 kept: reproducible-APK notes, build-tools 35.0.1 hard requirement, and
-# the version-lock assertions (3.4.6.a / 30407 everywhere).
+# the version-lock assertions (3.4.6.b / 30408 everywhere).
 env:
   TZ: UTC
 
@@ -50,8 +50,8 @@ jobs:
           GRADLE_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)
           APPINFO_VERSION=$(sed -n 's/.*VERSION_NAME = "\([^"]*\)".*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
           APPINFO_CODE=$(sed -n 's/.*VERSION_CODE = \([0-9]*\).*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
-          test "$VERSION" = "3.4.6.a"
-          test "$CODE" = "30407"
+          test "$VERSION" = "3.4.6.b"
+          test "$CODE" = "30408"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -101,6 +101,57 @@ jobs:
           BAD=$(git ls-files '*.apk' '*.jks' '*.keystore' '*.p12' | wc -l)
           echo "signed artifacts tracked: $BAD"
           [ "$BAD" -eq 0 ]
+
+      # v3.4.6.b — Gate 2: the repo root was a 20-file report dump. The archive
+      # must stay under docs/reports/ and the accidental-upload junk (the iOS
+      # Xcode tree, the Flutter plugin manifest, python bytecode) must never be
+      # tracked again. This is a TRACKED-file proof, so ephemeral state a
+      # `flutter pub get` legitimately creates in the job's own worktree is
+      # irrelevant — exactly like the .zip/.apk gate above.
+      - name: Clean repo root + docs/reports archive (v3.4.6.b)
+        run: |
+          set -euo pipefail
+          echo "--- the repo root must carry ONLY the essentials ---"
+          ALLOWED="AndroidManifest.xml
+          LICENSE
+          README.md
+          SETUP-SI.md
+          THIRD_PARTY.md
+          build.sh
+          .gitignore"
+          ROOT=$(git ls-files | grep -v / | sort)
+          EXPECTED=$(printf '%s\n' "$ALLOWED" | sort)
+          echo "tracked root files:"; echo "$ROOT"
+          if [ "$ROOT" != "$EXPECTED" ]; then
+            echo "::error title=Repo root is cluttered::tracked root files differ from the allow-list"
+            diff <(echo "$EXPECTED") <(echo "$ROOT") || true
+            exit 1
+          fi
+          echo "repo root: exactly the essential files ($(echo "$ROOT" | wc -l))"
+          echo "--- historical reports live in docs/reports/ (must be > 0) ---"
+          REPORTS=$(git ls-files 'docs/reports/*' | wc -l)
+          echo "archived reports: $REPORTS"
+          [ "$REPORTS" -gt 0 ]
+          for f in V3_MASTER_ARCHITECTURE_AND_ANDROID16_REPORT.md \
+                   V3_3_1_ZERO_CRASH_AUDIT_AND_FIX_REPORT.md \
+                   V3_4_6_A_CRASH_FIX_AND_FULL_MORNYE_REPORT.md \
+                   V3_4_6_B_CHANGELOG_AND_AUDIT.md; do
+            test -f "docs/reports/$f" || { echo "::error title=Report archive incomplete::docs/reports/$f is missing"; exit 1; }
+          done
+          echo "docs/reports/: archive complete"
+          echo "--- accidental-upload junk must NEVER be tracked (must be 0) ---"
+          JUNK=$(git ls-files 'ui/.ios/*' '**/.ios/*' '**/__pycache__/*' '*.pyc' \
+            'ui/.flutter-plugins-dependencies' '**/.flutter-plugins-dependencies' \
+            'android/local.properties' '*.zip' '*.apk' '*.aab' '*.idsig' | wc -l)
+          echo "junk files tracked: $JUNK"
+          if [ "$JUNK" -ne 0 ]; then
+            git ls-files 'ui/.ios/*' '**/.ios/*' '**/__pycache__/*' '*.pyc' \
+              'ui/.flutter-plugins-dependencies' '**/.flutter-plugins-dependencies' \
+              'android/local.properties' '*.zip' '*.apk' '*.aab' '*.idsig'
+            echo "::error title=Junk tracked::the v3.4.6.b upload junk (iOS tree / pyc / archives) is tracked"
+            exit 1
+          fi
+          echo "ui/.ios/, ui/.flutter-plugins-dependencies, __pycache__, .pyc, .zip, .apk: 0 tracked"
 
       # v3.4.6 — THE PARTIAL `flutter pub get`. The lab's javac gate compiles the
       # shipped MainActivity against the Flutter embedding (io.flutter.*), which
@@ -327,7 +378,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:
-      # v3.4.6.a — the version identity of the artifact (published as run
+      # v3.4.6.b — the version identity of the artifact (published as run
       # annotations; the launch-smoke job below builds its own x86_64 twin
       # and resolves the same version independently).
       version: ${{ steps.app-version.outputs.version }}
@@ -348,8 +399,8 @@ jobs:
           GRADLE_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)
           APPINFO_VERSION=$(sed -n 's/.*VERSION_NAME = "\([^"]*\)".*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
           APPINFO_CODE=$(sed -n 's/.*VERSION_CODE = \([0-9]*\).*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
-          test "$VERSION" = "3.4.6.a"
-          test "$CODE" = "30407"
+          test "$VERSION" = "3.4.6.b"
+          test "$CODE" = "30408"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -544,7 +595,7 @@ jobs:
           cp "$APK_OUT" dist/AnantPlay-Sinhala-Player.apk
           test -s dist/AnantPlay-Sinhala-Player.apk
 
-      # v3.4.6.a — TRAP #1: THE 16 KB ZIP PASS, THEN apksigner. AGP signs
+      # v3.4.6.b — TRAP #1: THE 16 KB ZIP PASS, THEN apksigner. AGP signs
       # during assembleRelease, but alignment REWRITES the zip and invalidates
       # any signature — so the auditable order is: zipalign -P 16 -f 4 →
       # apksigner sign (v1+v2+v3) → zipalign -c -P 16 4 → apksigner verify →
@@ -592,7 +643,7 @@ jobs:
           "$BT/zipalign" -c -P 16 4 "$SRC"
           echo "::notice title=zipalign::zipalign -P 16 -f 4 applied, zipalign -c -P 16 4 OK"
 
-      - name: Assert the artifact is a real, signed, installable v3.4.6.a APK
+      - name: Assert the artifact is a real, signed, installable v3.4.6.b APK
         run: |
           set -euo pipefail
           # v3.4.6 — every gate below publishes its verdict as a check-run
@@ -618,7 +669,7 @@ jobs:
           grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt \
             || { echo "::error::the APK is not v3-signed (the release contract is v2+v3)"; exit 1; }
           notice "apksigner" "v2 true + v3 true (exit 0)"
-          # v3.4.6.a — TRAP #1: the REAL Android 16 check, -P 16 (16 KiB .so
+          # v3.4.6.b — TRAP #1: the REAL Android 16 check, -P 16 (16 KiB .so
           # offsets inside the zip), not the legacy plain -c 4.
           "$BT/zipalign" -c -P 16 4 "$APK"
           notice "zipalign" "zipalign -c -P 16 4 exit 0 (16 KiB .so offsets)"
@@ -634,7 +685,7 @@ jobs:
           # the Flutter engine really is inside the APK (libflutter.so is the proof)
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libflutter.so"
           unzip -l "$APK" | grep -E "classes.*dex|lib/arm64-v8a/libflutter.so"
-          # v3.4.6.a — THE LAUNCH-INTEGRITY GATE (the v3.4.6 post-mortem's own
+          # v3.4.6.b — THE LAUNCH-INTEGRITY GATE (the v3.4.6 post-mortem's own
           # audit, hard-wired into CI): every packaged .so must be 16 KB-page
           # ready (PT_LOAD congruent modulo 16384 in file AND vaddr), exactly
           # ONE ABI, the launch-critical libapp.so + asset pair present, the
@@ -697,7 +748,7 @@ jobs:
               echo "| sha256 | $(cut -d' ' -f1 dist/sha256.txt) |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-  # ── v3.4.6.a — THE REAL LAUNCH SMOKE TEST (audit TRAP #3, fixed) ───────────
+  # ── v3.4.6.b — THE REAL LAUNCH SMOKE TEST (audit TRAP #3, fixed) ───────────
   # The v3.4.6 incident in one sentence: an APK that installed fine and crashed
   # on EVERY launch shipped 100% green, because no CI job ever STARTED the app.
   #
@@ -729,8 +780,8 @@ jobs:
           set -euo pipefail
           VERSION=$(sed -n 's/^VERSION_NAME=${VERSION_NAME:-\([^}]*\)}$/\1/p' build.sh | head -1)
           CODE=$(sed -n 's/^VERSION_CODE=${VERSION_CODE:-\([^}]*\)}$/\1/p' build.sh | head -1)
-          test "$VERSION" = "3.4.6.a"
-          test "$CODE" = "30407"
+          test "$VERSION" = "3.4.6.b"
+          test "$CODE" = "30408"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 

@@ -41,6 +41,10 @@ class SettingsMirror {
     return SettingsMirror(values);
   }
 
+  /// v3.4.6.b — the raw map (completeOnboarding's synchronous overlay writes
+  /// through this, so the local flip never loses any other live value).
+  Map<String, Object?> get raw => _values;
+
   bool b(String key, bool def) {
     final v = _values[key];
     return v is bool ? v : def;
@@ -95,6 +99,7 @@ class SettingsMirror {
   static const kFreeTranslator = 'freeTranslator';
   static const kMidnightDimmer = 'midnightDimmer';
   static const kMidnightDimPct = 'midnightDimPct';
+  static const kIndexUrl = 'indexUrl';
   static const kContinueWatching = 'continueWatching';
 
   String get themeMode => s(kThemeMode, 'dark');
@@ -110,4 +115,7 @@ class SettingsMirror {
   bool get showWebTab => b(kShowWebTab, true);
   bool get autoUpdate => b(kAutoUpdate, true);
   bool get motionEnabled => b(kMotion, true);
+
+  /// v3.4.6.b — the Sources & Index Helper's saved URL (AppPrefs.DEFAULT_INDEX_URL).
+  String get indexUrl => s(kIndexUrl, 'https://raw.githubusercontent.com/AnantPlay/index/main/index.json');
 }
