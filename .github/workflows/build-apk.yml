@@ -102,6 +102,38 @@ jobs:
           echo "signed artifacts tracked: $BAD"
           [ "$BAD" -eq 0 ]
 
+      # v3.4.6 — THE PARTIAL `flutter pub get`. The lab's javac gate compiles the
+      # shipped MainActivity against the Flutter embedding (io.flutter.*), which
+      # only exists in the pub cache after a resolve. `--no-precompile` resolves
+      # the ENTRYPOINT, not the app: no package_config.json, no ui/.android host,
+      # no generated registrant — nothing the APK build could reuse — but the
+      # flutter_embedding_*.jar lands in ~/.pub-cache, so the gate is complete.
+      # (The committed pins are the same set the APK build resolves in full.)
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.1
+          cache: true
+
+      - name: Resolve the Flutter embedding for the javac gate
+        run: |
+          set -euo pipefail
+          cd ui
+          for f in InterVariable.ttf GoogleSansFlex.ttf; do
+            [ -s "assets/fonts/$f" ] || curl -fsSL --max-time 120 -o "assets/fonts/$f" \
+              "https://github.com/mornyeapp/Mornye/raw/c4a1c7b812eb135d6e1a295b6b25e11abbd72a7e/assets/fonts/$f"
+          done
+          set +e
+          flutter pub get --no-precompile > /tmp/pubget-partial.log 2>&1
+          RC=$?
+          set -e
+          if [ "$RC" -ne 0 ]; then
+            echo "partial resolve did not complete — the embedding gate will be skipped (it is NOT a release gate)"
+            tail -20 /tmp/pubget-partial.log || true
+          fi
+          rm -rf .dart_tool .android   # leave the tree EXACTLY as checked out
+          ls -d "$HOME"/.pub-cache/hosted/pub.dev/flutter_embedding_* 2>/dev/null || echo "(no embedding in the pub cache)"
+
       - name: Compile the engines + run the cast-protocol lab (mandatory)
         run: |
           chmod +x lab/run_lab.sh

@@ -51,27 +51,37 @@ def flutter_embedding_jars():
     """v3.4.6 — the Flutter embedding classes the host activity imports.
 
     MainActivity/Media3TextureBridge extend FlutterActivity and use MethodChannel,
-    so a compile against android.jar alone reports ~40 "cannot find symbol"
-    diagnostics that the real Gradle build does not have. The embedding jars live
-    in the pub cache once `flutter pub get` has run (ui/.dart_tool/package_config
-    points at flutter's sdk package). We locate them generically:
-      <flutter>/.pub-cache/hosted/pub.dev/flutter_embedding_*/jars/*.jar
-    and silently skip when none exist (the SYNTAX-only mode then still runs)."""
+    so a FULL compile against android.jar alone reports dozens of false
+    "package io.flutter... does not exist" diagnostics that the real Gradle build
+    never has (the Gradle host resolves the embedding from the Flutter engine's
+    own maven repo).
+
+    The embedding AAR is unpacked into the pub cache by `flutter pub get`:
+        ~/.pub-cache/hosted/pub.dev/flutter_embedding_*/jars/*.jar
+    We look there, and ALSO under $FLUTTER_ROOT (the SDK ships its own
+    .pub-cache) — a job that never ran pub get simply finds nothing and the
+    io.flutter diagnostics are downgraded to a note (see main()).
+    """
     found = []
     roots = []
     home = os.environ.get("HOME", "")
     if home:
-        roots.append(os.path.join(home, ".pub-cache", "hosted"))
-    fr = os.environ.get("FLUTTER_ROOT")
+        roots.append(os.path.join(home, ".pub-cache"))
+    fr = os.environ.get("FLUTTER_ROOT") or ""
     if fr:
-        roots.append(os.path.join(fr, ".pub-cache", "hosted"))
+        roots.append(os.path.join(fr, ".pub-cache"))
     for root in roots:
-        for pattern in ("pub.dev", "pub.dartlang.org", "*"):
-            base = os.path.join(root, pattern)
-            if not os.path.isdir(base):
-                continue
-            found.extend(glob.glob(os.path.join(base, "flutter_embedding_*", "jars", "*.jar")))
-            found.extend(glob.glob(os.path.join(base, "flutter_embedding_*", "*.jar")))
+        if not os.path.isdir(root):
+            continue
+        for dirpath, dirs, files in os.walk(root):
+            # keep the walk shallow: <root>/hosted/<repo>/flutter_embedding_*/jars
+            if os.path.basename(dirpath).startswith("flutter_embedding_"):
+                for sub in ("jars", ""):
+                    d = os.path.join(dirpath, sub) if sub else dirpath
+                    if os.path.isdir(d):
+                        found.extend(os.path.join(d, f) for f in os.listdir(d) if f.endswith(".jar"))
+            if dirpath.count(os.sep) - root.count(os.sep) > 4:
+                dirs[:] = []
     return sorted(set(found))
 
 

@@ -51,13 +51,18 @@ android {
         }
     }
 
-    // the EXISTING tree — same files, same package, zero relocation
+    // the EXISTING tree — same files, same package, zero relocation.
+    // v3.4.6 — AGP 9 resolves a RELATIVE manifest path against the MODULE dir at
+    // task time (the shipped "../AndroidManifest.xml" landed on
+    // android/AndroidManifest.xml and failed processReleaseMainManifest), so the
+    // absolute paths are computed here, where `project` is unambiguous.
+    def repoRoot = project.rootProject.projectDir.parentFile
     sourceSets {
         main {
-            manifest.srcFile "../AndroidManifest.xml"
-            java.srcDirs = ["../src"]
-            res.srcDirs = ["../res"]
-            assets.srcDirs = ["../assets"]
+            manifest.srcFile new File(repoRoot, "AndroidManifest.xml")
+            java.srcDirs = [new File(repoRoot, "src")]
+            res.srcDirs = [new File(repoRoot, "res")]
+            assets.srcDirs = [new File(repoRoot, "assets")]
         }
     }
 
