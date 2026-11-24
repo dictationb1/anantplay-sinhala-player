@@ -236,6 +236,27 @@ def rule_prefs():
         if os.path.exists(p):
             surfaces[fn] = strip_comments(open(p, encoding="utf-8").read())
 
+    # v3.4.6 — THE DEFAULT SURFACE IS NOW THE FLUTTER SHELL. The 8-channel bridge
+    # (MainActivity.java) is the Java half; the screens that actually read/write a
+    # preference live in ui/lib/anantplay/. A control that only exists in Dart is
+    # just as real (and just as fake-able), so the Flutter shell is scanned too.
+    # The Java constant K_SOME_KEY is matched to its Dart mirror kSomeKey — the
+    # naming contract SettingsMirror documents.
+    flutter_surfaces = {}
+    ui_dir = os.path.join(ROOT, "ui", "lib")
+    for rel_dir, _dirs, files in os.walk(ui_dir):
+        for fn in sorted(files):
+            if fn.endswith(".dart"):
+                fp = os.path.join(rel_dir, fn)
+                flutter_surfaces[os.path.relpath(fp, ROOT)] = strip_comments(
+                    open(fp, encoding="utf-8").read())
+    flutter_all = "\n".join(flutter_surfaces.values())
+
+    def dart_name(java_key):
+        """K_QUICKSTART_DONE -> kQuickstartDone (the SettingsMirror contract)."""
+        parts = java_key[2:].lower().split("_")
+        return "k" + "".join(w[:1].upper() + w[1:] for w in parts)
+
     # A pref is WIRED when a UI surface names it, OR names one of the AppPrefs
     # accessors that read/write it (AppPrefs.swipeSeek(prefs) is a real wire).
     accessors = {}   # K_ -> {method names that mention it}
@@ -260,6 +281,13 @@ def rule_prefs():
         if k not in backed:
             missing_backup.append((k, raw))
         used = bool(re.search(r"\b%s\b" % k, ui_all))
+        if not used:
+            # the Flutter half: the SettingsMirror constant (kSomeKey) or the
+            # literal wire name ("quickstartDone") must appear in a Dart surface.
+            mirror = dart_name(k)
+            if re.search(r"\b%s\b" % re.escape(mirror), flutter_all) or \
+                    re.search(r"['\"]%s['\"]" % re.escape(raw), flutter_all):
+                used = True
         if not used:
             for acc in sorted(accessors.get(k, ())):
                 if acc in ("read", "write", "get", "put", "set", "load", "save"):
@@ -334,6 +362,8 @@ def main():
         print("FAIL — %d violation(s):" % len(violations))
         for v in violations:
             print("  " + v)
+            # v3.4.6 — check-run annotations survive where job logs do not.
+            print("::error title=ui_completeness::%s" % v[:800])
         if notes:
             print("notes (%d):" % len(notes))
             for n in notes[:20]:

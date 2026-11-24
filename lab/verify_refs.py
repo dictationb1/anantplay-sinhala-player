@@ -66,6 +66,13 @@ def main():
 
     allowed = ('java/', 'javax/', 'jdk/', 'sun/', 'com/sun/', 'android/', 'lk/techworld/')
 
+    # v3.4.6 — the APK is a Flutter add-to-app host: the shipped activity
+    # extends io.flutter.embedding.android.FlutterActivity. The embedding is an
+    # AAR the Gradle host resolves, not a jar under libs/, so its namespace is
+    # allow-listed by prefix (every reference is still a REAL class the Gradle
+    # build compiles against — it is not a wildcard pass for our own code).
+    FLUTTER_PREFIXES = ('io/flutter/',)
+
     # ── v3.4.3 — NO BLIND PASS ON INTERNAL CLASSES (Replit QA-0023) ──────────
     # v3.4.2 accepted EVERY 'lk/techworld/*' reference without looking. A typo'd or
     # deleted internal class therefore verified "OK" here and only failed on a phone
@@ -117,7 +124,7 @@ def main():
                 continue
             missing_internal.append(r.replace('/', '.'))
             continue
-        if any(r.startswith(p) for p in allowed):
+        if any(r.startswith(p) for p in allowed) or any(r.startswith(p) for p in FLUTTER_PREFIXES):
             continue
         bad.append(r.replace('/', '.'))
 

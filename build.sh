@@ -2,7 +2,7 @@
 # Builds AnantPlay-Sinhala-Player.apk with plain SDK tools — NO Gradle, the same recipe
 # official AnantPlay itself uses (AnantPlay/android build.sh).
 #
-# Needs: an Android SDK (platform 34 + build-tools 34.x/35.x) and a JDK 17+.
+# Needs: an Android SDK (platform 36 + build-tools 35.0.1) and a JDK 17+.
 #   ANDROID_HOME=/path/to/sdk ./build.sh
 #
 # Output: dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk (signed + apksigner-verified,
@@ -43,26 +43,25 @@ BT=""
   esac
   if [ -z "$BT" ] || [ "$(printf '%s\n%s\n' "$BT" "$d" | sort -V | tail -1)" = "$d" ]; then BT=$d; fi
 done
-# v3.0.0 — a TRUE Android 16 (SDK 36) build: compiles + links against
-# platforms/android-36 (falling back to 35/34 when only those are installed)
-# and stamps targetSdkVersion 36 (edge-to-edge enforced; MainActivity pads by
-# the real window insets).
+# v3.4.6 — a TRUE Android 16 (SDK 36) build: compiles + links against
+# platforms/android-36 ONLY (no silent fallback: the release always ships
+# targetSdkVersion 36, and edge-to-edge inset handling depends on it).
 JAR=""
-for p in android-36 android-35 android-34; do
+for p in android-36; do
   [ -f "$SDK/platforms/$p/android.jar" ] && { JAR="$SDK/platforms/$p/android.jar"; break; }
 done
-[ -n "$JAR" ] || JAR="$SDK/platforms/android-34/android.jar"
+# (v3.4.6: no silent platform fallback — the release always compiles against android-36)
 TARGET_SDK=36
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-3.4.5}
-VERSION_CODE=${VERSION_CODE:-30405}
-PREV_VERSION_CODE=${PREV_VERSION_CODE:-30404}   # v3.4.4 — the last released build
+VERSION_NAME=${VERSION_NAME:-3.4.6}
+VERSION_CODE=${VERSION_CODE:-30406}
+PREV_VERSION_CODE=${PREV_VERSION_CODE:-30405}   # v3.4.5 — the last released build
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
 [ -n "$BT" ] || die "no build-tools >= 35.0.1 under $SDK/build-tools — d8 8.2 (34.x) crashes on the shipped jars; install build-tools;35.0.1"
-[ -f "$JAR" ] || die "$JAR missing. Install with: sdkmanager \"platforms;android-34\" \"build-tools;35.0.1\""
+[ -f "$JAR" ] || die "$JAR missing. Install with: sdkmanager \"platforms;android-36\" \"build-tools;35.0.1\""
 ls libs/media3-exoplayer-*.jar >/dev/null 2>&1 || die "libs/ missing — media3 jars ship with this repo (Apache-2.0)"
 [ -d src/lk/techworld/anantplay/sicast ] || die "src/ missing"
 command -v javac >/dev/null 2>&1 || die "javac not on PATH (need JDK 17+)"

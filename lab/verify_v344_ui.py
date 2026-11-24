@@ -28,6 +28,8 @@ def check(name, ok, detail=""):
     else:
         failed += 1
         print("  FAIL v344 ui: " + name + ((" — " + detail) if detail else ""))
+        # v3.4.6 — check-run annotations survive where job logs do not.
+        print("::error title=v344-ui::" + (name + ((" — " + detail) if detail else ""))[:800])
 
 
 def has_paint(path):

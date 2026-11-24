@@ -12,6 +12,13 @@ cd "$(dirname "$0")/.."
 rm -rf lab/out
 mkdir -p lab/out/classes
 
+# v3.4.6 — HOSTED CI HAS A JDK (actions/setup-java), so a missing tool is a HARD
+# FAILURE here, not a silent SKIP: a lab that skips its Java legs proves nothing.
+for tool in javac java jar; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "LAB FAILED: '$tool' is not on PATH (install a JDK 17+; CI uses actions/setup-java)" >&2; exit 1; }
+done
+echo "── jdk: $(javac -version 2>&1) / $(java -version 2>&1 | head -1)"
+
 echo "── compile the lab-only android stub (SharedPreferences — never shipped, never dexed)"
 javac -encoding UTF-8 -nowarn -d lab/out/classes lab/stubs/android/content/SharedPreferences.java
 
@@ -86,7 +93,7 @@ fi
 # v3.4.5 — focused glass appearance, font, launcher, and updater release gates.
 if ! python3 lab/verify_v345_ui.py >> lab/out/lab.txt 2>&1; then
   cat lab/out/lab.txt
-  echo "LAB FAILED: v3.4.5 glass UI/updater audit" >&2
+  echo "LAB FAILED: v3.4.6 Mornye Flutter UI/updater audit" >&2
   exit 1
 fi
 
@@ -142,6 +149,18 @@ python3 lab/verify_layouts.py
 python3 lab/verify_ui_completeness.py
 
 # ─────────────────────────────────────────────────────────────────────────────
+# v3.4.6 — THE GRADLE-HOST STRUCTURAL GATE (sixth gating auditor)
+#
+# The APK is now packaged by the Gradle host (android/) around the Flutter
+# module (ui/). A structural break there — a tracked local.properties, a "#"
+# comment in a .gradle file, a missing flutter-gradle-plugin, a Gradle/AGP pin
+# that disagrees with Flutter 3.50.1, an asset path that does not exist — is a
+# release blocker no runtime test can see. All of those shipped in the v3.4.6
+# delta and all of them are asserted here.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 lab/verify_gradle_host.py
+
+# ─────────────────────────────────────────────────────────────────────────────
 # v3.4.1 — THE JAVAC SYNTAX GATE (fourth gating auditor)
 #
 # run_lab.sh compiles only the PURE engines; the four Activity classes are compiled
@@ -155,9 +174,15 @@ set +e
 python3 lab/verify_syntax.py
 SYNTAX_EXIT=$?
 set -e
-if [ "$SYNTAX_EXIT" -ne 0 ] && [ "$SYNTAX_EXIT" -ne 77 ]; then
-  echo "LAB FAILED: verify_syntax.py exited $SYNTAX_EXIT" >&2
-  exit 1
+if [ "$SYNTAX_EXIT" -ne 0 ]; then
+  # exit 77 means "no JDK on this machine". CI always has one (the loop above
+  # hard-fails without it), so keep 77 a skip locally but never on CI.
+  if [ "$SYNTAX_EXIT" -eq 77 ] && [ -z "${CI:-}" ]; then
+    echo "(verify_syntax.py: no JDK — SKIP on this local machine)"
+  else
+    echo "LAB FAILED: verify_syntax.py exited $SYNTAX_EXIT" >&2
+    exit 1
+  fi
 fi
 
 echo "── live bridge E2E (best effort — never gating)"

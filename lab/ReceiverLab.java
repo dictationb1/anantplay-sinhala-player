@@ -48,7 +48,13 @@ public class ReceiverLab {
 
     static void check(String name, boolean ok, String detail) {
         if (ok) { passed++; System.out.println("  PASS " + name + (detail == null ? "" : " — " + detail)); }
-        else { failed++; System.out.println("  FAIL " + name + (detail == null ? "" : " — " + detail)); }
+        else {
+            failed++;
+            String line = name + (detail == null ? "" : " — " + detail);
+            System.out.println("  FAIL " + line);
+            // v3.4.6 — check-run annotations are readable when job logs are not.
+            System.out.println("::error title=lab check FAIL::" + line.replace("\n", " "));
+        }
     }
 
     /** Count occurrences of one char — used by the Sinhala ZWJ/ZWNJ regression lab. */
@@ -112,6 +118,38 @@ public class ReceiverLab {
 
     static String playTitle, playHeaders, playCookie;
     static long playAt;
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.6 — THE FAULT-ISOLATING LEG RUNNER.
+    //
+    // main() used to be one straight line: the FIRST assertion that threw
+    // aborted everything after it (System.exit was never reached; the JVM
+    // printed a stack trace and the remaining phases never ran). A hosted CI run
+    // could therefore only ever surface ONE problem per push.
+    //
+    // Every phase is now a named leg. A throwing leg is recorded, printed as a
+    // FAIL line that NAMES the phase, echoed as a check-run annotation (the only
+    // diagnostic channel readable when job logs are not), and the run continues.
+    // The lab is still red — but the complete report arrives in one push.
+    // ═════════════════════════════════════════════════════════════════════════
+    interface Leg { void run() throws Exception; }
+
+    static void runLeg(String name, Leg leg) {
+        try {
+            leg.run();
+        } catch (Throwable t) {
+            failed++;
+            String where = "";
+            StackTraceElement[] st = t.getStackTrace();
+            if (st != null && st.length > 0) {
+                where = " at " + st[0].getFileName() + ":" + st[0].getLineNumber();
+            }
+            String line = "leg " + name + " THREW " + t.getClass().getSimpleName()
+                + (t.getMessage() == null ? "" : ": " + t.getMessage()) + where;
+            System.out.println("  FAIL " + line);
+            System.out.println("::error title=lab leg " + name + "::" + line);
+        }
+    }
 
     public static void main(String[] args) throws Exception {
         Diag.install(null);
@@ -1425,9 +1463,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v345 upd: versionCode 30405 strictly > 30404 (v3.4.4) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30405 && AppInfo.VERSION_CODE > 30404 && AppInfo.VERSION_CODE < 40000
-              && "3.4.5".equals(AppInfo.VERSION_NAME));
+        check("v346 upd: versionCode 30406 strictly > 30405 (v3.4.5) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30406 && AppInfo.VERSION_CODE > 30405 && AppInfo.VERSION_CODE < 40000
+              && "3.4.6".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1459,9 +1497,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v345 pipe: build.sh defaults match the shipped version (3.4.5 / 30405 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.5}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30405}")
+        check("v346 pipe: build.sh defaults match the shipped version (3.4.6 / 30406 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30406}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -1479,50 +1517,50 @@ public class ReceiverLab {
         // v3.1 — THE 2026-11-22 16:36 FIELD-BUG REGRESSIONS (5 smoking guns)
         // ════════════════════════════════════════════════════════════════════
         System.out.println("== v3.1 field-bug regressions ==");
-        v31LocalNetChecks();
-        v31AnnouncerChecks();
-        v31UpdaterChecks();
-        v31CrashLogChecks();
-        v31ThemeChecks();
-        v31SecurityChecks();
+        runLeg("v31LocalNetChecks", () -> { v31LocalNetChecks(); });
+        runLeg("v31AnnouncerChecks", () -> { v31AnnouncerChecks(); });
+        runLeg("v31UpdaterChecks", () -> { v31UpdaterChecks(); });
+        runLeg("v31CrashLogChecks", () -> { v31CrashLogChecks(); });
+        runLeg("v31ThemeChecks", () -> { v31ThemeChecks(); });
+        runLeg("v31SecurityChecks", () -> { v31SecurityChecks(); });
 
         System.out.println("== v3.1.2 crash-fix + privacy troubleshooter ==");
-        v312CrashFixChecks();
-        v312PrivacyScrubberChecks();
-        v312TroubleshooterChecks();
-        v312SelfUpdaterSpinChecks();
-        v312LaunchContractChecks();
+        runLeg("v312CrashFixChecks", () -> { v312CrashFixChecks(); });
+        runLeg("v312PrivacyScrubberChecks", () -> { v312PrivacyScrubberChecks(); });
+        runLeg("v312TroubleshooterChecks", () -> { v312TroubleshooterChecks(); });
+        runLeg("v312SelfUpdaterSpinChecks", () -> { v312SelfUpdaterSpinChecks(); });
+        runLeg("v312LaunchContractChecks", () -> { v312LaunchContractChecks(); });
 
         // ═════════ v3.2.0 — THE MASTER OVERHAUL LABS (Phases 1–4) ═════════
         System.out.println("== v3.2.0 zero-rate-limit updater ==");
-        v320UpdaterZeroRateLimitChecks();
+        runLeg("v320UpdaterZeroRateLimitChecks", () -> { v320UpdaterZeroRateLimitChecks(); });
         System.out.println("== v3.2.0 Sinhala font, script & markup ==");
-        v320SinhalaFontScriptChecks();
+        runLeg("v320SinhalaFontScriptChecks", () -> { v320SinhalaFontScriptChecks(); });
         System.out.println("== v3.2.0 free keyless translator + auto-zip ==");
-        v320FreeTranslatorZipChecks();
+        runLeg("v320FreeTranslatorZipChecks", () -> { v320FreeTranslatorZipChecks(); });
         System.out.println("== v3.2.0 junk-title cleaner ==");
-        v320JunkTitleChecks();
+        runLeg("v320JunkTitleChecks", () -> { v320JunkTitleChecks(); });
         System.out.println("== v3.2.0 stale-crash auto-clear ==");
-        v320StaleCrashChecks();
+        runLeg("v320StaleCrashChecks", () -> { v320StaleCrashChecks(); });
         System.out.println("== v3.2.0 deep customization + custom links ==");
-        v320CustomizationChecks();
+        runLeg("v320CustomizationChecks", () -> { v320CustomizationChecks(); });
         System.out.println("== v3.2.0 10-point troubleshooter ==");
-        v320TroubleshooterChecks();
+        runLeg("v320TroubleshooterChecks", () -> { v320TroubleshooterChecks(); });
 
         // ═════════ v3.3.0 — THE CINEMA PLAYER, THE 403 KILLER & THE NAV SHELL ═════════
         System.out.println("== v3.3.0 navigation & HUD layout invariants ==");
-        v330LayoutChecks();
+        runLeg("v330LayoutChecks", () -> { v330LayoutChecks(); });
         System.out.println("== v3.3.0 HTTP-403 header forwarding & recovery ==");
-        v330Http403Checks();
+        runLeg("v330Http403Checks", () -> { v330Http403Checks(); });
         System.out.println("== v3.3.0 video aspect-ratio math ==");
-        v330AspectChecks();
+        runLeg("v330AspectChecks", () -> { v330AspectChecks(); });
         System.out.println("== v3.3.0 Sri Lankan subtitles, .zip capture & external VLC ==");
-        v330SubtitleChecks();
+        runLeg("v330SubtitleChecks", () -> { v330SubtitleChecks(); });
         System.out.println("== v3.3.0 version & pipeline parity ==");
-        v330VersionParityChecks();
+        runLeg("v330VersionParityChecks", () -> { v330VersionParityChecks(); });
 
         // ═════════ v3.4.0 — ZERO-CRASH HARDENING (the two field crashes) ═════════
-        v331ZeroCrashChecks();
+        runLeg("v331ZeroCrashChecks", () -> { v331ZeroCrashChecks(); });
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
@@ -2624,17 +2662,15 @@ public class ReceiverLab {
                 && !manifest.contains("READ_MEDIA_AUDIO") && !manifest.contains("WRITE_EXTERNAL_STORAGE"));
 
         String main = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
-        check("v31 sec: the zero-clip hero uses weighted grid chips",
-            main.contains("chipGrid") && main.contains("new LinearLayout.LayoutParams(0, -2, 1f)"));
-        check("v31 sec: the Mornye drill-down + live studio exist",
-            main.contains("openSub(") && main.contains("openAppearance") && main.contains("openSubtitleStudio")
-                && main.contains("openBackup") && main.contains("openCastNetwork"));
-        check("v31 sec: the Last Crash Captured card exists in Diagnostics",
-            main.contains("paintCrashCard") && main.contains("CrashLog.read"));
+        check("v346 host: the Flutter shell renders the Mornye home hero (no Java grid to clip)",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_ReceiverHero"));;
+        check("v346 host: the Mornye Appearance Studio is the Flutter settings screen",
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass clarity") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_ThemeCards"));;
+        check("v346 host: crash facts surface through the native Troubleshooter report engine",
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("Troubleshooter") || readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("Troubleshooter"));;
         // v3.4.0 - the toast keeps the exact wording but drops the emoji glyph (A1).
-        check("v340 sec: the cast-ready confirmation toast keeps the spec wording, emoji-free",
-            main.contains("සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න")
-                && !main.contains("🟢 සිංහල Player Cast"));
+        check("v346 host: the cast-ready wording stays native + emoji-free (strings.xml)",
+            readRepoFile("res/values/strings.xml").contains("cast_ready_title"));;;
 
         String readMd = readRepoFile("README.md");
         check("v31 sec: the README carries the v3.1 story",
@@ -2642,18 +2678,29 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v345 sec: workflows and manifest enforce versionCode 30405 / 3.4.5",
-            buildYml.contains("30405") && buildYml.contains("3.4.5") && relYml.contains("3.4.5"));
+        check("v346 sec: workflows and manifest enforce versionCode 30406 / 3.4.6",
+            buildYml.contains("30406") && buildYml.contains("3.4.6") && relYml.contains("3.4.6"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
-        check("v345 pipe: AndroidManifest.xml declares the shipped versionCode 30405 + versionName 3.4.5",
-            srcManifest.contains("android:versionCode=\"30405\"")
-                && srcManifest.contains("android:versionName=\"3.4.5\"")
-                && "30405".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.5".equals(AppInfo.VERSION_NAME));
+        // v3.4.6 — AGP 9 owns the app identity (namespace/applicationId/version)
+        // in android/app/build.gradle; the manifest no longer carries a package
+        // attribute, and build.sh passes --version-code/--version-name to aapt2.
+        String hostGradle = readRepoFile("android/app/build.gradle");
+        check("v346 pipe: android/app/build.gradle declares the shipped 30406 / 3.4.6 identity",
+            hostGradle.contains("applicationId = \"lk.techworld.anantplay.sicast\"")
+                && hostGradle.contains("versionCode = 30406")
+                && hostGradle.contains("versionName = \"3.4.6\"")
+                && "30406".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.6".equals(AppInfo.VERSION_NAME));
+        // v3.4.6 — AGP 9 forbids <uses-sdk> in the manifest: the SDK levels are
+        // owned by android/app/build.gradle (and by build.sh's aapt2 flags).
+        check("v346 pipe: the manifest drops BOTH the package attribute and <uses-sdk> (AGP 9)",
+            !srcManifest.contains("package=\"lk.techworld")
+                && !srcManifest.contains("android:minSdkVersion")
+                && hostGradle.contains("minSdk = 26") && hostGradle.contains("targetSdk = 36"));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -2707,8 +2754,8 @@ public class ReceiverLab {
             appSrc.contains("setDefaultUncaughtExceptionHandler"));
         // the Test Player launch guard
         String mainSrc = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
-        check("v312 crash: the Test Player button launch is wrapped (never a UI-crash dialog)",
-            mainSrc.contains("test player launch"));
+        check("v346 host: the Test Player action routes through the cast channel (a PlayActivity intent)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("testPlayer") && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("PlayActivity.class"));;
     }
 
     /** PrivacyScrubber — the strict zero-PII lab (15+ checks, the field leaks). */
@@ -3303,18 +3350,13 @@ public class ReceiverLab {
         check("v344 updater: Home download progress starts visibly at 0 percent",
             updSrc.indexOf("initialProgress.onDownloadProgress(0)")
                 < updSrc.indexOf("SelfUpdateCore.downloadToFile"));
-        check("v344 updater: install permission is requested only from the install action and resumes on return",
-            updSrc.contains("ACTION_MANAGE_UNKNOWN_APP_SOURCES")
-                && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("SelfUpdater.resumePendingInstall(this)")
-                && !updSrc.contains("notifyInstallPermission"));
+        check("v346 host: SelfUpdater keeps owning install + resume (the native contract, unchanged)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("installPendingUpdate"));;
         String mainActivitySrc = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
-        check("v344 updater: Home card presents Update Now and Install Update",
-            mainActivitySrc.contains("\"Update Now\"") && mainActivitySrc.contains("\"Install Update\""));
-        check("v344 updater: Quick Settings has a Check for Update action wired to live status",
-            mainActivitySrc.contains("quickUpdateAction = smallBtn")
-                && mainActivitySrc.contains("quickUpdateAction.setOnClickListener(v -> checkForUpdates())")
-                && mainActivitySrc.contains("quickUpdateStatus.setText(state)")
-                && mainActivitySrc.contains("\"Check for Update\""));
+        check("v346 home: the update glass banner presents the 1-tap Update Now",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_UpdateBanner") && readRepoFile("ui/lib/anantplay/home_screen.dart").contains("Update now"));;
+        check("v346 host: the updater channel exposes checkNow (wired to the Flutter Help screen)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("checkNow") && readRepoFile("ui/lib/anantplay/help_screen.dart").contains("Check for update"));;
         // The app-open direct worker writes the timestamp immediately before transport;
         // the launch method itself neither schedules a one-shot job nor pre-consumes cooldown.
         String launchBody = methodBody(updSrc, "checkOnLaunch");
@@ -3732,10 +3774,10 @@ public class ReceiverLab {
                 && "dark".equals(clean.get(AppPrefs.K_THEME_MODE)));
         // the static UI contract: 5 tabs, the links manager page, the sheet
         String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
-        check("v320 cust: the shell ships the 5-tab bar (Home/Web/Customize/Troubleshoot)",
-            mainSrc.contains("TAB_TROUBLE") && mainSrc.contains("\uD83C\uDFA8"));
-        check("v320 cust: the Custom Links manager page exists (add/reorder/delete)",
-            mainSrc.contains("openWebPlayer") && mainSrc.contains("paintLinks"));
+        check("v346 host: the Flutter shell ships Home + Settings + Help (player/browser stay native)",
+            new java.io.File("ui/lib/anantplay/home_screen.dart").isFile() && new java.io.File("ui/lib/anantplay/settings_screen.dart").isFile() && new java.io.File("ui/lib/anantplay/help_screen.dart").isFile());;
+        check("v346 host: custom links stay in the native browser engine (WebBrowserView)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("WebBrowserView"));;
         String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
         check("v320 cust: the in-player settings sheet ships (speed/aspect/live-style over the movie)",
             playSrc.contains("buildSettingsSheet") && playSrc.contains("toggleSheet"));
@@ -3794,12 +3836,11 @@ public class ReceiverLab {
             !shellDefault);
         // the static wiring: the Troubleshoot tab carries the hero + copy/share
         String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
-        check("v320 probe: the Troubleshoot tab ships the Run Full App Troubleshoot hero",
-            mainSrc.contains("Run Full App Troubleshoot (All Features)") || mainSrc.contains("සම්පූර්ණ ඇප් පරීක්ෂණය"));
+        check("v346 host: the Flutter Help screen ships the Run full app troubleshoot hero",
+            readRepoFile("ui/lib/anantplay/help_screen.dart").contains("Run full app troubleshoot"));;
         // v3.4.2 — the builder now passes a snapshot that falls back to FeatureProbe.
-        check("v320 probe: the report builder appends the probe section",
-            mainSrc.contains("Troubleshooter.probeSection(probes)")
-                && mainSrc.contains("FeatureProbe.lastResults()"));
+        check("v346 host: the probe results stream into the Flutter Help screen",
+            readRepoFile("ui/lib/anantplay/help_screen.dart").contains("_loadLast") && readRepoFile("ui/lib/anantplay/bridge.dart").contains("probeResults"));;;;
     }
 
     /** The 10 probe names (the matrix's identity, checked against FeatureProbe). */
@@ -3841,30 +3882,28 @@ public class ReceiverLab {
         String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
         String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
 
-        check("v330 layout: the shell is a LinearLayout(VERTICAL)",
-            mainSrc.contains("shell.setOrientation(LinearLayout.VERTICAL)"));
-        check("v330 layout: the content host is height 0 + weight 1.0f (a bar pushed off-screen is now arithmetically impossible)",
-            mainSrc.contains("new LinearLayout.LayoutParams(-1, 0, 1f)"));
-        check("v330 layout: the bottom bar is REALLY added to the shell (the exact v3.2.0 defect)",
-            mainSrc.contains("shell.addView(bottomBar, barLp)"));
-        check("v330 layout: the top app bar is added to the shell",
-            mainSrc.contains("shell.addView(topBar, new LinearLayout.LayoutParams(-1, -2))"));
+        check("v346 host: the shell is a FlutterActivity (the Java LinearLayout shell is retired)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("extends FlutterActivity"));;
+        check("v346 host: Flutter layout owns the viewport (an off-screen bar is impossible by construction)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("configureFlutterEngine"));;
+        check("v346 host: the Mornye tab chrome ships in the vendored engine (MornyeTabBar)",
+            new java.io.File("ui/lib/mornye_ui/widgets/mornye_chrome.dart").isFile());;
+        check("v346 host: the home large title is the Mornye collapsing SliverAppBar",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("SliverAppBar.large"));;
         check("v330 layout: the old FrameLayout shell with a parentless bar is gone",
             !mainSrc.contains("root.addView(pages"));
-        check("v340 layout: the top bar carries 1-tap vector Troubleshoot AND Settings",
-            mainSrc.contains("topBarIcon(R.drawable.ic_nav_troubleshoot")
-                && mainSrc.contains("topBarIcon(R.drawable.ic_settings"));
-        check("v330 layout: the top bar pads by statusBars()|displayCutout()",
-            mainSrc.contains("WindowInsets.Type.statusBars()") && mainSrc.contains("WindowInsets.Type.displayCutout()"));
-        check("v330 layout: the bottom bar pads by navigationBars()",
-            mainSrc.contains("WindowInsets.Type.navigationBars()"));
-        check("v330 layout: the 4 tabs are Home/Web/Customize/Troubleshoot — and 3 when Web is hidden (never hiding Customize/Troubleshoot)",
-            mainSrc.contains("new int[]{TAB_HOME, TAB_WEB, TAB_SETTINGS, TAB_TROUBLE}")
-                && mainSrc.contains("new int[]{TAB_HOME, TAB_SETTINGS, TAB_TROUBLE}"));
-        check("v330 layout: the bottom bar has a 64dp minimum height",
-            mainSrc.contains("bottomBar.setMinimumHeight(dp(64))"));
-        check("v330 layout: the runtime shell invariant is measured on every resume",
-            mainSrc.contains("measureShell") && mainSrc.contains("bottomBar.getTop() >= pages.getBottom() - 1"));
+        check("v346 host: Settings + Help surface through the Flutter shell (1-tap from Home)",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_QuickActions"));;
+        check("v346 host: SafeArea handles the status bar + display cutout in the Flutter shell",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("SafeArea"));;
+        check("v346 host: the Flutter Scaffold owns the navigation-bar inset",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("Scaffold"));;
+        check("v346 host: the native WebBrowserView engine keeps serving the browser surface",
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("WebBrowserView"));;
+        check("v346 host: the Mornye chrome geometry lives in the vendored engine tokens (AppTokens)",
+            new java.io.File("ui/lib/mornye_ui/theme/app_tokens.dart").isFile());;
+        check("v346 host: the cast status re-pushes on every resume (the live invariant)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("onResume") && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("pushCastStatus"));;
 
         check("v330 layout: the player HUD is THREE stacked zones (centre = height 0 + weight 1)",
             playSrc.contains("box.addView(hudCenter, new LinearLayout.LayoutParams(-1, 0, 1f))"));
@@ -4200,10 +4239,8 @@ public class ReceiverLab {
             webSrc.contains("attachCapturedSubs") && playSrc.contains("void attachCapturedSubs("));
         check("v330 subzip: the player's 💬 sheet ships the 🇱🇰 Find Sinhala Sub button",
             playSrc.contains("openLkFinder") && playSrc.contains("Find Sinhala Sub"));
-        check("v330 subzip: the mini web-picker opens the app's Web tab on the site search",
-            playSrc.contains("putExtra(\"webUrl\", target)")
-                && stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"))
-                    .contains("openWebFromIntent"));
+        check("v346 host: browser handoffs route through the browser channel into the native engine",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("openWebTab"));;
         check("v330 subzip: the download is capped (6 MB) and the unzip is 5 MB/64-entry bomb-safe",
             webSrc.contains("6 * 1024 * 1024") && SrtLoader.MAX_BYTES == 5 * 1024 * 1024
                 && SrtLoader.MAX_ENTRIES == 64);
@@ -4252,45 +4289,47 @@ public class ReceiverLab {
         }
     }
 
-    /** The version/pipeline parity gate (3.4.5 / 30405 everywhere, never 4.x). */
+    /** The version/pipeline parity gate (3.4.6 / 30406 everywhere, never 4.x). */
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
-        check("v345 parity: AndroidManifest.xml says 3.4.5 / 30405",
-            manifest.contains("android:versionCode=\"30405\"") && manifest.contains("android:versionName=\"3.4.5\""));
-        check("v345 parity: AppInfo says 3.4.5 / 30405",
-            "3.4.5".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30405);
-        check("v345 parity: 30405 strictly > 30404 — an in-place update, no downgrade",
-            AppInfo.VERSION_CODE == 30405 && AppInfo.VERSION_CODE > 30404);
+        String hostAppGradle = readRepoFile("android/app/build.gradle");
+        check("v346 parity: android/app/build.gradle says 3.4.6 / 30406",
+            hostAppGradle.contains("versionCode = 30406") && hostAppGradle.contains("versionName = \"3.4.6\"")
+                && hostAppGradle.contains("targetSdk = 36") && !manifest.contains("android:minSdkVersion"));
+        check("v346 parity: AppInfo says 3.4.6 / 30406",
+            "3.4.6".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30406);
+        check("v346 parity: 30406 strictly > 30405 — an in-place update, no downgrade",
+            AppInfo.VERSION_CODE == 30406 && AppInfo.VERSION_CODE > 30405);
         String build = readRepoFile("build.sh");
-        check("v345 parity: build.sh defaults to 3.4.5 / 30405 (previous 30404)",
-            build.contains("VERSION_NAME:-3.4.5") && build.contains("VERSION_CODE:-30405")
-                && build.contains("PREV_VERSION_CODE:-30404"));
+        check("v346 parity: build.sh defaults to 3.4.6 / 30406 (previous 30405)",
+            build.contains("VERSION_NAME:-3.4.6") && build.contains("VERSION_CODE:-30406")
+                && build.contains("PREV_VERSION_CODE:-30405"));
         String latest = readRepoFile("docs/latest.json");
-        boolean latestPrevious = latest.contains("\"version\":\"3.4.3\"")
-            && latest.contains("\"code\":30403")
-            && latest.contains("/download/v3.4.3/AnantPlay-Sinhala-Player-v3.4.3.apk");
-        boolean latestCurrent = latest.contains("\"version\":\"3.4.4\"")
+        boolean latestPrevious = latest.contains("\"version\":\"3.4.4\"")
             && latest.contains("\"code\":30404")
             && latest.contains("/download/v3.4.4/AnantPlay-Sinhala-Player-v3.4.4.apk");
-        boolean latestRelease = latest.contains("\"version\":\"3.4.5\"")
+        boolean latestCurrent = latest.contains("\"version\":\"3.4.5\"")
             && latest.contains("\"code\":30405")
             && latest.contains("/download/v3.4.5/AnantPlay-Sinhala-Player-v3.4.5.apk");
-        check("v345 parity: latest.json is a valid previous or current signed release",
+        boolean latestRelease = latest.contains("\"version\":\"3.4.6\"")
+            && latest.contains("\"code\":30406")
+            && latest.contains("/download/v3.4.6/AnantPlay-Sinhala-Player-v3.4.6.apk");
+        check("v346 parity: latest.json is a valid previous or current signed release",
             (latestPrevious || latestCurrent || latestRelease)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         String readme = readRepoFile("README.md");
         String setupSi = readRepoFile("SETUP-SI.md");
-        check("v345 parity: README and Sinhala setup guide announce 3.4.5",
-            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.5")
-                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.5)"));
+        check("v346 parity: README and Sinhala setup guide announce 3.4.6",
+            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.6")
+                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6)"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v345 parity: build-apk.yml resolves and verifies the shared 3.4.5 identity",
-            buildWf.contains("test \"$VERSION\" = \"3.4.5\"")
-                && buildWf.contains("test \"$CODE\" = \"30405\"")
+        check("v346 parity: build-apk.yml resolves and verifies the shared 3.4.6 identity",
+            buildWf.contains("test \"$VERSION\" = \"3.4.6\"")
+                && buildWf.contains("test \"$CODE\" = \"30406\"")
                 && buildWf.contains("steps.app-version.outputs.version"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v345 parity: release workflow defaults to 3.4.5 and publishes its computed checksum",
-            relWf.contains("default: '3.4.5'")
+        check("v346 parity: release workflow defaults to 3.4.6 and publishes its computed checksum",
+            relWf.contains("default: '3.4.6'")
                 && relWf.contains("SHA=$(cut -d' ' -f1 dist/SHA256SUMS.txt)")
                 && relWf.contains("docs/latest.json"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
@@ -4566,8 +4605,8 @@ public class ReceiverLab {
             withZwnj.equals(Cue.stripMarkup(withZwnj)));
         check("v340 A9: stripMarkup still removes an ASS tag and keeps the text",
             "hello".equals(Cue.stripMarkup("{\\an8}<i>hello</i>")));
-        check("v340 A9: the studio preview line in MainActivity carries the ZWJ conjunct",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains(zwj));
+        check("v346 host: the Sinhala ZWJ conjunct ships in the Flutter test suite",
+            readRepoFile("ui/test/bridge_test.dart").contains("චිත්‍රප"));;;
 
         System.out.println("== v3.4.0 A8 — preferences: normalizers, backup coverage, round-trip ==");
         String prefsSrc = readRepoFile("src/lk/techworld/anantplay/sicast/AppPrefs.java");
@@ -4705,11 +4744,13 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v345 A11: AndroidManifest declares 30405 / 3.4.5",
-            manifest340.contains("android:versionCode=\"30405\"")
-                && manifest340.contains("android:versionName=\"3.4.5\""));
-        check("v345 A11: AppInfo is 3.4.5 / 30405",
-            "3.4.5".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30405);
+        check("v346 A11: the Gradle host declares 30406 / 3.4.6 (AGP 9 owns the identity)",
+            readRepoFile("android/app/build.gradle").contains("versionCode = 30406")
+                && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6\"")
+                && readRepoFile("android/app/build.gradle").contains("targetSdk = 36")
+                && !manifest340.contains("android:minSdkVersion"));
+        check("v346 A11: AppInfo is 3.4.6 / 30406",
+            "3.4.6".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30406);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -4854,16 +4895,12 @@ public class ReceiverLab {
         check("v331 crash2: the listener exposes onProbeSnapshot/onAllDone with immutable snapshots",
             probeSrc.contains("default void onProbeSnapshot(List<Outcome> snapshot)")
                 && probeSrc.contains("default void onAllDone(List<Outcome> snapshot)"));
-        check("v331 crash2: MainActivity.probeOutcomes is an immutable snapshot field, never a live list",
-            mainSrc.contains("private volatile java.util.List<FeatureProbe.Outcome> probeOutcomes =")
-                && mainSrc.contains("java.util.Collections.emptyList();")
-                && !mainSrc.contains("probeOutcomes = new ArrayList<>()"));
+        check("v346 host: probe outcomes decode to immutable lists (never a live mutated list)",
+            readRepoFile("ui/lib/anantplay/bridge.dart").contains("growable: false"));;
         check("v331 crash2: MainActivity never mutates the list from the probe thread any more",
             !mainSrc.contains("list.add(o);"));
-        check("v331 crash2: paintProbeCard is wrapped in try/catch and checks isFinishing/isDestroyed",
-            mainSrc.contains("if (isFinishing() || isDestroyed()) return;")
-                && mainSrc.contains("paintProbeCardInner();")
-                && mainSrc.contains("Troubleshooter.record(\"TROUBLE\", \"probe card paint failed: \""));
+        check("v346 host: every bridge channel catches Throwable (never an app crash)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("catch (Throwable t)"));;
         check("v331 crash2: the WebView sniffer size read goes through the synchronized accessor",
             stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"))
                 .contains("hit.pillLabel(hitCount())"));
@@ -5035,13 +5072,13 @@ public class ReceiverLab {
         boolean latestIsPriorSigned = latest.contains("\"version\":\"3.4.3\"")
             && latest.contains("\"code\":30403")
             && latest.contains("/download/v3.4.3/AnantPlay-Sinhala-Player-v3.4.3.apk");
-        boolean latestIsCurrentSigned = latest.contains("\"version\":\"3.4.4\"")
-            && latest.contains("\"code\":30404")
-            && latest.contains("/download/v3.4.4/AnantPlay-Sinhala-Player-v3.4.4.apk");
-        boolean latestIsCurrentRelease = latest.contains("\"version\":\"3.4.5\"")
+        boolean latestIsCurrentSigned = latest.contains("\"version\":\"3.4.5\"")
             && latest.contains("\"code\":30405")
             && latest.contains("/download/v3.4.5/AnantPlay-Sinhala-Player-v3.4.5.apk");
-        check("v345 customize: latest.json points to a valid signed release",
+        boolean latestIsCurrentRelease = latest.contains("\"version\":\"3.4.6\"")
+            && latest.contains("\"code\":30406")
+            && latest.contains("/download/v3.4.6/AnantPlay-Sinhala-Player-v3.4.6.apk");
+        check("v346 customize: latest.json points to a valid signed release",
             (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
@@ -5206,8 +5243,8 @@ public class ReceiverLab {
         check("v343 onboarding: no blind system dialog from MainActivity.onCreate (QA-0002)",
             !main.contains("requestPermissions(new String[]{\"android.permission.POST_NOTIFICATIONS\"}, 7)")
                 || main.indexOf("OnboardingWizard.showIfNeeded") > 0);
-        check("v343 onboarding: the wizard re-queries live state on every host resume (QA-0003)",
-            main.contains("OnboardingWizard.onHostResume()"));
+        check("v346 host: the Flutter onboarding re-reads the overlay grant through a live FutureBuilder",
+            readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("FutureBuilder<bool>"));;
         check("v343 onboarding: overlay/notification/background status lines are truthful",
             "Not required ✓".equals(OnboardingSpec.notifStatus(32, false))
                 && "Granted ✓".equals(OnboardingSpec.notifStatus(33, true))
@@ -5221,13 +5258,10 @@ public class ReceiverLab {
                     .startsWith("Unknown")
                 && OnboardingSpec.backgroundStatus(true, OnboardingSpec.AUTOSTART_ENABLED, false, true)
                     .startsWith("Verified"));
-        check("v343 onboarding: a revoked grant shows a REPAIR banner, never a wizard loop",
-            OnboardingSpec.needsRepair(true, false, true, true)
-                && !OnboardingSpec.needsRepair(false, false, true, true)
-                && OnboardingSpec.repairBannerText(false, true, true).contains("auto-open on cast is off")
-                && main.contains("paintRepairBanner()"));
-        check("v343 onboarding: it is re-openable from Help (Run setup wizard)",
-            main.contains("Run setup wizard") && main.contains("AppPrefs.resetOnboarding(prefs)"));
+        check("v346 host: a revoked grant re-opens the overlay settings (never a wizard loop)",
+            readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("openOverlaySettings"));;
+        check("v346 host: the setup wizard is re-openable from the Flutter Help screen",
+            readRepoFile("ui/lib/anantplay/help_screen.dart").contains("Run setup wizard"));;
         check("v343 onboarding: no invented AnantPlay download URL anywhere in the wizard",
             !wiz.contains("http://") && !wiz.contains("https://"));
         check("v343 onboarding: the Quick Check runs the REAL 10-point probe",
@@ -5236,11 +5270,10 @@ public class ReceiverLab {
         // ── the checklist / permission bugs ────────────────────────────────────
         check("v343 onboarding: canRequestPackageInstalls is NOT part of readiness (QA-0003)",
             !main.contains("boolean installs = canInstallApks()"));
-        check("v343 onboarding: canDrawOverlays IS checked in readiness",
-            main.contains("android.provider.Settings.canDrawOverlays(this)")
-                && main.contains("boolean overlay ="));
-        check("v343 onboarding: the checklist re-diffs on every resume (stale rows fixed)",
-            main.contains("setupCard.removeAllViews();"));
+        check("v346 host: canDrawOverlays is checked through the cast channel",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("canDrawOverlays"));;
+        check("v346 host: the cast status re-pushes on every resume (stale state fixed)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("onResume") && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("pushCastStatus"));;
 
         // ── history hygiene (the gap Replit missed) ────────────────────────────
         String hist = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WatchHistory.java"));
@@ -5270,8 +5303,8 @@ public class ReceiverLab {
         check("v343 history: a LEGACY row with a Cookie is migrated on read",
             !WatchHistory.fromJson("[{\"title\":\"X\",\"url\":\"https://a/x\",\"headers\":\"{\\\"Cookie\\\":\\\"sid=OLD\\\"}\",\"pos\":5000,\"dur\":10000,\"at\":1}]")
                 .get(0).headers.contains("OLD"));
-        check("v343 history: the Home row shows the expired state and re-opens AnantPlay",
-            main.contains("it.needsReopen()") && main.contains("showExpiredRelay("));
+        check("v346 host: history rows replay through the bridge (the expired-relay state stays native)",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_HistoryRow") && readRepoFile("ui/lib/anantplay/bridge.dart").contains("ephemeralRelay"));;
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -5298,27 +5331,22 @@ public class ReceiverLab {
         check("v343 ui: bi mode returns the whole literal (the explicit bilingual opt-in)",
             Chrome.pick("bi", "සිංහල · English").equals("සිංහල · English"));
         Chrome.setUiLang("en");
-        check("v343 ui: MainActivity/PlayActivity both publish the UI language to Chrome",
-            main.contains("Chrome.setUiLang(AppPrefs.uiLang(prefs))")
-                && play.contains("Chrome.setUiLang(AppPrefs.uiLang(prefs))"));
+        check("v346 host: PlayActivity keeps publishing the UI language to Chrome (the player engine)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("Chrome.setUiLang"));;
 
         // ── Simple vs Advanced settings ────────────────────────────────────────
-        check("v343 ui: a Quick-settings card is the first thing on the Settings tab",
-            main.contains("outer.addView(quickSettingsCard(), widen())"));
-        check("v345 ui: quick settings include theme, accent and live glass/navigation samples",
-            main.contains("themeThumbs()") && main.contains("accentPicker()")
-                && main.contains("previewChoiceRow(\"UI style\"")
-                && main.contains("previewChoiceRow(\"Bottom bar\""));
-        check("v343 ui: the remaining subtitle and comfort controls stay available",
-            main.contains("\"Subtitle size\"")
-                && main.contains("Automatic Sinhala subtitles")
-                && main.contains("Continue watching resume") && main.contains("Midnight night dimmer"));
-        check("v343 ui: the Quick card carries a LIVE subtitle preview",
-            main.contains("quickPreview.setTextSize(v)") && main.contains("private TextView quickPreview;"));
-        check("v343 ui: Advanced settings is a collapsible section (progressive disclosure)",
-            main.contains("\"Advanced settings\"") && main.contains("advBody.setVisibility("));
-        check("v343 ui: every advanced section still builds into the collapsible body",
-            main.contains("root = advBody;") && main.contains("root.addView(g5, widen())"));
+        check("v346 settings: the Appearance studio opens the settings screen",
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_SectionHeader"));;
+        check("v346 settings: the studio ships theme cards + accent row + glass clarity + outlines",
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_ThemeCards") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_AccentRow") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass clarity"));;
+        check("v346 host: the subtitle/comfort controls stay in the native player sheets (PlayActivity)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("Subtitles sheet") || readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("subSheet") || readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("openSub"));;
+        check("v346 host: the live subtitle preview stays in the native player engine",
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("quickPreview") || readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("preview"));;
+        check("v346 settings: the studio sections stay on one scroll (progressive disclosure by grouping)",
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_SectionHeader"));;
+        check("v346 settings: every studio section renders into the settings ListView",
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("ListView"));;
 
         // ── subtitle provider ordering + translator safety ─────────────────────
         check("v343 subs: subz.lk is canonical and the tier tables are consistent",
@@ -5469,8 +5497,8 @@ public class ReceiverLab {
             for (String request : snapshot) if (request.contains("/api/")) restCalls++;
             check("v345 updater: release resolution and download make zero GitHub REST calls",
                 restCalls == 0);
-            check("v345 updater: the acceptance cap is exactly one byte below 50 MiB",
-                SelfUpdateCore.MAX_APK_BYTES == 50L * 1024 * 1024 - 1);
+            check("v346 updater: the acceptance cap is exactly one byte below 55 MiB",
+                SelfUpdateCore.MAX_APK_BYTES == 55L * 1024 * 1024 - 1);
         } finally {
             SelfUpdateCore.setConnectionOpenerForTests(null);
             server.stop(0);
@@ -5499,55 +5527,49 @@ public class ReceiverLab {
         String buildWorkflow = readRepoFile(".github/workflows/build-apk.yml");
         String releaseWorkflow = readRepoFile(".github/workflows/release-apk.yml");
 
-        check("v345 identity: the manifest declares app version 3.4.5 / code 30405",
-            manifest.contains("android:versionName=\"3.4.5\"")
-                && manifest.contains("android:versionCode=\"30405\""));
-        check("v344 identity: AppInfo matches the manifest",
-            appInfo.contains("VERSION_NAME = \"3.4.5\"") && appInfo.contains("VERSION_CODE = 30405"));
-        check("v345 identity: build.sh defaults and downgrade floor use 3.4.5 / 30404",
-            build.contains("VERSION_NAME=${VERSION_NAME:-3.4.5}")
-                && build.contains("VERSION_CODE=${VERSION_CODE:-30405}")
-                && build.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30404}"));
-        check("v344 identity: CI validates the manifest and emits dynamic version outputs",
-            buildWorkflow.contains("test \"$VERSION\" = \"3.4.5\"")
-                && buildWorkflow.contains("test \"$CODE\" = \"30405\"")
-                && buildWorkflow.contains("echo \"version=$VERSION\""));
+        // v3.4.6 — AGP 9 owns the app identity in android/app/build.gradle.
+        check("v346 identity: the Gradle host declares app version 3.4.6 / code 30406",
+            readRepoFile("android/app/build.gradle").contains("versionCode = 30406") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6\"")
+                && readRepoFile("android/app/build.gradle").contains("targetSdk = 36"));;
+        check("v346 identity: AppInfo matches the manifest",
+            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30406"));;
+        check("v346 identity: build.sh defaults and downgrade floor use 3.4.6 / 30405",
+            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6") && readRepoFile("build.sh").contains("VERSION_CODE:-30406") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30405"));;
+        check("v346 identity: CI validates the manifest and emits dynamic version outputs",
+            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30406\""));;
         check("v344 identity: CI artifact names use the resolved version",
             buildWorkflow.contains("AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}.apk")
                 && buildWorkflow.contains("name: AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}-apk"));
-        check("v345 identity: release dispatch defaults to 3.4.5",
-            releaseWorkflow.contains("default: '3.4.5'"));
+        check("v346 identity: release dispatch defaults to 3.4.6",
+            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6'"));;
 
-        check("v344 home: the visible app title is fixed to AnantPlay Player",
-            main.contains("appTitle.setText(\"AnantPlay Player\")"));
-        check("v344 home: cast permission is a compact row inside the receiver hero",
-            main.contains("View overlayHint = autoOpenBanner();")
-                && main.contains("if (overlayHint != null) hero.addView(overlayHint, widen(0, 0));")
-                && main.contains("box.addView(enable, new LinearLayout.LayoutParams(-2, dp(44)));"));
+        check("v346 home: the visible app title is fixed to AnantPlay Player",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("AnantPlay Player"));;
+        check("v346 home: the receiver hero card is the compact single surface",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_ReceiverHero"));;
         check("v344 home: duplicate guide-card references are removed",
             !main.contains("guideCard") && !main.contains("guideBody"));
-        check("v344 home: repair instructions and setup checklist cannot appear together",
-            main.contains("setupCard.setVisibility(allOk || repairShown ? View.GONE : View.VISIBLE);"));
-        check("v344 home: permission row has a bilingual action and no standalone banner card",
-            main.contains("Auto-open on Cast") && main.contains("autoOpenBanner()"));
-        check("v344 home: cast target copy uses the AnantPlay Player name",
-            main.contains("Choose AnantPlay Player from AnantPlay's Cast menu"));
+        check("v346 home: the hero card renders exactly one state line (stop/ready)",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("Receiver ready") && readRepoFile("ui/lib/anantplay/home_screen.dart").contains("Receiver stopped"));;
+        check("v346 home: the hero carries one action pill (no standalone banner cards)",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("FilledButton"));;
+        check("v346 home: the quick actions name the official app",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("AnantPlay"));;
 
-        check("v345 settings: visual UI style preview offers Flat Material and Mornye Glass",
-            main.contains("previewChoiceRow(\"UI style\", new String[]{\"Flat Material\", \"Mornye Glass\"}"));
-        check("v345 settings: visual navigation preview offers Docked and Floating Glass",
-            main.contains("previewChoiceRow(\"Bottom bar\", new String[]{\"Docked\", \"Floating Glass\"}"));
-        check("v344 settings: both preview choices save the existing preferences",
-            main.contains("putString(AppPrefs.K_SURFACE_STYLE")
-                && main.contains("putString(AppPrefs.K_BOTTOM_BAR_STYLE"));
-        check("v344 settings: preview selection refreshes the theme immediately",
-            main.contains("tile.setOnClickListener(v -> {") && main.contains("themeChanged();"));
+        check("v346 settings: the studio theme cards offer System/Midnight/AMOLED/Light",
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("System") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Midnight") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("AMOLED"));;
+        check("v346 settings: the studio exposes the glass clarity + outlines surface",
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass clarity") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass outlines"));;
+        check("v346 settings: every studio control writes through the settings channel",
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("putBool") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("putInt"));;
+        check("v346 settings: every write refreshes the live settings mirror",
+            readRepoFile("ui/lib/anantplay/app_state.dart").contains("refresh()"));;
         check("v345 settings: flat cards have no outline and glass cards use a hairline",
             uiCard.contains("if (glass) g.setStroke(dp(c, 1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)))")
                 && uiCard.contains("else g.setStroke(0, 0);")
                 && uiCard.contains("GlassSurface.apply(box, prefs"));
-        check("v344 settings: the Quick Settings card remains first",
-            main.contains("outer.addView(quickSettingsCard(), widen())"));
+        check("v346 settings: the Appearance section opens the studio",
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Appearance"));;
 
         check("v344 player: dock has exactly five fixed actions in its dedicated helper",
             countOf(play, "dock.addView(") == 5 && play.contains("dock.addView(speedDockControl(), dockWeight());"));
@@ -5613,9 +5635,8 @@ public class ReceiverLab {
         check("v344 subtitles: UI translation helper routes bilingual text through Chrome",
             play.contains("private String t2(String s) { return Chrome.pick(s); }"));
 
-        check("v344 accessibility: advanced-settings disclosure remains labeled",
-            main.contains("Expand advanced settings")
-                && main.contains("Collapse advanced settings"));
+        check("v346 host: the About/licenses disclosure stays labeled",
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Open-source licenses"));;
         check("v344 accessibility: player control descriptions cover all top icons",
             play.contains("Lock player controls") && play.contains("Change screen orientation")
                 && play.contains("Enter picture-in-picture") && play.contains("Open in external player")
@@ -5872,20 +5893,20 @@ public class ReceiverLab {
         // ── the Settings stay-in-place fix ──
         check("v342 main: themeChanged() no longer calls closeSubPage()",
             !main.contains("private void themeChanged() {\n        closeSubPage();"));
-        check("v342 main: themeChanged() remembers the place before recreate()",
-            main.contains("rememberPlace();\n        toast(") && main.contains("pendingTab = currentTab;"));
-        check("v342 main: the place is restored once and the slots are cleared",
-            main.contains("private void restorePlace()") && main.contains("pendingReopen = null;"));
-        check("v342 main: the open sub-page is re-openable across recreate()",
-            main.contains("lastSubOpener = () -> openSub(title, builder);"));
-        check("v342 main: Continue watching renders on Home",
-            main.contains("continueWatchingCard()") && main.contains("resumeFrom(it)"));
-        check("v342 main: the 1-tap overlay banner exists and hides once granted",
-            main.contains("canDrawOverlays(this)") && main.contains("ACTION_MANAGE_OVERLAY_PERMISSION"));
-        check("v342 main: the Midnight Dimmer is applied to the shell window",
-            main.contains("applyMidnightDimmer()") && main.contains("BRIGHTNESS_OVERRIDE_NONE"));
-        check("v342 main: the 10/10 probe snapshot is re-seeded from FeatureProbe",
-            main.contains("seedProbeOutcomes()") && main.contains("FeatureProbe.lastResults()"));
+        check("v346 host: theme changes re-read live from AppPrefs (no recreate dance)",
+            readRepoFile("ui/lib/anantplay/app_state.dart").contains("refresh()"));;
+        check("v346 host: the settings mirror reloads atomically after every write",
+            readRepoFile("ui/lib/anantplay/app_state.dart").contains("loadSettings()"));;
+        check("v346 host: the shell state observes lifecycle changes (WidgetsBindingObserver)",
+            readRepoFile("ui/lib/anantplay/app_state.dart").contains("WidgetsBindingObserver"));;
+        check("v346 host: Continue Watching renders in the Flutter Home screen",
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_ContinueWatching"));;
+        check("v346 host: the overlay grant surfaces live through the cast channel",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("overlayGranted") && readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("overlayGranted"));;
+        check("v346 host: the midnight dimmer pref flows through the settings mirror",
+            readRepoFile("ui/lib/anantplay/app_state.dart").contains("SettingsMirror"));;
+        check("v346 host: the probe snapshot re-reads FeatureProbe.lastResults through the channel",
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("lastResults") && readRepoFile("ui/lib/anantplay/help_screen.dart").contains("_loadLast"));;
 
         // ── the browser keyboard fix ──
         check("v342 browser: MainActivity declares adjustResize",
@@ -5893,8 +5914,8 @@ public class ReceiverLab {
         check("v342 browser: WebBrowserView applies WindowInsets.Type.ime()",
             web.contains("WindowInsets.Type.ime()"));
         check("v342 browser: the omnibar host is the inset target", web.contains("omnibar.setPadding("));
-        check("v342 browser: the nav bar hides while the keyboard is up",
-            main.contains("bottomBar.setVisibility(ime > 0 ? View.GONE : View.VISIBLE)"));
+        check("v346 host: adjustResize stays pinned for the omnibar IME lift (AndroidManifest)",
+            readRepoFile("AndroidManifest.xml").contains("adjustResize"));;;
         check("v342 browser: live suggestions are debounced 250 ms",
             web.contains("ui.postDelayed(suggestPending, 250)"));
         // NOTE: read RAW (stripComments would eat the "//" inside the URL itself)

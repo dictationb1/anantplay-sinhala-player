@@ -1,7 +1,7 @@
 name: Release APK (signed, Obtainium-ready)
 
-# v3.4.5 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
-# this keeps the runner clock interpretable (the same commit → the same SHA-256).
+# v3.4.6 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
+# TZ=UTC is set here so the runner clock is interpretable.
 env:
   TZ: UTC
 
@@ -12,22 +12,21 @@ env:
 #     VERSION_NAME/VERSION_CODE from build.sh, checks whether the tag
 #     v<VERSION_NAME> already exists (→ exit cleanly, no duplicate release),
 #     and when it is NEW and the permanent signing secrets are configured:
-#     Lab gate (100% PASS) → build + sign → verify → SHA256SUMS.txt →
+#     Lab gate (100% PASS) → Gradle host build + sign → verify → SHA256SUMS.txt →
 #     create+push the tag → publish the GitHub Release with EXACTLY ONE .apk
 #     asset (AnantPlay-Sinhala-Player-v<ver>.apk) + SHA256SUMS.txt.
-#     When KS_BASE64 is not yet configured, a push to main logs a friendly
-#     summary notice and exits green (the build-apk.yml workflow still builds
-#     and attaches the debug-signed APK to the run for testing).
-#   Trigger B — push a semantic tag: git tag v3.0.1 && git push origin v3.0.1
-#     (same pipeline; a missing KS_BASE64 FAILS here — a tag is an explicit
-#     release intent, and a debug-signed release would break in-place updates).
+#     When KS_BASE64 is not configured, a push to main logs a friendly summary
+#     notice and exits green (build-apk.yml still builds + attaches the APK).
+#   Trigger B — push a semantic tag: git tag v3.4.6 && git push origin v3.4.6
 #   Trigger C — 1-click manual dispatch (takes a version, creates the tag).
+#
+# v3.4.6 — the APK now comes from the GRADLE HOST (android/ + the Flutter
+# module ui/), because the app embeds the Flutter engine. build.sh remains the
+# pure-Java reference recipe used by the Lab; the release no longer calls it.
 #
 # SIGNING (the zero-uninstall contract, byte-identical names everywhere):
 #   KS_BASE64 / KS_PASS / KS_KEYPASS / KS_ALIAS — the permanent release secrets
-#   made by scripts/create-release-keystore.sh (or .ps1). With them set, EVERY
-#   release is signed by the same key → the app's built-in SelfUpdater, Obtainium
-#   and manual sideloads all update in place, no uninstall, ever.
+#   made by scripts/create-release-keystore.sh (or .ps1).
 
 on:
   push:
@@ -36,9 +35,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g. 3.0.1 — no leading v)'
+        description: 'Version to release (e.g. 3.4.6 — no leading v)'
         required: true
-        default: '3.4.5'
+        default: '3.4.6'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -51,7 +50,7 @@ jobs:
   release:
     name: Lab gate → signed APK → GitHub Release
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,7 +73,7 @@ jobs:
           else
             # push to main: the version comes from build.sh itself (the file
             # that ships) — VERSION_NAME=${VERSION_NAME:-<default>}
-            V=$(grep -o 'VERSION_NAME=\${VERSION_NAME:-[^}]*}' build.sh | head -1 | sed 's/.*:-\([^}]*\)}/\1/')
+            V=$(grep -o 'VERSION_NAME=${VERSION_NAME:-[^}]*}' build.sh | head -1 | sed 's/.*:-\([^}]*\)}/\1/')
           fi
           echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::version '$V' is not X.Y.Z"; exit 1; }
           MAJOR=$(echo "$V" | cut -d. -f1); MINOR=$(echo "$V" | cut -d. -f2); PATCH=$(echo "$V" | cut -d. -f3)
@@ -116,9 +115,6 @@ jobs:
               echo "(KS_BASE64 / KS_PASS / KS_KEYPASS / KS_ALIAS) are not configured yet, so no"
               echo "GitHub Release was published. Everything else (the Lab gate, the APK build) ran"
               echo "in the build-apk.yml workflow."
-              echo ""
-              echo "Run \`scripts/create-release-keystore.sh\` (or \`.ps1\`) once, add the 4 secrets, then"
-              echo "re-run this workflow — every future merge to main then releases automatically."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "SKIP=true" >> "$GITHUB_ENV"
           fi
@@ -159,8 +155,20 @@ jobs:
           [ -x "$SDK/build-tools/35.0.1/aapt2" ] || { echo "::error::build-tools;35.0.1 missing"; exit 1; }
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
 
-      # ── 6. build + sign with the PERMANENT keystore ────────────────────────
-      - name: Build + sign the release APK
+      # ── 6. the Flutter + Gradle toolchain (Flutter 3.50.1 / Gradle 9.5.0) ──
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.1
+          cache: true
+        if: env.SKIP != 'true'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+        if: env.SKIP != 'true'
+
+      - name: 'Build + sign the release APK (Gradle host: Media3 backend + Flutter UI)'
         if: env.SKIP != 'true'
         env:
           KS_BASE64: ${{ secrets.KS_BASE64 }}
@@ -171,8 +179,52 @@ jobs:
           VERSION_CODE: ${{ steps.ver.outputs.code }}
         run: |
           set -euo pipefail
-          chmod +x build.sh
-          bash build.sh
+          cd ui
+          for f in InterVariable.ttf GoogleSansFlex.ttf Inter-LICENSE.txt GoogleSansFlex-LICENSE.txt; do
+            if [ ! -s "assets/fonts/$f" ]; then
+              curl -fsSL --max-time 120 -o "assets/fonts/$f" \
+                "https://github.com/mornyeapp/Mornye/raw/c4a1c7b812eb135d6e1a295b6b25e11abbd72a7e/assets/fonts/$f"
+              test -s "assets/fonts/$f"
+            fi
+          done
+          if [ -f pubspec.lock ]; then
+            flutter pub get --enforce-lockfile || flutter pub get
+          else
+            flutter pub get
+          fi
+          cd ..
+          # local.properties is machine-local, never committed: CI writes it.
+          printf 'flutter.sdk=%s\n' "$FLUTTER_ROOT" > android/local.properties
+          test -f ui/.android/include_flutter.groovy || { echo "::error::ui/.android/include_flutter.groovy missing"; exit 1; }
+          printf '%s' "$KS_BASE64" | base64 -d > build_release.keystore
+          test -s build_release.keystore
+          set +e
+          ( cd android && ./gradlew assembleRelease --no-daemon --stacktrace \
+              -PKS_FILE="$PWD/../build_release.keystore" -PKS_PASS="$KS_PASS" \
+              -PKS_KEYPASS="${KS_KEYPASS:-$KS_PASS}" -PKS_ALIAS="${KS_ALIAS:-sicast}" ) > /tmp/gradle.log 2>&1
+          RC=$?
+          set -e
+          {
+            echo '### Release Gradle build (Option A)'
+            echo ''
+            echo '```'
+            tail -120 /tmp/gradle.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RC" -ne 0 ]; then
+            grep -E "^e: |error:|FAILURE|error •|Caused by" /tmp/gradle.log | head -60 | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+            exit 1
+          fi
+          mkdir -p dist
+          APK_OUT=$(find android/app/build/outputs/apk/release -name 'app-release*.apk' | head -1)
+          test -n "$APK_OUT"
+          echo "gradle produced: $APK_OUT"
+          # the versioned name is THE name: badging/zipalign/apksigner AND the
+          # SHA256SUMS.txt entry all reference exactly this path.
+          cp "$APK_OUT" "dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
+          test -s "dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
 
       - name: Verify the release APK (signature + version + assets)
         if: env.SKIP != 'true'
@@ -184,14 +236,25 @@ jobs:
           SIZE=$(stat -c %s "$APK")
           test "$SIZE" -lt 52428800 || { echo "::error::APK must be strictly below 50 MiB (got $SIZE bytes)"; exit 1; }
           echo "size: $SIZE bytes (< 50 MiB)"
-          "$BT/apksigner" verify --verbose --print-certs "$APK"
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | tee /tmp/apksigner.txt
+          # the release contract: BOTH schemes, verified, on the exact artifact
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/apksigner.txt \
+            || { echo "::error::the APK is not v2-signed"; exit 1; }
+          grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt \
+            || { echo "::error::the APK is not v3-signed"; exit 1; }
           "$BT/zipalign" -c 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | head -2
           "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionCode='${{ steps.ver.outputs.code }}'" \
             || { echo "::error::versionCode mismatch"; exit 1; }
           "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionName='${{ steps.ver.outputs.version }}'" \
             || { echo "::error::versionName mismatch"; exit 1; }
-          unzip -l "$APK" | grep -E "classes.*dex|AndroidManifest.xml|assets/fonts/NotoSansSinhala-Regular.ttf"
+          "$BT/aapt2" dump badging "$APK" | grep -q "targetSdkVersion:'36'" \
+            || { echo "::error::targetSdkVersion must be 36"; exit 1; }
+          "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "package: name='lk.techworld.anantplay.sicast'" \
+            || { echo "::error::applicationId mismatch"; exit 1; }
+          unzip -l "$APK" | grep -q "assets/fonts/NotoSansSinhala-Regular.ttf"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libflutter.so"
+          unzip -l "$APK" | grep -E "classes.*dex|lib/arm64-v8a/libflutter.so"
 
       - name: SHA256SUMS.txt (the integrity file next to the APK)
         if: env.SKIP != 'true'
@@ -205,8 +268,7 @@ jobs:
       # ── 6b. v3.4.2 — docs/latest.json: the updater's TIER-2 resolver source ──
       # The in-app updater reads https://raw.githubusercontent.com/<repo>/main/
       # docs/latest.json BEFORE ever touching api.github.com (the zero-rate-limit
-      # contract). This step writes it back to main after every release, so the
-      # tier-2 endpoint always serves the CURRENT version + sha256.
+      # contract). This step writes it back to main after every release.
       - name: Publish docs/latest.json (the updater's tier-2 endpoint)
         if: env.SKIP != 'true' && github.ref_type != 'tag' && github.event_name == 'push'
         run: |
@@ -217,8 +279,6 @@ jobs:
           mkdir -p docs
           # EXACT tier-2 contract parsed by SelfUpdateCore.fetchViaRawJsonBody():
           # version / code / sha256 / apkUrl (sha256 must be 64 lowercase hex).
-          # The trailing backslash is REQUIRED — without it the argument line
-          # becomes a separate command (the v3.3.0 archive shipped it broken — v3.4.2 re-verified it).
           printf '{"version":"%s","code":%s,"sha256":"%s","apkUrl":"https://github.com/dictationb1/anantplay-sinhala-player/releases/download/v%s/AnantPlay-Sinhala-Player-v%s.apk"}\n' \
             "$V" "$CODE" "$SHA" "$V" "$V" > docs/latest.json
           python3 - "$V" "$CODE" <<'PY'
@@ -239,8 +299,7 @@ jobs:
             echo "::notice::docs/latest.json already current — no commit needed"
           else
             # [skip ci] is belt-and-braces: a GITHUB_TOKEN push cannot start a
-            # new run, and this marker guarantees no recursive workflow loop even
-            # if the token is ever swapped for a PAT.
+            # new run, and this marker guarantees no recursive workflow loop.
             git commit -m "chore(release): docs/latest.json v$V (updater tier-2 endpoint) [skip ci]"
             PUSHED=0
             for attempt in 1 2 3; do
@@ -248,8 +307,6 @@ jobs:
               echo "::warning title=docs/latest.json::push attempt $attempt rejected — rebasing onto origin/main and retrying"
               git fetch --quiet origin main || true
               if git rebase --quiet origin/main; then
-                # The identical change may already have landed on main: after the
-                # rebase our commit is dropped and HEAD == origin/main → done.
                 if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then PUSHED=1; break; fi
                 if git diff --quiet -- docs/latest.json && git diff --cached --quiet -- docs/latest.json; then PUSHED=1; break; fi
               else
@@ -258,9 +315,6 @@ jobs:
               fi
             done
             if [ "$PUSHED" -ne 1 ]; then
-              # A rejected automated push (branch protection / a rare race) must
-              # NEVER turn a successful Release red: warn, and the next release
-              # refreshes the tier-2 endpoint.
               echo "::warning title=docs/latest.json::automatic push was rejected (branch protection?) — the Release itself is unaffected; tier-2 will refresh on the next release"
             fi
           fi
@@ -293,27 +347,28 @@ jobs:
             **Zero fork · zero accessibility · official AnantPlay untouched.**
 
             ## What is in this release
+            - **The Mornye v5.4.0 Liquid-Glass Flutter UI** (vendored LGPL-3.0-only,
+              `ui/lib/mornye_ui/`) hosted by a `FlutterActivity` over the SAME
+              pure-Java backend: Home · Settings · Help · Onboarding, with the
+              native Media3 player and the Cinema WebView browser a tap away.
             - Cast, three redundant ways: NsdManager + our own RFC-6762 mDNS
               responder (TTL 255, pinned egress, always-multicast replies) +
-              a UPnP/DLNA MediaRenderer (SSDP) — the Cast chip works even when
-              the platform mDNS stack hangs (the Android 16 fix).
+              a UPnP/DLNA MediaRenderer (SSDP).
             - Built-in WebView Cinema Browser with the live stream sniffer:
               "🎬 සිංහල උපසිරැසි සමඟ බලන්න" — zero Cast needed, works on any network.
-            - 4-tab modern UI (Home / WebView / Settings / Diagnostics) with
-              1-tap Copy Log diagnostics.
             - App-open auto-updater (checks the moment the app opens + every 4 h,
-              live progress, SHA-256-verified, temp files always cleaned).
+              live progress, SHA-256-verified, temp files always cleaned) with a
+              55 MiB download cap.
 
             ## Install / update
-            - **In-app**: Settings → Updates (or just open the app — the update
-              downloads itself and the OS's 1-tap "Update" prompt appears).
+            - **In-app**: Settings → Updates (or just open the app).
             - **Obtainium users**: detected automatically (one unambiguous
               `.apk` asset). Updates install in place — no uninstall ever.
             - **Manual**: download `AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk`
               and install over the previous version (same permanent signing key).
             - Verify with `SHA256SUMS.txt`.
 
-            Full story: see `V3_MASTER_ARCHITECTURE_AND_ANDROID16_REPORT.md` in the repo.
+            Full story: `V3_4_6_MORNYE_FLUTTER_UI_RELEASE_REPORT.md` in the repo.
           files: |
             dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk
             dist/SHA256SUMS.txt

@@ -47,6 +47,59 @@ SYNTAX = re.compile(
 )
 
 
+_probed_roots = []
+
+
+def flutter_embedding_jars():
+    """v3.4.6 — the Flutter embedding classes the host activity imports.
+
+    MainActivity/Media3TextureBridge extend FlutterActivity and use MethodChannel,
+    so a FULL compile against android.jar alone reports dozens of false
+    "package io.flutter... does not exist" diagnostics the real Gradle build
+    never has (the Gradle host resolves the embedding from the engine's maven
+    repo).
+
+    The embedding AAR is unpacked into a pub cache by `flutter pub get`:
+        <cache>/hosted/pub.dev/flutter_embedding_*/jars/*.jar
+    subosito/flutter-action keeps that cache under RUNNER_TOOL_CACHE, and Flutter
+    honours PUB_CACHE / FLUTTER_ROOT, so every plausible root is probed. A job
+    that never resolved simply finds nothing; io.flutter diagnostics are then
+    downgraded to a note (see main()).
+    """
+    global _probed_roots
+    found = []
+    roots = []
+    for env in ("PUB_CACHE", "FLUTTER_ROOT", "RUNNER_TOOL_CACHE", "HOME"):
+        v = os.environ.get(env)
+        if v:
+            roots.append(v if env != "FLUTTER_ROOT" else os.path.join(v, ".pub-cache"))
+            if env == "FLUTTER_ROOT":
+                # the engine artifacts (incl. the embedding jars) live in bin/cache
+                roots.append(os.path.join(v, "bin", "cache"))
+    if os.environ.get("HOME"):
+        roots.append(os.path.join(os.environ["HOME"], ".pub-cache"))
+        roots.append(os.path.join(os.environ["HOME"], ".pub-cache", "hosted"))
+    seen = set()
+    _probed_roots = roots
+    for root in roots:
+        if not root or root in seen or not os.path.isdir(root):
+            continue
+        seen.add(root)
+        for dirpath, dirs, files in os.walk(root):
+            base = os.path.basename(dirpath)
+            if base.startswith("flutter_embedding_") or base == "maven":
+                for f in files:
+                    if f.endswith(".jar") and "flutter" in f.lower():
+                        found.append(os.path.join(dirpath, f))
+                jd = os.path.join(dirpath, "jars")
+                if os.path.isdir(jd):
+                    found.extend(os.path.join(jd, f) for f in os.listdir(jd) if f.endswith(".jar"))
+                dirs[:] = []
+            if dirpath.count(os.sep) - root.count(os.sep) >= 6:
+                dirs[:] = []
+    return sorted(set(found))
+
+
 def find_javac():
     exe = shutil.which("javac")
     if exe:
@@ -129,23 +182,81 @@ def main():
     cmd = [jc, "-encoding", "UTF-8", "-nowarn", "-proc:none", "-d", out_dir]
 
     mode = "SYNTAX"
+    embed = []
     if android:
-        cp = [android] + sorted(glob.glob(os.path.join(ROOT, "libs", "*.jar")))
-        rjava, fields = gen_stub_r(files)
-        cmd += ["-cp", os.pathsep.join(cp)] + files + [rjava]
-        mode = "FULL"
-        print("verify_syntax: FULL mode — android.jar %s + %d libs, stub R with %d ids"
-              % (os.path.basename(os.path.dirname(android)), len(cp) - 1, fields))
-    else:
-        cmd += files
-        print("verify_syntax: SYNTAX mode — no android.jar found "
-              "(set ANDROID_JAR or ANDROID_HOME for a full compile)")
-
+        # v3.4.6 — MainActivity/Media3TextureBridge extend FlutterActivity and use
+        # io.flutter.* channels. Type-checking those needs the Flutter embedding
+        # jars. When they are NOT on this machine (a lab runner never runs
+        # `flutter pub get` for the module; the engine AAR is resolved by the
+        # GRADLE build), a FULL compile against android.jar alone produces a
+        # cascade — unresolved FlutterActivity makes `super`, MODE_PRIVATE and
+        # every @Override "not an override" — i.e. dozens of errors that describe
+        # the missing jar, not our sources.
+        #
+        # So: FULL (android.jar + libs + embedding) when the embedding is present;
+        # otherwise SYNTAX (parse-level, the historical gate) with an explicit
+        # note that the io.flutter type-check is the hosted Gradle APK build's job.
+        embed = flutter_embedding_jars()
+        if embed:
+            cp = [android] + embed + sorted(glob.glob(os.path.join(ROOT, "libs", "*.jar")))
+            rjava, fields = gen_stub_r(files)
+            cmd += ["-cp", os.pathsep.join(cp)] + files + [rjava]
+            mode = "FULL"
+            print("verify_syntax: FULL mode — android.jar %s + %d libs + %d flutter-embedding jars, stub R with %d ids"
+                  % (os.path.basename(os.path.dirname(android)), len(cp) - len(embed) - 1,
+                     len(embed), fields))
+        else:
+            cmd += files
+            print("verify_syntax: NOTE — no flutter_embedding jars on this runner "
+                  "(searched %s); falling back to the SYNTAX gate. The io.flutter "
+                  "type-check is performed by the Gradle APK build."
+                  % ", ".join(x for x in _probed_roots if x))
+        print("::warning title=javac gate::no flutter_embedding jars — SYNTAX gate only "
+              "(the Gradle APK job type-checks io.flutter)")
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
     text = proc.stdout + proc.stderr
 
+    def _blocks(t):
+        """Group javac output into complete diagnostics.
+
+        javac prints the reason on the lines AFTER the error, under a ^ caret:
+
+            MainActivity.java:49: error: cannot find symbol
+            public class MainActivity extends FlutterActivity {
+                                               ^
+              symbol:   class FlutterActivity
+              location: class MainActivity
+
+        A bare "cannot find symbol" in a check-run annotation tells nobody
+        anything, so the source line, the caret and every reason keyword are
+        folded into one string. (v3.4.6: the first version dropped the reason
+        lines entirely, which also defeated the embedding filter below.)
+        """
+        lines = t.splitlines()
+        out, i = [], 0
+        while i < len(lines):
+            if "error:" in lines[i]:
+                parts = [lines[i].strip()]
+                j = i + 1
+                while j < len(lines) and j <= i + 8:
+                    raw, st = lines[j], lines[j].strip()
+                    if not st or "error:" in raw:
+                        break
+                    if st.startswith(("symbol:", "location:", "required:", "found:", "reason:")):
+                        parts.append(st)
+                    elif st.startswith("^"):
+                        pass          # the caret: no information of its own
+                    elif not parts[-1].startswith("<src>"):
+                        parts.append(st)   # the offending source line
+                    j += 1
+                out.append(" | ".join(parts))
+                i = j
+                continue
+            i += 1
+        return out
+
     if mode == "FULL":
-        hits = [ln.strip() for ln in text.splitlines() if "error:" in ln]
+        hits = _blocks(text)
     else:
         hits = [ln.strip() for ln in text.splitlines()
                 if "error:" in ln and SYNTAX.search(ln)]
@@ -155,6 +266,7 @@ def main():
         print("verify_syntax: FAIL — %d diagnostic(s) in %s mode:" % (len(hits), mode))
         for h in hits[:40]:
             print("  " + h)
+            print("::error title=javac::" + h[:900].replace("\n", " "))
         return 1
     print("verify_syntax: OK — 0 diagnostics in %s mode across %d sources" % (mode, len(files)))
     return 0

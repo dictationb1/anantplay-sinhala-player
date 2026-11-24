@@ -1,7 +1,17 @@
 name: Build Sinhala Player APK
 
-# v3.4.5 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
-# this keeps the runner clock interpretable (the same commit → the same SHA-256).
+# v3.4.6 — the Option-A Flutter/add-to-app pipeline.
+#
+# WHAT CHANGED VS v3.4.5 (and why):
+#   · the APK is now built by the GRADLE HOST in android/ (it embeds the Flutter
+#     engine + the ui/ module); build.sh stays the pure-Java reference recipe and
+#     its Lab still gates every run;
+#   · TWO new gating jobs: `Flutter analyze & test` (the Mornye module) and the
+#     real `APK build` (Gradle 9.5.0 wrapper + AGP 9.3.1 + Flutter 3.50.1, JDK 17);
+#   · android/local.properties is NEVER committed: CI writes it from FLUTTER_ROOT.
+#
+# v3.4.5 kept: reproducible-APK notes, build-tools 35.0.1 hard requirement, and
+# the version-lock assertions (3.4.6 / 30406 everywhere).
 env:
   TZ: UTC
 
@@ -23,7 +33,7 @@ jobs:
   lab:
     name: Cast protocol lab (gating)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -33,12 +43,19 @@ jobs:
           set -euo pipefail
           VERSION=$(sed -n 's/^VERSION_NAME=${VERSION_NAME:-\([^}]*\)}$/\1/p' build.sh | head -1)
           CODE=$(sed -n 's/^VERSION_CODE=${VERSION_CODE:-\([^}]*\)}$/\1/p' build.sh | head -1)
-          MANIFEST_VERSION=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
-          MANIFEST_CODE=$(sed -n 's/.*android:versionCode="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
-          test "$VERSION" = "3.4.5"
-          test "$CODE" = "30405"
-          test "$MANIFEST_VERSION" = "$VERSION"
-          test "$MANIFEST_CODE" = "$CODE"
+          # v3.4.6 — AGP 9 owns the identity in android/app/build.gradle (a package
+          # attribute in the manifest is ignored and warned about), so the host
+          # Gradle file is what the build actually stamps.
+          GRADLE_VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/app/build.gradle | head -1)
+          GRADLE_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)
+          APPINFO_VERSION=$(sed -n 's/.*VERSION_NAME = "\([^"]*\)".*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
+          APPINFO_CODE=$(sed -n 's/.*VERSION_CODE = \([0-9]*\).*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
+          test "$VERSION" = "3.4.6"
+          test "$CODE" = "30406"
+          test "$GRADLE_VERSION" = "$VERSION"
+          test "$GRADLE_CODE" = "$CODE"
+          test "$APPINFO_VERSION" = "$VERSION"
+          test "$APPINFO_CODE" = "$CODE"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
@@ -63,9 +80,7 @@ jobs:
           # The proof scans SHIPPED + test sources, but deliberately ignores the
           # checker's own string literals: ReceiverLab assembles the forbidden
           # tokens at runtime ("accessibility" + "service") precisely so this grep
-          # can never match the assertion that proves their absence. Sources are
-          # scanned with java comments/strings kept (a real API call needs the
-          # token in code or in a reflection string) — the lab is the exception.
+          # can never match the assertion that proves their absence.
           if grep -rnE 'extends AccessibilityService|AccessibilityServiceInfo|BIND_ACCESSIBILITY_SERVICE' src/; then
             echo "::error title=Zero-accessibility violated::an AccessibilityService API reference was found in the app sources"
             exit 1
@@ -75,8 +90,56 @@ jobs:
             exit 1
           fi
           echo "AccessibilityService declarations: 0, API references: 0"
+          echo "--- machine-local files must never be tracked (v3.4.6 trap #1) ---"
+          if git ls-files --error-unmatch android/local.properties 2>/dev/null; then
+            echo "::error title=local.properties tracked::android/local.properties is machine-local and must never be committed"
+            exit 1
+          fi
+          test ! -f android/local.properties || { echo "::error::android/local.properties exists in the tree (rm it)"; exit 1; }
+          echo "android/local.properties: not tracked, not present"
           echo "--- forbidden signed artifacts in the tree (must be 0) ---"
-          git ls-files '*.apk' '*.jks' '*.keystore' '*.p12' | wc -l
+          BAD=$(git ls-files '*.apk' '*.jks' '*.keystore' '*.p12' | wc -l)
+          echo "signed artifacts tracked: $BAD"
+          [ "$BAD" -eq 0 ]
+
+      # v3.4.6 — THE PARTIAL `flutter pub get`. The lab's javac gate compiles the
+      # shipped MainActivity against the Flutter embedding (io.flutter.*), which
+      # only exists in the pub cache after a resolve. `--no-precompile` resolves
+      # the ENTRYPOINT, not the app: no package_config.json, no ui/.android host,
+      # no generated registrant — nothing the APK build could reuse — but the
+      # flutter_embedding_*.jar lands in ~/.pub-cache, so the gate is complete.
+      # (The committed pins are the same set the APK build resolves in full.)
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.1
+          cache: true
+
+      - name: Resolve the Flutter embedding for the javac gate
+        run: |
+          set -euo pipefail
+          cd ui
+          for f in InterVariable.ttf GoogleSansFlex.ttf; do
+            [ -s "assets/fonts/$f" ] || curl -fsSL --max-time 120 -o "assets/fonts/$f" \
+              "https://github.com/mornyeapp/Mornye/raw/c4a1c7b812eb135d6e1a295b6b25e11abbd72a7e/assets/fonts/$f"
+          done
+          set +e
+          flutter pub get --no-precompile > /tmp/pubget-partial.log 2>&1
+          RC=$?
+          set -e
+          if [ "$RC" -ne 0 ]; then
+            echo "partial resolve did not complete — the embedding gate will be skipped (it is NOT a release gate)"
+            tail -20 /tmp/pubget-partial.log || true
+          fi
+          rm -rf .dart_tool .android   # leave the tree EXACTLY as checked out
+          FOUND=$(find "$HOME/.pub-cache" -name 'flutter_embedding_*.jar' 2>/dev/null | head -5)
+          if [ -n "$FOUND" ]; then
+            echo "embedding jars:"; echo "$FOUND"
+          else
+            echo "::warning title=javac gate::no flutter_embedding jar in the pub cache — io.flutter symbols are not type-checked in this run"
+            find "$HOME/.pub-cache" -maxdepth 3 -type d 2>/dev/null | head -20
+            tail -30 /tmp/pubget-partial.log || true
+          fi
 
       - name: Compile the engines + run the cast-protocol lab (mandatory)
         run: |
@@ -94,9 +157,28 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # v3.4.6 — READ-ONLY DIAGNOSTICS. Job logs live behind a signed blob URL
+      # that is not always reachable from automation, but check-run annotations
+      # ARE part of the API. So the first failing lines (and the exact failing
+      # gate name) are republished as annotations, one per line.
+      - name: Publish lab failures as annotations (readable from the API)
+        if: failure()
+        run: |
+          set -euo pipefail
+          if [ -f lab/out/lab.txt ]; then
+            echo "--- last 40 report lines ---"
+            tail -40 lab/out/lab.txt
+            grep -n '  FAIL ' lab/out/lab.txt | head -10 | cut -c1-900 | while IFS= read -r line; do
+              echo "::error title=Lab FAIL line::${line}"
+            done
+            LAB_RESULT=$(grep -m1 'Lab result' lab/out/lab.txt || true)
+            echo "::error title=Lab result::${LAB_RESULT}"
+          else
+            echo "::error title=Lab::lab/out/lab.txt was never produced — the compile step failed (see the step above)"
+          fi
+
       # The proof travels with the run: the exact passed/failed counts are published
-      # as a check-run annotation, so "N/N PASS" is verifiable from the API and not
-      # only from a log blob.
+      # as a check-run annotation, so "N/N PASS" is verifiable from the API.
       - name: Publish the lab proof as a run annotation
         if: always()
         run: |
@@ -116,10 +198,122 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  apk:
-    name: APK (JDK 17 + SDK 36 + build-tools 35.0.1, signed + verified)
+  flutter:
+    name: Flutter analyze & test (Mornye Liquid-Glass module)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Mornye engine's exact pinned dependency set (material_ui 1.11.0,
+      # liquid_glass_easy 5.2.0, material_3_expressive 1.2.1, flutter_riverpod
+      # 3.5.0) requires Dart ^3.13 — i.e. Flutter 3.50.x. Pinned, not floating.
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.1
+          cache: true
+
+      - name: 'Fetch the pinned fonts (binary-safe: fonts never cross the MCP transport)'
+        run: |
+          set -euo pipefail
+          cd ui
+          for f in InterVariable.ttf GoogleSansFlex.ttf Inter-LICENSE.txt GoogleSansFlex-LICENSE.txt; do
+            if [ ! -s "assets/fonts/$f" ]; then
+              echo "fetching $f from mornyeapp/Mornye @ c4a1c7b8"
+              curl -fsSL --max-time 120 -o "assets/fonts/$f" \
+                "https://github.com/mornyeapp/Mornye/raw/c4a1c7b812eb135d6e1a295b6b25e11abbd72a7e/assets/fonts/$f"
+              test -s "assets/fonts/$f"
+            fi
+          done
+          ls -la assets/fonts/
+
+      # pubspec.lock is committed (a resolved, reproducible graph); the script
+      # falls back to a plain resolve only when the lock cannot be honoured.
+      - name: Flutter pub get (pinned lock, no network surprises)
+        run: |
+          set -euo pipefail
+          cd ui
+          if [ -f pubspec.lock ]; then
+            flutter pub get --enforce-lockfile || flutter pub get
+          else
+            flutter pub get
+          fi
+          flutter --version
+
+      - name: Flutter analyze (gating)
+        run: |
+          set -euo pipefail
+          cd ui
+          set +e
+          flutter analyze > /tmp/analyze.log 2>&1
+          RC=$?
+          set -e
+          {
+            echo '### Flutter analyze'
+            echo ''
+            echo '```'
+            tail -80 /tmp/analyze.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RC" -ne 0 ]; then
+            grep -E "error •" /tmp/analyze.log | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+            exit 1
+          fi
+
+      # v3.4.6 — these two steps also run in the `apk` job (after the full
+      # resolve), so the diagnostics must not depend on /tmp: everything is
+      # written under the workspace, and the step name is shared so both runs
+      # are searchable as one gate.
+      - name: Flutter test (gating — widget + bridge contract tests)
+        run: |
+          set -euo pipefail
+          cd ui
+          # v3.4.6 — start from a clean line, and keep the reason visible even
+          # when a test only logs (never fails) with an unhandled message.
+          set +e
+          flutter test --reporter expanded > /tmp/test.log 2>&1
+          RC=$?
+          set -e
+          {
+            echo '### Flutter test'
+            echo ''
+            echo '```'
+            tail -80 /tmp/test.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RC" -ne 0 ]; then
+            echo "--- last 150 lines of flutter test ---"
+            tail -150 /tmp/test.log
+            # the per-test failure header, then the expectation/exception lines
+            grep -nE "^[0-9]{2}:[0-9]{2} \+[0-9]+( -[0-9]+)?: .*(\[E\]|failed)|FAILED|Expected:|Actual:|Which:|The following|Exception|Error:|failed to load|Unable to load|\[E\]" /tmp/test.log \
+              | head -40 | cut -c1-900 | while IFS= read -r line; do
+                echo "::error title=flutter test::${line}"
+              done
+            tail -30 /tmp/test.log | cut -c1-900 | while IFS= read -r line; do
+              echo "::error title=flutter test tail::${line}"
+            done
+            exit 1
+          fi
+          grep -E "All tests passed" /tmp/test.log
+
+      - name: Publish the Flutter gate proof as a run annotation
+        if: always()
+        run: |
+          set -euo pipefail
+          if grep -q "No issues found" /tmp/analyze.log 2>/dev/null; then
+            echo "::notice title=Flutter analyze::No issues found"
+          fi
+          if grep -q "All tests passed" /tmp/test.log 2>/dev/null; then
+            echo "::notice title=Flutter test::All tests passed"
+          fi
+
+  apk:
+    name: APK build (Gradle 9.5.0 + AGP 9.3.1 + SDK 36, signed + verified)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -129,12 +323,19 @@ jobs:
           set -euo pipefail
           VERSION=$(sed -n 's/^VERSION_NAME=${VERSION_NAME:-\([^}]*\)}$/\1/p' build.sh | head -1)
           CODE=$(sed -n 's/^VERSION_CODE=${VERSION_CODE:-\([^}]*\)}$/\1/p' build.sh | head -1)
-          MANIFEST_VERSION=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
-          MANIFEST_CODE=$(sed -n 's/.*android:versionCode="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
-          test "$VERSION" = "3.4.5"
-          test "$CODE" = "30405"
-          test "$MANIFEST_VERSION" = "$VERSION"
-          test "$MANIFEST_CODE" = "$CODE"
+          # v3.4.6 — AGP 9 owns the identity in android/app/build.gradle (a package
+          # attribute in the manifest is ignored and warned about), so the host
+          # Gradle file is what the build actually stamps.
+          GRADLE_VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/app/build.gradle | head -1)
+          GRADLE_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)
+          APPINFO_VERSION=$(sed -n 's/.*VERSION_NAME = "\([^"]*\)".*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
+          APPINFO_CODE=$(sed -n 's/.*VERSION_CODE = \([0-9]*\).*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
+          test "$VERSION" = "3.4.6"
+          test "$CODE" = "30406"
+          test "$GRADLE_VERSION" = "$VERSION"
+          test "$GRADLE_CODE" = "$CODE"
+          test "$APPINFO_VERSION" = "$VERSION"
+          test "$APPINFO_CODE" = "$CODE"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
@@ -143,16 +344,39 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # No third-party SDK action: the GitHub Ubuntu image already ships an Android
-      # SDK; we only fill in what is missing, and we say exactly what we found.
+      # v3.4.6 — the Flutter toolchain (the ui/ module's Mornye engine)
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.50.1
+          cache: true
+
+      # The Gradle version is the one Flutter 3.50.1 and AGP 9.3.1 require
+      # (templateDefaultGradleVersion = 9.5.0). android/gradlew then inherits
+      # exactly this distribution, so the wrapper and the CI toolchain agree.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Fetch the pinned fonts for the module
+        run: |
+          set -euo pipefail
+          cd ui
+          for f in InterVariable.ttf GoogleSansFlex.ttf Inter-LICENSE.txt GoogleSansFlex-LICENSE.txt; do
+            if [ ! -s "assets/fonts/$f" ]; then
+              curl -fsSL --max-time 120 -o "assets/fonts/$f" \
+                "https://github.com/mornyeapp/Mornye/raw/c4a1c7b812eb135d6e1a295b6b25e11abbd72a7e/assets/fonts/$f"
+              test -s "assets/fonts/$f"
+            fi
+          done
+
+      # No third-party SDK action: the GitHub Ubuntu image already ships an
+      # Android SDK; we only fill in what is missing, and we say what we found.
       #
       # BUILD-TOOLS 35.0.1 IS A HARD REQUIREMENT — NOT "any aapt2 will do".
       # build-tools 34.0.0 carries d8 8.2, which crashes on the media3 1.11.1 /
-      # guava 33.3.1 jars ("Cannot invoke String.length() because <parameter1> is
-      # null": unnamed MethodParameters). 35.0.1 ships d8 8.6, which is fine. The
-      # runner image may well already have 34.0.0 installed — that is exactly the
-      # trap the old `ls build-tools/*/aapt2` check fell into — so we probe for
-      # the 35.0.1 directory itself, not for "some build-tools".
+      # guava 33.3.1 jars ("Cannot invoke String.length() because <parameter1>
+      # is null": unnamed MethodParameters). 35.0.1 ships d8 8.6, which is fine.
       - name: Prepare Android SDK (platform 36 + build-tools 35.0.1)
         run: |
           set -euo pipefail
@@ -187,7 +411,59 @@ jobs:
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "--- final ---"; ls "$SDK/platforms"; ls "$SDK/build-tools"
 
-      - name: Build + sign + verify the APK
+      - name: Resolve the Flutter module (pub get + the generated .android host)
+        run: |
+          set -euo pipefail
+          cd ui
+          if [ -f pubspec.lock ]; then
+            flutter pub get --enforce-lockfile || flutter pub get
+          else
+            flutter pub get
+          fi
+          cd ..
+          # local.properties is machine-local and NEVER committed: CI writes it.
+          printf 'flutter.sdk=%s\n' "$FLUTTER_ROOT" > android/local.properties
+          cat android/local.properties
+          test -f ui/.android/include_flutter.groovy || { echo "::error::ui/.android/include_flutter.groovy missing — pub get did not generate the module host"; exit 1; }
+
+      # v3.4.6 — `compileFlutterBuildRelease` shells out to
+      #     flutter assemble --no-version-check --depfile … --output …
+      #         -dTargetFile=lib/main.dart -dTargetPlatform=android
+      #         -dBuildMode=release -dAndroidArchs=<archs> -dMinSdkVersion=26
+      #         android_aot_bundle_release_<arch>
+      # (packages/flutter_tools/gradle/.../tasks/BaseFlutterTaskHelper.kt @3.50.1),
+      # and when THAT exits non-zero Gradle only reports "finished with non-zero
+      # exit value 1". Reproducing the exact invocation here turns the opaque
+      # Gradle failure into flutter's own message.
+      - name: Pre-flight the Flutter AOT bundle (the exact rule Gradle assembles)
+        run: |
+          set +e
+          # the plugin runs flutter assemble with workingDir = FlutterExtension.source
+          # (verified in ui/app/build.gradle → "../ui"); assert that explicitly
+          grep -q 'target = "lib/main.dart"' android/app/build.gradle \
+            || { echo "::error title=flutter extension::android/app/build.gradle does not pin flutter.target to lib/main.dart"; exit 1; }
+          grep -q 'projectDir.parentFile, "ui").absolutePath' android/app/build.gradle \
+            || { echo "::error title=flutter extension::android/app/build.gradle does not pin flutter.source to <repo>/ui"; exit 1; }
+          cd ui
+          flutter assemble --no-version-check \
+            --depfile /tmp/flutter_build.d --output /tmp/flutter_aot \
+            -dTargetFile=lib/main.dart -dTargetPlatform=android \
+            -dBuildMode=release -dAndroidArchs=android-arm64 -dMinSdkVersion=26 \
+            android_aot_bundle_release_android-arm64 > /tmp/flutterassemble.log 2>&1
+          RC=$?
+          set -e
+          echo "flutter assemble exit: $RC"
+          tail -80 /tmp/flutterassemble.log
+          if [ "$RC" -ne 0 ]; then
+            tail -80 /tmp/flutterassemble.log | cut -c1-900 | while IFS= read -r line; do
+              echo "::error title=flutter assemble::${line}"
+            done
+            exit 1
+          fi
+          echo "Dart AOT bundle OK"
+          du -sh /tmp/flutter_aot 2>/dev/null || true
+
+      - name: 'Build + sign the APK (Gradle host: Media3 backend + Flutter UI)'
         env:
           KS_BASE64: ${{ secrets.KS_BASE64 }}
           KS_PASS: ${{ secrets.KS_PASS }}
@@ -195,12 +471,68 @@ jobs:
           KS_ALIAS: ${{ secrets.KS_ALIAS }}
         run: |
           set -euo pipefail
-          chmod +x build.sh
-          bash build.sh
+          # the release keystore (the PERMANENT key: in-place Obtainium updates)
+          SIGN_ARGS=""
+          if [ -n "${KS_BASE64:-}" ]; then
+            printf '%s' "$KS_BASE64" | base64 -d > build_release.keystore
+            test -s build_release.keystore
+            SIGN_ARGS="-PKS_FILE=$PWD/build_release.keystore -PKS_PASS=$KS_PASS -PKS_KEYPASS=${KS_KEYPASS:-$KS_PASS} -PKS_ALIAS=${KS_ALIAS:-sicast}"
+          else
+            echo "::warning title=Debug-signed build::KS_BASE64 is not set — this APK is signed with the throwaway debug key"
+          fi
+          set +e
+          # --info lets Gradle relay the flutter tool's own output; without it the
+          # assemble failure has no message at all.
+          ( cd android && ./gradlew assembleRelease --no-daemon --stacktrace --info $SIGN_ARGS ) > /tmp/gradle.log 2>&1
+          RC=$?
+          set -e
+          {
+            echo '### Gradle host build (Option A)'
+            echo ''
+            echo '```'
+            tail -120 /tmp/gradle.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RC" -ne 0 ]; then
+            # v3.4.6 — publish the FAILURE BLOCK first: "What went wrong",
+            # "Where/How to fix", and the root-cause frames. Those are the lines
+            # that actually explain the break; --info noise comes after them.
+            sed -n '/^FAILURE: Build failed/,/^\* Try:/p' /tmp/gradle.log \
+              | head -45 | cut -c1-900 | while IFS= read -r line; do
+                echo "::error title=gradle failure::${line}"
+              done
+            # The tool output lands right AFTER the task header, not before the
+            # summary: dump 100 lines from "> Task :...compileFlutterBuildRelease"
+            # (or any first failing task) — that is where flutter/dart/aapt speak.
+            TASK_LINE=$(grep -n "^> Task .*compileFlutterBuildRelease" /tmp/gradle.log | head -1 | cut -d: -f1 || true)
+            [ -z "${TASK_LINE:-}" ] && TASK_LINE=$(grep -n "^> Task " /tmp/gradle.log | head -1 | cut -d: -f1 || true)
+            if [ -n "${TASK_LINE:-}" ]; then
+              sed -n "${TASK_LINE},$((TASK_LINE + 100))p" /tmp/gradle.log \
+                | cut -c1-900 | while IFS= read -r line; do
+                  echo "::error title=gradle task output::${line}"
+                done
+            fi
+            # then the first specific compiler/dependency diagnostics
+            grep -nE "^e: |error:|Caused by:|Unresolved reference|Could not find|Could not resolve|Could not determine|Unsupported|requires|Execution failed" /tmp/gradle.log \
+              | head -25 | cut -c1-900 | while IFS= read -r line; do
+                echo "::error title=gradle::${line}"
+              done
+            exit 1
+          fi
+          mkdir -p dist
+          APK_OUT=$(find android/app/build/outputs/apk/release -name 'app-release*.apk' | head -1)
+          test -n "$APK_OUT"
+          echo "gradle produced: $APK_OUT"
+          cp "$APK_OUT" dist/AnantPlay-Sinhala-Player.apk
+          test -s dist/AnantPlay-Sinhala-Player.apk
 
-      - name: Assert the artifact is a real, signed, installable v3.4.5 APK
+      - name: Assert the artifact is a real, signed, installable v3.4.6 APK
         run: |
           set -euo pipefail
+          # v3.4.6 — every gate below publishes its verdict as a check-run
+          # annotation, so the APK's identity is provable from the API (job logs
+          # are not always retrievable in this environment).
+          notice() { echo "::notice title=apk $1::$2"; }
           VERSION='${{ steps.app-version.outputs.version }}'
           CODE='${{ steps.app-version.outputs.code }}'
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
@@ -213,13 +545,27 @@ jobs:
           SIZE=$(stat -c %s "$APK")
           test "$SIZE" -lt 52428800 || { echo "::error::APK must be strictly below 50 MiB (got $SIZE bytes)"; exit 1; }
           echo "size: $SIZE bytes (< 50 MiB)"
-          "$BT/apksigner" verify --verbose --print-certs "$APK"
+          notice "size" "$SIZE bytes — under the 52428800-byte limit"
+          "$BT/apksigner" verify --verbose --print-certs "$APK" > /tmp/apksigner.txt 2>&1
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/apksigner.txt \
+            || { echo "::error::the APK is not v2-signed"; exit 1; }
+          grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt \
+            || { echo "::error::the APK is not v3-signed (the release contract is v2+v3)"; exit 1; }
+          notice "apksigner" "v2 true + v3 true (exit 0)"
           "$BT/zipalign" -c 4 "$APK"
+          notice "zipalign" "zipalign -c 4 exit 0 (4-byte aligned)"
           "$BT/aapt2" dump badging "$APK" | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)"
+          notice "badging" "$("$BT/aapt2" dump badging "$APK" | grep -E "^(package|sdkVersion|targetSdkVersion)" | tr '\n' ' ')"
+          notice "flutter engine" "$(unzip -l "$APK" | grep -m1 'lib/arm64-v8a/libflutter.so' | awk '{print $1" bytes: "$4}')"
+          notice "sinhala font" "$(unzip -l "$APK" | grep -m1 'assets/fonts/NotoSansSinhala-Regular.ttf' | awk '{print $1" bytes: "$4}')"
           # the release identity is part of the contract
           "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionCode='${CODE}'"
           "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionName='${VERSION}'"
-          unzip -l "$APK" | grep -E "classes.*dex|AndroidManifest.xml|assets/fonts/NotoSansSinhala-Regular.ttf"
+          "$BT/aapt2" dump badging "$APK" | grep -q "targetSdkVersion:'36'"
+          unzip -l "$APK" | grep -q "assets/fonts/NotoSansSinhala-Regular.ttf"
+          # the Flutter engine really is inside the APK (libflutter.so is the proof)
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libflutter.so"
+          unzip -l "$APK" | grep -E "classes.*dex|lib/arm64-v8a/libflutter.so"
           sha256sum "$APK" | tee dist/sha256.txt
           echo "::notice title=APK version::${VERSION} (versionCode ${CODE})"
 
@@ -243,6 +589,15 @@ jobs:
           fi
           if [ -f dist/sha256.txt ]; then
             echo "::notice title=APK sha256::$(cut -d' ' -f1 dist/sha256.txt)"
+          fi
+          if [ -f /tmp/gradle.log ]; then
+            {
+              echo '### Gradle log tail'
+              echo ''
+              echo '```'
+              tail -40 /tmp/gradle.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: APK summary

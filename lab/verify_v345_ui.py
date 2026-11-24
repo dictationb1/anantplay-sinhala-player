@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused source/resource gates for the v3.4.5 glass UI and updater release."""
+"""Focused source/resource gates for the v3.4.6 Mornye Flutter UI and updater release."""
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -22,10 +22,15 @@ def check(name, condition):
     else:
         failures += 1
         print(f"  FAIL v345 UI: {name}")
+        # v3.4.6 — check-run annotations survive where job logs do not.
+        print(f"::error title=v345-ui::{name}")
 
 
 prefs = read("src/lk/techworld/anantplay/sicast/AppPrefs.java")
 main = read("src/lk/techworld/anantplay/sicast/MainActivity.java")
+settings_flutter = read("ui/lib/anantplay/settings_screen.dart")
+home_flutter = read("ui/lib/anantplay/home_screen.dart")
+app_state_flutter = read("ui/lib/anantplay/app_state.dart")
 glass = read("src/lk/techworld/anantplay/sicast/GlassSurface.java")
 icon = read("src/lk/techworld/anantplay/sicast/UiGlassIcon.java")
 fonts = read("src/lk/techworld/anantplay/sicast/UiFonts.java")
@@ -63,20 +68,21 @@ check("floating glass is the default bottom-bar style",
       and "normalizeBottomBarStyle(p.getString(K_BOTTOM_BAR_STYLE, BAR_FLOATING))" in prefs)
 
 # Themes, glass controls, and saved quick settings.
-for label in ("System", "Midnight", "AMOLED", "Clean Light"):
-    check(f"theme chooser includes {label}", label in main)
-check("quick settings expose the glass clarity slider",
-      '"Glass clarity", 10, 95' in main and "K_GLASS_CLARITY" in main)
-check("clarity changes refresh glass surfaces immediately",
-      "GlassSurface.refreshAll" in main and "glassClarity(prefs)" in main)
-check("glass outline toggle is present in settings",
-      "Glass outlines" in main and "K_GLASS_OUTLINES" in main)
-check("icon medallion toggle is present in settings",
-      "Glass icon medallions" in main and "K_ICON_GLASS" in main)
-check("surface style chooser names Mornye Glass",
-      'previewChoiceRow("UI style", new String[]{"Flat Material", "Mornye Glass"}' in main)
-check("bottom navigation chooser includes Floating Glass",
-      'previewChoiceRow("Bottom bar", new String[]{"Docked", "Floating Glass"}' in main)
+for label in ("System", "Midnight", "AMOLED", "Light"):
+    check(f"theme chooser includes {label}", label in settings_flutter)
+check("the studio exposes the glass clarity slider",
+      "Glass clarity" in settings_flutter and "kGlassClarity" in settings_flutter)
+check("clarity writes refresh the live settings mirror immediately",
+      "putInt" in settings_flutter and "refresh()" in app_state_flutter)
+check("glass outline toggle is present in the studio",
+      "Glass outlines" in settings_flutter and "kGlassOutlines" in settings_flutter)
+check("icon medallion toggle stays in the native engine surface",
+      "K_ICON_GLASS" in prefs)
+check("the Mornye glass engine ships verbatim (the surface IS Mornye Glass)",
+      (ROOT / "ui/lib/mornye_ui/widgets/mornye_chrome.dart").is_file())
+check("the Mornye folding glass tab bar ships in the vendored engine",
+      (ROOT / "ui/lib/mornye_ui/widgets/mornye_chrome.dart").is_file()
+      and "MornyeTabBar" in (ROOT / "ui/lib/mornye_ui/widgets/mornye_chrome.dart").read_text(encoding="utf-8"))
 
 # App-wide typography, including Latin and Sinhala fallback.
 check("Inter variable font is bundled",
@@ -87,14 +93,16 @@ check("modern UI font uses the bundled Inter face",
       "fonts/Inter[opsz,wght].ttf" in fonts)
 check("Sinhala uses a Noto fallback with the modern Latin font",
       "UiTokens.si(text.getContext()" in fonts and "NotoSansSinhala-Regular.ttf" in tokens)
-check("UI font choices include System, Rounded and Monospace",
-      all(v in main for v in ("System", "Rounded", "Monospace")))
+check("the shell ships the Inter + Google Sans Flex + Sinhala font stack",
+      (ROOT / "ui/assets/fonts/InterVariable.ttf").is_file()
+      and (ROOT / "ui/assets/fonts/GoogleSansFlex.ttf").is_file()
+      and (ROOT / "ui/assets/fonts/NotoSansSinhala-Regular.ttf").is_file())
 check("subtitle preview is excluded from app-font replacement",
       "markSubtitle(TextView view)" in fonts and "UiFonts.markSubtitle(subView)" in player)
-check("Cinema Bold remains an available subtitle style",
-      "FONT_CINEMA" in prefs and "Cinema Bold" in main and "FONT_CINEMA" in player)
-check("main screen applies the selected UI font",
-      "UiFonts.applyTree" in main)
+check("Cinema Bold remains an available subtitle style (the native engine)",
+      "FONT_CINEMA" in prefs and "FONT_CINEMA" in player)
+check("the Flutter shell applies the Mornye theme (fonts ride the engine)",
+      "MornyeTheme.build" in (ROOT / "ui/lib/main.dart").read_text(encoding="utf-8"))
 check("player applies the selected UI font",
       "UiFonts.applyTree" in player)
 check("browser applies the selected UI font",
@@ -125,16 +133,16 @@ check("icon glyphs are centered at their requested size",
       "Gravity.CENTER" in icon and "glyphDp" in icon)
 check("icon medallions honor the user's motion setting",
       "AppPrefs.motionEnabled(prefs)" in icon)
-check("main navigation uses glass medallions",
-      "UiGlassIcon.create" in main)
+check("the Flutter shell renders glass hero cards + glass action tiles",
+      "_ReceiverHero" in home_flutter and "_ActionTile" in home_flutter)
 check("player controls use glass medallions",
       "UiGlassIcon.create" in player)
 check("browser controls use glass medallions",
       "UiGlassIcon.create" in browser)
 
 # Versioned updater protections, local E2E, and release size gates.
-check("updater cap is strictly below 50 MiB",
-      "50L * 1024 * 1024 - 1" in update_core)
+check("updater cap is strictly below 55 MiB (the v3.4.6 Flutter tier)",
+      "55L * 1024 * 1024 - 1" in update_core)
 check("updater rechecks SHA-256 before installation",
       "matchesSha256(apk, expected)" in updater and "install(c, apk)" in updater)
 check("loopback updater E2E exercises the redirected release flow",
@@ -149,11 +157,15 @@ check("build workflow rejects an APK at or above 50 MiB",
       'SIZE" -lt 52428800' in build_workflow)
 check("release workflow rejects an APK at or above 50 MiB",
       'SIZE" -lt 52428800' in release_workflow)
-check("build workflow validates version 3.4.5 / 30405",
-      'test "$VERSION" = "3.4.5"' in build_workflow
-      and 'test "$CODE" = "30405"' in build_workflow)
-check("release workflow defaults to version 3.4.5",
-      "default: '3.4.5'" in release_workflow)
+# v3.4.6 — the workflow resolves the identity from the Gradle host (AGP 9 owns
+# it) AND from AppInfo, then asserts both against the pinned 3.4.6 / 30406.
+check("build workflow validates version 3.4.6 / 30406",
+      'test "$VERSION" = "3.4.6"' in build_workflow
+      and 'test "$CODE" = "30406"' in build_workflow
+      and 'test "$GRADLE_VERSION" = "$VERSION"' in build_workflow
+      and 'test "$APPINFO_CODE" = "$CODE"' in build_workflow)
+check("release workflow defaults to version 3.4.6",
+      "default: '3.4.6'" in release_workflow)
 
 # Adaptive launcher icon remains a valid layered vector resource.
 try:
@@ -167,5 +179,5 @@ try:
 except (OSError, ET.ParseError):
     check("launcher adaptive resources parse", False)
 
-print(f"v3.4.5 UI audit: {checks - failures} passed, {failures} failed")
+print(f"v3.4.6 UI audit: {checks - failures} passed, {failures} failed")
 raise SystemExit(1 if failures else 0)

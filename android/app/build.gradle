@@ -1,0 +1,190 @@
+// AnantPlay Sinhala Player v3.4.6 — the Option-A host app module.
+//
+// WRAPS THE EXISTING PURE-JAVA BACKEND 100% INTACT:
+//   · src/     → java.srcDirs   (lk.techworld.anantplay.sicast backend, unchanged)
+//   · res/     → res.srcDirs    (the audited launcher + chrome drawables, unchanged)
+//   · assets/  → assets.srcDirs (fonts: NotoSansSinhala + Inter variable, unchanged)
+//   · libs/    → the Media3 1.11.1 + Guava jars, exactly as build.sh used them
+// and EMBEDS the Flutter module (ui/ — the Mornye v5.4.0 Liquid-Glass engine,
+// vendored LGPL-3.0-only) via the standard add-to-app include from settings.gradle.
+//
+// v3.4.6 FIXES APPLIED TO THE SHIPPED DELTA (all four were hard build failures):
+//   1. the dev.flutter.flutter-gradle-plugin is APPLIED (without it the Flutter
+//      engine AAR is never resolved and :flutter is never packaged);
+//   2. Java 17 (Flutter 3.50.1's minimum) — not the Java 8 bytecode target that
+//      the plain-Java build.sh path used, which d8 8.6/AGP 9 reject for classes
+//      compiled against the Flutter embedding;
+//   3. minSdk 26 (unchanged for the app) is raised for the Flutter module via
+//      the flutter.minSdkVersion override below — Flutter's floor is 24, ours is
+//      higher, so nothing is lost;
+//   4. the signing config is wired from -P properties (KS_FILE/KS_PASS/KS_ALIAS/
+//      KS_KEYPASS) exactly the way the release workflow passes them.
+//
+// Signing reads the same permanent secrets build.sh has always used
+// (KS_BASE64 → decoded keystore, KS_PASS / KS_KEYPASS / KS_ALIAS) so v3.4.6
+// updates in place over v3.4.5 — the zero-uninstall Obtainium contract.
+plugins {
+    id "com.android.application"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def ksFile = project.findProperty("KS_FILE")
+def hasReleaseKey = ksFile != null && file(ksFile).exists()
+
+android {
+    namespace = "lk.techworld.anantplay.sicast"
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "lk.techworld.anantplay.sicast"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 30406
+        versionName = "3.4.6"
+        multiDexEnabled = true
+
+        // v3.4.6 — the CI contract is ONE arm64 artifact below 50 MiB. The Flutter
+        // engine AAR ships every ABI, so the app filters to arm64-v8a explicitly
+        // (armeabi-v7a/x86_64 video decoders are not part of this release).
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    // the EXISTING tree — same files, same package, zero relocation.
+    // v3.4.6 — AGP 9 resolves a RELATIVE manifest path against the MODULE dir at
+    // task time (the shipped "../AndroidManifest.xml" landed on
+    // android/AndroidManifest.xml and failed processReleaseMainManifest), so the
+    // absolute paths are computed here, where `project` is unambiguous.
+    def repoRoot = project.rootProject.projectDir.parentFile
+    sourceSets {
+        main {
+            manifest.srcFile new File(repoRoot, "AndroidManifest.xml")
+            java.srcDirs = [new File(repoRoot, "src")]
+            res.srcDirs = [new File(repoRoot, "res")]
+            assets.srcDirs = [new File(repoRoot, "assets")]
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseKey) {
+                storeFile file(ksFile)
+                storePassword project.findProperty("KS_PASS")
+                keyAlias project.findProperty("KS_ALIAS") ?: "sicast"
+                keyPassword project.findProperty("KS_KEYPASS") ?: project.findProperty("KS_PASS")
+            }
+            // v3.4.6 — the release contract is apksigner v2 AND v3. AGP derives the
+            // v3 scheme from minSdk/maxSdk by default, and with minSdk 26 it left
+            // v3 OFF ("Verified using v3 scheme: false"), so both are requested
+            // explicitly. v1 stays on for pre-Nougat safety nets; the schemes are
+            // additive, so an API-26 phone verifies with v2 and an API-28+ phone
+            // with v3 — same key, same signature lineage.
+            v1SigningEnabled true
+            v2SigningEnabled true
+            enableV3Signing true
+        }
+    }
+
+    buildTypes {
+        release {
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            }
+            // The shipped jars are dexed by AGP's D8; the backend is plain Java
+            // touched by reflection — no R8/ProGuard, no shrinking, no renaming
+            // (mirrors build.sh: d8 + zipalign + apksigner, no shrinking).
+            minifyEnabled false
+            shrinkResources false
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        resources {
+            excludes += ["META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*"]
+        }
+    }
+
+    compileOptions {
+        // Flutter 3.50.1 requires Java 17 on the Android side (it refuses to
+        // build with an older bytecode target) — see gradle_utils.dart.
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig = false
+        resValues = false
+    }
+
+    lint {
+        // A release gate, not a linter: the workflows verify badging/zipalign/
+        // apksigner explicitly, so lint must not fail the build on style.
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v3.4.6 — ONE DUPLICATE-CLASS POLICY, NOT A GAME OF WHACK-A-MOLE.
+//
+// libs/ IS THE PROVIDER OF RECORD. Every jar in it is a real, shipped artifact
+// that build.sh also uses. Media3/Guava's Maven POMs drag in the same libraries
+// (sometimes older, sometimes newer) and AGP's :app:checkReleaseDuplicateClasses
+// then finds two copies of the same class — annotation-experimental,
+// concurrent-futures and listenablefuture all came up that way in CI.
+//
+// So the Maven copies of the libraries that libs/ already provides are excluded
+// globally. The jars stay in dex exactly as shipped, nothing is deleted, and the
+// resolved graph can never contain a second copy.
+// ═════════════════════════════════════════════════════════════════════════════
+configurations.configureEach {
+    exclude group: "com.google.guava", module: "guava"
+    exclude group: "com.google.guava", module: "failureaccess"
+    exclude group: "com.google.guava", module: "listenablefuture"
+    exclude group: "androidx.annotation", module: "annotation-experimental"
+    exclude group: "androidx.concurrent", module: "concurrent-futures"
+}
+
+dependencies {
+    // The existing Media3 1.11.1 + Guava jars — referenced in place, never copied.
+    // `../libs` is resolved against the MODULE dir (android/app), so the dir is
+    // computed from the ROOT project, exactly like the source sets above.
+    implementation fileTree(dir: new File(project.rootProject.projectDir.parentFile, "libs"),
+            include: ["*.jar"])
+    // The Flutter module AAR binding (include_flutter.groovy → :flutter).
+    implementation project(":flutter")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v3.4.6 — THE FLUTTER SOURCE DIRECTORY (the actual cause of the failed
+// :app:compileFlutterBuildRelease).
+//
+// The flutter-gradle-plugin derives the `flutter assemble` WORKING DIRECTORY
+// from FlutterExtension.source (grep FlutterPluginUtils.getFlutterSourceDirectory),
+// whose default is "../.." — correct for a standalone Flutter app, where
+// app/build.gradle sits at flutter_app/android/app. This host is not that shape:
+// android/app is android/app, so "../.." resolves to the REPO ROOT, where there is
+// no pubspec.yaml. `flutter assemble` therefore exited 1 with nothing but
+// "Process ... finished with non-zero exit value 1", while an identical
+// invocation inside ui/ succeeded.
+//
+// The extension is set explicitly here (ABSOLUTE, because it is resolved against
+// android/app), so the rule runs in ui/ and targets lib/main.dart. (Note: the
+// extension is type-checked by the Flutter plugin, so this block must stay AFTER
+// the plugins block at the top of the file.)
+// ═════════════════════════════════════════════════════════════════════════════
+flutter {
+    // `source` is resolved with project.file(), i.e. against THIS module's
+    // directory (android/app) — the default "../.." lands on the repo root and
+    // "../ui" lands on android/ui (AGP: "Invalid Flutter source directory").
+    // Absolute, like the source sets and the libs dir above.
+    source = new File(project.rootProject.projectDir.parentFile, "ui").absolutePath
+    target = "lib/main.dart"
+}
