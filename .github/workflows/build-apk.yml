@@ -426,6 +426,28 @@ jobs:
           cat android/local.properties
           test -f ui/.android/include_flutter.groovy || { echo "::error::ui/.android/include_flutter.groovy missing — pub get did not generate the module host"; exit 1; }
 
+      # v3.4.6 — `compileFlutterBuildRelease` shells out to `flutter assemble`, and
+      # when THAT fails Gradle only reports "finished with non-zero exit value 1".
+      # Running the same Dart build first turns an opaque Gradle failure into a
+      # named one (bad asset, bad font, bad constant, shader compile error).
+      - name: Pre-flight the Flutter release build (Dart AOT, same target as Gradle)
+        run: |
+          set +e
+          cd ui
+          flutter build apk --release --target-platform android-arm64 --no-pub \
+            > /tmp/flutterbuild.log 2>&1
+          RC=$?
+          set -e
+          echo "flutter build apk exit: $RC"
+          tail -60 /tmp/flutterbuild.log
+          if [ "$RC" -ne 0 ]; then
+            tail -60 /tmp/flutterbuild.log | cut -c1-900 | while IFS= read -r line; do
+              echo "::error title=flutter build apk::${line}"
+            done
+            exit 1
+          fi
+          echo "dart AOT build OK"
+
       - name: 'Build + sign the APK (Gradle host: Media3 backend + Flutter UI)'
         env:
           KS_BASE64: ${{ secrets.KS_BASE64 }}
