@@ -495,13 +495,15 @@ jobs:
               | head -45 | cut -c1-900 | while IFS= read -r line; do
                 echo "::error title=gradle failure::${line}"
               done
-            # the 60 log lines immediately BEFORE the failing task usually hold
-            # the real message (flutter/dart/aapt tool output is echoed there)
-            FIRST_FAIL=$(grep -n "Execution failed for task" /tmp/gradle.log | head -1 | cut -d: -f1 || true)
-            if [ -n "${FIRST_FAIL:-}" ] && [ "$FIRST_FAIL" -gt 1 ]; then
-              sed -n "$((FIRST_FAIL > 60 ? FIRST_FAIL - 60 : 1)),$((FIRST_FAIL - 1))p" /tmp/gradle.log \
+            # The tool output lands right AFTER the task header, not before the
+            # summary: dump 100 lines from "> Task :...compileFlutterBuildRelease"
+            # (or any first failing task) — that is where flutter/dart/aapt speak.
+            TASK_LINE=$(grep -n "^> Task .*compileFlutterBuildRelease" /tmp/gradle.log | head -1 | cut -d: -f1 || true)
+            [ -z "${TASK_LINE:-}" ] && TASK_LINE=$(grep -n "^> Task " /tmp/gradle.log | head -1 | cut -d: -f1 || true)
+            if [ -n "${TASK_LINE:-}" ]; then
+              sed -n "${TASK_LINE},$((TASK_LINE + 100))p" /tmp/gradle.log \
                 | cut -c1-900 | while IFS= read -r line; do
-                  echo "::error title=gradle context::${line}"
+                  echo "::error title=gradle task output::${line}"
                 done
             fi
             # then the first specific compiler/dependency diagnostics
