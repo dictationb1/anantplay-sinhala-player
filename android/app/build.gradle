@@ -124,7 +124,11 @@ android {
 
 dependencies {
     // The existing Media3 1.11.1 + Guava jars — referenced in place, never copied.
-    implementation fileTree(dir: "../libs", include: ["*.jar"])
+    // v3.4.6 — `../libs` is resolved against the MODULE dir (android/app), which
+    // put the jars on android/app/../libs = android/libs (absent) and left
+    // ExoPlayer/Media3 off the compile classpath. Absolute, like the sourceSets.
+    implementation fileTree(dir: new File(project.rootProject.projectDir.parentFile, "libs"),
+            include: ["*.jar"])
     // The Flutter module AAR binding (include_flutter.groovy → :flutter).
     implementation project(":flutter")
 }

@@ -210,8 +210,37 @@ def main():
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
     text = proc.stdout + proc.stderr
 
+    def _blocks(t):
+        """Group javac output into diagnostics: an '…error:' line plus its detail.
+
+        javac prints the reason on FOLLOWING lines ("symbol: class ExoPlayer",
+        "location: class PlayActivity"), so a bare error line is not actionable in
+        a check-run annotation.
+        """
+        out, cur = [], None
+        for ln in t.splitlines():
+            if "error:" in ln:
+                if cur:
+                    out.append(cur)
+                cur = ln.strip()
+            elif cur is not None:
+                st = ln.strip()
+                if not st or st.startswith(("^", "Note:", "warning:")) or st.endswith(".java"):
+                    if st and not st.startswith("^"):
+                        pass
+                    if not st:
+                        out.append(cur); cur = None
+                    continue
+                if st.startswith(("symbol:", "location:", "required:", "found:", "reason:")):
+                    cur += " | " + st
+                else:
+                    out.append(cur); cur = None
+        if cur:
+            out.append(cur)
+        return out
+
     if mode == "FULL":
-        hits = [ln.strip() for ln in text.splitlines() if "error:" in ln]
+        hits = _blocks(text)
         if android and not embed:
             # A missing embedding jar is not a syntax defect in our sources. javac
             # reports the unresolved EMBEDDING SYMBOLS in several shapes
@@ -236,6 +265,7 @@ def main():
         print("verify_syntax: FAIL — %d diagnostic(s) in %s mode:" % (len(hits), mode))
         for h in hits[:40]:
             print("  " + h)
+            print("::error title=javac::" + h[:900].replace("\n", " "))
         return 1
     print("verify_syntax: OK — 0 diagnostics in %s mode across %d sources" % (mode, len(files)))
     return 0
