@@ -3,7 +3,9 @@
 **Release line:** `v3.4.6` / `versionCode 30406` (version locked — no jump to 3.5 or 4.0)
 **Delta integrated:** `v3.4.6-option-a-delta.zip` (Option A: Mornye v5.4.0 Liquid-Glass
 Flutter add-to-app UI over the untouched Java/Media3 backend)
-**Branch:** `arena/bdd02ad3-anantplay-sinhala-player` → `main` (PR **#27**)
+**Branch:** `arena/bdd02ad3-anantplay-sinhala-player` → `main`
+**PR:** https://github.com/dictationb1/anantplay-sinhala-player/pull/27
+**Merged:** **`532e66e7a6a5185faa5be0a3ddc6ba1b1bbbb6f1`** (2026-11-24T09:15:31Z)
 
 ---
 
@@ -66,12 +68,38 @@ No jar was deleted, moved or renamed — `build.sh` still compiles against exact
 |---|---|
 | Cast protocol lab (gating) | ✅ **3170/3170 PASS, 0 FAIL — Lab result: ALL 1252 PASSED** |
 | Flutter analyze & test (Mornye Liquid-Glass module) | ✅ **No issues found**; **All tests passed** (14 tests: 10 bridge + 4 shell) |
-| APK build (Gradle 9.5.0 + AGP 9.3.1 + SDK 36, signed + verified) | ✅ APK bytes **46,778,555** (< 50 MiB), sha256 `4d3552f314755ab5cca110d3269b95ed0568f4eb1be349b1beee85382398920b`, version **3.4.6 (versionCode 30406)**, **apksigner v2 true + v3 true** |
+| APK build (Gradle 9.5.0 + AGP 9.3.1 + SDK 36, signed + verified) | ✅ APK bytes **46,778,555** (< 50 MiB), version **3.4.6 (versionCode 30406)**, **apksigner v2 true + v3 true**, `zipalign -c 4` OK |
 
 Every assertion in the APK job publishes a check-run annotation, so the artifact's identity is
 provable from the API: `zipalign -c 4` exit 0, `apksigner verify` **v2 true + v3 true**, badging
 `lk.techworld.anantplay.sicast` / `targetSdkVersion 36`, `lib/arm64-v8a/libflutter.so` present,
 `assets/fonts/NotoSansSinhala-Regular.ttf` present.
+
+### 4.1b Post-merge release pipeline (run **45363481682** @ merge commit `532e66e`)
+
+| Job | Result |
+|---|---|
+| Lab gate → signed APK → GitHub Release | ✅ `Lab: 3170/3170 PASS — releasing v3.4.6` |
+| Build Sinhala Player APK (4563851894 → 45363481994) | ✅ |
+| Release **v3.4.6** | ✅ live, **exactly 2 assets** |
+
+**Release:** https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.4.6
+
+| Asset | Size |
+|---|---|
+| `AnantPlay-Sinhala-Player-v3.4.6.apk` | **46,778,555 B (44.6 MiB) — < 50 MiB** |
+| `SHA256SUMS.txt` | 102 B |
+
+**Digest chain (independently re-fetched over HTTPS, not from the build log):**
+
+| Source | Value |
+|---|---|
+| `SHA256SUMS.txt` on the release | `15c95c7f0bb6bb7a6658d83547e8e344b2deb86949588bebcfd835ee3f5ec52c` |
+| `docs/latest.json` on `main` (`raw.githubusercontent.com`) | `"version":"3.4.6","code":30406,"sha256":"15c95c7f…"` |
+| Match | ✅ **identical**, and `apkUrl` points at `releases/download/v3.4.6/…` |
+
+`docs/latest.json` landed as commit `00ca5b4 chore(release): docs/latest.json v3.4.6 (updater tier-2 endpoint) [skip ci]`
+— **no CI loop** (a `GITHUB_TOKEN` push cannot start a run, and the `[skip ci]` marker is belt-and-braces).
 
 ### 4.2 Local lab
 
@@ -105,8 +133,10 @@ provable from the API: `zipalign -c 4` exit 0, `apksigner verify` **v2 true + v3
 - APK එක `lk.techworld.anantplay.sicast` ලෙස, **targetSdk 36**, arm64-v8a, **v2 + v3** අත්සනින්
   (දෙකම `apksigner` මගින් තහවුරු කර ඇත, zipalign 4-byte) — පෙර v3.4.5 උඩින් ස්ථාපනය කළ හැක
   (Obtainium update contract).
-- CI සියලු job 3 **සම්පූර්ණයෙන් සාර්ථක**: lab **3170/3170 PASS**, Flutter test **14/14**,
-  APK build signed + verified.
+- CI සියලු job **3/3 සම්පූර්ණයෙන් සාර්ථක**: lab **3170/3170 PASS**, Flutter test **14/14**,
+  APK build signed + verified (v2 + v3).
+- **v3.4.6 නිකුතුව සජීවීය**: ගොනු **2ක් පමණි** — APK (46,778,555 bytes) සහ `SHA256SUMS.txt`;
+  `docs/latest.json` හි sha256 (`15c95c7f…`) නිකුතුවේ sha256 සමඟ **සම්පූර්ණයෙන් සමාන** ය.
 - නිදහස් මෘදුකාංග බලපත්‍ර (`THIRD_PARTY.md`) යාවත්කාලීන කර ඇත; `.zip`/`.apk` ගොනු Git
   එකේ **නොමැත**.
 

@@ -264,6 +264,13 @@ jobs:
           APK="AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
           sha256sum "$APK" > SHA256SUMS.txt
           cat SHA256SUMS.txt
+          # v3.4.6 — the digest of the PUBLISHED artifact, published as a
+          # check-run annotation (raw.githubusercontent of the SHA256SUMS asset is
+          # not reachable from every verification environment).
+          echo "::notice title=release sha256::$(cut -d' ' -f1 SHA256SUMS.txt)"
+          echo "::notice title=release APK size::$(stat -c %s "$APK") bytes"
+          echo "::notice title=release schemes::$(grep -c 'scheme (APK Signature Scheme v[23]): true' /tmp/apksigner.txt 2>/dev/null || echo 0)/2 verified (v2, v3)"
+          LASTSIZE=$(stat -c %s "$APK"); test "$LASTSIZE" -lt 52428800
 
       # ── 6b. v3.4.2 — docs/latest.json: the updater's TIER-2 resolver source ──
       # The in-app updater reads https://raw.githubusercontent.com/<repo>/main/
