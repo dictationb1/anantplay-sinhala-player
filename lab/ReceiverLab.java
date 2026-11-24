@@ -5110,8 +5110,14 @@ public class ReceiverLab {
         boolean latestIsCurrentRelease = latest.contains("\"version\":\"3.4.6\"")
             && latest.contains("\"code\":30406")
             && latest.contains("/download/v3.4.6/AnantPlay-Sinhala-Player-v3.4.6.apk");
+        // v3.4.6.a — the LIVE release: the workflow itself rewrites latest.json
+        // to 3.4.6.a/30407 the moment v3.4.6.a ships (this exact release), and
+        // the gate must accept the release it just published.
+        boolean latestIsV346a = latest.contains("\"version\":\"3.4.6.a\"")
+            && latest.contains("\"code\":30407")
+            && latest.contains("/download/v3.4.6.a/AnantPlay-Sinhala-Player-v3.4.6.a.apk");
         check("v346 customize: latest.json points to a valid signed release",
-            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease)
+            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease || latestIsV346a)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));

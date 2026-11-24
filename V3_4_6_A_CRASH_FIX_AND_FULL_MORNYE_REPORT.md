@@ -1,106 +1,143 @@
 # V3_4_6_A — THE CRASH FIX + FULL MORNYE PARITY REPORT
 
-**AnantPlay Sinhala Player v3.4.6.a (versionCode 30407)**
-Branch `fix/v3.4.6.a-crash-and-full-mornye-ui` · the emergency release that ends the v3.4.6 dead-on-arrival incident.
+**AnantPlay Sinhala Player v3.4.6.a (versionCode 30407)** — **SHIPPED.**
+Tag `v3.4.6.a` · PR **#28** merged to `main` as `22a237e` (2026-11-24T14:02:31Z) · release **live** with exactly 2 assets.
 
 ---
 
-## 1. THE INCIDENT (ENGLISH)
+## 1. THE INCIDENT
 
-**v3.4.6** (PR #27, commit `532e66e`, versionCode 30406, 46,778,555 B / 44.61 MiB, sha256 `15c95c7f0bb6bb7a6658d83547e8e344b2deb86949588bebcfd835ee3f5ec52c`) installed successfully on Android 16 real hardware and then **crashed instantly on every launch — the app would not open at all**.
+**v3.4.6** (versionCode 30406) installed successfully on Android 16 and then **crashed instantly on every launch — the app would not open at all.** All static CI gates of that release were green (signature, zipalign, badging, size), because none of them ever *started* the app.
 
-## 1. සිද්ධිය (සිංහල)
+**v3.4.6.a** fixes the true root cause — found by actually launching the build on a live KVM Android emulator in CI — plus the three audit traps that let v3.4.6 through.
 
-**v3.4.6** සංස්කරණය (versionCode 30406, 44.61 MiB) Android 16 දුරකථනයකට සාර්ථකව ස්ථාපනය වූ නමුත්, විවෘත කළ විගසම **ක්‍රෑෂ් වූයේ යෙදුම සම්පූර්ණයෙන් විවෘත වීමට බැරි වූ නිසය.** v3.4.6.a (versionCode 30407) මෙය ස්ථිරව සහ මූලිකව නිවැරදි කරයි.
+> **සිංහල:** v3.4.6 (30406) ස්ථාපනය වූ නමුත් විවෘත කළ විගසම ක්‍රෑෂ් විය. v3.4.6.a (30407) මූලික හේතුව සජීවී emulator පරීක්ෂණයෙන් සොයා නිවැරදි කර ඇත: **`MainActivity.onCreate` එකේ `prefs` යොදන අනුක්‍රමය වැරදි නිසා `configureFlutterEngine()` කියවන විට `SharedPreferences` null වී NPE දී, ක්‍රියාමාර්ගය මරා දැමීය.** (ELF 16 KB මතභූමි මතභූත කතාව වැරදිය — පහත අංක 2.)
 
 ---
 
-## 2. THE ROOT CAUSE — PROVEN AT THE BINARY LEVEL (ENGLISH)
+## 2. THE TRUE ROOT CAUSE — PROVEN BY LIVE LOGCAT
 
-The forensic autopsy of the live APK (the exact bytes users downloaded) found **the shipped `lib/arm64-v8a/libflutter.so` is a 4 KB-page-class ELF**:
+The CI launch-smoke test (x86_64 KVM emulator, Android 16 / API 36 `google_apis`, `pixel_6`) reproduced the crash **on our own rebuilt APK** before the fix — run **45406738360**, job "Android Emulator Launch Smoke Test":
 
 ```
-PT_LOAD #1 (RX): off=0x0      vaddr=0x0      → 16K-aligned OK
-PT_LOAD #2 (R):  off=0xa74140 vaddr=0xa84140 → +0x140 past a 16 KiB boundary (file AND memory)
-PT_LOAD #3 (RW): off=0xad01c0 vaddr=0xaf01c0 → +0x1c0 past a 16 KiB boundary (file AND memory)
-p_align=65536 declared — but the segments are only 4 KiB-congruent.
+11-24 13:50:31.785  2447  2447 E AndroidRuntime: FATAL EXCEPTION: main
+11-24 13:50:31.785  2447  2447 E AndroidRuntime: Process: lk.techworld.anantplay.sicast, PID: 2447
+11-24 13:50:31.785  2447  2447 E AndroidRuntime: java.lang.RuntimeException: Unable to start activity
+    ComponentInfo{lk.techworld.anantplay.sicast/lk.techworld.anantplay.sicast.MainActivity}:
+    java.lang.NullPointerException: Attempt to invoke interface method
+    'boolean android.content.SharedPreferences.getBoolean(java.lang.String, boolean)'
+    on a null object reference
+        at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:4280)
+        at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:4467)
 ```
 
-- **Android 16 (SDK 36)** runs on **16 KB-page-size devices** (the 2026 hardware class; Play requires 16 KB support for apps targeting API 35+). The dynamic linker **refuses to load** such a `.so` → `FlutterActivity` dies during engine creation → **instant crash before any frame** — the exact "installs fine, then refuses to open" symptom.
-- On 4 KB-page devices (and CI's x86_64 emulators — which no CI job ever *launched* anyway) the same APK opens fine. That is why every static gate was green: apksigner v2+v3 ✓, `zipalign -c 4` ✓, badging ✓, size < 50 MiB ✓ — **none of them audited ELF page alignment, none of them started the app.**
+(The system relaunched the activity once — PID 2356 at 13:51:05 — and it crashed identically. `am start` never produced a focused window.)
 
-**The mechanism:** the Gradle host resolved the **UNIVERSAL** `io.flutter:flutter-release` Maven artifact (all 3 ABIs, 4 KB-class arm64 slice) instead of the per-ABI 16 KB-ready artifact. The APK shipped **three engines** (arm64-v8a + armeabi-v7a + x86_64, 13.96 MB of dead weight) despite `ndk { abiFilters "arm64-v8a" }` — abiFilters did not stop the AAR-packaged `.so` merge. `libapp.so` (the Dart AOT snapshot) was itself 16 KB-ready; only the engine was not.
+### The mechanism
 
-**Verified-clean negatives** (audited, no defect): manifest identity (30406/3.4.6/targetSdk 36/minSdk 26, `MAIN`/`LAUNCHER`, `flutterEmbedding=2`), DEX (full embedding, Media3, Guava present, only reflection-only dangling refs), engine/Dart version match (Dart VM 3.14.0 stable, snapshot hash consistent), assets (compiled IPLR shader + all fonts/onboarding present), signatures (v2+v3), the Java startup path (fully try/catch-guarded), and the Dart startup path (async+defensive, channels 1:1 with MainActivity).
+```java
+// BEFORE (v3.4.6, identical on origin/main @ 30406) — DEAD ON ARRIVAL
+@Override
+protected void onCreate(Bundle b) {
+    super.onCreate(b);                                   // ← FlutterActivity.onCreate runs
+    prefs = getSharedPreferences("sicast", MODE_PRIVATE);//    configureFlutterEngine() INSIDE
+}                                                       //    → prefs still null → NPE
+```
 
-## 2. මූලික හේතුව — ද්විමය මට්ටමෙන් ඔප්පැන් කළ (සිංහල)
+`FlutterActivity.onCreate(...)` invokes `configureFlutterEngine(...)` **during `super.onCreate(...)`**, and that method synchronously reads:
 
-APK එකේ එයාකාංශයම විශ්ලේෂණයෙන් ඔප්පැන් වූයේ **`libflutter.so` ගොනුව 4 KB-පිටු පන්තියේ ELF එකක්** බවයි:
+```java
+} else if (prefs.getBoolean(AppPrefs.K_AUTO_UPDATE, true)) {   // MainActivity.java:152
+    SelfUpdater.checkOnLaunch(this);
+}
+```
 
-- Android 16 දුරකථන **16 KB පිටු ප්‍රමාණය** සමඟ ක්‍රියාත්මක වන නිසා, dynamic linker එක එම `.so` **පූරණය කිරීම ප්‍රතික්ෂේප කරයි** → `FlutterActivity` එන්ජිම සෑදෙමින්ම මිය යයි → යෙදුම විවෘත වන්නේම නැත.
-- 4 KB පිටු දුරකථනවල (සහ CI emulator) යෙදුම විවෘත වේ — එනිසාම CI gates සියල්ලම කොළ පාට විය. **ELF පිටු අනුකූලතාවක් විමසූ තිරයක්, යෙදුම ඇත්තටම විවෘත කර බැලූ පරීක්ෂණයක් නොතිබුණි.**
-- ක්‍රමලේඛන දෝෂය: Gradle එක **සර්වත්‍ර `flutter-release` artifact** එක (ABI 3ක්, 4 KB arm64) භාවිත කළේ 16 KB-සූදානම් per-ABI artifact වෙනුවට. APK එකට **එන්ජිම් 3ක්** ඇතුළත් විය (13.96 MB අනාවැක්තික බර).
+With the old order, `prefs` was still `null` at that moment → the exact `NullPointerException` above → `Unable to start activity` → the process dies before the first frame. **The shipped v3.4.6 carries this identical ordering** — this is the real v3.4.6 crash, independent of page size.
+
+### The fix
+
+```java
+// AFTER (v3.4.6.a)
+@Override
+protected void onCreate(Bundle b) {
+    prefs = getSharedPreferences("sicast", MODE_PRIVATE); // ContextWrapper is live
+    super.onCreate(b);                                    // configureFlutterEngine now sees prefs
+}
+```
+
+`getSharedPreferences` is legal before `super.onCreate` (`attachBaseContext` has already run). Live logcat after the fix: **zero FATAL/SIGSEGV/SIGABRT, `am start -W` → `Status: ok`, process alive 12 s, MainActivity focused** — run **45408511950**, smoke job green (5 m 55 s).
+
+### Why Z.ai's "4 KB-page-class libflutter.so" diagnosis was FALSE
+
+The autopsy table itself disproves the theory (`p_vaddr ≡ p_offset (mod p_align)` is the ELF rule):
+
+| Segment | off | vaddr | vaddr−off | congruence |
+|---|---|---|---|---|
+| PT_LOAD #2 (R) | `0xa74140` | `0xa84140` | `0x10000` = 65536 | **65536 mod 65536 = 0 → VALID** (even for 64 KiB pages) |
+| PT_LOAD #3 (RW) | `0xad01c0` | `0xaf01c0` | `0x20000` = 131072 | **VALID** |
+
+The claimed rule "`off % 16384 != 0` ⇒ 4 KB-class" is not a rule at all — `p_offset` is free to be any file offset; what must hold (and does) is the **congruence** `(p_vaddr − p_offset) % p_align == 0`. A universal-engine Maven artifact also cannot be "swapped" to hyphenated per-ABI coordinates (they don't exist — see trap 2). The 16 KB machinery that *is* real — `useLegacyPackaging=false`, `zipalign -P 16`, the ELF congruence gate — remains **in** this release as hardening for actual 16 KB-page Android 16 devices; it is simply not the DOA cause, and the launch smoke is what found that.
 
 ---
 
-## 3. THE FIX SET (ENGLISH)
+## 3. THE THREE AUDIT TRAPS — FIXED
+
+| # | Trap | Fix |
+|---|------|-----|
+| 1 | `lab/verify_apk_launch_integrity.py` implemented fake ELF math (`off % 16384`) and both workflows ran `zipalign -c 4` only | Real rules: `p_align ≥ 16384`, `(p_vaddr−p_offset) % 16384 == 0`, no conflicting-permission PT_LOAD overlap in one 16 KiB virtual page; **new L1z zip gate**: every stored `.so` `data_offset % 16384 == 0` (or `extractNativeLibs=true`, decoded from compiled AXML); both workflows now run `zipalign -P 16 -f 4` **before** `apksigner sign` and verify with `zipalign -c -P 16 4` + the gate script. Z.ai's own example segments pass the corrected gate. |
+| 2 | Bogus hyphenated `io.flutter:flutter-arm64-v8a-*` Maven substitutions; `useLegacyPackaging=true` hid zip offsets; no way to build an emulator twin | Substitution **removed** with an audit-truth comment (real coords are `io.flutter:arm64_v8a_release` / `flutter_embedding_release`); `useLegacyPackaging = false` (extractNativeLibs=false — 16 KB zip contract real); PR#27 excludes verified against shipped jars (guava carries ListenableFuture — they are safe and intentional); optional `-PsmokeAbi` (ndk abiFilters + jniLibs excludes) builds the identical release for the emulator's ABI. `lab/verify_gradle_host.py` 64/64. |
+| 3 | No launch test existed — v3.4.6 shipped "installs fine, never opens" with everything green | Full rewrite: ubuntu-latest + **x86_64 KVM** (`reactivecircus/android-emulator-runner@v2`, API **36**, `google_apis`, `pixel_6`, 4 cores/4 GB, boot timeout 900 s, udev KVM rule so the emulator can never silently fall back to software); builds its own x86_64 release twin (`-PsmokeAbi=x86_64 -Ptarget-platform=android-x64`); ABI lock (root `lib/` = `lib/x86_64` only, every `.so` under it, `libflutter.so`+`libapp.so` present) + v2/v3 signature; then `adb logcat -c` → `install -r` → `am start -W` (`Status: ok`) → **12 s** watch: non-empty `pidof`, `dumpsys window` focus on `lk.techworld.anantplay.sicast/.MainActivity`, **zero** `FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT` in `logcat -b crash` and none outside it; every failure dumps the FULL crash buffer + `AndroidRuntime|flutter` `*:E` lines into `$GITHUB_STEP_SUMMARY` and `::error::` annotations. The action executes `script:` **line by line as separate `sh -c` runs** (fresh shell per line), so every probe is a self-contained single line persisting state in `/tmp` files. |
+
+### Parity & other defects fixed en route (found by the gates)
+
+- **`ui/pubspec.yaml` `version: 3.4.6.a+30407` is invalid pub_semver** — 4-part core; every `flutter pub get` died writing `.dart_tool/package_graph.json` (`'version': p.version.toString()`). Now `3.4.6+30407.a` (valid build metadata), description keeps `v3.4.6.a`.
+- 7 stale identity checks in `lab/ReceiverLab.java`, `AndroidManifest.xml`/`ui/pubspec.yaml` identity comments, `README.md`/`SETUP-SI.md` headers → all on **3.4.6.a / 30407**.
+- `settings_screen.dart`: missing `app_tokens` import (`context.tokens` undefined) and never-passed `isLast` parameter (`unused_element_parameter` — fatal-warnings) — both fixed.
+- Zero tracked `.zip`/`.apk` (Gate 1), machine-local paths untracked.
+
+---
+
+## 4. PROOFS
+
+| Gate | Proof |
+|---|---|
+| Local pre-checks | `lab/run_lab.sh` **3174 checks, 0 failed** (1256 cast-protocol + 1861 UI + gradle-host 64/64 + launch-integrity selftest), both workflows parse as YAML, every smoke-script line passes `dash -n` exactly as the action runs it |
+| PR CI | PR **#28** — 4/4 green on `arena/b7777ea5-anantplay-sinhala-player`: Cast lab ✓ · Flutter analyze & test ✓ · APK build ✓ · **Android Emulator Launch Smoke Test ✓** (run 45408511950) |
+| Emulator red→green | RED run 45406738360: NPE FATAL EXCEPTION (above) → fix → GREEN run 45408511950: install ✓, `am start -W` `Status: ok` ✓, live pid after 12 s ✓, focused ✓, zero crash ✓ |
+| Merge | PR #28 **MERGED** → `22a237e` on `main`, 2026-11-24T14:02:31Z; post-merge `build-apk.yml` run 45409708089 **green 4/4** |
+| Release | `release-apk.yml` run 45409707820 **success** → release **v3.4.6.a** LIVE (not draft), tag `v3.4.6.a` = `ee6fc1e`, **exactly 2 assets**: `AnantPlay-Sinhala-Player-v3.4.6.a.apk` (41,811,330 B ≈ 39.9 MiB < 50 MiB, v2+v3, `zipalign -c -P 16 4` + launch-integrity green) and `SHA256SUMS.txt` (104 B) |
+| Updater tier-2 | `docs/latest.json` on `main`: `{"version":"3.4.6.a","code":30407,"sha256":"0713415892db62a0df8ad67b639b6117c631d6377e3ba92a98e9f011c281b095",…}` committed with `[skip ci]` (`ee6fc1e`) |
+
+---
+
+## 5. THE FIX SET
 
 | # | Fix | Where |
 |---|-----|-------|
-| 1 | **Per-ABI 16 KB-ready engine resolution** — dependency substitution swaps `io.flutter:flutter-{release,debug,profile}` for `io.flutter:flutter-arm64-v8a-*` at configuration time | `android/app/build.gradle` |
-| 2 | **Belt+braces ABI excludes** — `packaging.jniLibs.excludes` drops `armeabi-v7a/**`, `x86/**`, `x86_64/**` regardless of how the artifact resolves | `android/app/build.gradle` |
-| 3 | **THE LAUNCH-INTEGRITY GATE** — `lab/verify_apk_launch_integrity.py`: every packaged `.so` must be 16 KB-ready (PT_LOAD congruent mod 16384 in file AND vaddr), exactly one ABI, libapp.so+asset pair, compiled-manifest identity, v2+v3 signing block. Wired into **both** workflows before upload/release. Proven against the dead v3.4.6 APK: it flags exactly the 6 real defects and exits 1 | both workflows + `lab/run_lab.sh` selftest |
-| 4 | **THE REAL LAUNCH SMOKE TEST** — a real arm64 Android 36 (google_apis, 16 KB-page class) emulator: `adb install`, `am start -W` (blocks on startup crash), process alive after 8 s, **crash buffer empty**, foreground-activity check | `.github/workflows/build-apk.yml` |
-| 5 | **Dart-side crash-proofing** — `FlutterError.onError` + `PlatformDispatcher.onError` forward into the new `anantplay/crashlog` channel (MainActivity → the same persistent `CrashLog` native crashes use, stamped with this build's versionCode). A Dart startup error can never again kill the app silently with nothing on disk | `ui/lib/main.dart`, `MainActivity.java` |
-| 6 | **Alphabetical version scheme** `3.4.6 < 3.4.6.a < .b < .c < .d < 3.4.7` — `UpdateChecker.parse()` carries a native 4th letter dimension (a→1..d→4, junk-tolerant, **never NumberFormatException**), `SelfUpdateCore`'s 3 release-regex gates accept `X.Y.Z[.a-d]`, CI derives collision-free codes (.a=30407…​.d=30410; 3.4.7=30411). 16-assert ordering ladder verified | `UpdateChecker.java`, `SelfUpdateCore.java`, `release-apk.yml` |
-| 7 | **Version identity sweep** — build.sh, AppInfo, pubspec, both workflows, README, SETUP-SI, settings UI, tests, ReceiverLab gates all on 3.4.6.a/30407 | repo-wide |
-
-**Size:** the fix REMOVES ~13.96 MB of dead engines (armeabi-v7a + x86_64) — the APK drops from 44.61 MiB toward the ~30–33 MiB range (one arm64 engine + one arm64 snapshot), comfortably under the 50 MiB gate and the 55 MiB updater cap. Exact bytes are stamped by CI on the built artifact.
-
-## 3. නිවැරදි කිරීම් (සිංහල)
-
-1. **16 KB-සූදානම් per-ABI එන්ජිම** — Gradle dependency substitution එකෙන් `flutter-arm64-v8a-release` artifact එක තෝරයි.
-2. **ABI excludes** — armeabi-v7a/x86/x86_64 එන්ජිම් APK එකෙන් සම්පූර්ණයෙන් ඉවත් වේ (බර ~14 MB අඩු වේ).
-3. **දියත්-අඛණ්ඩතා තිරය** — සෑම packaged `.so` එකකම 16 KB පිටු අනුකූලතාව CI එකේදීම බලන, අකුරු-අනුවාද යාවත්කාලීන ක්‍රමලේඛනය සහිත, නොනැසී පවතින ඉන්ජෙක්ටරයක්.
-4. **සැබෑ විවෘත-කිරීමේ පරීක්ෂණය** — Android 36 arm64 එමුලේටරයක `am start -W` + ක්‍රෑෂ්-බෆර් හිස් + 8 s ජීවත්වීම.
-5. **Dart ආරම්භක ආරක්ෂණය** — `anantplay/crashlog` නාලිකාවෙන් ස්ථිර crash-log වාර්තාවකට.
-6. **අකුරු අනුවාද ක්‍රමය** — `3.4.6.a` සිට `.d` දක්වා, `3.4.7`ට වඩා පහළින්; updater කිසිවිටක `NumberFormatException` නොදමයි.
+| 1 | **Prefs assigned before `super.onCreate`** — the true DOA root cause (§2) | `src/lk/techworld/anantplay/sicast/MainActivity.java` |
+| 2 | **Real Android 16 gates** — ELF congruence + L1z stored-zip alignment, `zipalign -P 16 -f 4` → `apksigner` → `zipalign -c -P 16 4` + gate script in both workflows; `useLegacyPackaging=false` | `lab/verify_apk_launch_integrity.py`, both workflows, `android/app/build.gradle` |
+| 3 | **Live launch smoke** — x86_64 KVM API-36 emulator, 12 s liveness + focus + zero-crash with full-logcat failure reporting (§3 trap 3) | `.github/workflows/build-apk.yml` |
+| 4 | **Audit-truth Gradle** — bogus substitutions removed, `-PsmokeAbi` twin, one-ABI contract enforced by packaging excludes | `android/app/build.gradle` |
+| 5 | **Dart-side crash-proofing** — `FlutterError.onError` + `PlatformDispatcher.onError` → new `anantplay/crashlog` channel (persistent CrashLog stamped with this build's versionCode) | `ui/lib/main.dart`, `MainActivity.java` |
+| 6 | **Alphabetical version ladder** `3.4.6 < .a < .b < .c < .d < 3.4.7` — native 4th letter dimension, never `NumberFormatException`; CI codes .a=30407…​.d=30410, 3.4.7=30411 | `UpdateChecker.java`, `SelfUpdateCore.java`, `release-apk.yml` |
+| 7 | **Version identity sweep** — build.sh, AppInfo, pubspec (semver-valid), both workflows, README, SETUP-SI, manifest comments, ReceiverLab gates: all **3.4.6.a / 30407** | repo-wide |
 
 ---
 
-## 4. FULL MORNYE PARITY (the Phase-2 work in this release)
+## 6. FULL MORNYE PARITY (the Phase-2 work in this release)
 
 The Mornye v5.4.0 visual effects that v3.4.6 shipped without, now present:
 
 - **`StaggeredListItem`** (upstream `animation_utils.dart` lines 24-112, vendored verbatim with the `loadedFadeFirstFrame` constant): the list-entry reveal — each item springs up after its own delay (spatial spring, may overshoot), opacity on the effects spring, reduced-motion + scrolled-page aware. Wired into **Home** (every section), **Onboarding** (first-stage art/title/body ladder; stage changes keep the AnimatedSwitcher), and **Help** (the 4 action cards).
-- **`MornyeGlassPreparation`** (upstream `mornye_glass_preparation.dart`, 30 lines, vendored verbatim): the one-time GPU warm-up when liquid glass is on — placed exactly as upstream app.dart places it: `ProviderScope > AppStateScope > MornyeGlassPreparation > MaterialApp`. The first glass frame never janks.
+- **`MornyeGlassPreparation`** (upstream `mornye_glass_preparation.dart`, 30 lines, vendored verbatim): the one-time GPU warm-up when liquid glass is on — placed exactly as upstream `app.dart` places it: `ProviderScope > AppStateScope > MornyeGlassPreparation > MaterialApp`. The first glass frame never janks.
 - **The connected settings list** (upstream appearance-page contract): `SettingsGroup` cards — `radiusCard = 24`, one surface per section, dividers between rows, `SettingsItem` row chrome with token paddings, the Mornye `AppSwitch` as the trailing control — replacing the floating per-tile cards. Every real preference (theme, accent, glass clarity 10–95%, outlines, motion, auto-subs, translator, auto-update, backup/reset, licenses) keeps its exact key and write path.
 
 The music-player-specific `MornyeCoverGlow`/`MornyeMotionGlow` remain upstream by design: they need `cover_store` + `video_player`, which in this app are owned natively by the Media3 `PlayActivity` pipeline — the shared entry/glass/list contracts above are the parity surface. The Cinema Player (Media3 1.11.1 hardware pipeline through `Media3TextureBridge`) and the Browser (`WebBrowserView`) are untouched and remain native.
 
 ---
 
-## 5. VERIFICATION LEDGER
+## 7. INCIDENT / ROOT-CAUSE SUMMARY (සිංහල)
 
-| Gate | Result |
-|------|--------|
-| ELF audit of the dead v3.4.6 APK (`lab/verify_apk_launch_integrity.py`) | **FAILS with exactly the 6 real defects** (3-ABI packaging, 2× 4 KB-class engines, 32-bit armeabi engines, libapp ABI spread), exit 1 — the gate catches the real incident |
-| The gate on a clean 16 KB single-ABI build (CI) | required-green before upload/release |
-| Launch-gate selftest (`lab/run_lab.sh`, the DOA-shaped fixture) | SELFTEST OK — the auditor still refuses the dead shape |
-| `lab/verify_gradle_host.py` (64 checks) | 0 failed |
-| `lab/verify_v345_ui.py` (57 checks) | 0 failed |
-| `lab/verify_layouts.py` (67 files, 299 calls) | 0 problems |
-| `lab/verify_ui_completeness.py` | 1861 PASS, 0 FAIL |
-| `lab/verify_v344_ui.py` | 1861 PASS-equivalent, 0 FAIL |
-| Alphabetical-ladder ordering (16 asserts incl. junk-tolerance) | ALL PASS |
-| versionCode ladder 30405 < 30406 < 30407 (.a) < 30408 (.b) < 30409 (.c) < 30410 (.d) < 30411 (3.4.7) | collision-free, verified |
-| CI (the full matrix: lab → flutter → apk + launch-smoke) | to run green on the PR; the launch smoke boots a real 16 KB-page arm64 emulator |
-
----
-
-## 6. THE SHIP
-
-- Branch: `fix/v3.4.6.a-crash-and-full-mornye-ui` (this branch)
-- Version: `3.4.6.a` / versionCode `30407` — an in-place update over both v3.4.5 and the broken v3.4.6 (same signature lineage, v2+v3, strictly greater code)
-- Updater contract: tier-1 web-redirect + tier-2 `docs/latest.json` (the release workflow rewrites it on merge), `MAX_APK_BYTES` 55 MiB−1 unchanged, the alphabetical parse is live in `UpdateChecker`/`SelfUpdateCore`
-- **A dead-on-arrival APK can never ship green again**: the launch-integrity gate runs on the final artifact in both workflows, and the emulator smoke job actually starts the app on the hardware class that killed v3.4.6.
+- **v3.4.6 ක්‍රෑෂ් හේතුව (සජීවී logcat සාක්ෂි):** `MainActivity.onCreate` හි `super.onCreate()` පළමුව කැඳවීම නිසා `configureFlutterEngine()` තුළ `prefs.getBoolean(...)` null `SharedPreferences` එකකින් කියවී → `NullPointerException` → `Unable to start activity` → යෙදුම **විවෘත නොවේ**. නිවැරදිය: `prefs` යෙදීම **පෙර** `super.onCreate(b)`.
+- **ELF 16 KB මතභූතය අසත්‍යය:** `0xa74140 → 0xa84140` හි වෙනස `0x10000` — `p_vaddr ≡ p_offset (mod p_align)` නීතිය **සපුරාලයි**; `off % 16384` නීතියක් නොවේ. නමුත් 16 KB තදබද ගේට්ටු (zipalign -P 16, useLegacyPackaging=false, L1z) තවමත් ක්‍රියාත්මකයි — ඒවා දුරස්ථ 16 KB උපාංග සඳහා අවශ්‍ය ශක්තිමත් කිරීමකි.
+- **දියත් කිරීම:** PR #28 (checks 4/4 කොළ) → merge `22a237e` → release **v3.4.6.a** සජීවී (APK + SHA256SUMS පමණයි) → `docs/latest.json` = 3.4.6.a / 30407 (`[skip ci]`).
