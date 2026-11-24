@@ -211,32 +211,42 @@ def main():
     text = proc.stdout + proc.stderr
 
     def _blocks(t):
-        """Group javac output into diagnostics: an '…error:' line plus its detail.
+        """Group javac output into complete diagnostics.
 
-        javac prints the reason on FOLLOWING lines ("symbol: class ExoPlayer",
-        "location: class PlayActivity"), so a bare error line is not actionable in
-        a check-run annotation.
+        javac prints the reason on the lines AFTER the error, under a ^ caret:
+
+            MainActivity.java:49: error: cannot find symbol
+            public class MainActivity extends FlutterActivity {
+                                               ^
+              symbol:   class FlutterActivity
+              location: class MainActivity
+
+        A bare "cannot find symbol" in a check-run annotation tells nobody
+        anything, so the source line, the caret and every reason keyword are
+        folded into one string. (v3.4.6: the first version dropped the reason
+        lines entirely, which also defeated the embedding filter below.)
         """
-        out, cur = [], None
-        for ln in t.splitlines():
-            if "error:" in ln:
-                if cur:
-                    out.append(cur)
-                cur = ln.strip()
-            elif cur is not None:
-                st = ln.strip()
-                if not st or st.startswith(("^", "Note:", "warning:")) or st.endswith(".java"):
-                    if st and not st.startswith("^"):
-                        pass
-                    if not st:
-                        out.append(cur); cur = None
-                    continue
-                if st.startswith(("symbol:", "location:", "required:", "found:", "reason:")):
-                    cur += " | " + st
-                else:
-                    out.append(cur); cur = None
-        if cur:
-            out.append(cur)
+        lines = t.splitlines()
+        out, i = [], 0
+        while i < len(lines):
+            if "error:" in lines[i]:
+                parts = [lines[i].strip()]
+                j = i + 1
+                while j < len(lines) and j <= i + 8:
+                    raw, st = lines[j], lines[j].strip()
+                    if not st or "error:" in raw:
+                        break
+                    if st.startswith(("symbol:", "location:", "required:", "found:", "reason:")):
+                        parts.append(st)
+                    elif st.startswith("^"):
+                        pass          # the caret: no information of its own
+                    elif not parts[-1].startswith("<src>"):
+                        parts.append(st)   # the offending source line
+                    j += 1
+                out.append(" | ".join(parts))
+                i = j
+                continue
+            i += 1
         return out
 
     if mode == "FULL":

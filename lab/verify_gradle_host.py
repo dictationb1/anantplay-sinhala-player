@@ -113,7 +113,14 @@ check("the app module applies dev.flutter.flutter-gradle-plugin",
 check("the app module depends on the :flutter project", 'project(":flutter")' in host)
 check("the app module references the Media3/Guava jars in place",
       'include: ["*.jar"]' in host and 'annotation-experimental-*.jar' in host
+      and 'concurrent-futures-*.jar' in host
       and 'project.rootProject.projectDir.parentFile' in host)
+check("every jar AGP reported as a duplicate class is excluded from the dex graph",
+      all(j[:-4] + "-*.jar" in host for j in
+          ("annotation-experimental-1.3.1.jar", "concurrent-futures-1.2.0.jar")))
+check("the Maven copies of the excluded jars are pinned (resolutionStrategy)",
+      'force "androidx.annotation:annotation-experimental:1.4.0"' in host
+      and 'force "androidx.concurrent:concurrent-futures:1.1.0"' in host)
 check("the host compiles at Java 17 (Flutter 3.50.1's floor)",
       "VERSION_17" in host and "VERSION_1_8" not in host)
 check("minSdk 26 / targetSdk 36 / compileSdk 36 are pinned",
