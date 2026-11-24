@@ -828,12 +828,23 @@ jobs:
           cp "$APK_OUT" dist/smoke-x86_64.apk
           test -s dist/smoke-x86_64.apk
           # the smoke APK must be an x86_64-ONLY twin of the release contract
-          ABIS=$(unzip -l dist/smoke-x86_64.apk | grep -oE 'lib/[^/]+/' | sort -u || true)
-          echo "ABIs in smoke APK:"; echo "${ABIS:-none}"
-          echo "$ABIS" | grep -qx 'lib/x86_64/' || { echo "::error::smoke APK carries no lib/x86_64/"; exit 1; }
-          if echo "$ABIS" | grep -vqx 'lib/x86_64/'; then
-            echo "::error::smoke APK carries non-x86_64 ABIs: $ABIS"; exit 1
+          # ABI lock — parse entry NAMES only: `unzip -l` prints columnar text and
+          # a raw 'lib/' grep also matches package assets deep inside
+          # assets/flutter_assets/packages/<pkg>/lib/… (the false `lib/assets/`
+          # hit). Native payload lives at root `lib/<abi>/` ONLY.
+          NAMES=$(unzip -Z1 dist/smoke-x86_64.apk)
+          ROOT_LIBS=$(printf '%s\n' "$NAMES" | grep -oE '^lib/[^/]+' | sort -u || true)
+          echo "root lib/ dirs in smoke APK:"; echo "${ROOT_LIBS:-none}"
+          echo "$ROOT_LIBS" | grep -qx 'lib/x86_64' || { echo "::error::smoke APK carries no lib/x86_64/"; exit 1; }
+          if echo "$ROOT_LIBS" | grep -vqx 'lib/x86_64'; then
+            echo "::error::smoke APK carries non-x86_64 root lib/ dirs: $ROOT_LIBS"; exit 1
           fi
+          BAD_SO=$(printf '%s\n' "$NAMES" | grep -E '\.so$' | grep -v '^lib/x86_64/' || true)
+          if [ -n "$BAD_SO" ]; then
+            echo "::error::smoke APK .so outside lib/x86_64/:"; echo "$BAD_SO"; exit 1
+          fi
+          printf '%s\n' "$NAMES" | grep -qx 'lib/x86_64/libflutter.so' || { echo "::error::smoke APK missing lib/x86_64/libflutter.so"; exit 1; }
+          printf '%s\n' "$NAMES" | grep -qx 'lib/x86_64/libapp.so' || { echo "::error::smoke APK missing lib/x86_64/libapp.so"; exit 1; }
           # same signature contract as the shipping artifact (v2+v3, installable)
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           "$BT/apksigner" verify --verbose dist/smoke-x86_64.apk > /tmp/smoke-sign.txt 2>&1
