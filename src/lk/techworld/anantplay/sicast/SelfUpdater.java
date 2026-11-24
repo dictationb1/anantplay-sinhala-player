@@ -386,8 +386,7 @@ public final class SelfUpdater {
             if (!apk.isFile() || expected == null || !expected.matches("(?i)[0-9a-f]{64}")) {
                 throw new SecurityException("pending update metadata is incomplete");
             }
-            String actual = SelfUpdateCore.sha256(apk);
-            if (!expected.equalsIgnoreCase(actual)) {
+            if (!SelfUpdateCore.matchesSha256(apk, expected)) {
                 throw new SecurityException("pending APK SHA-256 no longer matches");
             }
             install(c, apk);
@@ -400,7 +399,7 @@ public final class SelfUpdater {
             if (apk.exists() && expected != null && !expected.isEmpty()) {
                 // Keep only a retryable file when its recorded hash still matches.
                 try {
-                    if (!expected.equalsIgnoreCase(SelfUpdateCore.sha256(apk))) apk.delete();
+                    if (!SelfUpdateCore.matchesSha256(apk, expected)) apk.delete();
                 } catch (Throwable ignored) { apk.delete(); }
             }
             if (!apk.exists()) clearPendingMetadata(c);

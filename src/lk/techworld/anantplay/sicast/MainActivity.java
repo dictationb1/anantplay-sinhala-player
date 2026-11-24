@@ -90,6 +90,7 @@ public class MainActivity extends Activity {
     /** v3.4.0 — vector tab icons (outline inactive / filled active). No emoji, ever. */
     private final List<ImageView> tabIcons = new ArrayList<>();
     private final List<TextView> tabLabels = new ArrayList<>();
+    private final List<View> tabContainers = new ArrayList<>();
     /** Per tab: {outlineRes, filledRes}. */
     private final List<int[]> tabIconRes = new ArrayList<>();
     private View tabIndicator;
@@ -175,7 +176,9 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("sicast", MODE_PRIVATE);
         seedProbeOutcomes();
         applyTheme();
-        setContentView(buildUi());
+        View appRoot = buildUi();
+        setContentView(appRoot);
+        UiFonts.applyTree(appRoot, prefs);
         restorePlace();
         applyMidnightDimmer();
         ReceiverService.arm(this, "main");
@@ -362,7 +365,7 @@ public class MainActivity extends Activity {
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         topBar.setMinimumHeight(dp(56));
-        topBar.setBackgroundColor(P.card2);
+        GlassSurface.apply(topBar, prefs, P.card2, 20);
 
         LinearLayout brand = new LinearLayout(this);
         brand.setOrientation(LinearLayout.VERTICAL);
@@ -394,9 +397,9 @@ public class MainActivity extends Activity {
         topBar.addView(brand, brandLp);
 
         View troubleBtn = topBarIcon(R.drawable.ic_nav_troubleshoot, v -> selectTab(TAB_TROUBLE));
-        topBar.addView(troubleBtn, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        topBar.addView(troubleBtn, new LinearLayout.LayoutParams(dp(48), dp(48)));
         View settingsBtn = topBarIcon(R.drawable.ic_settings, v -> selectTab(TAB_SETTINGS));
-        LinearLayout.LayoutParams sblp = new LinearLayout.LayoutParams(dp(42), dp(42));
+        LinearLayout.LayoutParams sblp = new LinearLayout.LayoutParams(dp(48), dp(48));
         sblp.rightMargin = dp(8);
         sblp.leftMargin = dp(2);
         topBar.addView(settingsBtn, sblp);
@@ -412,7 +415,7 @@ public class MainActivity extends Activity {
         bottomBar.setOrientation(LinearLayout.HORIZONTAL);
         bottomBar.setMinimumHeight(dp(64));
         bottomBar.setGravity(Gravity.CENTER_VERTICAL);
-        bottomBar.setBackgroundColor(P.card2);
+        GlassSurface.apply(bottomBar, prefs, P.card2, 24);
         final boolean web = AppPrefs.showWebTab(prefs);
         final boolean troubleTab = AppPrefs.showTroubleTab(prefs);
         // v3.4.0 — icon + label pairs. The filled twin is the ACTIVE state.
@@ -439,6 +442,7 @@ public class MainActivity extends Activity {
         int[] tabIds = tabIdsInOrder();
         tabIcons.clear();
         tabLabels.clear();
+        tabContainers.clear();
         tabIconRes.clear();
         final boolean showLabels = AppPrefs.bottomBarLabels(prefs);
         final boolean floating = AppPrefs.floatingBar(prefs);
@@ -470,19 +474,12 @@ public class MainActivity extends Activity {
             tab.setOnClickListener(v -> selectTab(idx));
             tabIcons.add(icon);
             tabLabels.add(label);
+            tabContainers.add(tab);
             tabIconRes.add(iconSet[i]);
             bottomBar.addView(tab, new LinearLayout.LayoutParams(0, -2, 1f));
         }
-        // docked = full-width bar with a hairline; floating = a 24dp-radius pill
-        if (floating) {
-            GradientDrawable pill = new GradientDrawable();
-            pill.setColor(P.card2);
-            pill.setCornerRadius(dp(24));
-            pill.setStroke(dp(1), ThemeEngine.hairline(P, AppPrefs.borderAlpha(prefs)));
-            bottomBar.setBackground(pill);
-        } else {
-            bottomBar.setBackgroundColor(P.card2);
-        }
+        // Floating glass capsule by default; docked mode keeps a flat edge.
+        GlassSurface.apply(bottomBar, prefs, P.card2, floating ? 24 : 0);
         LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(-1, -2);
         if (floating) {
             barLp.setMargins(dp(12), 0, dp(12), dp(8));
@@ -585,19 +582,11 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** v3.4.0 — a top-bar icon button (troubleshoot / settings): vector, 48dp target. */
+    /** Glass medallion in an accessible 48dp top-bar target. */
     private View topBarIcon(int resId, View.OnClickListener click) {
-        ImageView iv = new ImageView(this);
-        iv.setImageDrawable(UiIcons.tinted(this, resId, P.text, 20));
-        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(P.chip);
-        g.setCornerRadius(dp(12));
-        iv.setBackground(g);
-        iv.setContentDescription(getString(resId == R.drawable.ic_settings
-            ? R.string.tab_settings : R.string.tab_diag));
-        iv.setOnClickListener(click);
-        return iv;
+        return UiGlassIcon.create(this, prefs, resId, P.text, 20, 48,
+            getString(resId == R.drawable.ic_settings
+                ? R.string.tab_settings : R.string.tab_diag), click);
     }
 
     /** v3.3.0 — open the Web tab on a URL handed over by the Cinema Player. */
@@ -635,6 +624,7 @@ public class MainActivity extends Activity {
             browser = new WebBrowserView(this);
             webPage = browser;
             pages.addView(webPage, new FrameLayout.LayoutParams(-1, -1));
+            UiFonts.applyTree(webPage, prefs);
         }
         if (webPage != null) webPage.setVisibility(idx == TAB_WEB ? View.VISIBLE : View.GONE);
         int[] ids = tabIdsInOrder();
@@ -645,7 +635,11 @@ public class MainActivity extends Activity {
             tabIcons.get(i).setImageDrawable(
                 UiIcons.tinted(this, on ? res[1] : res[0], on ? P.accent : P.desc, 22));
             tabLabels.get(i).setTextColor(on ? P.accentDim : P.desc);
-            tabLabels.get(i).setTypeface(UiTokens.ui(on ? 600 : 400));
+            tabLabels.get(i).setTypeface(UiFonts.typeface(this, prefs, on ? 600 : 400));
+            if (i < tabContainers.size()) {
+                if (on) GlassSurface.apply(tabContainers.get(i), prefs, P.accentSoft, 18);
+                else GlassSurface.clear(tabContainers.get(i));
+            }
             if (on && AppPrefs.motionEnabled(prefs)) {
                 tabIcons.get(i).setAlpha(0.55f);
                 tabIcons.get(i).animate().alpha(1f).setDuration(UiTokens.MOTION_FAST).start();
@@ -708,12 +702,9 @@ public class MainActivity extends Activity {
         r.setGravity(Gravity.CENTER_VERTICAL);
         r.setPadding(0, dp(8), 0, dp(8));
 
-        ImageView play = new ImageView(this);
-        play.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_play_filled, P.accent, 18));
-        play.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        play.setPadding(dp(9), dp(9), dp(9), dp(9));
-        play.setBackground(rounded(P.accentSoft, dp(18)));
-        r.addView(play, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        View play = UiGlassIcon.create(this, prefs, R.drawable.ic_play_filled,
+            P.accent, 18, 48, "Resume " + (it.title == null ? "video" : it.title), null);
+        r.addView(play, new LinearLayout.LayoutParams(dp(48), dp(48)));
 
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
@@ -922,38 +913,27 @@ public class MainActivity extends Activity {
         // numbered steps, one button, dismissible, and remembered forever in AppPrefs
         // (and in the settings backup). The technical detail lives in Troubleshoot.
         if (!AppPrefs.quickStartDone(prefs)) {
-            quickStartCard = card(P.accentSoft);
-            LinearLayout qsHead = row();
-            qsHead.setGravity(Gravity.CENTER_VERTICAL);
+            quickStartCard = card(P.card);
+            quickStartCard.setOrientation(LinearLayout.HORIZONTAL);
+            quickStartCard.setGravity(Gravity.CENTER_VERTICAL);
             TextView qsTitle = new TextView(this);
-            qsTitle.setText(t("මිනිත්තු 10න් පටන් ගන්න", "Get started in 3 steps"));
-            UiIcons.setCompound(qsTitle, R.drawable.ic_check_circle, P.accent, 16, Gravity.START);
+            qsTitle.setText(t("ඉක්මන් මඟපෙන්වීම", "Quick start guide"));
             qsTitle.setTextColor(P.title);
-            qsTitle.setTextSize(15f);
+            qsTitle.setTextSize(13f);
             qsTitle.setTypeface(Typeface.DEFAULT_BOLD);
-            qsHead.addView(qsTitle, new LinearLayout.LayoutParams(0, -2, 1f));
-            quickStartCard.addView(qsHead, widen());
-
-            quickStartCard.addView(quickStartStep("1", t("රිසීවරය අරඹන්න",
-                "Start the receiver"), t("පහළ ඇති Start receiver ඔබන්න",
-                "Tap Start receiver below")), widen());
-            quickStartCard.addView(quickStartStep("2", t("AnantPlay වලින් Cast කරන්න",
-                "Cast from AnantPlay"), t("නැත්නම් බ්‍රව්සරයෙන් විවෘත කරන්න",
-                "or open a video in the browser")), widen());
-            quickStartCard.addView(quickStartStep("3", t("සිංහල උපසිරැසි තනිවම එනවා",
-                "Sinhala subtitles arrive by themselves"),
-                t("කිසිවක් සැකසීමට අවශ්‍ය නැත", "nothing to configure")), widen());
-
-            Button got = btnPrimary(t("Got it", "Got it"));
-            UiIcons.setCompound(got, R.drawable.ic_check_circle, 0xFF0A0A14, 16, Gravity.START);
-            got.setOnClickListener(v -> {
-                prefs.edit().putBoolean(AppPrefs.K_QUICKSTART_DONE, true).apply();
-                if (quickStartCard != null) quickStartCard.setVisibility(View.GONE);
-                toast(t("හරි! සුබ නැරඹුමක්", "Got it — enjoy the movie"));
-            });
-            LinearLayout qsBtnRow = row();
-            qsBtnRow.addView(got, new LinearLayout.LayoutParams(0, -2, 1f));
-            quickStartCard.addView(qsBtnRow, widen(0, 10));
+            quickStartCard.addView(qsTitle, new LinearLayout.LayoutParams(0, dp(48), 1f));
+            Button openGuide = smallBtn(t("විවෘත", "Open guide"));
+            openGuide.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
+                .setTitle(t("ඉක්මන් මඟපෙන්වීම", "Quick start guide"))
+                .setMessage(t("1. රිසීවරය අරඹන්න.\n2. AnantPlay හි Cast මෙනුවෙන් Player තෝරන්න.\n3. සිංහල උපසිරැසි ස්වයංක්‍රීයව ලැබේ.",
+                    "1. Start the receiver.\n2. Choose AnantPlay Player from AnantPlay’s Cast menu.\n3. Sinhala subtitles load automatically."))
+                .setPositiveButton(t("හරි", "Got it"), (d, w) -> {
+                    prefs.edit().putBoolean(AppPrefs.K_QUICKSTART_DONE, true).apply();
+                    if (quickStartCard != null) quickStartCard.setVisibility(View.GONE);
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show());
+            quickStartCard.addView(openGuide, new LinearLayout.LayoutParams(-2, -2));
             root.addView(quickStartCard, widen());
         }
 
@@ -966,9 +946,11 @@ public class MainActivity extends Activity {
         hero.addView(heroPill, new LinearLayout.LayoutParams(-2, -2));
         TextView heroSub = new TextView(this);
         heroSub.setText(t("AnantPlay එකේ Cast බොත්තමෙන් \"සිංහල Player\" තෝරන්න",
-            "Choose \"AnantPlay Sinhala Player\" in AnantPlay's Cast menu"));
+            "Choose AnantPlay Player from AnantPlay's Cast menu"));
         heroSub.setTextColor(P.desc);
         heroSub.setTextSize(11.5f);
+        heroSub.setMaxLines(1);
+        heroSub.setEllipsize(android.text.TextUtils.TruncateAt.END);
         heroSub.setPadding(0, dp(4), 0, 0);
         hero.addView(heroSub, widen());
         Button toggle = btnPrimary("");
@@ -1000,6 +982,7 @@ public class MainActivity extends Activity {
         r1.addView(chipCast, new LinearLayout.LayoutParams(0, -2, 1f));
         chipGrid.addView(r1, widen(0, 0));
         chipGrid.addView(chipSubs, widen(0, 0));
+        chipGrid.setVisibility(View.GONE);  // detailed status remains in Troubleshoot
         hero.addView(chipGrid, widen());
         View overlayHint = autoOpenBanner();
         if (overlayHint != null) hero.addView(overlayHint, widen(0, 0));
@@ -1036,23 +1019,23 @@ public class MainActivity extends Activity {
         // ── the 2×2 quick-action grid ──
         root.addView(sectionTitle(t("ඉක්මන් ක්‍රියා", "Quick actions")));
         LinearLayout g1 = row();
-        g1.addView(actionBtn(R.drawable.ic_play, t("AnantPlay විවෘත කරන්න", "Open AnantPlay"), v -> {
+        g1.addView(actionBtn(R.drawable.ic_play, t("AnantPlay", "AnantPlay"), v -> {
             Miui.openAnantPlay(this);
             // v3.1.0 — the ONE smart non-intrusive cast confirmation (zero nagging)
             toast(t("සිංහල Player Cast සූදානම් — AnantPlay හි Cast බොත්තමෙන් තෝරන්න",
                 "Ready to cast — choose AnantPlay Sinhala Player from AnantPlay's Cast menu"));
         }), new LinearLayout.LayoutParams(0, -2, 1f));
         if (AppPrefs.showWebTab(prefs)) {
-            g1.addView(actionBtn(R.drawable.ic_nav_web, t("බ්‍රව්සරයෙන් බලන්න", "Watch in WebView"), v -> selectTab(TAB_WEB)),
+            g1.addView(actionBtn(R.drawable.ic_nav_web, t("බ්‍රව්සරය", "Browser"), v -> selectTab(TAB_WEB)),
                 new LinearLayout.LayoutParams(0, -2, 1f));
         } else {
-            g1.addView(actionBtn(R.drawable.ic_link, t("URL එකක් බලන්න", "Play Video URL"), v -> playUrlDialog()),
+            g1.addView(actionBtn(R.drawable.ic_link, t("URL එක", "Play URL"), v -> playUrlDialog()),
                 new LinearLayout.LayoutParams(0, -2, 1f));
         }
         root.addView(g1, widen());
         LinearLayout g2 = row();
         if (AppPrefs.showWebTab(prefs)) {
-            g2.addView(actionBtn(R.drawable.ic_link, t("URL එකක් බලන්න", "Play Video URL"), v -> playUrlDialog()),
+            g2.addView(actionBtn(R.drawable.ic_link, t("URL එක", "Play URL"), v -> playUrlDialog()),
                 new LinearLayout.LayoutParams(0, -2, 1f));
         } else {
             g2.addView(actionBtn(R.drawable.ic_settings, t("සැකසුම්", "Settings"), v -> selectTab(TAB_SETTINGS)),
@@ -1374,8 +1357,8 @@ public class MainActivity extends Activity {
                     new String[]{AppPrefs.RADIUS_SHARP, AppPrefs.RADIUS_ROUNDED, AppPrefs.RADIUS_PILL}[i]).apply();
                 themeChanged();
             }), widen());
-        g1.addView(UiSegmented.row(this, P, prefs, "මතුපිට", "Surface",
-            new String[]{t("සමතලා", "Flat"), t("වීදුරු", "Glass")},
+        g1.addView(UiSegmented.row(this, P, prefs, "යෙදුම් පෙනුම", "UI style",
+            new String[]{t("පිරිසිදු", "Flat Material"), t("මෝර්නයි වීදුරු", "Mornye Glass")},
             AppPrefs.glass(prefs) ? 1 : 0, i -> {
                 prefs.edit().putString(AppPrefs.K_SURFACE_STYLE,
                     i == 1 ? AppPrefs.SURFACE_GLASS : AppPrefs.SURFACE_FLAT).apply();
@@ -1577,6 +1560,28 @@ public class MainActivity extends Activity {
         UiGroup.divider(this, card, P, prefs);
         card.addView(surfaceBarPreviewTiles(), widen());
         UiGroup.divider(this, card, P, prefs);
+        card.addView(UiSlider.make(this, P, prefs, "වීදුරු පැහැදිලි බව",
+            "Glass clarity", 10, 95, AppPrefs.glassClarity(prefs), "%", v -> {
+                prefs.edit().putInt(AppPrefs.K_GLASS_CLARITY, v).apply();
+                GlassSurface.refreshAll(prefs);
+            }), widen());
+        card.addView(UiSegmented.row(this, P, prefs, "යෙදුම් අකුරු", "App font",
+            new String[]{"Modern Sans", "System", "Rounded", "Monospace"},
+            uiFontIndex(), i -> {
+                String[] families = {AppPrefs.UI_FONT_MODERN, AppPrefs.UI_FONT_SYSTEM,
+                    AppPrefs.UI_FONT_ROUNDED, AppPrefs.UI_FONT_MONOSPACE};
+                prefs.edit().putString(AppPrefs.K_UI_FONT, families[i]).apply();
+                themeChanged();
+            }), widen());
+        UiGroup.divider(this, card, P, prefs);
+        UiGroup.switchRow(this, card, P, prefs, R.drawable.ic_settings,
+            "වීදුරු මායිම්", "Glass outlines", AppPrefs.K_GLASS_OUTLINES, true,
+            () -> GlassSurface.refreshAll(prefs));
+        UiGroup.divider(this, card, P, prefs);
+        UiGroup.switchRow(this, card, P, prefs, R.drawable.ic_sun,
+            "අයිකන වීදුරු", "Glass icon medallions", AppPrefs.K_ICON_GLASS, true,
+            this::themeChanged);
+        UiGroup.divider(this, card, P, prefs);
         // subtitle size + the live preview (the Studio preview itself stays Sinhala on purpose)
         card.addView(UiSlider.make(this, P, prefs, "උපසිරැසි අකුරු", "Subtitle size",
             14, 40, AppPrefs.fontSp(prefs), "sp", v -> {
@@ -1591,6 +1596,7 @@ public class MainActivity extends Activity {
         quickPreview.setTextColor(P.title);
         quickPreview.setTextSize(AppPrefs.fontSp(prefs));
         quickPreview.setTypeface(UiTokens.si(this, false));
+        UiFonts.markSubtitle(quickPreview);
         quickPreview.setGravity(Gravity.CENTER);
         quickPreview.setPadding(dp(6), dp(8), dp(6), dp(8));
         quickPreview.setBackground(rounded(P.card2, dp(12)));
@@ -1628,14 +1634,14 @@ public class MainActivity extends Activity {
     private View surfaceBarPreviewTiles() {
         LinearLayout group = column();
         TextView heading = new TextView(this);
-        heading.setText("Surface and bottom bar");
+        heading.setText("Mornye surfaces and navigation");
         heading.setTextColor(P.desc);
         UiTokens.text(heading, 10.5f, 600, 0.4f, true);
         heading.setPadding(0, dp(4), 0, dp(5));
         group.addView(heading, widen());
-        group.addView(previewChoiceRow("Surface", new String[]{"Flat", "Glass"},
+        group.addView(previewChoiceRow("UI style", new String[]{"Flat Material", "Mornye Glass"},
             AppPrefs.glass(prefs) ? 1 : 0, true), widen(0, 6));
-        group.addView(previewChoiceRow("Bottom bar", new String[]{"Docked", "Floating"},
+        group.addView(previewChoiceRow("Bottom bar", new String[]{"Docked", "Floating Glass"},
             AppPrefs.floatingBar(prefs) ? 1 : 0, false), widen());
         return group;
     }
@@ -1719,6 +1725,22 @@ public class MainActivity extends Activity {
         return AppPrefs.RADIUS_SHARP.equals(v) ? 0 : (AppPrefs.RADIUS_PILL.equals(v) ? 2 : 1);
     }
 
+    private String subtitleFontLabel() {
+        String family = AppPrefs.fontFamily(prefs);
+        if (AppPrefs.FONT_NOTO.equals(family)) return "Noto Sans Sinhala";
+        if (AppPrefs.FONT_SERIF.equals(family)) return t("Serif · සෙරිෆ්", "Serif");
+        if (AppPrefs.FONT_CINEMA.equals(family)) return "Cinema Bold";
+        return t("System Sans · පද්ධති", "System Sans");
+    }
+
+    private int uiFontIndex() {
+        String family = AppPrefs.uiFont(prefs);
+        if (AppPrefs.UI_FONT_SYSTEM.equals(family)) return 1;
+        if (AppPrefs.UI_FONT_ROUNDED.equals(family)) return 2;
+        if (AppPrefs.UI_FONT_MONOSPACE.equals(family)) return 3;
+        return 0;
+    }
+
     private int searchIndex() {
         String v = AppPrefs.searchEngine(prefs);
         if (AppPrefs.SEARCH_GOOGLE.equals(v)) return 1;
@@ -1765,7 +1787,7 @@ public class MainActivity extends Activity {
         row.setPadding(0, dp(8), 0, dp(10));
         String[] keys = {AppPrefs.THEME_SYSTEM, AppPrefs.THEME_DARK,
             AppPrefs.THEME_AMOLED, AppPrefs.THEME_LIGHT};
-        String[] names = {t("පද්ධති", "System"), "Midnight", "AMOLED", "Light"};
+        String[] names = {t("පද්ධති", "System"), "Midnight", "AMOLED", "Clean Light"};
         int[] bgs = {0xFF12172A, 0xFF0B1020, 0xFF000000, 0xFFF3F5FB};
         int[] cards = {0xFF1E2540, 0xFF111A2E, 0xFF0A0F1C, 0xFFFFFFFF};
         String cur = AppPrefs.themeMode(prefs);
@@ -1865,13 +1887,9 @@ public class MainActivity extends Activity {
         LinearLayout r = row();
         r.setGravity(Gravity.CENTER_VERTICAL);
         r.setPadding(0, dp(11), 0, dp(11));
-        ImageView ic = new ImageView(this);
-        ic.setImageDrawable(UiIcons.tinted(this, iconRes, iconColor, 20));
-        ic.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        GradientDrawable g = rounded(iconColor, dp(14));
-        g.setAlpha(46);
-        ic.setBackground(g);
-        r.addView(ic, new LinearLayout.LayoutParams(dp(46), dp(46)));
+        View ic = UiGlassIcon.create(this, prefs, iconRes, iconColor, 20, 48,
+            title, null);
+        r.addView(ic, new LinearLayout.LayoutParams(dp(48), dp(48)));
         LinearLayout text = column2();
         TextView t1 = new TextView(this);
         t1.setText(title);
@@ -1909,7 +1927,7 @@ public class MainActivity extends Activity {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackgroundColor(P.card2);
+        GlassSurface.apply(bar, prefs, P.card2, 20);
         bar.setPadding(dp(8), dp(10), dp(12), dp(10));
         ImageView back = new ImageView(this);
         back.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_back, P.accent, 20));
@@ -1936,6 +1954,7 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             Diag.e("ui", "sub-page build: " + t);
         }
+        UiFonts.applyTree(page, prefs);
         subPage = page;
         // v3.4.2 — remember how to rebuild THIS page, so a recreate() (theme/accent/
         // language change) re-opens it instead of dropping the user back on Home.
@@ -1961,8 +1980,8 @@ public class MainActivity extends Activity {
             final TextView mode = settingRow(c1, t("තේමා ආකාරය", "Theme mode"), themeModeLabel());
             mode.setOnClickListener(v -> {
                 final String[] vals = {AppPrefs.THEME_SYSTEM, AppPrefs.THEME_DARK, AppPrefs.THEME_AMOLED, AppPrefs.THEME_LIGHT};
-                String[] labels = {t("පද්ධතිය · System", "System"), "Dark · Mornye Slate",
-                    "AMOLED · " + t("සම්පූර්ණ කළු #000000", "Pure Black #000000"), "Light"};
+                String[] labels = {t("පද්ධතිය · System", "System"), "Midnight",
+                    "AMOLED · " + t("සම්පූර්ණ කළු #000000", "Pure Black #000000"), "Clean Light"};
                 new android.app.AlertDialog.Builder(this)
                     .setTitle(t("තේමා ආකාරය", "Theme mode"))
                     .setItems(labels, (d, which) -> {
@@ -2152,7 +2171,7 @@ public class MainActivity extends Activity {
             case AppPrefs.THEME_SYSTEM: return t("පද්ධතිය", "System");
             case AppPrefs.THEME_AMOLED: return "AMOLED " + t("කළු", "Black");
             case AppPrefs.THEME_LIGHT: return "Light";
-            default: return "Dark";
+            default: return "Midnight";
         }
     }
 
@@ -2310,6 +2329,7 @@ public class MainActivity extends Activity {
             // v3.3.1 — the preview line carries the Sinhala ZWJ conjunct
             // (ශ්‍රී = ශ + ් + ZWJ + ර + ී), so a broken shaping stack is visible
             // in the studio BEFORE the user ever opens a movie.
+            UiFonts.markSubtitle(preview);
             preview.setText("ශ්‍රී ලංකාවේ චිත්‍රපටිය — සිංහල උපසිරැසි");
             preview.setGravity(Gravity.CENTER);
             preview.setPadding(dp(10), dp(4), dp(10), dp(4));
@@ -2323,11 +2343,12 @@ public class MainActivity extends Activity {
             final Runnable restyle = () -> {
                 preview.setTextSize(AppPrefs.fontSp(prefs));
                 preview.setTextColor(ThemeEngine.SUB_COLORS[AppPrefs.subColor(prefs)]);
-                // v3.2.0 — the studio preview uses the FAMILY too (noto/system/
-                // serif) and the line spacing (1.0–1.5), exactly what the player
-                // renders; Typeface.create() merges family + bold the ONE way.
-                Typeface family = AppPrefs.FONT_NOTO.equals(AppPrefs.fontFamily(prefs)) ? previewSiFont()
-                    : (AppPrefs.FONT_SERIF.equals(AppPrefs.fontFamily(prefs)) ? Typeface.SERIF : Typeface.DEFAULT);
+                // Subtitle font stays independent from the app-wide font choice.
+                Typeface family = AppPrefs.FONT_CINEMA.equals(AppPrefs.fontFamily(prefs))
+                    ? UiFonts.cinemaTypeface(this, AppPrefs.subBold(prefs))
+                    : (AppPrefs.FONT_NOTO.equals(AppPrefs.fontFamily(prefs)) ? previewSiFont()
+                    : (AppPrefs.FONT_SERIF.equals(AppPrefs.fontFamily(prefs))
+                    ? Typeface.SERIF : Typeface.DEFAULT));
                 preview.setTypeface(Typeface.create(family, AppPrefs.subBold(prefs) ? Typeface.BOLD : Typeface.NORMAL));
                 preview.setLineSpacing(dp(1), AppPrefs.subLineSpacing(prefs) / 100f);
                 String bg = AppPrefs.subBg(prefs);
@@ -2391,15 +2412,14 @@ public class MainActivity extends Activity {
                     prefs.edit().putInt(AppPrefs.K_FONT_SP, v).apply();
                     restyle.run();
                 }));
-            // v3.2.0 — font family (Noto Sans Sinhala | System Sans | Serif)
+            // Subtitle-only families remain independent from the app-wide font.
             final TextView famBtn = settingRow(c2, t("අකුරු පවුල · Font family", "Font family"),
-                AppPrefs.FONT_NOTO.equals(AppPrefs.fontFamily(prefs)) ? "Noto Sans Sinhala"
-                    : (AppPrefs.FONT_SERIF.equals(AppPrefs.fontFamily(prefs)) ? t("Serif · සෙරිෆ්", "Serif")
-                        : t("System Sans · පද්ධති", "System Sans")));
+                subtitleFontLabel());
             famBtn.setOnClickListener(v -> {
                 String cur = AppPrefs.fontFamily(prefs);
                 String next = AppPrefs.FONT_NOTO.equals(cur) ? AppPrefs.FONT_SYSTEM
-                    : (AppPrefs.FONT_SYSTEM.equals(cur) ? AppPrefs.FONT_SERIF : AppPrefs.FONT_NOTO);
+                    : (AppPrefs.FONT_SYSTEM.equals(cur) ? AppPrefs.FONT_SERIF
+                    : (AppPrefs.FONT_SERIF.equals(cur) ? AppPrefs.FONT_CINEMA : AppPrefs.FONT_NOTO));
                 prefs.edit().putString(AppPrefs.K_FONT_FAMILY, next).apply();
                 reopenStudio();
             });
@@ -3622,13 +3642,7 @@ public class MainActivity extends Activity {
         l.setPadding(dp(14), vPad, dp(14), vPad);
         // v3.3.1 — the user's Card-corner-radius choice (6 / 16 / 28 dp), never a
         // hard-coded 16: the Customize row used to change nothing on screen.
-        GradientDrawable g = rounded(color, dp(P.radiusCard));
-        if (AppPrefs.glass(prefs)) {
-            g.setStroke(dp(1), ThemeEngine.hairline(P, AppPrefs.borderAlpha(prefs)));
-        } else {
-            g.setStroke(0, 0);
-        }
-        l.setBackground(g);
+        GlassSurface.apply(l, prefs, color, ThemeEngine.radii(AppPrefs.cardRadius(prefs))[0]);
         return l;
     }
 
@@ -3848,16 +3862,15 @@ public class MainActivity extends Activity {
         l.setOrientation(LinearLayout.VERTICAL);
         l.setGravity(Gravity.CENTER);
         l.setPadding(dp(8), compact() ? dp(11) : dp(14), dp(8), compact() ? dp(10) : dp(12));
-        GradientDrawable g = rounded(P.card, dp(16));
-        g.setStroke(dp(1), 0x1FFFFFFF);
-        l.setBackground(g);
+        GlassSurface.apply(l, prefs, P.card, 18);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
         lp.setMargins(dp(4), dp(4), dp(4), dp(4));
         l.setLayoutParams(lp);
-        ImageView ic = new ImageView(this);
-        ic.setImageDrawable(UiIcons.tinted(this, iconRes, P.accent, 22));
-        ic.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        l.addView(ic, new LinearLayout.LayoutParams(-1, dp(26)));
+        View ic = UiGlassIcon.create(this, prefs, iconRes, P.accent, 20, 48,
+            title, null);
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        iconLp.bottomMargin = dp(3);
+        l.addView(ic, iconLp);
         TextView t = new TextView(this);
         t.setText(title);
         t.setTextColor(P.title);

@@ -1,6 +1,6 @@
 name: Release APK (signed, Obtainium-ready)
 
-# v3.4.4 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
+# v3.4.5 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
 # this keeps the runner clock interpretable (the same commit → the same SHA-256).
 env:
   TZ: UTC
@@ -38,7 +38,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.0.1 — no leading v)'
         required: true
-        default: '3.4.4'
+        default: '3.4.5'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -181,7 +181,9 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           APK="dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
           test -s "$APK"
-          echo "size: $(stat -c %s "$APK") bytes"
+          SIZE=$(stat -c %s "$APK")
+          test "$SIZE" -lt 52428800 || { echo "::error::APK must be strictly below 50 MiB (got $SIZE bytes)"; exit 1; }
+          echo "size: $SIZE bytes (< 50 MiB)"
           "$BT/apksigner" verify --verbose --print-certs "$APK"
           "$BT/zipalign" -c 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | head -2

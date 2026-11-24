@@ -300,6 +300,8 @@ public final class OnboardingWizard {
                 default: paintConnect(); break;
             }
             paintFooter();
+            GlassSurface.apply(root, prefs, p.card, 26);
+            UiFonts.applyTree(root, prefs);
         }
 
         // ── stage 1 — Welcome ────────────────────────────────────────────────

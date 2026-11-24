@@ -19,7 +19,7 @@ import java.util.Map;
  *
  * v3 additions over v2.4.0:
  *   · downloadToFile() — streams to cacheDir/updates/ with a Progress callback
- *     (bytes/total/percent) and the 30 MB cap enforced DURING the stream, so a
+  *     (bytes/total/percent) and the under-50-MiB cap enforced DURING the stream, so a
  *     hostile "release" asset can never fill the phone's storage;
  *   · sha256(File) — streaming digest (the APK is never fully held in memory);
  *   · Release.apkSize — the asset's declared size from the release JSON, used
@@ -41,11 +41,11 @@ import java.util.Map;
  * There is no GitHub REST API endpoint in the update path. A failed check is
  * throttled locally instead of falling back to a rate-limited service.
  * Every tier fills the SAME Release shape, so the download/verify/install path
- * above is untouched: https-only, 30 MB cap, strict SHA-256 vs SHA256SUMS.txt. */
+  * above is untouched: https-only, under-50-MiB cap, strict SHA-256 vs SHA256SUMS.txt. */
 final class SelfUpdateCore {
 
-    /** Nothing larger than this is ever downloaded (a hostile/renamed asset). */
-    static final long MAX_APK_BYTES = 30L * 1024 * 1024;
+    /** Strictly below 50 MiB; a hostile/renamed asset is rejected before it fills storage. */
+    static final long MAX_APK_BYTES = 50L * 1024 * 1024 - 1;
 
     /** Live download progress (called on the download thread). */
     interface Progress {
@@ -316,6 +316,14 @@ final class SelfUpdateCore {
         return hex(md.digest());
     }
 
+    /** Shared fail-closed file verification used before PackageInstaller handoff. */
+    static boolean matchesSha256(File file, String expected) {
+        if (file == null || !file.isFile() || expected == null
+                || !expected.matches("(?i)[0-9a-f]{64}")) return false;
+        try { return expected.equalsIgnoreCase(sha256(file)); }
+        catch (Throwable ignored) { return false; }
+    }
+
     private static String hex(byte[] d) {
         StringBuilder sb = new StringBuilder(64);
         for (byte b : d) sb.append(String.format(Locale.ROOT, "%02x", b));
@@ -325,7 +333,7 @@ final class SelfUpdateCore {
     /**
      * v3.0.0 — STREAM the APK into a file with live progress, enforcing:
      *   · https-only URL (anything else → SecurityException before connecting);
-     *   · the 30 MB cap, checked against the declared Content-Length BEFORE the
+     *   · the under-50-MiB cap, checked against the declared Content-Length BEFORE the
      *     first byte AND against the accumulated bytes DURING the stream.
      * Returns the bytes written (== file length).
      */

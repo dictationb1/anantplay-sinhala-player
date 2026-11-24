@@ -100,15 +100,20 @@ def main():
                     width = float(node.get(ANDROID + "strokeWidth"))
                 except ValueError:
                     width = float("nan")
-                check(tag + ": outlined width is within 1.75–1.85dp",
-                      math.isfinite(width) and 1.75 <= width <= 1.85)
+                launcher_rim = name == "ic_launcher_foreground"
+                check(tag + ": outlined width follows its icon family",
+                      math.isfinite(width) and (
+                          (launcher_rim and 1.19 <= width <= 1.41)
+                          or (not launcher_rim and 1.75 <= width <= 1.85)))
                 check(tag + ": outline uses a round cap",
                       node.get(ANDROID + "strokeLineCap") == "round")
                 check(tag + ": outline uses a round join",
-                      node.get(ANDROID + "strokeLineJoin") == "round")
+                      node.get(ANDROID + "strokeLineJoin") == "round"
+                      or (launcher_rim and node.get(ANDROID + "strokeLineJoin") is None))
                 color = node.get(ANDROID + "strokeColor", "").upper()
-                check(tag + ": stroke is tint-ready white or the launcher badge outline",
-                      color == "#FFFFFFFF" or (name == "ic_launcher_foreground" and color == "#8C0A0A14"))
+                check(tag + ": stroke is tint-ready white or the launcher badge rim",
+                      color == "#FFFFFFFF" or (
+                          launcher_rim and color in {"#CCFFFFFF", "#BFFFFFFF"}))
 
         actual_stroke = max((float(p.get(ANDROID + "strokeWidth")) for p in stroked), default=0.0)
         try:

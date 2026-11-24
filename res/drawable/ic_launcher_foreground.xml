@@ -18,23 +18,41 @@
             </gradient>
         </aapt:attr>
     </path>
+    <path android:pathData="M64,74 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="76"
+                android:centerY="74"
+                android:gradientRadius="12">
+                <item android:offset="0" android:color="#4422D3EE"/>
+                <item android:offset="1" android:color="#0022D3EE"/>
+            </gradient>
+        </aapt:attr>
+    </path>
     <path android:pathData="M64,74 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="linear"
-                android:startX="64" android:startY="64"
-                android:endX="84" android:endY="84">
-                <item android:offset="0" android:color="#FF8B5CF6"/>
-                <item android:offset="1" android:color="#FF22D3EE"/>
+                android:startX="68" android:startY="65"
+                android:endX="80" android:endY="84">
+                <item android:offset="0" android:color="#D9FFFFFF"/>
+                <item android:offset="0.34" android:color="#B38B5CF6"/>
+                <item android:offset="1" android:color="#833B82F6"/>
             </gradient>
         </aapt:attr>
     </path>
     <path android:pathData="M64,74 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 z"
         android:fillColor="#00000000"
-        android:strokeColor="#8C0A0A14"
-        android:strokeWidth="1.8"
+        android:strokeColor="#CCFFFFFF"
+        android:strokeWidth="1.4"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
+    <path android:pathData="M67,68.7 C70,66.1 75,65.8 78.5,68.5"
+        android:fillColor="#00000000"
+        android:strokeColor="#BFFFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"/>
     <path android:pathData="M70.4,69.4 L78.4,74 L70.4,78.6 Z"
-        android:fillColor="#FF0A0A14"/>
+        android:fillColor="#FF101426"/>
 </vector>

@@ -125,19 +125,20 @@ public class WebBrowserView extends FrameLayout {
         LinearLayout bar = new LinearLayout(act);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setBackgroundColor(0xFF0E1526);
+        GlassSurface.apply(bar, prefs, 0xFF0E1526, 22);
         bar.setPadding(dp(6), dp(6), dp(6), dp(6));
         if (!omnibarBottom) column.addView(bar, new LinearLayout.LayoutParams(-1, -2));
         omnibar = bar;   // v3.4.2 — the host the IME inset is applied to
 
-        bar.addView(navBtn(R.drawable.ic_back, v -> goBack()), new LinearLayout.LayoutParams(dp(40), dp(40)));
-        bar.addView(navBtn(R.drawable.ic_forward, v -> forward()), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        bar.addView(navBtn(R.drawable.ic_back, v -> goBack()), new LinearLayout.LayoutParams(dp(44), dp(44)));
+        bar.addView(navBtn(R.drawable.ic_forward, v -> forward()), new LinearLayout.LayoutParams(dp(44), dp(44)));
         urlBox = new EditText(act);
         urlBox.setTextSize(13f);
         urlBox.setTextColor(0xFFE2E8F0);
         urlBox.setHintTextColor(0xFF94A3B8);
         urlBox.setHint(Chrome.pick("URL or search · URL හෝ සෙවුම"));
-        urlBox.setBackground(rounded(0xFF101A30));
+        urlBox.setBackground(GlassSurface.drawable(act, prefs, 0xFF101A30, 12,
+            AppPrefs.glass(prefs)));
         urlBox.setPadding(dp(10), dp(8), dp(10), dp(8));
         urlBox.setSingleLine(true);
         urlBox.setImeOptions(EditorInfo.IME_ACTION_GO);
@@ -155,7 +156,7 @@ public class WebBrowserView extends FrameLayout {
         // float over the keyboard: it is part of the layout that the IME inset pushes.
         suggestBox = new LinearLayout(act);
         suggestBox.setOrientation(LinearLayout.VERTICAL);
-        suggestBox.setBackgroundColor(0xFF101A30);
+        GlassSurface.apply(suggestBox, prefs, 0xFF101A30, 12);
         suggestBox.setVisibility(View.GONE);
         urlBox.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
@@ -169,6 +170,10 @@ public class WebBrowserView extends FrameLayout {
         });
         // v3.4.0 - the ad-block shield + a live blocked count badge
         shieldBtn = new FrameLayout(act);
+        shieldBtn.setContentDescription("Ad blocking status");
+        shieldBtn.setFocusable(true);
+        shieldBtn.setClickable(true);
+        GlassSurface.applyIcon(shieldBtn, prefs, 0xFF14532D, 18);
         ImageView shieldIcon = new ImageView(act);
         shieldIcon.setImageDrawable(UiIcons.tinted(act, R.drawable.ic_shield_adblock, 0xFF22C55E, 19));
         shieldIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -188,14 +193,14 @@ public class WebBrowserView extends FrameLayout {
         sbLp.rightMargin = dp(1);
         shieldBtn.addView(shieldBadge, sbLp);
         shieldBtn.setOnClickListener(v -> showBlockedSheet());
-        bar.addView(shieldBtn, new LinearLayout.LayoutParams(dp(34), dp(40)));
-        bar.addView(navBtn(R.drawable.ic_refresh, v -> reload()), new LinearLayout.LayoutParams(dp(40), dp(40)));
-        bar.addView(navBtn(R.drawable.ic_more_dots, v -> menu()), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        bar.addView(shieldBtn, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        bar.addView(navBtn(R.drawable.ic_refresh, v -> reload()), new LinearLayout.LayoutParams(dp(44), dp(44)));
+        bar.addView(navBtn(R.drawable.ic_more_dots, v -> menu()), new LinearLayout.LayoutParams(dp(44), dp(44)));
 
         // ── the tab strip (v3.4.0: light tabs - one renderer, zero OOM risk) ──
         tabStrip = new LinearLayout(act);
         tabStrip.setOrientation(LinearLayout.HORIZONTAL);
-        tabStrip.setBackgroundColor(0xFF0B1020);
+        GlassSurface.apply(tabStrip, prefs, 0xFF0B1020, 10);
         tabStrip.setPadding(dp(8), dp(4), dp(8), dp(6));
         column.addView(tabStrip, new LinearLayout.LayoutParams(-1, -2));
 
@@ -522,14 +527,11 @@ public class WebBrowserView extends FrameLayout {
 
     /** v3.4.0 - a browser bar button: tinted vector, no glyph. */
     private View navBtn(int resId, OnClickListener click) {
-        android.widget.ImageView iv = new android.widget.ImageView(act);
-        iv.setImageDrawable(UiIcons.tinted(act, resId, 0xFFE2E8F0, 20));
-        iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-        iv.setBackground(rounded(0xFF101A30));
-        iv.setClickable(true);
-        iv.setFocusable(true);
-        iv.setOnClickListener(click);
-        return iv;
+        String description = resId == R.drawable.ic_back ? "Go back"
+            : (resId == R.drawable.ic_forward ? "Go forward"
+            : (resId == R.drawable.ic_refresh ? "Reload page" : "Browser menu"));
+        return UiGlassIcon.create(act, prefs, resId, 0xFFE2E8F0, 19, 44,
+            description, click);
     }
 
     private GradientDrawable rounded(int color) {
@@ -630,6 +632,7 @@ public class WebBrowserView extends FrameLayout {
         plus.setBackground(pg);
         plus.setOnClickListener(v -> showStartPage());
         tabStrip.addView(plus, new LinearLayout.LayoutParams(-2, -2));
+        UiFonts.applyTree(tabStrip, prefs);
     }
 
     private static String hostLabel(String url) {
@@ -775,6 +778,7 @@ public class WebBrowserView extends FrameLayout {
             });
             suggestBox.addView(row, new LinearLayout.LayoutParams(-1, -2));
         }
+        UiFonts.applyTree(suggestBox, prefs);
         suggestBox.setVisibility(View.VISIBLE);
     }
 
