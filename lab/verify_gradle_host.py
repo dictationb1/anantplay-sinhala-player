@@ -225,7 +225,9 @@ check("the flutter extension points at the module (ui/, lib/main.dart)",
 
 # ── G5: the Flutter module contract ──────────────────────────────────────────
 pubspec = read("ui/pubspec.yaml")
-check("pubspec declares version 3.4.6.a+30407", "version: 3.4.6.a+30407" in pubspec)
+check("pubspec carries the 3.4.6.a / 30407 identity in a pub-semver-VALID form",
+      "version: 3.4.6+30407.a" in pubspec and "v3.4.6.a" in pubspec
+      and "3.4.6.a+30407" not in pubspec)
 check("pubspec declares the add-to-app module block", re.search(r"^  module:", pubspec, re.M) is not None)
 _asset_dirs = re.findall(r"^\s+- (mornye/[A-Za-z0-9_.-]+|assets/[A-Za-z0-9_/.-]+/)$", pubspec, re.M)
 check("pubspec only lists asset entries that exist (resolved against ui/ or ui/lib/mornye_ui/)",
