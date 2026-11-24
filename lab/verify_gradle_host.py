@@ -116,8 +116,7 @@ check("the app module references the Media3/Guava jars in place",
       and 'concurrent-futures-*.jar' in host
       and 'project.rootProject.projectDir.parentFile' in host)
 check("every jar AGP reported as a duplicate class is excluded from the dex graph",
-      all(j[:-4] + "-*.jar" in host for j in
-          ("annotation-experimental-1.3.1.jar", "concurrent-futures-1.2.0.jar")))
+      all(art + "-*.jar" in host for art in ("annotation-experimental", "concurrent-futures")))
 check("the Maven copies of the excluded jars are pinned (resolutionStrategy)",
       'force "androidx.annotation:annotation-experimental:1.4.0"' in host
       and 'force "androidx.concurrent:concurrent-futures:1.1.0"' in host)
