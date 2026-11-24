@@ -426,27 +426,36 @@ jobs:
           cat android/local.properties
           test -f ui/.android/include_flutter.groovy || { echo "::error::ui/.android/include_flutter.groovy missing — pub get did not generate the module host"; exit 1; }
 
-      # v3.4.6 — `compileFlutterBuildRelease` shells out to `flutter assemble`, and
-      # when THAT fails Gradle only reports "finished with non-zero exit value 1".
-      # Running the same Dart build first turns an opaque Gradle failure into a
-      # named one (bad asset, bad font, bad constant, shader compile error).
-      - name: Pre-flight the Flutter release build (Dart AOT, same target as Gradle)
+      # v3.4.6 — `compileFlutterBuildRelease` shells out to
+      #     flutter assemble --no-version-check --depfile … --output …
+      #         -dTargetFile=lib/main.dart -dTargetPlatform=android
+      #         -dBuildMode=release -dAndroidArchs=<archs> -dMinSdkVersion=26
+      #         android_aot_bundle_release_<arch>
+      # (packages/flutter_tools/gradle/.../tasks/BaseFlutterTaskHelper.kt @3.50.1),
+      # and when THAT exits non-zero Gradle only reports "finished with non-zero
+      # exit value 1". Reproducing the exact invocation here turns the opaque
+      # Gradle failure into flutter's own message.
+      - name: Pre-flight the Flutter AOT bundle (the exact rule Gradle assembles)
         run: |
           set +e
           cd ui
-          flutter build apk --release --target-platform android-arm64 --no-pub \
-            > /tmp/flutterbuild.log 2>&1
+          flutter assemble --no-version-check \
+            --depfile /tmp/flutter_build.d --output /tmp/flutter_aot \
+            -dTargetFile=lib/main.dart -dTargetPlatform=android \
+            -dBuildMode=release -dAndroidArchs=android-arm64 -dMinSdkVersion=26 \
+            android_aot_bundle_release_android-arm64 > /tmp/flutterassemble.log 2>&1
           RC=$?
           set -e
-          echo "flutter build apk exit: $RC"
-          tail -60 /tmp/flutterbuild.log
+          echo "flutter assemble exit: $RC"
+          tail -80 /tmp/flutterassemble.log
           if [ "$RC" -ne 0 ]; then
-            tail -60 /tmp/flutterbuild.log | cut -c1-900 | while IFS= read -r line; do
-              echo "::error title=flutter build apk::${line}"
+            tail -80 /tmp/flutterassemble.log | cut -c1-900 | while IFS= read -r line; do
+              echo "::error title=flutter assemble::${line}"
             done
             exit 1
           fi
-          echo "dart AOT build OK"
+          echo "Dart AOT bundle OK"
+          du -sh /tmp/flutter_aot 2>/dev/null || true
 
       - name: 'Build + sign the APK (Gradle host: Media3 backend + Flutter UI)'
         env:
@@ -466,6 +475,8 @@ jobs:
             echo "::warning title=Debug-signed build::KS_BASE64 is not set — this APK is signed with the throwaway debug key"
           fi
           set +e
+          # --info lets Gradle relay the flutter tool's own output; without it the
+          # assemble failure has no message at all.
           ( cd android && ./gradlew assembleRelease --no-daemon --stacktrace --info $SIGN_ARGS ) > /tmp/gradle.log 2>&1
           RC=$?
           set -e
@@ -484,6 +495,15 @@ jobs:
               | head -45 | cut -c1-900 | while IFS= read -r line; do
                 echo "::error title=gradle failure::${line}"
               done
+            # the 60 log lines immediately BEFORE the failing task usually hold
+            # the real message (flutter/dart/aapt tool output is echoed there)
+            FIRST_FAIL=$(grep -n "Execution failed for task" /tmp/gradle.log | head -1 | cut -d: -f1 || true)
+            if [ -n "${FIRST_FAIL:-}" ] && [ "$FIRST_FAIL" -gt 1 ]; then
+              sed -n "$((FIRST_FAIL > 60 ? FIRST_FAIL - 60 : 1)),$((FIRST_FAIL - 1))p" /tmp/gradle.log \
+                | cut -c1-900 | while IFS= read -r line; do
+                  echo "::error title=gradle context::${line}"
+                done
+            fi
             # then the first specific compiler/dependency diagnostics
             grep -nE "^e: |error:|Caused by:|Unresolved reference|Could not find|Could not resolve|Could not determine|Unsupported|requires|Execution failed" /tmp/gradle.log \
               | head -25 | cut -c1-900 | while IFS= read -r line; do
