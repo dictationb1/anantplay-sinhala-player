@@ -900,8 +900,11 @@ jobs:
           disable-animations: true
           disable-spellchecker: true
           script: |
-            set -uo pipefail
-            # NO -e here: every probe must run so the failure report is complete.
+            # POSIX sh (dash on ubuntu runners — the action execs /usr/bin/sh):
+            # dash has NO `pipefail`, and `set -o pipefail` exits 2 instantly.
+            # Every pipeline below is already guarded (|| true / if grep), so
+            # only -u is needed; probes must keep running on failure, so no -e.
+            set -u
             dump_diagnostics() {
               {
                 echo ''

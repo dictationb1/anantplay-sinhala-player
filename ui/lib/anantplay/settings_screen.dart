@@ -370,20 +370,22 @@ class _ActionRow extends StatelessWidget {
     required this.title,
     required this.onTap,
     this.destructive = false,
-    this.isLast = false,
   });
 
   final String title;
   final VoidCallback onTap;
   final bool destructive;
-  final bool isLast;
 
   @override
   Widget build(BuildContext context) {
     return SettingsItem(
       title: title,
       onTap: onTap,
-      showDivider: !isLast,
+      // v3.4.6.a: `isLast` was declared but never passed by any caller —
+      // dart analyze fails CI on `unused_element_parameter` (WARNING).
+      // The shipped rendering always showed the divider (default false →
+      // showDivider: !false), so that behavior is preserved explicitly.
+      showDivider: true,
       trailing: const Icon(Icons.chevron_right_rounded, color: Color(0x66F2F7F7)),
     );
   }
