@@ -257,9 +257,21 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$RC" -ne 0 ]; then
-            grep -E "error •" /tmp/analyze.log | while IFS= read -r line; do
+            # every analysis issue must surface as an annotation — job logs are
+            # not reachable from the sandbox, and `flutter analyze` fails on
+            # WARNING-level issues too (fatal-warnings is on by default), not
+            # just on `error •` lines.
+            HAD_ISSUE=0
+            while IFS= read -r line; do
+              HAD_ISSUE=1
               echo "::error::${line}"
-            done
+            done < <(grep -E "error •|warning •" /tmp/analyze.log || true)
+            if [ "$HAD_ISSUE" -eq 0 ]; then
+              # analyzer crashed or only info-level lines tripped the exit code
+              tail -30 /tmp/analyze.log | while IFS= read -r line; do
+                echo "::error::${line}"
+              done
+            fi
             exit 1
           fi
 
@@ -854,6 +866,21 @@ jobs:
             || { echo "::error::smoke APK is not v3-signed"; exit 1; }
           echo "::notice title=smoke-apk::x86_64 release twin built (same Java/Dart/Manifest/R8 config), ABI-locked, v2+v3 signed — $(stat -c %s dist/smoke-x86_64.apk) bytes"
 
+      # KVM permissions: /dev/kvm exists on ubuntu-latest but the runner user
+      # is not always in the group — without world-accessible kvm the emulator
+      # silently falls back to software emulation and NEVER finishes booting
+      # ("Timeout waiting for emulator to boot"). This is ReactiveCircus's
+      # documented udev fix; it is a no-op when permissions are already right.
+      - name: Enable KVM for the emulator (udev rule — no silent software fallback)
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+          test -w /dev/kvm || { echo "::error::/dev/kvm is still not writable — KVM unavailable"; exit 1; }
+          echo "::notice title=kvm::/dev/kvm writable — hardware acceleration ON"
+
       - name: Boot the KVM x86_64 Android 16 emulator, install, launch, watch 12 s
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -863,8 +890,15 @@ jobs:
           arch: x86_64
           target: google_apis
           profile: pixel_6
+          cores: 4
+          ram-size: 4096M
+          # API 36 first boot on shared runners runs dexopt + Play services
+          # provisioning — 600 s (the action default) is not enough; the job
+          # timeout (50 min) leaves ample headroom.
+          emulator-boot-timeout: 900
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
+          disable-spellchecker: true
           script: |
             set -uo pipefail
             # NO -e here: every probe must run so the failure report is complete.
