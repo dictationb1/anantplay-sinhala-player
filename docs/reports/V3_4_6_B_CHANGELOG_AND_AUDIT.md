@@ -179,27 +179,46 @@ with a comment explaining why. (`3.4.6.b` itself is unaffected — it takes the 
 
 ---
 
-## 9. Live verification
+## 9. Live verification (hosted proof)
 
-**Status: PENDING** — this section is filled in from the hosted run after the PR's four jobs
-finish (see the final report for the run URLs, merged SHA and release proof).
+**Result: shipped.** PR [#30](https://github.com/dictationb1/anantplay-sinhala-player/pull/30) was
+merged into `main` as merge commit `148f4d0aafbf432a5959de2cbf254d3744163b2b`.
 
-Local pre-checks run in the authoring sandbox (no JDK / Flutter available there):
+### PR checks (commit `80591d1`, run [45444658798](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45444658798))
 
-| Check | Result |
+| Hosted job | Result |
 | --- | --- |
-| `lab/verify_gradle_host.py` | 64 checks, 0 failed |
-| `lab/verify_layouts.py` | 68 files, 299 layout calls, 0 problems |
-| `lab/verify_ui_completeness.py` | OK (icons ≤ 28 dp, 0 unbacked prefs, 0 emoji chrome) |
-| `lab/verify_v344_ui.py` | 1861 PASS, 0 FAIL |
-| `lab/verify_v345_ui.py` | 57 passed, 0 failed |
-| `sh -n build.sh`, `sh -n lab/run_lab.sh`, emulator `script:` block | OK |
-| Both workflow YAML files | parse (PyYAML) |
-| New `Clean repo root` CI step (run locally) | root = 7 essentials, reports archived, junk = 0 |
-| `git ls-files '*.zip' '*.apk'` | 0 |
+| `Cast protocol lab (gating)` | ✅ success |
+| `Flutter analyze & test (Mornye Liquid-Glass module)` | ✅ success |
+| `APK build (Gradle 9.5.0 + AGP 9.3.1 + SDK 36, signed + verified)` | ✅ success |
+| `Android Emulator Launch Smoke Test (KVM x86_64 …)` | ✅ success |
 
-`lab/verify_syntax.py` and the full `lab/run_lab.sh` need a JDK; they are exercised by the hosted
-`Cast protocol lab` job, not locally.
+One earlier `push`-triggered run on the same commit ([45444623991](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45444623991))
+failed only in the emulator job, with an SDK-component download error for `ndk;28.2.13676358`
+(`InstallFailedException`). The identical commit passed the PR run, and a re-run of that failed job
+passed as well, so the failure was transient SDK-download infrastructure, not a code defect.
+
+### Post-merge on `main` (`148f4d0`)
+
+- `Build Sinhala Player APK` — [45446918248](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45446918248): ✅ all 4 jobs success
+- `Release APK (signed, Obtainium-ready)` — [45446918262](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45446918262): ✅ success
+
+### The live release
+
+- Release: <https://github.com/dictationb1/anantplay-sinhala-player/releases/tag/v3.4.6.b> (not a draft, not a pre-release)
+- Assets, exactly 2:
+  - `AnantPlay-Sinhala-Player-v3.4.6.b.apk` — **41,614,722 bytes (≈ 39.7 MiB, under the 50 MiB cap)**,
+    SHA-256 `8c12d0ccd3c699decfa7916a8d894bca84519d241671208cab00586a246ef096`
+  - `SHA256SUMS.txt` — SHA-256 `183add34d76e99cd5e5c40c2bfc1ca41fd736df758047e7501b3df890fa17191`
+- `docs/latest.json` on `main` (commit `9a2348a`, `[skip ci]`):
+  `{"version":"3.4.6.b","code":30408,"sha256":"8c12d0cc…ef096",…}` — the SHA-256 is **identical** to the
+  APK digest GitHub reports for the release asset. The `[skip ci]` commit started no further runs.
+
+**Not independently re-checked from this sandbox:** the APK's internal `zipalign -P 16`, `apksigner`
+v2/v3 and `arm64-v8a`-only properties. The sandbox cannot download release assets (blocked host), and
+the job logs were unreachable. These are enforced by the `APK build` job's own gates, which passed on
+the same commit. The exact lab check count was not retrievable from the sandbox either; the job
+passed.
 
 ---
 
