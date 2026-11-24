@@ -23,7 +23,8 @@ final class UiCard {
     static LinearLayout make(Context c, ThemeEngine.Palette p, SharedPreferences prefs) {
         LinearLayout box = new LinearLayout(c);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setBackground(drawable(c, p, prefs));
+        int[] radii = ThemeEngine.radii(AppPrefs.cardRadius(prefs));
+        GlassSurface.apply(box, prefs, ThemeEngine.cardFill(p, AppPrefs.glass(prefs)), radii[0]);
         box.setPadding(dp(c, 16), dp(c, 14), dp(c, 16), dp(c, 14));
         return box;
     }

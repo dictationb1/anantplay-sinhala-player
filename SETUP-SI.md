@@ -1,5 +1,14 @@
-# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.4)
+# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.5)
 
+> **v3.4.5 අලුත් දේ (Sinhala):**
+>
+> 1. **Mornye Glass** දැන් පෙරනිමි මතුපිටයි. Glass clarity 10–95% අතර සජීවීව සකස් කළ හැකි අතර
+>    rim outline සහ glass icon medallions වෙන වෙනම සක්‍රිය/අක්‍රිය කළ හැක.
+> 2. **Theme සහ අකුරු** — System, Midnight, AMOLED සහ Clean Light themes; Modern Inter,
+>    System, Rounded සහ Monospace UI fonts. Sinhala අකුරු සඳහා Noto fallback එක පවතී.
+> 3. **Auto-update ආරක්ෂාව** — 50 MiB ට අඩු APK සීමාව, download SHA-256 නැවත පරීක්ෂා කිරීම,
+>    සහ redirect → sums → APK local E2E පරීක්ෂණ එක් කළා.
+>
 > **v3.4.4 අලුත් දේ (Sinhala):**
 >
 > 1. **Player එකේ පහසු පාලක තීරුව** — උපසිරැසි, tracks, aspect, වේගය සහ title search සඳහා

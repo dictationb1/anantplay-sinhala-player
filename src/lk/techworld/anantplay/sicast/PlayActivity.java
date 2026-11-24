@@ -1962,6 +1962,7 @@ public class PlayActivity extends Activity {
         subLayer.setClipChildren(false);
         root.addView(subLayer, new FrameLayout.LayoutParams(-1, -1));
         subView = new TextView(this);
+        UiFonts.markSubtitle(subView);
         applyLangStyle();
         // v3.4.2 — CENTER_HORIZONTAL only: the line is centred horizontally and anchored
         // by subLayoutParams() at Gravity.BOTTOM. The v3.4.1 Gravity.CENTER here is part
@@ -2106,6 +2107,7 @@ public class PlayActivity extends Activity {
 
         wireGestures(root);
         setContentView(root);
+        UiFonts.applyTree(root, prefs);
         applyMidnightDimmer();          // v3.4.2 — the dark-room veil, if enabled
         applyImmersive(false);          // bars visible while the HUD is up
         if (AppPrefs.lockOnStart(prefs)) setLocked(true);
@@ -2130,9 +2132,7 @@ public class PlayActivity extends Activity {
         hudTopBar.setOrientation(LinearLayout.HORIZONTAL);
         hudTopBar.setGravity(Gravity.CENTER_VERTICAL);
         hudTopBar.setMinimumHeight(dp(48));
-        GradientDrawable topBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0xB3000000, 0x00000000});
-        hudTopBar.setBackground(topBg);
+        GlassSurface.apply(hudTopBar, prefs, 0xFF101A30, 22);
 
         View back = icon(R.drawable.ic_back, 20, v -> finish());   // v3.4.2 — 20dp glyph, 40dp plate
         hudTopBar.addView(back, new LinearLayout.LayoutParams(dp(ICON_BOX_DP), dp(ICON_BOX_DP)));
@@ -2195,10 +2195,6 @@ public class PlayActivity extends Activity {
         View minus = icon(R.drawable.ic_replay_10, 20, v -> skip(-stepMs));
         transport.addView(minus, new LinearLayout.LayoutParams(dp(64), dp(52)));
         playPause = icon(R.drawable.ic_play_filled, 24, v -> toggle());   // v3.4.1 — centre disc = 24dp
-        GradientDrawable playBg = new GradientDrawable();
-        playBg.setColor(0xE61A2440);
-        playBg.setCornerRadius(dp(32));
-        playPause.setBackground(playBg);
         LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(dp(64), dp(64));
         playLp.leftMargin = playLp.rightMargin = dp(18);
         transport.addView(playPause, playLp);
@@ -2211,10 +2207,8 @@ public class PlayActivity extends Activity {
         gesturePill.setTextSize(13);
         gesturePill.setGravity(Gravity.CENTER);
         gesturePill.setPadding(dp(14), dp(7), dp(14), dp(7));
-        GradientDrawable gp = new GradientDrawable();
-        gp.setColor(0xCC0E1424);
-        gp.setCornerRadius(dp(14));
-        gesturePill.setBackground(gp);
+        gesturePill.setBackground(GlassSurface.drawable(this, prefs, 0xFF0E1424, 14,
+            AppPrefs.glass(prefs)));
         gesturePill.setVisibility(View.GONE);
         LinearLayout.LayoutParams gpl = new LinearLayout.LayoutParams(-2, -2);
         gpl.topMargin = dp(14);
@@ -2243,9 +2237,7 @@ public class PlayActivity extends Activity {
         // ══ ZONE 3 — BOTTOM (seek + times + the action chips) ══════════════════
         hudBottomBar = new LinearLayout(this);
         hudBottomBar.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable botBg = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
-            new int[]{0xB3000000, 0x00000000});
-        hudBottomBar.setBackground(botBg);
+        GlassSurface.apply(hudBottomBar, prefs, 0xFF101A30, 24);
 
         // v3.4.0 - the custom cinema scrub bar (3dp -> 6dp, buffered layer, drag preview)
         seek = new ScrubBar(this, ThemeEngine.palette(
@@ -2816,24 +2808,11 @@ public class PlayActivity extends Activity {
      * {@code (44 - size)/2}dp of real internal padding, so a 20dp vector sits crisply
      * centred inside an accessible 44dp touch target.
      */
-    private static final int ICON_BOX_DP = 44;
+    private static final int ICON_BOX_DP = 48;
 
     private View icon(int resId, float sizeDp, View.OnClickListener click) {
-        ImageView iv = new ImageView(this);
-        int size = Math.round(sizeDp);
-        iv.setImageDrawable(UiIcons.tinted(this, resId, Color.WHITE, size));
-        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        int pad = dp(Math.max(0, (ICON_BOX_DP - size) / 2f));
-        iv.setPadding(pad, pad, pad, pad);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(0x26FFFFFF);
-        g.setCornerRadius(dp(22));
-        iv.setBackground(g);
-        iv.setClickable(true);
-        iv.setFocusable(true);
-        iv.setContentDescription(iconDescription(resId));
-        iv.setOnClickListener(click);
-        return iv;
+        return UiGlassIcon.create(this, prefs, resId, Color.WHITE, Math.round(sizeDp),
+            ICON_BOX_DP, iconDescription(resId), click);
     }
 
     private String iconDescription(int resId) {
@@ -2855,23 +2834,8 @@ public class PlayActivity extends Activity {
     }
 
     private View dockIcon(int resId, String description, View.OnClickListener click) {
-        FrameLayout button = new FrameLayout(this);
-        button.setMinimumWidth(dp(48));
-        button.setMinimumHeight(dp(48));
-        button.setFocusable(true);
-        button.setClickable(true);
-        button.setContentDescription(description);
-        button.setOnClickListener(click);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0x1AFFFFFF);
-        bg.setCornerRadius(dp(14));
-        button.setBackground(bg);
-
-        ImageView glyph = new ImageView(this);
-        glyph.setImageDrawable(UiIcons.tinted(this, resId, Color.WHITE, 20));
-        glyph.setScaleType(ImageView.ScaleType.CENTER);
-        glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        button.addView(glyph, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        FrameLayout button = UiGlassIcon.create(this, prefs, resId, Color.WHITE, 20,
+            48, description, click);
         if (resId == R.drawable.ic_subtitles) {
             subtitleDockDot = new View(this);
             GradientDrawable dot = new GradientDrawable();
@@ -3015,14 +2979,19 @@ public class PlayActivity extends Activity {
      * change. setTypeface(tf, style) with a null family NEVER happens again. */
     private void applyLangStyle() {
         if (subView == null) return;
-        // v3.4.0 - REAL weights: the 600 face is a separate file, so "bold" is never a
-        // synthetic smear. Non-Sinhala languages keep the system face + its own bold.
+        // Subtitle family is independent from the app chrome. The Noto choice uses
+        // the bundled regular/semibold Sinhala files; Cinema Bold uses bundled Inter.
         boolean bold = AppPrefs.subBold(prefs);
         Typeface tf;
-        if (Langs.useBundledSinhalaFont(activeLang)) {
-            tf = bold ? siFontSemi : siFont;                  // the two real instances
-        } else {
+        String family = AppPrefs.fontFamily(prefs);
+        if (AppPrefs.FONT_CINEMA.equals(family)) {
+            tf = UiFonts.cinemaTypeface(this, bold);
+        } else if (AppPrefs.FONT_SERIF.equals(family)) {
+            tf = Typeface.create(Typeface.SERIF, bold ? Typeface.BOLD : Typeface.NORMAL);
+        } else if (AppPrefs.FONT_SYSTEM.equals(family)) {
             tf = Typeface.create(Typeface.DEFAULT, bold ? Typeface.BOLD : Typeface.NORMAL);
+        } else {
+            tf = bold ? siFontSemi : siFont;
         }
         subView.setTypeface(tf);
         subView.setTextDirection(Langs.isRtl(activeLang)

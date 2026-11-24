@@ -116,6 +116,14 @@ public final class AppPrefs {
     public static final String K_MOTION = "motionEnabled";              // bool
     /** Accent glow on the hero card + active tab. */
     public static final String K_ACCENT_GLOW = "accentGlow";            // bool
+    /** Mornye glass fill strength, percent 10..95 (75 default). */
+    public static final String K_GLASS_CLARITY = "glassClarity";
+    /** Show the light-catching glass rim on compatible surfaces. */
+    public static final String K_GLASS_OUTLINES = "glassOutlines";
+    /** Wrap action glyphs in glass medallions. */
+    public static final String K_ICON_GLASS = "iconGlass";
+    /** App chrome family: modern|system|rounded|monospace. */
+    public static final String K_UI_FONT = "uiFont";
     /** Explicit subtitle text colour ("" = use the preset index). */
     public static final String K_SUB_COLOR_HEX = "subColorHex";         // ""|rrggbb
     /** Subtitle outline / shadow radius in dp, 0..6. */
@@ -178,6 +186,7 @@ public final class AppPrefs {
         // v3.4.0 - every new customization surface, so Backup & Restore stays lossless.
         K_SURFACE_STYLE, K_BORDER_ALPHA, K_BOTTOM_BAR_STYLE, K_BOTTOM_BAR_LABELS,
         K_SHOW_TROUBLE_TAB, K_MOTION, K_ACCENT_GLOW,
+        K_GLASS_CLARITY, K_GLASS_OUTLINES, K_ICON_GLASS, K_UI_FONT,
         K_SUB_COLOR_HEX, K_SUB_OUTLINE, K_SUB_SHADOW,
         K_OMNIBAR_POS, K_SPEEDDIAL_COLS, K_SEARCH_ENGINE, K_WEB_CUSTOM_UA,
         K_READER_DARK, K_FAVICONS, K_SHOW_BLOCK_COUNT, K_WEB_TABS,
@@ -193,7 +202,10 @@ public final class AppPrefs {
     public static final String DENSITY_SPACIOUS = "spacious", DENSITY_COMFORTABLE = "comfortable", DENSITY_COMPACT = "compact";
     public static final String RADIUS_SHARP = "sharp", RADIUS_ROUNDED = "rounded", RADIUS_PILL = "apple-pill";
     public static final String BG_PILL = "pill", BG_OUTLINE = "outline", BG_BOX = "box", BG_SHADOW = "shadow";
-    public static final String FONT_NOTO = "noto", FONT_SYSTEM = "system", FONT_SERIF = "serif";
+    public static final String FONT_NOTO = "noto", FONT_SYSTEM = "system",
+        FONT_SERIF = "serif", FONT_CINEMA = "cinema";
+    public static final String UI_FONT_MODERN = "modern", UI_FONT_SYSTEM = "system",
+        UI_FONT_ROUNDED = "rounded", UI_FONT_MONOSPACE = "monospace";
     public static final String ENGINE_HUMAN_PA_FREE = "human-pa-free", ENGINE_HUMAN_FREE = "human-free",
         ENGINE_FREE = "free", ENGINE_WORKER = "worker";
     public static final String ASPECT_FIT = "fit", ASPECT_FILL = "fill", ASPECT_ZOOM = "zoom",
@@ -201,7 +213,7 @@ public final class AppPrefs {
 
     public static String normalizeThemeMode(String v) {
         return THEME_DARK.equals(v) || THEME_AMOLED.equals(v) || THEME_LIGHT.equals(v)
-            || THEME_SYSTEM.equals(v) ? v : THEME_DARK;             // Mornye Slate default
+            || THEME_SYSTEM.equals(v) ? v : THEME_DARK;
     }
 
     /**
@@ -261,8 +273,16 @@ public final class AppPrefs {
     }
 
     public static String normalizeFontFamily(String v) {
-        return FONT_SYSTEM.equals(v) || FONT_SERIF.equals(v) ? v : FONT_NOTO;
+        return FONT_SYSTEM.equals(v) || FONT_SERIF.equals(v) || FONT_CINEMA.equals(v)
+            ? v : FONT_NOTO;
     }
+
+    public static String normalizeUiFont(String v) {
+        return UI_FONT_SYSTEM.equals(v) || UI_FONT_ROUNDED.equals(v)
+            || UI_FONT_MONOSPACE.equals(v) ? v : UI_FONT_MODERN;
+    }
+
+    public static int normalizeGlassClarity(int value) { return clampTo(value, 10, 95); }
 
     /** v3.3.0 — the subtitle size range the Cinema Player promises: 12..36 sp
      *  (was 14..40; the 22 sp default is what made v3.2.0's subtitles "oversized"). */
@@ -502,6 +522,7 @@ public final class AppPrefs {
                 case K_ACCENT_HEX: return normalizeAccentHex(String.valueOf(raw));
                 case K_FONT_SP: return normalizeFontSp(Integer.parseInt(String.valueOf(raw).trim()));
                 case K_FONT_FAMILY: return normalizeFontFamily(String.valueOf(raw));
+                case K_UI_FONT: return normalizeUiFont(String.valueOf(raw));
                 case K_SUB_COLOR: return normalizeSubColor(Integer.parseInt(String.valueOf(raw).trim()));
                 case K_SUB_BG_OPACITY: return normalizeSubBgOpacity(Integer.parseInt(String.valueOf(raw).trim()));
                 case K_SUB_BOTTOM_PCT: return normalizeSubBottomPct(Integer.parseInt(String.valueOf(raw).trim()));
@@ -547,6 +568,8 @@ public final class AppPrefs {
                 case K_ORIENTATION: return normalizeOrientation(String.valueOf(raw));
                 case K_EXTERNAL_PLAYER: return normalizeExternalPlayer(String.valueOf(raw));
                 case K_BORDER_ALPHA: return normalizeBorderAlpha(Integer.parseInt(String.valueOf(raw).trim()));
+                case K_GLASS_CLARITY:
+                    return normalizeGlassClarity(Integer.parseInt(String.valueOf(raw).trim()));
                 case K_SPEEDDIAL_COLS: return normalizeSpeedDialCols(Integer.parseInt(String.valueOf(raw).trim()));
                 case K_SUB_OUTLINE: return normalizeSubOutline(Integer.parseInt(String.valueOf(raw).trim()));
                 case K_VOLUME_BOOST: return normalizeVolumeBoost(Integer.parseInt(String.valueOf(raw).trim()));
@@ -558,6 +581,7 @@ public final class AppPrefs {
                 case K_BOTTOM_BAR_LABELS: case K_SHOW_TROUBLE_TAB: case K_MOTION:
                 case K_ACCENT_GLOW: case K_SUB_SHADOW: case K_READER_DARK:
                 case K_FAVICONS: case K_SHOW_BLOCK_COUNT: case K_MIDNIGHT_DIMMER:
+                case K_GLASS_OUTLINES: case K_ICON_GLASS:
                     return raw instanceof Boolean ? raw
                         : Boolean.parseBoolean(String.valueOf(raw)) ? Boolean.TRUE : Boolean.FALSE;
                 case K_MIDNIGHT_DIM_PCT:
@@ -688,10 +712,14 @@ public final class AppPrefs {
     public static List<Link> webLinks(SharedPreferences p) { return parseLinks(p.getString(K_WEB_LINKS, "")); }
 
     // ── v3.4.0 readers ───────────────────────────────────────────────────────
-    public static String surfaceStyle(SharedPreferences p) { return normalizeSurfaceStyle(p.getString(K_SURFACE_STYLE, SURFACE_FLAT)); }
+    public static String surfaceStyle(SharedPreferences p) { return normalizeSurfaceStyle(p.getString(K_SURFACE_STYLE, SURFACE_GLASS)); }
     public static boolean glass(SharedPreferences p) { return SURFACE_GLASS.equals(surfaceStyle(p)); }
     public static int borderAlpha(SharedPreferences p) { return normalizeBorderAlpha(p.getInt(K_BORDER_ALPHA, 18)); }
-    public static String bottomBarStyle(SharedPreferences p) { return normalizeBottomBarStyle(p.getString(K_BOTTOM_BAR_STYLE, BAR_DOCKED)); }
+    public static int glassClarity(SharedPreferences p) { return normalizeGlassClarity(p.getInt(K_GLASS_CLARITY, 75)); }
+    public static boolean glassOutlines(SharedPreferences p) { return p.getBoolean(K_GLASS_OUTLINES, true); }
+    public static boolean iconGlass(SharedPreferences p) { return p.getBoolean(K_ICON_GLASS, true); }
+    public static String uiFont(SharedPreferences p) { return normalizeUiFont(p.getString(K_UI_FONT, UI_FONT_MODERN)); }
+    public static String bottomBarStyle(SharedPreferences p) { return normalizeBottomBarStyle(p.getString(K_BOTTOM_BAR_STYLE, BAR_FLOATING)); }
     public static boolean floatingBar(SharedPreferences p) { return BAR_FLOATING.equals(bottomBarStyle(p)); }
     public static boolean bottomBarLabels(SharedPreferences p) { return p.getBoolean(K_BOTTOM_BAR_LABELS, true); }
     public static boolean showTroubleTab(SharedPreferences p) { return p.getBoolean(K_SHOW_TROUBLE_TAB, true); }

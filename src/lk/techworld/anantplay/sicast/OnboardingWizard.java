@@ -195,6 +195,7 @@ public final class OnboardingWizard {
         private final ThemeEngine.Palette p;
         private Dialog dialog;
         private int stage;
+        private LinearLayout root;
         private LinearLayout body;
         private TextView title;
         private TextView dots;
@@ -222,7 +223,7 @@ public final class OnboardingWizard {
             dialog = new Dialog(act);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
             dialog.setCanceledOnTouchOutside(false);
-            LinearLayout root = new LinearLayout(act);
+            root = new LinearLayout(act);
             root.setOrientation(LinearLayout.VERTICAL);
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(p.bg);
@@ -300,6 +301,8 @@ public final class OnboardingWizard {
                 default: paintConnect(); break;
             }
             paintFooter();
+            GlassSurface.apply(root, prefs, p.card, 26);
+            UiFonts.applyTree(root, prefs);
         }
 
         // ── stage 1 — Welcome ────────────────────────────────────────────────

@@ -1425,9 +1425,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v3 upd: versionCode 30404 strictly > 30403 (v3.4.3) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30404 && AppInfo.VERSION_CODE > 30403 && AppInfo.VERSION_CODE < 40000
-              && "3.4.4".equals(AppInfo.VERSION_NAME));
+        check("v345 upd: versionCode 30405 strictly > 30404 (v3.4.4) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30405 && AppInfo.VERSION_CODE > 30404 && AppInfo.VERSION_CODE < 40000
+              && "3.4.5".equals(AppInfo.VERSION_NAME));
 
         // ════════════════════════════════════════════════════════════════════
         // v3.0.0 — PIPELINE PARITY (merge-to-release CI + repo integrity)
@@ -1459,9 +1459,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v3 pipe: build.sh defaults match the shipped version (3.4.4 / 30404 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.4}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30404}")
+        check("v345 pipe: build.sh defaults match the shipped version (3.4.5 / 30405 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.5}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30405}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -2642,18 +2642,18 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v344 sec: workflows and manifest enforce versionCode 30404 / 3.4.4",
-            buildYml.contains("30404") && buildYml.contains("3.4.4") && relYml.contains("3.4.4"));
+        check("v345 sec: workflows and manifest enforce versionCode 30405 / 3.4.5",
+            buildYml.contains("30405") && buildYml.contains("3.4.5") && relYml.contains("3.4.5"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
         String srcManifest = readRepoFile("AndroidManifest.xml");
         String shippedBuildSh = readRepoFile("build.sh");
-        check("v344 pipe: AndroidManifest.xml declares the shipped versionCode 30404 + versionName 3.4.4",
-            srcManifest.contains("android:versionCode=\"30404\"")
-                && srcManifest.contains("android:versionName=\"3.4.4\"")
-                && "30404".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.4".equals(AppInfo.VERSION_NAME));
+        check("v345 pipe: AndroidManifest.xml declares the shipped versionCode 30405 + versionName 3.4.5",
+            srcManifest.contains("android:versionCode=\"30405\"")
+                && srcManifest.contains("android:versionName=\"3.4.5\"")
+                && "30405".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.5".equals(AppInfo.VERSION_NAME));
         check("v312 pipe: no stale 3.1.1 / 30101 build-or-lab assertion survives the bump",
             !buildYml.contains("30101") && !buildYml.contains("AnantPlay-Sinhala-Player-v3.1.1")
                 && !relYml.contains("default: '3.1.1'")
@@ -3293,9 +3293,9 @@ public class ReceiverLab {
                 && !readRepoFile("src/lk/techworld/anantplay/sicast/UpdateChecker.java").contains("api." + "github.com")
                 && !readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("api." + "github.com"));
         String pendingInstallBody = updSrc.substring(updSrc.indexOf("private static void verifyAndInstallPending"));
-        check("v344 updater: pending APK SHA-256 is re-verified before PackageInstaller handoff",
-            pendingInstallBody.indexOf("SelfUpdateCore.sha256(apk)") >= 0
-                && pendingInstallBody.indexOf("SelfUpdateCore.sha256(apk)")
+        check("v345 updater: pending APK SHA-256 is re-verified before PackageInstaller handoff",
+            pendingInstallBody.indexOf("SelfUpdateCore.matchesSha256(apk, expected)") >= 0
+                && pendingInstallBody.indexOf("SelfUpdateCore.matchesSha256(apk, expected)")
                     < pendingInstallBody.indexOf("install(c, apk)"));
         check("v344 updater: verified pending APK survives startup cleanup until user install",
             updSrc.contains("File pending = pendingFile(c)")
@@ -4252,19 +4252,19 @@ public class ReceiverLab {
         }
     }
 
-    /** The version/pipeline parity gate (3.4.4 / 30404 everywhere, never 4.x). */
+    /** The version/pipeline parity gate (3.4.5 / 30405 everywhere, never 4.x). */
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
-        check("v344 parity: AndroidManifest.xml says 3.4.4 / 30404",
-            manifest.contains("android:versionCode=\"30404\"") && manifest.contains("android:versionName=\"3.4.4\""));
-        check("v344 parity: AppInfo says 3.4.4 / 30404",
-            "3.4.4".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30404);
-        check("v344 parity: 30404 strictly > 30403 — an in-place update, no downgrade",
-            AppInfo.VERSION_CODE == 30404 && AppInfo.VERSION_CODE > 30403);
+        check("v345 parity: AndroidManifest.xml says 3.4.5 / 30405",
+            manifest.contains("android:versionCode=\"30405\"") && manifest.contains("android:versionName=\"3.4.5\""));
+        check("v345 parity: AppInfo says 3.4.5 / 30405",
+            "3.4.5".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30405);
+        check("v345 parity: 30405 strictly > 30404 — an in-place update, no downgrade",
+            AppInfo.VERSION_CODE == 30405 && AppInfo.VERSION_CODE > 30404);
         String build = readRepoFile("build.sh");
-        check("v344 parity: build.sh defaults to 3.4.4 / 30404 (previous 30403)",
-            build.contains("VERSION_NAME:-3.4.4") && build.contains("VERSION_CODE:-30404")
-                && build.contains("PREV_VERSION_CODE:-30403"));
+        check("v345 parity: build.sh defaults to 3.4.5 / 30405 (previous 30404)",
+            build.contains("VERSION_NAME:-3.4.5") && build.contains("VERSION_CODE:-30405")
+                && build.contains("PREV_VERSION_CODE:-30404"));
         String latest = readRepoFile("docs/latest.json");
         boolean latestPrevious = latest.contains("\"version\":\"3.4.3\"")
             && latest.contains("\"code\":30403")
@@ -4277,17 +4277,17 @@ public class ReceiverLab {
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         String readme = readRepoFile("README.md");
         String setupSi = readRepoFile("SETUP-SI.md");
-        check("v344 parity: README and Sinhala setup guide announce 3.4.4",
-            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.4")
-                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.4)"));
+        check("v345 parity: README and Sinhala setup guide announce 3.4.5",
+            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.5")
+                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.5)"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v344 parity: build-apk.yml resolves and verifies the shared 3.4.4 identity",
-            buildWf.contains("test \"$VERSION\" = \"3.4.4\"")
-                && buildWf.contains("test \"$CODE\" = \"30404\"")
+        check("v345 parity: build-apk.yml resolves and verifies the shared 3.4.5 identity",
+            buildWf.contains("test \"$VERSION\" = \"3.4.5\"")
+                && buildWf.contains("test \"$CODE\" = \"30405\"")
                 && buildWf.contains("steps.app-version.outputs.version"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v344 parity: release workflow defaults to 3.4.4 and publishes its computed checksum",
-            relWf.contains("default: '3.4.4'")
+        check("v345 parity: release workflow defaults to 3.4.5 and publishes its computed checksum",
+            relWf.contains("default: '3.4.5'")
                 && relWf.contains("SHA=$(cut -d' ' -f1 dist/SHA256SUMS.txt)")
                 && relWf.contains("docs/latest.json"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
@@ -4702,11 +4702,11 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v344 A11: AndroidManifest declares 30404 / 3.4.4",
-            manifest340.contains("android:versionCode=\"30404\"")
-                && manifest340.contains("android:versionName=\"3.4.4\""));
-        check("v344 A11: AppInfo is 3.4.4 / 30404",
-            "3.4.4".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30404);
+        check("v345 A11: AndroidManifest declares 30405 / 3.4.5",
+            manifest340.contains("android:versionCode=\"30405\"")
+                && manifest340.contains("android:versionName=\"3.4.5\""));
+        check("v345 A11: AppInfo is 3.4.5 / 30405",
+            "3.4.5".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30405);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -5061,6 +5061,7 @@ public class ReceiverLab {
         v343OnboardingAndHistoryChecks();
         v343UiSubsDashChecks();
         v344UiRegressionChecks();
+        v345UpdaterE2eChecks();
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -5298,9 +5299,9 @@ public class ReceiverLab {
         // ── Simple vs Advanced settings ────────────────────────────────────────
         check("v343 ui: a Quick-settings card is the first thing on the Settings tab",
             main.contains("outer.addView(quickSettingsCard(), widen())"));
-        check("v344 ui: quick settings include theme, accent and live surface/navigation samples",
+        check("v345 ui: quick settings include theme, accent and live glass/navigation samples",
             main.contains("themeThumbs()") && main.contains("accentPicker()")
-                && main.contains("previewChoiceRow(\"Surface\"")
+                && main.contains("previewChoiceRow(\"UI style\"")
                 && main.contains("previewChoiceRow(\"Bottom bar\""));
         check("v343 ui: the remaining subtitle and comfort controls stay available",
             main.contains("\"Subtitle size\"")
@@ -5375,34 +5376,141 @@ public class ReceiverLab {
     // ═════════════════════════════════════════════════════════════════════════
     // v3.4.4 — Mornye icon-first UI, accessible player dock, and version parity
     // ═════════════════════════════════════════════════════════════════════════
+    static void v345UpdaterE2eChecks() throws Exception {
+        System.out.println("== v3.4.5 updater — real loopback resolver, download and SHA proof ==");
+        final byte[] apkBytes = repeatBytes('A', 32768);
+        final byte[] tamperedBytes = repeatBytes('B', 32768);
+        final String expectedSha = SelfUpdateCore.sha256(apkBytes);
+        final String apkName = SelfUpdateCore.apkAssetName("3.4.5");
+        final String sums = expectedSha + "  " + apkName + "\n";
+        final List<String> requests = Collections.synchronizedList(new ArrayList<>());
+        final com.sun.net.httpserver.HttpServer server =
+            com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/releases/latest", exchange -> {
+            requests.add(exchange.getRequestMethod() + " /releases/latest");
+            exchange.getResponseHeaders().add("Location",
+                "https://github.com/" + SelfUpdateCore.REPO + "/releases/tag/v3.4.5");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+        server.createContext("/sums", exchange -> {
+            requests.add(exchange.getRequestMethod() + " /sums");
+            byte[] body = sums.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(body); }
+        });
+        server.createContext("/apk", exchange -> {
+            requests.add(exchange.getRequestMethod() + " /apk");
+            exchange.sendResponseHeaders(200, apkBytes.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(apkBytes); }
+        });
+        server.createContext("/tampered", exchange -> {
+            requests.add(exchange.getRequestMethod() + " /tampered");
+            exchange.sendResponseHeaders(200, tamperedBytes.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(tamperedBytes); }
+        });
+        server.start();
+        File validFile = File.createTempFile("anantplay-v345-valid", ".apk");
+        File tamperedFile = File.createTempFile("anantplay-v345-tampered", ".apk");
+        final String base = "http://127.0.0.1:" + server.getAddress().getPort();
+        SelfUpdateCore.setConnectionOpenerForTests(url -> {
+            URL upstream = new URL(url);
+            String path = upstream.getPath();
+            String local;
+            if (path.endsWith("/releases/latest")) local = "/releases/latest";
+            else if (path.endsWith("/SHA256SUMS.txt")) local = "/sums";
+            else if (path.endsWith("/tampered.apk")) local = "/tampered";
+            else if (path.endsWith(apkName)) local = "/apk";
+            else throw new java.io.IOException("unexpected updater URL: " + path);
+            return (HttpURLConnection) new URL(base + local)
+                .openConnection(java.net.Proxy.NO_PROXY);
+        });
+        try {
+            SelfUpdateCore.Release release = SelfUpdateCore.fetchReleaseAny();
+            check("v345 updater: loopback HEAD 302 resolves the v3.4.5 release",
+                release != null && "3.4.5".equals(release.version)
+                    && SelfUpdateCore.TIER_WEB_REDIRECT.equals(release.tier));
+            check("v345 updater: SHA256SUMS.txt verifies the derived APK name",
+                release != null && apkName.equals(SelfUpdateCore.apkFileName(release.apkUrl))
+                    && expectedSha.equals(release.sha256Expected));
+
+            final List<Integer> progress = new ArrayList<>();
+            progress.add(0);
+            long written = SelfUpdateCore.downloadToFile(release.apkUrl, validFile,
+                (bytes, total, percent) -> progress.add(percent));
+            boolean monotonic = true;
+            for (int i = 1; i < progress.size(); i++) {
+                if (progress.get(i) < progress.get(i - 1)) monotonic = false;
+            }
+            check("v345 updater: loopback APK download reports increasing progress through 100%",
+                written == apkBytes.length && progress.size() >= 2 && progress.get(0) == 0
+                    && progress.get(progress.size() - 1) == 100 && monotonic);
+            check("v345 updater: the valid downloaded file passes the installer SHA check",
+                SelfUpdateCore.matchesSha256(validFile, expectedSha));
+
+            String tamperedUrl = "https://github.com/" + SelfUpdateCore.REPO
+                + "/releases/download/v3.4.5/tampered.apk";
+            SelfUpdateCore.downloadToFile(tamperedUrl, tamperedFile, null);
+            check("v345 updater: a tampered APK is rejected by the same SHA check",
+                !SelfUpdateCore.matchesSha256(tamperedFile, expectedSha));
+
+            List<String> snapshot = new ArrayList<>(requests);
+            check("v345 updater: the E2E sequence is HEAD redirect, sums, APK, tampered APK",
+                snapshot.equals(java.util.Arrays.asList("HEAD /releases/latest",
+                    "GET /sums", "GET /apk", "GET /tampered")), snapshot.toString());
+            int restCalls = 0;
+            for (String request : snapshot) if (request.contains("/api/")) restCalls++;
+            check("v345 updater: release resolution and download make zero GitHub REST calls",
+                restCalls == 0);
+            check("v345 updater: the acceptance cap is exactly one byte below 50 MiB",
+                SelfUpdateCore.MAX_APK_BYTES == 50L * 1024 * 1024 - 1);
+        } finally {
+            SelfUpdateCore.setConnectionOpenerForTests(null);
+            server.stop(0);
+            validFile.delete();
+            tamperedFile.delete();
+        }
+
+        long now = 5_000_000_000L;
+        check("v345 updater: automatic checks honor the 5-minute cooldown",
+            !SelfUpdateCore.checkAllowed(now, now - 60_000L, 0, false));
+        check("v345 updater: automatic checks honor the 15-minute failure backoff",
+            !SelfUpdateCore.checkAllowed(now, 0, now - 60_000L, false));
+        check("v345 updater: manual checks bypass cooldown and failure backoff",
+            SelfUpdateCore.checkAllowed(now, now - 1000L, now - 1000L, true));
+    }
+
     static void v344UiRegressionChecks() throws Exception {
-        System.out.println("== v3.4.4 UI — Mornye surfaces, icon-first player, clean chrome ==");
+        System.out.println("== v3.4.5 UI — Mornye glass, icon-first player, clean chrome ==");
         String main = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
         String play = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        String glassIcon = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/UiGlassIcon.java"));
+        String uiCard = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/UiCard.java"));
         String manifest = readRepoFile("AndroidManifest.xml");
         String appInfo = readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java");
         String build = readRepoFile("build.sh");
         String buildWorkflow = readRepoFile(".github/workflows/build-apk.yml");
         String releaseWorkflow = readRepoFile(".github/workflows/release-apk.yml");
 
-        check("v344 identity: the manifest declares app version 3.4.4 / code 30404",
-            manifest.contains("android:versionName=\"3.4.4\"")
-                && manifest.contains("android:versionCode=\"30404\""));
+        check("v345 identity: the manifest declares app version 3.4.5 / code 30405",
+            manifest.contains("android:versionName=\"3.4.5\"")
+                && manifest.contains("android:versionCode=\"30405\""));
         check("v344 identity: AppInfo matches the manifest",
-            appInfo.contains("VERSION_NAME = \"3.4.4\"") && appInfo.contains("VERSION_CODE = 30404"));
-        check("v344 identity: build.sh defaults and downgrade floor use 3.4.4 / 30403",
-            build.contains("VERSION_NAME=${VERSION_NAME:-3.4.4}")
-                && build.contains("VERSION_CODE=${VERSION_CODE:-30404}")
-                && build.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30403}"));
+            appInfo.contains("VERSION_NAME = \"3.4.5\"") && appInfo.contains("VERSION_CODE = 30405"));
+        check("v345 identity: build.sh defaults and downgrade floor use 3.4.5 / 30404",
+            build.contains("VERSION_NAME=${VERSION_NAME:-3.4.5}")
+                && build.contains("VERSION_CODE=${VERSION_CODE:-30405}")
+                && build.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30404}"));
         check("v344 identity: CI validates the manifest and emits dynamic version outputs",
-            buildWorkflow.contains("test \"$VERSION\" = \"3.4.4\"")
-                && buildWorkflow.contains("test \"$CODE\" = \"30404\"")
+            buildWorkflow.contains("test \"$VERSION\" = \"3.4.5\"")
+                && buildWorkflow.contains("test \"$CODE\" = \"30405\"")
                 && buildWorkflow.contains("echo \"version=$VERSION\""));
         check("v344 identity: CI artifact names use the resolved version",
             buildWorkflow.contains("AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}.apk")
                 && buildWorkflow.contains("name: AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}-apk"));
-        check("v344 identity: release dispatch defaults to 3.4.4",
-            releaseWorkflow.contains("default: '3.4.4'"));
+        check("v345 identity: release dispatch defaults to 3.4.5",
+            releaseWorkflow.contains("default: '3.4.5'"));
 
         check("v344 home: the visible app title is fixed to AnantPlay Player",
             main.contains("appTitle.setText(\"AnantPlay Player\")"));
@@ -5417,21 +5525,21 @@ public class ReceiverLab {
         check("v344 home: permission row has a bilingual action and no standalone banner card",
             main.contains("Auto-open on Cast") && main.contains("autoOpenBanner()"));
         check("v344 home: cast target copy uses the AnantPlay Player name",
-            main.contains("Choose \\\"AnantPlay Sinhala Player\\\" in AnantPlay's Cast menu"));
+            main.contains("Choose AnantPlay Player from AnantPlay's Cast menu"));
 
-        check("v344 settings: visual Surface preview offers Flat and Glass",
-            main.contains("previewChoiceRow(\"Surface\", new String[]{\"Flat\", \"Glass\"}"));
-        check("v344 settings: visual navigation preview offers Docked and Floating",
-            main.contains("previewChoiceRow(\"Bottom bar\", new String[]{\"Docked\", \"Floating\"}"));
+        check("v345 settings: visual UI style preview offers Flat Material and Mornye Glass",
+            main.contains("previewChoiceRow(\"UI style\", new String[]{\"Flat Material\", \"Mornye Glass\"}"));
+        check("v345 settings: visual navigation preview offers Docked and Floating Glass",
+            main.contains("previewChoiceRow(\"Bottom bar\", new String[]{\"Docked\", \"Floating Glass\"}"));
         check("v344 settings: both preview choices save the existing preferences",
             main.contains("putString(AppPrefs.K_SURFACE_STYLE")
                 && main.contains("putString(AppPrefs.K_BOTTOM_BAR_STYLE"));
         check("v344 settings: preview selection refreshes the theme immediately",
             main.contains("tile.setOnClickListener(v -> {") && main.contains("themeChanged();"));
-        check("v344 settings: flat cards have no outline and glass cards use a hairline",
-            main.contains("if (AppPrefs.glass(prefs))")
-                && main.contains("g.setStroke(0, 0);")
-                && main.contains("ThemeEngine.hairline(P, AppPrefs.borderAlpha(prefs))"));
+        check("v345 settings: flat cards have no outline and glass cards use a hairline",
+            uiCard.contains("if (glass) g.setStroke(dp(c, 1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)))")
+                && uiCard.contains("else g.setStroke(0, 0);")
+                && uiCard.contains("GlassSurface.apply(box, prefs"));
         check("v344 settings: the Quick Settings card remains first",
             main.contains("outer.addView(quickSettingsCard(), widen())"));
 
@@ -5449,11 +5557,11 @@ public class ReceiverLab {
         check("v344 player: bottom dock is fixed and does not use a horizontal scroll container",
             play.contains("hudBottomBar.addView(dock, new LinearLayout.LayoutParams(-1, dp(52)));")
                 && !play.contains("HorizontalScrollView dock"));
-        check("v344 player: each icon button meets the 48dp touch-target floor",
-            play.contains("button.setMinimumHeight(dp(48));")
-                && play.contains("button.setMinimumWidth(dp(48));"));
-        check("v344 player: dock labels are provided as accessibility descriptions",
-            play.contains("button.setContentDescription(description);")
+        check("v345 player: icon controls use accessible glass buttons at 44–48dp",
+            play.contains("UiGlassIcon.create(this, prefs, resId, Color.WHITE")
+                && glassIcon.contains("listener == null ? 32 : 44"));
+        check("v345 player: dock labels are provided as accessibility descriptions",
+            glassIcon.contains("medallion.setContentDescription(description);")
                 && play.contains("Playback speed: "));
         check("v344 player: subtitle-loaded status uses an accessible indicator",
             play.contains("subtitleDockDot") && play.contains("Sinhala subtitles loaded"));
@@ -5684,11 +5792,15 @@ public class ReceiverLab {
         String manifest = readRepoFile("AndroidManifest.xml");
 
         // ── the giant-icon fix: 44dp plate, real padding, 20dp glyph ──
-        check("v342 player: the HUD icon plate is 44dp (ICON_BOX_DP = 44)",
-            play.contains("ICON_BOX_DP = 44"));
-        check("v342 player: icon() applies REAL internal padding around the glyph",
-            play.contains("int pad = dp(Math.max(0, (ICON_BOX_DP - size) / 2f))")
-                && play.contains("iv.setPadding(pad, pad, pad, pad)"));
+        String glassIcon = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/UiGlassIcon.java"));
+        check("v345 player: the HUD icon plate is 48dp and interactive targets never fall below 44dp",
+            play.contains("ICON_BOX_DP = 48")
+                && glassIcon.contains("Math.max(targetDp, listener == null ? 32 : 44)"));
+        check("v345 player: the HUD uses centered, accessible glass medallions",
+            play.contains("UiGlassIcon.create(this, prefs, resId")
+                && glassIcon.contains("glyphLp")
+                && glassIcon.contains("setContentDescription(description)")
+                && glassIcon.contains("GlassSurface.applyIcon"));
         check("v342 player: every top-bar plate is added at ICON_BOX_DP (never a bare 36dp)",
             !play.contains("new LinearLayout.LayoutParams(dp(36), dp(36))"));
         check("v342 player: the top bar uses topIconParams() for all five right-side plates",

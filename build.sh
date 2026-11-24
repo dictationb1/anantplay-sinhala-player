@@ -54,9 +54,9 @@ done
 [ -n "$JAR" ] || JAR="$SDK/platforms/android-34/android.jar"
 TARGET_SDK=36
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-3.4.4}
-VERSION_CODE=${VERSION_CODE:-30404}
-PREV_VERSION_CODE=${PREV_VERSION_CODE:-30403}   # v3.4.3 — the last released build
+VERSION_NAME=${VERSION_NAME:-3.4.5}
+VERSION_CODE=${VERSION_CODE:-30405}
+PREV_VERSION_CODE=${PREV_VERSION_CODE:-30404}   # v3.4.4 — the last released build
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -171,6 +171,7 @@ echo "$BADGE" | grep -q "versionName='$VERSION_NAME'" || die "badging versionNam
 cp "dist/AnantPlay-Sinhala-Player.apk" "dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk"
 
 SIZE=$(wc -c < "dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk")
+[ "$SIZE" -lt 52428800 ] || die "APK size must be strictly below 50 MiB (got $SIZE bytes)"
 if command -v sha256sum >/dev/null 2>&1; then
   SHA=$(sha256sum "dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk" | cut -d' ' -f1)
 else

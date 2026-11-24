@@ -59,10 +59,9 @@ final class UiGroup {
         r.setPadding(0, UiCard.dp(c, 10), 0, UiCard.dp(c, 10));
 
         if (iconRes != 0) {
-            ImageView ic = new ImageView(c);
-            ic.setImageDrawable(UiIcons.tinted(c, iconRes, p.accent, 20));
-            ic.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            r.addView(ic, new LinearLayout.LayoutParams(UiCard.dp(c, 22), UiCard.dp(c, 22)));
+            View ic = UiGlassIcon.create(c, prefs, iconRes, p.accent, 18, 36,
+                en, null);
+            r.addView(ic, new LinearLayout.LayoutParams(UiCard.dp(c, 36), UiCard.dp(c, 36)));
             View gap = new View(c);
             r.addView(gap, new LinearLayout.LayoutParams(UiCard.dp(c, 12), 1));
         }
@@ -121,6 +120,13 @@ final class UiGroup {
     /** A row with an ON/OFF switch that flips a boolean preference. */
     static TextView switchRow(Context c, LinearLayout card, ThemeEngine.Palette p, SharedPreferences prefs,
                               int iconRes, String si, String en, String key, boolean def) {
+        return switchRow(c, card, p, prefs, iconRes, si, en, key, def, null);
+    }
+
+    /** Same control with a lightweight callback for live visual preferences. */
+    static TextView switchRow(Context c, LinearLayout card, ThemeEngine.Palette p, SharedPreferences prefs,
+                              int iconRes, String si, String en, String key, boolean def,
+                              Runnable afterToggle) {
         final TextView v = new TextView(c);
         v.setTextColor(prefs.getBoolean(key, def) ? p.ok : p.desc);
         UiTokens.text(v, 11.5f, 600, 0f, false);
@@ -145,6 +151,7 @@ final class UiGroup {
             r.setOnClickListener(x -> {
                 prefs.edit().putBoolean(key, !prefs.getBoolean(key, def)).apply();
                 paint.run();
+                if (afterToggle != null) afterToggle.run();
             });
             r.setClickable(true);
             r.setFocusable(true);

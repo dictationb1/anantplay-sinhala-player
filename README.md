@@ -1,17 +1,14 @@
-# AnantPlay Player (SI Cast Receiver) v3.4.4
+# AnantPlay Player (SI Cast Receiver) v3.4.5
 
-> **v3.4.4 — MORNYE UI REFINEMENT · 10 ACCENT SWATCHES · FIXED FIVE-ICON PLAYER DOCK ·
-> CLEAN ENGLISH CHROME · TONAL SURFACES.**
-> The player now has a fixed five-action dock with 48dp touch targets, a compact
-> speed readout, a subtitle-ready indicator, and accessible controls; PiP, rotate,
-> and external playback stay in the top HUD. Subtitle tools open focused, with
-> secondary providers and AI actions collapsed by default. The Home screen removes
-> duplicate setup guidance, Settings adds visual surface/navigation previews and
-> ten accent swatches, and outlined vectors use a consistent 1.75–1.85dp stroke family.
-> Existing playback, subtitle, backup, privacy, and permission behavior is retained.
+> **v3.4.5 — MORNYE LIQUID GLASS · APP-WIDE FONTS · IN-APP AUTO-UPDATE E2E.**
+> Mornye Glass is now the default surface, with live 10–95% clarity, optional rim
+> outlines, glass icon medallions, and System/Midnight/AMOLED/Clean Light themes.
+> Inter is bundled for modern Latin UI text with Noto Sinhala fallback; System,
+> Rounded, and Monospace remain selectable. The existing five-action player dock,
+> subtitle tools, Home guidance, backup, privacy, and permissions are retained.
 >
-> Local verification: 1,221 executable Java regressions + 1,915 icon/typography checks
-> = 3,136 checks passed.
+> Local verification: 1,251 executable Java regressions + 1,930 icon/typography checks
+> + 57 v3.4.5 appearance/release gates = **3,238 checks passed**.
 
 > The signed release metadata (`docs/latest.json`) is written by the release workflow
 > after it builds the permanent-key APK, so its checksum always matches the published file.

@@ -1,6 +1,6 @@
 name: Build Sinhala Player APK
 
-# v3.4.4 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
+# v3.4.5 — reproducible APKs: build.sh pins every ZIP entry to a fixed epoch and
 # this keeps the runner clock interpretable (the same commit → the same SHA-256).
 env:
   TZ: UTC
@@ -35,8 +35,8 @@ jobs:
           CODE=$(sed -n 's/^VERSION_CODE=${VERSION_CODE:-\([^}]*\)}$/\1/p' build.sh | head -1)
           MANIFEST_VERSION=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
           MANIFEST_CODE=$(sed -n 's/.*android:versionCode="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
-          test "$VERSION" = "3.4.4"
-          test "$CODE" = "30404"
+          test "$VERSION" = "3.4.5"
+          test "$CODE" = "30405"
           test "$MANIFEST_VERSION" = "$VERSION"
           test "$MANIFEST_CODE" = "$CODE"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -131,8 +131,8 @@ jobs:
           CODE=$(sed -n 's/^VERSION_CODE=${VERSION_CODE:-\([^}]*\)}$/\1/p' build.sh | head -1)
           MANIFEST_VERSION=$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
           MANIFEST_CODE=$(sed -n 's/.*android:versionCode="\([^"]*\)".*/\1/p' AndroidManifest.xml | head -1)
-          test "$VERSION" = "3.4.4"
-          test "$CODE" = "30404"
+          test "$VERSION" = "3.4.5"
+          test "$CODE" = "30405"
           test "$MANIFEST_VERSION" = "$VERSION"
           test "$MANIFEST_CODE" = "$CODE"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -198,7 +198,7 @@ jobs:
           chmod +x build.sh
           bash build.sh
 
-      - name: Assert the artifact is a real, signed, installable v3.4.4 APK
+      - name: Assert the artifact is a real, signed, installable v3.4.5 APK
         run: |
           set -euo pipefail
           VERSION='${{ steps.app-version.outputs.version }}'
@@ -210,7 +210,9 @@ jobs:
           cp "$SRC" "dist/AnantPlay-Sinhala-Player-v${VERSION}.apk"
           APK="dist/AnantPlay-Sinhala-Player-v${VERSION}.apk"
           test -s "$APK"
-          echo "size: $(stat -c %s "$APK") bytes"
+          SIZE=$(stat -c %s "$APK")
+          test "$SIZE" -lt 52428800 || { echo "::error::APK must be strictly below 50 MiB (got $SIZE bytes)"; exit 1; }
+          echo "size: $SIZE bytes (< 50 MiB)"
           "$BT/apksigner" verify --verbose --print-certs "$APK"
           "$BT/zipalign" -c 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | grep -E "^(package|application-label|sdkVersion|targetSdkVersion)"

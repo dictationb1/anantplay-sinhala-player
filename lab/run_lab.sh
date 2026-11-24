@@ -83,6 +83,13 @@ if ! python3 lab/verify_v344_ui.py >> lab/out/lab.txt 2>&1; then
   exit 1
 fi
 
+# v3.4.5 — focused glass appearance, font, launcher, and updater release gates.
+if ! python3 lab/verify_v345_ui.py >> lab/out/lab.txt 2>&1; then
+  cat lab/out/lab.txt
+  echo "LAB FAILED: v3.4.5 glass UI/updater audit" >&2
+  exit 1
+fi
+
 cat lab/out/lab.txt
 if grep -q "  FAIL " lab/out/lab.txt; then
   echo "LAB FAILED: at least one FAIL line in lab/out/lab.txt" >&2
