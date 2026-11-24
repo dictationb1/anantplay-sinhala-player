@@ -30,7 +30,8 @@ Canva was not connected in this workspace, so no Canva designs were queried or e
 - **3,238 total checks passed; 0 failed.**
 - UI completeness, layout-parameter, reference, and Java syntax gates passed. The syntax gate parsed **66 Java sources**; the preference audit found **80 / 80** backup keys present and wired to UI.
 - No literal app-chrome text size below **10sp** was found.
-- The local container has no Android SDK, so a device APK compile/package and rendered-device verification remain dependent on hosted CI. Hosted verification, PR, merge, and release are still pending.
+- Hosted PR run [45301457397](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45301457397) passed the Android SDK 36 build, signing, `apksigner`, `zipalign`, and manifest checks. The CI APK is **3,508,510 bytes**, version **3.4.5 / 30405**, SHA-256 `0bf145fc95d732af39689ad04a4a06169cab2fad44b2c169356cee1cda3325ad` (strictly below 50 MiB).
+- The local container has no Android SDK, so device-rendered verification was not available. The permanent-key GitHub release and `docs/latest.json` update will be verified after the authorized PR merge.
 
 ## සිංහල
 
@@ -62,4 +63,5 @@ Canva was not connected in this workspace, so no Canva designs were queried or e
 - **මුළු පරීක්ෂණ 3,238ක් සමත්; අසමත් 0යි.**
 - UI completeness, layout-parameter, reference සහ Java syntax gates සමත්. Syntax gate එක Java source **66ක්** පරීක්ෂා කළා; backup keys **80 / 80ක්** UI වෙත සම්බන්ධව backup ලැයිස්තුවේ ඇත.
 - App chrome තුළ literal text size **10spට අඩු** එකක් හමු නොවීය.
-- Local container එකේ Android SDK නොමැති නිසා device APK build/package සහ device-rendered පරීක්ෂණ hosted CI මත රඳා පවතී. Hosted verification, PR, merge සහ release තවම සිදු කර නැහැ.
+- [45301457397 hosted PR run](https://github.com/dictationb1/anantplay-sinhala-player/actions/runs/45301457397) Android SDK 36 build, signing, `apksigner`, `zipalign`, සහ manifest පරීක්ෂණ සමත්. CI APK එක **3,508,510 bytes**, version **3.4.5 / 30405**, SHA-256 `0bf145fc95d732af39689ad04a4a06169cab2fad44b2c169356cee1cda3325ad` — 50 MiB ට අඩුයි.
+- Local container එකේ Android SDK නොමැති නිසා device-rendered UI පරීක්ෂා කළේ නැහැ. අනුමත PR merge එකෙන් පසු permanent-key GitHub release එක සහ `docs/latest.json` යාවත්කාලීනය තහවුරු කරමි.
