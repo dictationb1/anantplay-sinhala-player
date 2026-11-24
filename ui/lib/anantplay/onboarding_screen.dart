@@ -1,9 +1,14 @@
-// AnantPlay Sinhala Player v3.4.6 — the 5-stage Mornye spring-animated
+// AnantPlay Sinhala Player v3.4.6.a — the 5-stage Mornye spring-animated
 // first-launch wizard (Welcome → Notifications → Auto-Open Overlay →
 // Background/MIUI stability → Connect official AnantPlay), mirroring
 // OnboardingWizard's stage model; K_ONBOARDING_DONE persists only on Finish.
+// v3.4.6.a — FULL MORNYE PARITY: the first stage's elements reveal on the
+// upstream StaggeredListItem spring ladder (art → title → body), the exact
+// upstream entry effect.
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_ui/material_ui.dart';
+
+import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
 
 import 'app_state.dart';
 import 'bridge.dart';
@@ -62,29 +67,49 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Spacer(),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 260),
-                  child: _stageArt(_stage),
+                StaggeredListItem(
+                  index: 0,
+                  duration: const Duration(milliseconds: 300),
+                  staggerDelay: const Duration(milliseconds: 60),
+                  // Only the entry reveal staggers; every stage change keeps
+                  // the AnimatedSwitcher swap (upstream behavior).
+                  animate: _stage == 0,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 260),
+                    child: _stageArt(_stage),
+                  ),
                 ),
                 const SizedBox(height: 32),
-                Text(
-                  _titles[_stage],
-                  key: ValueKey('t$_stage'),
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    color: const Color(0xFFF2F7F7),
-                    fontWeight: FontWeight.w700,
+                StaggeredListItem(
+                  index: 1,
+                  duration: const Duration(milliseconds: 300),
+                  staggerDelay: const Duration(milliseconds: 60),
+                  animate: _stage == 0,
+                  child: Text(
+                    _titles[_stage],
+                    key: ValueKey('t$_stage'),
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: const Color(0xFFF2F7F7),
+                      fontWeight: FontWeight.w700,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  _bodies[_stage],
-                  key: ValueKey('b$_stage'),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xCCF2F7F7),
-                    height: 1.45,
+                StaggeredListItem(
+                  index: 2,
+                  duration: const Duration(milliseconds: 300),
+                  staggerDelay: const Duration(milliseconds: 60),
+                  animate: _stage == 0,
+                  child: Text(
+                    _bodies[_stage],
+                    key: ValueKey('b$_stage'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xCCF2F7F7),
+                      height: 1.45,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                  textAlign: TextAlign.center,
                 ),
                 const Spacer(),
                 _stageActions(_stage, theme),

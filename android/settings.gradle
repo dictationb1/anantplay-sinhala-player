@@ -1,4 +1,4 @@
-// AnantPlay Sinhala Player v3.4.6 — the Option-A Gradle host settings.
+// AnantPlay Sinhala Player v3.4.6.a — the Option-A Gradle host settings.
 //
 // This host WRAPS the existing pure-Java backend (src/, res/, assets/,
 // libs/*.jar — Media3 1.11.1 + Guava 33.3.1) and embeds the Flutter module

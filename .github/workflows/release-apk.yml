@@ -17,7 +17,7 @@ env:
 #     asset (AnantPlay-Sinhala-Player-v<ver>.apk) + SHA256SUMS.txt.
 #     When KS_BASE64 is not configured, a push to main logs a friendly summary
 #     notice and exits green (build-apk.yml still builds + attaches the APK).
-#   Trigger B — push a semantic tag: git tag v3.4.6 && git push origin v3.4.6
+#   Trigger B — push a semantic tag: git tag v3.4.6.a && git push origin v3.4.6.a
 #   Trigger C — 1-click manual dispatch (takes a version, creates the tag).
 #
 # v3.4.6 — the APK now comes from the GRADLE HOST (android/ + the Flutter
@@ -35,9 +35,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g. 3.4.6 — no leading v)'
+        description: 'Version to release (e.g. 3.4.6.a — no leading v)'
         required: true
-        default: '3.4.6'
+        default: '3.4.6.a'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -75,9 +75,31 @@ jobs:
             # that ships) — VERSION_NAME=${VERSION_NAME:-<default>}
             V=$(grep -o 'VERSION_NAME=${VERSION_NAME:-[^}]*}' build.sh | head -1 | sed 's/.*:-\([^}]*\)}/\1/')
           fi
-          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::version '$V' is not X.Y.Z"; exit 1; }
+          # v3.4.6.a — THE ALPHABETICAL SCHEME: X.Y.Z[.a-d]. The letter is a 4th
+          # segment; the whole ladder 3.4.6 < .a < .b < .c < .d < 3.4.7 must hold
+          # in versionCode space too: letters occupy +1..+4 of the base, 3.4.7
+          # takes the next free slot 30411, later numerics take +9 (below).
+          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-d])?$' || { echo "::error::version '$V' is not X.Y.Z[.a-d]"; exit 1; }
           MAJOR=$(echo "$V" | cut -d. -f1); MINOR=$(echo "$V" | cut -d. -f2); PATCH=$(echo "$V" | cut -d. -f3)
-          CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          SUFFIX=$(echo "$V" | sed -n 's/^[0-9]*\.[0-9]*\.[0-9]*\.\([a-d]\)$/\1/p')
+          LETTER=0
+          case "$SUFFIX" in a) LETTER=1 ;; b) LETTER=2 ;; c) LETTER=3 ;; d) LETTER=4 ;; esac
+          BASE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          if [ -n "$SUFFIX" ]; then
+            # the emergency letter lane: 3.4.6.a=30407 .. 3.4.6.d=30410
+            CODE=$((BASE + LETTER))
+          elif [ "$BASE" -le 30406 ]; then
+            # LEGACY numeric history (3.4.0..3.4.6): X*10000+Y*100+Z, already shipped
+            CODE=$BASE
+          elif [ "$BASE" -eq 30407 ]; then
+            # 3.4.7 — the first numeric release AFTER the 3.4.6 letter lane:
+            # must be > 3.4.6.d (30410), so it takes the next free slot 30411.
+            CODE=$((BASE + 4))
+          else
+            # later numeric releases (3.4.8+): +9 keeps every future letter lane
+            # of the PREVIOUS base (up to .d, +4) below this code with margin.
+            CODE=$((BASE + 9))
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "tag=v$V" >> "$GITHUB_OUTPUT"
@@ -226,6 +248,42 @@ jobs:
           cp "$APK_OUT" "dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
           test -s "dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
 
+      # v3.4.6.a — TRAP #1: THE 16 KB ZIP PASS, THEN apksigner (the auditable
+      # order: alignment REWRITES the zip, so sign comes AFTER it). `-P 16`
+      # puts every uncompressed .so on a 16,384-byte offset inside the APK —
+      # the Android 16 mmap-straight-from-package contract that
+      # verify_apk_launch_integrity.py (L1z) then proves on the artifact.
+      - name: 'zipalign -P 16 (Android 16 KB zip contract) + apksigner re-sign'
+        if: env.SKIP != 'true'
+        env:
+          KS_BASE64: ${{ secrets.KS_BASE64 }}
+          KS_PASS: ${{ secrets.KS_PASS }}
+          KS_KEYPASS: ${{ secrets.KS_KEYPASS }}
+          KS_ALIAS: ${{ secrets.KS_ALIAS }}
+        run: |
+          set -euo pipefail
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          APK="dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
+          test -s "$APK"
+          "$BT/zipalign" -P 16 -f 4 "$APK" dist/aligned.apk
+          test -s dist/aligned.apk
+          echo "zipalign -P 16 -f 4: exit 0"
+          if [ ! -s build_release.keystore ]; then
+            printf '%s' "$KS_BASE64" | base64 -d > build_release.keystore
+          fi
+          test -s build_release.keystore
+          "$BT/apksigner" sign \
+            --ks build_release.keystore \
+            --ks-pass "pass:$KS_PASS" --key-pass "pass:${KS_KEYPASS:-$KS_PASS}" \
+            --ks-key-alias "${KS_ALIAS:-sicast}" \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+            --out dist/signed.apk dist/aligned.apk
+          test -s dist/signed.apk
+          mv dist/signed.apk "$APK"
+          rm -f dist/aligned.apk
+          "$BT/zipalign" -c -P 16 4 "$APK"
+          echo "::notice title=zipalign::zipalign -P 16 -f 4 applied, zipalign -c -P 16 4 OK (release APK)"
+
       - name: Verify the release APK (signature + version + assets)
         if: env.SKIP != 'true'
         run: |
@@ -242,7 +300,8 @@ jobs:
             || { echo "::error::the APK is not v2-signed"; exit 1; }
           grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt \
             || { echo "::error::the APK is not v3-signed"; exit 1; }
-          "$BT/zipalign" -c 4 "$APK"
+          # v3.4.6.a — TRAP #1: the REAL Android 16 check (-P 16), not plain -c 4
+          "$BT/zipalign" -c -P 16 4 "$APK"
           "$BT/aapt2" dump badging "$APK" | head -2
           "$BT/aapt2" dump badging "$APK" | head -1 | grep -q "versionCode='${{ steps.ver.outputs.code }}'" \
             || { echo "::error::versionCode mismatch"; exit 1; }
@@ -255,6 +314,12 @@ jobs:
           unzip -l "$APK" | grep -q "assets/fonts/NotoSansSinhala-Regular.ttf"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libflutter.so"
           unzip -l "$APK" | grep -E "classes.*dex|lib/arm64-v8a/libflutter.so"
+          # v3.4.6.a — THE LAUNCH-INTEGRITY GATE (same script as build-apk.yml):
+          # 16 KB-page ELF audit of every packaged .so, one-ABI contract,
+          # launch-critical libapp.so + asset pair, manifest identity, v2+v3.
+          # v3.4.6 shipped dead-on-arrival with every gate above green — this
+          # is the gate that catches that class before a release exists.
+          python3 lab/verify_apk_launch_integrity.py "$APK" "${{ steps.ver.outputs.version }}"
 
       - name: SHA256SUMS.txt (the integrity file next to the APK)
         if: env.SKIP != 'true'

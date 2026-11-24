@@ -56,22 +56,40 @@ public final class UpdateChecker {
     }
 
     /** Clean semver compare: true when candidate > current. Tolerant of
-     *  missing parts (2.3 == 2.3.0) and non-numeric junk (falls back to unequal). */
+     *  missing parts (2.3 == 2.3.0) and non-numeric junk (falls back to
+     *  unequal). v3.4.6.a — compares ALL FOUR dimensions, so the alphabetical
+     *  emergency lane orders correctly: 3.4.6 < 3.4.6.a < 3.4.6.b < … < 3.4.6.d
+     *  < 3.4.7 (the patch digit outranks the letter). */
     static boolean isNewer(String candidate, String current) {
         int[] a = parse(candidate);
         int[] b = parse(current);
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             if (a[i] != b[i]) return a[i] > b[i];
         }
         return false;
     }
 
-    private static int[] parse(String v) {
-        int[] out = {0, 0, 0};
+    /** v3.4.6.a — THE ALPHABETICAL 4TH SEGMENT, parsed natively.
+     * "3.4.6.a" → {3,4,6,1}; "3.4.6.b" → {3,4,6,2}; "3.4.7" → {3,4,7,0}.
+     * The letter is its own compare dimension — NEVER stripped, NEVER fed to
+     * Integer.parseInt (that is the NumberFormatException trap), and it orders
+     * the emergency lane AFTER the bare base: 3.4.6 < 3.4.6.a < … < 3.4.6.d,
+     * and below the next numeric: 3.4.6.d < 3.4.7 because 4th [4] vs [7 on
+     * patch] resolves at the PATCH digit first (position 2), which parse()
+     * encodes by construction: 3.4.6.a → {3,4,6,1} vs 3.4.7 → {3,4,7,0}. */
+    static int[] parse(String v) {
+        int[] out = {0, 0, 0, 0};
         if (v == null) return out;
         String[] parts = v.split("[.\\-+]");
-        for (int i = 0; i < 3 && i < parts.length; i++) {
-            String p = parts[i].replaceAll("\\D", "");
+        for (int i = 0; i < 4 && i < parts.length; i++) {
+            String p = parts[i];
+            if (i == 3) {                      // the letter segment: a..d → 1..4
+                if (p.length() == 1 && p.charAt(0) >= 'a' && p.charAt(0) <= 'd') {
+                    out[3] = p.charAt(0) - 'a' + 1;
+                }
+                continue;                     // any junk tail is inert, never an exception
+            }
+            p = p.replaceAll("\\D", "");
             if (p.isEmpty()) continue;
             try { out[i] = Integer.parseInt(p); } catch (NumberFormatException ignored) { }
         }

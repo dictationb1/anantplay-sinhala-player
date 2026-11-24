@@ -1,9 +1,14 @@
 name: anantplay_ui
 description: >-
-  AnantPlay Sinhala Player v3.4.6 — the Mornye v5.4.0 Liquid-Glass Flutter UI
+  AnantPlay Sinhala Player v3.4.6.a — the Mornye v5.4.0 Liquid-Glass Flutter UI
   (vendored under LGPL-3.0-only) over the native Media3 cast/player backend.
 publish_to: "none"
-version: 3.4.6+30406
+# v3.4.6.a — pub_semver forbids a 4-part core ("3.4.6.a" → Version.parse
+# throws, which kills EVERY `flutter pub get`: .dart_tool/package_graph.json
+# embeds p.version verbatim). The identity therefore rides as build metadata
+# on the valid 3.4.6 core, while the description above carries "v3.4.6.a".
+# The APK identity stays in android/app/build.gradle (3.4.6.a / 30407).
+version: 3.4.6+30407.a
 
 environment:
   sdk: ^3.10.0

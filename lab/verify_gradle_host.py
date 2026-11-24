@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v3.4.6 — THE GRADLE-HOST STRUCTURAL GATE (gating auditor #6).
+"""v3.4.6.a — THE GRADLE-HOST STRUCTURAL GATE (gating auditor #6).
 
 The Option-A host (android/ + the Flutter module ui/) is the ONLY packaging path
 now, so a structural break there is a release blocker that no runtime test can
@@ -13,7 +13,7 @@ the shipped delta had (all four were hard build failures, not warnings):
   G3  THE FLUTTER PLUGIN IS APPLIED.  Without dev.flutter.flutter-gradle-plugin
       the engine AAR is never resolved and :flutter is never packaged.
   G4  THE VERSION TRIAD AGREES.  Gradle host / AppInfo / build.sh / workflows all
-      say 3.4.6 + 30406, and the wrapper + AGP pins match Flutter 3.50.1
+      say 3.4.6.a + 30407, and the wrapper + AGP pins match Flutter 3.50.1
       (Gradle 9.5.0, AGP 9.3.1) — a mismatch here is an instant CI failure.
   G5  THE MODULE CONTRACT.  ui/.android/include_flutter.groovy is what
       settings.gradle evaluates; the pubspec must declare a module + the real
@@ -172,7 +172,7 @@ version_pins = {
     "build.sh": buildsh,
 }
 for name, text in version_pins.items():
-    check("%s carries 3.4.6 + 30406" % name, "3.4.6" in text and "30406" in text)
+    check("%s carries 3.4.6.a + 30407" % name, "3.4.6.a" in text and "30407" in text)
 check("the manifest no longer carries the AGP-9-obsolete package attribute",
       'package="lk.techworld' not in manifest)
 # v3.4.6 — AGP 9 rejects <uses-sdk>; the SDK levels are owned by the Gradle host
@@ -225,7 +225,9 @@ check("the flutter extension points at the module (ui/, lib/main.dart)",
 
 # ── G5: the Flutter module contract ──────────────────────────────────────────
 pubspec = read("ui/pubspec.yaml")
-check("pubspec declares version 3.4.6+30406", "version: 3.4.6+30406" in pubspec)
+check("pubspec carries the 3.4.6.a / 30407 identity in a pub-semver-VALID form",
+      "version: 3.4.6+30407.a" in pubspec and "v3.4.6.a" in pubspec
+      and "3.4.6.a+30407" not in pubspec)
 check("pubspec declares the add-to-app module block", re.search(r"^  module:", pubspec, re.M) is not None)
 _asset_dirs = re.findall(r"^\s+- (mornye/[A-Za-z0-9_.-]+|assets/[A-Za-z0-9_/.-]+/)$", pubspec, re.M)
 check("pubspec only lists asset entries that exist (resolved against ui/ or ui/lib/mornye_ui/)",
@@ -266,5 +268,5 @@ if os.path.isdir(path(".git")):
 
 for f in failures:
     print("::error title=gradle-host::%s" % f)
-print("v3.4.6 gradle host: %d checks, %d failed" % (checks, len(failures)))
+print("v3.4.6.a gradle host: %d checks, %d failed" % (checks, len(failures)))
 sys.exit(1 if failures else 0)

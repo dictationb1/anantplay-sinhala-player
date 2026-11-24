@@ -2,7 +2,11 @@ package lk.techworld.anantplay.sicast;
 
 /** Version + identity constants (no Gradle BuildConfig — plain aapt2/javac/d8 build).
  *
- *  v3.4.6 (code 30406): THE MORNYE LIQUID-GLASS FLUTTER UI (Option A) — the
+ *  v3.4.6.a (code 30407): THE ANDROID 16 CRASH FIX + THE FULL MORNYE PARITY — the
+ *  v3.4.6 build shipped a 4 KB-page-class libflutter.so that the Android 16
+ *  dynamic linker refuses on 16 KB-page devices (instant startup crash). This
+ *  release pins the 16 KB-ready per-ABI engine artifact and completes the Mornye
+ *  v5.4.0 visual parity. Same Mornye Liquid-Glass Flutter UI (Option A) —
  *  Mornye v5.4.0 visual engine vendored under LGPL-3.0-only into ui/, hosted by a
  *  FlutterActivity over the same pure-Java cast/player backend, with pure-SVG
  *  Liquid-Glass Cinema assets and a 55 MB updater cap. Strictly v3.x — never v4.
@@ -23,8 +27,8 @@ package lk.techworld.anantplay.sicast;
  *  script-ratio validation) + the Mornye/Apple-grade customization hub + the
  *  dedicated 10-point Troubleshooter. Strictly v3.x — never v4. */
 final class AppInfo {
-    static final String VERSION_NAME = "3.4.6";
-    static final int VERSION_CODE = 30406;
+    static final String VERSION_NAME = "3.4.6.a";
+    static final int VERSION_CODE = 30407;
     static final String NAME = "AnantPlay Sinhala Player";
     private AppInfo() { }
 }
