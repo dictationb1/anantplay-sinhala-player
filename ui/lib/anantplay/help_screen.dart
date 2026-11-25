@@ -65,6 +65,8 @@ class _HelpScreenState extends State<HelpScreen> {
       // a List. decodeDeepOutcomes handles BOTH; the per-probe progress frames
       // are Maps ({t:'deep'/'deepStart'}) and decode to empty (routed below).
       final outcomes = decodeDeepOutcomes(event);
+      // ignore: avoid_print
+      print('DBG event=${event.runtimeType} decoded=${outcomes.length} mounted=$mounted eventStr=${event.toString().substring(0, event.toString().length > 90 ? 90 : event.toString().length)}');
       if (!mounted || outcomes.isEmpty) return;
       // v3.4.6.f — LAYER 1 (the LIVE Dart audits) runs the moment the native
       // layer finishes: the receiver is back at its original state (the
@@ -143,6 +145,8 @@ class _HelpScreenState extends State<HelpScreen> {
     // gated behind the Dart round-trips), THEN run the 8 live Dart audits
     // (Domain H, ids 65–72) and merge them in as they land.
     if (!mounted) return;
+    // ignore: avoid_print
+    print('DBG render ${nativeOutcomes.length} cards, domains=${nativeOutcomes.map((o) => o.domain).toList()}');
     setState(() {
       _results = nativeOutcomes;
       _ranOnce = true;
