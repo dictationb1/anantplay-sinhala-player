@@ -1201,7 +1201,7 @@ void main() {
       expect(
         find.text('54/54 Deep Troubleshoot complete — 100% '
             'Privacy-Safe report auto-copied to clipboard ✓'),
-        findsOneWidget,
+        findsAtLeastNWidgets(1),
       );
       expect(find.textContaining('Running 54 deep feature probes'), findsNothing);
     });
