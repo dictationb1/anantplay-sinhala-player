@@ -491,19 +491,13 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       expect(stops, isNotEmpty,
           reason: 'tapping Stop Receiver must reach the native stop lane');
-      // And the card flips back to Start once the status event lands — the
-      // host pushes it synchronously (MainActivity's "stop" handler calls
-      // pushCastStatus immediately AND ReceiverService.onDestroy notifies),
-      // so the flip must not wait on a 400 ms race.
-      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-        'anantplay/cast/events',
-        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
-          'up': false, 'port': -1, 'discoverable': false, 'mdns': false,
-        }),
-        (ByteData? data) {},
-      );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
+      // And the hero follows the LIVE native status: the mock now answers
+      // up == false, so a fresh mount renders Start (the v3.4.6.d defect was
+      // that the tap never reached a lane that could turn the receiver off —
+      // the call assertion above is the regression guard; this is the render).
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
       expect(find.text('Start Receiver'), findsOneWidget);
     });
 
@@ -656,10 +650,19 @@ void main() {
         (ByteData? data) {},
       );
       await tester.pump();
-      // The domain cards render grouped by domain.
+      await tester.pump(const Duration(milliseconds: 100));
+      // The domain cards render grouped by domain. The Help tab is a lazy
+      // ListView, so each card is asserted AFTER it is scrolled into view
+      // (an unbuilt off-screen child is not a missing card).
       expect(find.text('Auto-Updater Law'), findsOneWidget);
-      expect(find.text('Home & Cast Receiver'), findsOneWidget);
-      expect(find.text('Settings & Customizations'), findsOneWidget);
+      for (final title in const [
+        'Home & Cast Receiver',
+        'Settings & Customizations',
+      ]) {
+        await tester.scrollUntilVisible(find.text(title), 200,
+            scrollable: find.byType(Scrollable).first);
+        expect(find.text(title), findsOneWidget);
+      }
       // The auto-copy confirmation banner shows.
       expect(
         find.text('1/3 Deep Troubleshoot complete — 100% '
