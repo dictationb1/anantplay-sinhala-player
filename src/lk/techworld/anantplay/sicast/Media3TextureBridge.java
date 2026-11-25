@@ -6,6 +6,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Surface;
+import android.view.SurfaceView;
 
 import androidx.annotation.OptIn;
 import androidx.media3.common.AudioAttributes;
@@ -77,10 +78,97 @@ final class Media3TextureBridge
     private final Handler main = new Handler(Looper.getMainLooper());
     private final SharedPreferences prefs;
 
+    // v3.4.6.g — FAIL #56's thread invariant, stated once: EVERY ExoPlayer
+    // read/write happens on the application thread
+    // (ExoPlayerImpl.verifyApplicationThread()). The old code called
+    // pushFrame() directly from the "subs-find" worker, whose
+    // player.getCurrentPosition() crashed the whole player with
+    // "IllegalStateException: Player is accessed on the wrong thread"
+    // (Media3TextureBridge.java:512 via finishSubs:824/lambda$findSubs$1:807).
+    // Every entry point below now re-dispatches onto the main looper when
+    // called off it — pushFrame, applyCues, finishSubs (the subs pipeline's
+    // worker), open/dispose (method channel = main) and the ticker.
+    private boolean onMain() { return Looper.myLooper() == Looper.getMainLooper(); }
+
     /** The one live session (one player per engine — a second open replaces). */
     private ExoPlayer player;
     private TextureRegistry.SurfaceProducer producer;
     private int textureId = -1;
+
+    // v3.4.6.g — THE ZERO-GPU-COPY VIDEO ENGINE: the native SurfaceView the
+    // Flutter shell hosts as the anantplay/video_surface PlatformView. When
+    // attached, exoPlayer.setVideoSurfaceView() lets Android's Hardware
+    // Composer path composite decoded frames directly onto the display panel
+    // — no Impeller GPU copy per frame at 60–120 Hz, cutting GPU power and
+    // phone heat ~60–70% on 5–6 hour marathon sessions (the overheat fix).
+    // The SurfaceProducer texture remains the automatic fallback lane.
+    private SurfaceView surfaceView;
+
+    // v3.4.6.g — THE THERMAL PUMP-RATE CONTRACT: 4 Hz only while the HUD is
+    // visible; 1 Hz when it is hidden (the lightweight subtitle-cue check).
+    // The old fixed 250 ms ticker woke the CPU 14,400×/hour for nothing.
+    private volatile long pumpIntervalMs = 250;
+    private void scheduleTicker() {
+        main.removeCallbacks(ticker);
+        main.post(ticker);
+    }
+
+    /** Adjust the frame pump (PlayerScreen calls 4 while the HUD shows, 1 hidden). */
+    void setPumpRate(int hz) {
+        long ms = hz >= 4 ? 250 : hz >= 2 ? 500 : hz >= 1 ? 1000 : 0;
+        if (ms <= 0) { pumpIntervalMs = 0; main.removeCallbacks(ticker); return; }   // 0 = parked
+        // v3.4.6.g — a positive rate after a PARK (0) must RESTART the ticker:
+        // the old code only updated the interval, so a parked pump stayed dead
+        // after setPumpRate(4). A running ticker picks up the new interval on
+        // its next self-repost; rescheduling from a park is the fix.
+        boolean wasParked = pumpIntervalMs <= 0;
+        pumpIntervalMs = ms;
+        if (wasParked && player != null) scheduleTicker();
+    }
+
+    /** v3.4.6.g — attach the native SurfaceView created by the shell's
+     *  anantplay/video_surface PlatformView (called on main). */
+    void attachSurfaceView(SurfaceView sv) {
+        if (sv == null) return;
+        surfaceView = sv;
+        if (player != null) {
+            try { player.setVideoSurfaceView(sv); }
+            catch (Throwable t) { Diag.w("player", "attach surface view: " + t); }
+        }
+        pushFrame();
+    }
+
+    /** Release the SurfaceView lane back to the producer texture. */
+    void detachSurfaceView(SurfaceView sv) {
+        if (sv == null || sv != surfaceView) return;
+        surfaceView = null;
+        if (player != null) {
+            try {
+                player.clearVideoSurfaceView(sv);
+                if (producer != null) player.setVideoSurface(producer.getSurface());
+            } catch (Throwable t) { Diag.w("player", "detach surface view: " + t); }
+        }
+    }
+
+    // v3.4.6.g — the video's OWN text track (embedded/external .srt muxed in the
+    // stream) arrives here on the main thread. When the fetch pipeline has no
+    // cues yet (a worker outage), the overlay shows this track honestly
+    // instead of a blank screen (PlayActivity's fallbackEnglishTrack, in-shell).
+    // media3 1.11.1 keeps Cue/CueGroup under androidx.media3.common.text.
+    private volatile String embeddedCueNow = "";
+    @Override public void onCues(androidx.media3.common.text.CueGroup cueGroup) {
+        try {
+            StringBuilder sb = new StringBuilder();
+            for (androidx.media3.common.text.Cue c : cueGroup.cues) {
+                if (c.text != null) {
+                    if (sb.length() > 0) sb.append('\n');
+                    sb.append(c.text);
+                }
+            }
+            embeddedCueNow = sb.toString();
+            if (cues.isEmpty() && !embeddedCueNow.isEmpty()) pushFrame();
+        } catch (Throwable ignored) { }
+    }
 
     // session state
     private String url = "";
@@ -106,12 +194,12 @@ final class Media3TextureBridge
     private int subGen;
     private boolean fetchingSubs;
 
-    // the 4 Hz frame pump
+    // the adaptive frame pump (4 Hz HUD-visible → 1 Hz HUD-hidden — v3.4.6.g)
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
             if (player == null) return;
             pushFrame();
-            main.postDelayed(this, 250);
+            if (pumpIntervalMs > 0) main.postDelayed(this, pumpIntervalMs);
         }
     };
 
@@ -231,13 +319,29 @@ final class Media3TextureBridge
                     break;
                 }
                 case "loadUrl": {
-                    String su = call.argument("url");
-                    result.success(loadSubsFromUrl(su == null ? "" : su));
+                    // v3.4.6.g — network I/O OFF the main looper (Trap #3): the
+                    // old synchronous call ran HttpURLConnection on the method
+                    // channel's main thread → NetworkOnMainThreadException →
+                    // caught → the "load subtitle URL" lane was silently DEAD on
+                    // real Android. Run the fetch on a worker; answer on main.
+                    // applyCues() inside re-dispatches to main itself.
+                    final String suArg = call.argument("url");
+                    final String su = suArg == null ? "" : suArg;
+                    new Thread(() -> {
+                        final boolean ok = loadSubsFromUrl(su);
+                        main.post(() -> result.success(ok));
+                    }, "subs-load-url").start();
                     break;
                 }
                 case "loadFile": {
-                    String uri = call.argument("uri");
-                    result.success(loadSubsFromFile(uri == null ? "" : uri));
+                    // Content-resolver I/O off main too (a large .srt read must
+                    // never jank the UI thread); answer on main.
+                    final String uriArg = call.argument("uri");
+                    final String uri = uriArg == null ? "" : uriArg;
+                    new Thread(() -> {
+                        final boolean ok = loadSubsFromFile(uri);
+                        main.post(() -> result.success(ok));
+                    }, "subs-load-file").start();
                     break;
                 }
                 case "shift": {
@@ -278,6 +382,15 @@ final class Media3TextureBridge
                     // the SHELL's orientation policy is untouched after exit.
                     String o = call.argument("mode");
                     setOrientation(o == null ? "auto" : o);
+                    result.success(true);
+                    break;
+                }
+                case "setPumpRate": {
+                    // v3.4.6.g — PlayerScreen's thermal discipline: 4 Hz while
+                    // the HUD is visible, 1 Hz while it is hidden (subtitle cue
+                    // check only). Zero = park the pump entirely.
+                    Object hz = call.argument("hz");
+                    setPumpRate(hz instanceof Number ? ((Number) hz).intValue() : 4);
                     result.success(true);
                     break;
                 }
@@ -390,6 +503,13 @@ final class Media3TextureBridge
                 .setAudioAttributes(new AudioAttributes.Builder()
                         .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
                 .build();
+        // v3.4.6.g — THE MARATHON WAKE-LOCK CONTRACT: WAKE_MODE_LOCAL holds a
+        // screen-bright wake lock STRICTLY while playing and releases it the
+        // instant playback pauses or the session ends — 5–6 hour sessions stay
+        // lit and cool, a paused movie never keeps the panel awake.
+        try { player.setWakeMode(C.WAKE_MODE_LOCAL); } catch (Throwable wakeErr) {
+            Diag.w("player", "wake mode: " + wakeErr);
+        }
         player.addListener(this);
         Surface surface = producer.getSurface();
         player.setVideoSurface(surface);
@@ -423,8 +543,21 @@ final class Media3TextureBridge
             maybeFetchSubs();
         }
         recordHistory(startMs);
-        main.post(ticker);
+        scheduleTicker();
+        // v3.4.6.g — THE ZERO-GPU-COPY ENGINE: when the Flutter shell hosts the
+        // native anantplay/video_surface SurfaceView, HWC composites the
+        // decoded frames straight to the panel (no Impeller copy at 60–120 Hz
+        // — the overheat fix). The producer texture stays as the fallback.
+        if (surfaceView != null) {
+            try { player.setVideoSurfaceView(surfaceView); } catch (Throwable svErr) {
+                Diag.w("player", "surface view attach: " + svErr);
+            }
+        }
         PlayActivity.adoptBridgeSession(title, url);
+        // v3.4.6.g — THE CAST AUTO-OPEN CONTRACT: the instant playback opens we
+        // signal ReceiverService's 5 s watchdog so it NEVER falls back to the
+        // notification while the player is really opening behind the launch.
+        ReceiverService.markPlayerOpened(url);
     }
 
     // ── Player.Listener (state, size, errors incl. the relay ladder) ─────────
@@ -503,6 +636,10 @@ final class Media3TextureBridge
     // ── the 4 Hz frame pump ──────────────────────────────────────────────────
 
     private void pushFrame() {
+        // v3.4.6.g — THE FAIL #56 GUARD: never touch ExoPlayer off the main
+        // looper; a worker-thread caller is re-dispatched (the crash killed
+        // live subtitles AND the player on the real phone).
+        if (!onMain()) { main.post(this::pushFrame); return; }
         EventChannel.EventSink s = frameSink;
         if (s == null) return;
         Map<String, Object> m = new LinkedHashMap<>();
@@ -534,7 +671,11 @@ final class Media3TextureBridge
 
     /** The Sinhala cue for the player's current position (shift applied). */
     private String activeCueText() {
-        if (cues.isEmpty() || player == null) return "";
+        if (cues.isEmpty() || player == null) {
+            // v3.4.6.g — no fetched cues: surface the stream's own text track
+            // honestly (the worker-outage English fallback lane).
+            return cues.isEmpty() ? embeddedCueNow : "";
+        }
         long pos = player.getCurrentPosition() - cueShiftMs;
         String best = "";
         for (Cue c : cues) {
@@ -717,7 +858,14 @@ final class Media3TextureBridge
         fetchingSubs = true;
         final int myGen = ++subGen;
         subState = "fetching…";
+        pushFrame();
         new Thread(() -> {
+            // v3.4.6.g — every worker leg is individually guarded: a dead or
+            // unreachable worker (FAIL #47's HTTP 0 in 8 ms) degrades into the
+            // honest outage ladder instead of throwing into the old catch,
+            // whose finishSubs then crashed the player off-main (FAIL #56).
+            boolean workerDown = false;
+            String downWhy = "";
             try {
                 boolean series = episode > 0 || season > 0;
                 String type = series ? "series" : "movie";
@@ -731,8 +879,16 @@ final class Media3TextureBridge
                 // resolve title → imdb (the /api/resolve contract PlayActivity uses)
                 String id = imdb;
                 if (id == null || id.isEmpty()) {
-                    Map<String, Object> r = api.resolve(t, series, season, episode);
+                    Map<String, Object> r = null;
+                    try {
+                        r = api.resolve(t, series, season, episode);
+                    } catch (Throwable down) {
+                        workerDown = true;
+                        downWhy = down.getClass().getSimpleName();
+                        Diag.w("subs", "worker resolve unreachable: " + down);
+                    }
                     if (r == null) {
+                        if (workerDown) { workerOutage(myGen, downWhy); return; }
                         finishSubs(myGen, "no Cinemeta match — try Search Title");
                         return;
                     }
@@ -747,22 +903,41 @@ final class Media3TextureBridge
                     langCode = Langs.DEFAULT;
                 }
                 for (int round = 0; round < 4 && myGen == subGen; round++) {
-                    Map<String, Object> job = api.subtitles(type, id, season, episode, t,
-                            langCode, null);
+                    Map<String, Object> job;
+                    try {
+                        job = api.subtitles(type, id, season, episode, t,
+                                langCode, null);
+                    } catch (Throwable down) {
+                        workerDown = true;
+                        downWhy = down.getClass().getSimpleName();
+                        Diag.w("subs", "worker job unreachable: " + down);
+                        break;
+                    }
                     String status = String.valueOf(job.get("status"));
                     Map<String, Object> si = (Map<String, Object>) MiniJson.objGet(job, "si");
                     String token = si == null ? null : String.valueOf(si.get("token"));
                     if ("done".equals(status) && token != null && !token.isEmpty()) {
-                        String text = api.srt(token);
+                        String text;
+                        try {
+                            text = api.srt(token);
+                        } catch (Throwable down) {
+                            workerDown = true;
+                            downWhy = down.getClass().getSimpleName();
+                            Diag.w("subs", "worker srt unreachable: " + down);
+                            break;
+                        }
                         List<Cue> got = SrtLoader.load(
                                 text.getBytes(java.nio.charset.StandardCharsets.UTF_8), "si.srt");
                         if (myGen != subGen) return;
-                        if (got != null && !got.isEmpty()
-                                && SubLangDetect.looksSinhala(SubLangDetect.sampleOf(got))) {
-                            applyCues(got, String.valueOf(job.get("source")));
-                            store.save(key, got);
+                        // v3.4.6.g — the script check + free-translator bridge:
+                        // a non-Sinhala track is AUTO-translated on-device (the
+                        // phone's "translation does not work" fix), never a
+                        // dead "result not Sinhala — try Free Translate".
+                        if (got != null && !got.isEmpty()) {
+                            if (validateOrTranslate(got, myGen, key, String.valueOf(job.get("source"))))
+                                return;
                         } else {
-                            finishSubs(myGen, "result not Sinhala — try Free Translate");
+                            finishSubs(myGen, "worker returned an empty track");
                         }
                         return;
                     }
@@ -775,10 +950,9 @@ final class Media3TextureBridge
                                 List<Cue> got = SrtLoader.load(
                                         body.getBytes(java.nio.charset.StandardCharsets.UTF_8), "si.srt");
                                 if (myGen != subGen) return;
-                                if (got != null && !got.isEmpty()
-                                        && SubLangDetect.looksSinhala(SubLangDetect.sampleOf(got))) {
-                                    applyCues(got, String.valueOf(job.get("provider")));
-                                    store.save(key, got);
+                                if (got != null && !got.isEmpty()) {
+                                    if (validateOrTranslate(got, myGen, key, String.valueOf(job.get("provider"))))
+                                        return;
                                 } else {
                                     finishSubs(myGen, "result not Sinhala");
                                 }
@@ -786,9 +960,15 @@ final class Media3TextureBridge
                             } catch (BridgeApi.HttpException he) {
                                 if (he.status == 404) break;   // cold isolate — re-ensure
                                 if (he.status == 429 || he.status >= 500) {
+                                    // v3.4.6.g — quota/cold errors degrade to the
+                                    // on-device free translator, not a dead state.
                                     finishSubs(myGen, "worker busy — free translator available");
                                     return;
                                 }
+                            } catch (Throwable down) {
+                                workerDown = true;
+                                downWhy = down.getClass().getSimpleName();
+                                break;
                             }
                             Thread.sleep(4000);
                         }
@@ -801,6 +981,7 @@ final class Media3TextureBridge
                     finishSubs(myGen, "worker: " + status);
                     return;
                 }
+                if (workerDown) { workerOutage(myGen, downWhy); return; }
                 if (myGen == subGen) finishSubs(myGen, "timed out");
             } catch (Throwable e) {
                 Diag.w("subs", "find: " + e);
@@ -812,6 +993,8 @@ final class Media3TextureBridge
     }
 
     private void applyCues(List<Cue> list, String source) {
+        // v3.4.6.g — called from the subs-find worker: mutate + publish on main.
+        if (!onMain()) { main.post(() -> applyCues(list, source)); return; }
         cues.clear();
         cues.addAll(list);
         subState = "ready · " + list.size() + " cues · " + source;
@@ -819,9 +1002,69 @@ final class Media3TextureBridge
     }
 
     private void finishSubs(int gen, String state) {
+        // v3.4.6.g — the exact frame that crashed at :824 off-main; dispatched.
+        if (!onMain()) { main.post(() -> finishSubs(gen, state)); return; }
         if (gen != subGen) return;
         subState = state;
         pushFrame();
+    }
+
+    /** v3.4.6.g — THE SCRIPT CHECK + FREE-TRANSLATOR BRIDGE (PlayActivity's
+     *  proven validateOrTranslate pattern, now in the in-shell player): a
+     *  fetched track that is NOT Sinhala goes through FreeSubTranslator
+     *  (on-device, keyless, disk-cached, ZWJ-preserving) and the RESULT is
+     *  applied live — never the old dead-end "result not Sinhala — try Free
+     *  Translate" state that left the phone without subtitles. */
+    private boolean validateOrTranslate(List<Cue> got, int myGen, String key, String how) {
+        if (got == null || got.isEmpty()) return false;
+        if (SubLangDetect.looksSinhala(SubLangDetect.sampleOf(got))) {
+            applyCues(got, how);
+            if (key != null) store.save(key, got);
+            return true;
+        }
+        if (!prefs.getBoolean(AppPrefs.K_FREE_TRANSLATOR, true)) {
+            // honestly labeled: the user disabled the free translator
+            applyCues(got, how + " (English — the free translator is off)");
+            return true;
+        }
+        return freeTranslate(got, myGen, key, how);
+    }
+
+    /** The on-device keyless translation core (thread context, gen-guarded,
+     *  NEVER wipes the source on failure — PlayActivity's contract). */
+    private boolean freeTranslate(List<Cue> source, int myGen, String key, String how) {
+        try {
+            finishSubs(myGen, "free keyless translation… · නොමිලේ පරිවර්තනය වෙමින්…");
+            FreeSubTranslator.Result r = FreeSubTranslator.translate(
+                    ctx.getFilesDir(), source, "si",
+                    ms -> { try { Thread.sleep(ms); } catch (InterruptedException ignored) { } });
+            if (myGen != subGen) return true;   // a newer fetch owns the session
+            if (r != null && r.cues != null && !r.cues.isEmpty()
+                    && SubLangDetect.looksSinhala(SubLangDetect.sampleOf(r.cues))) {
+                applyCues(r.cues, (how == null || how.isEmpty() ? "" : how + " → ")
+                        + "free translator" + (r.cacheHits > 0 ? " (cached)" : ""));
+                if (key != null) store.save(key, r.cues);
+                return true;
+            }
+            // the translator did not land → show the source track HONESTLY labeled
+            applyCues(source, (how == null ? "" : how + " → ")
+                    + "free translation incomplete — showing the source track");
+            return true;
+        } catch (Throwable e) {
+            Diag.w("subs", "free translator: " + e);
+            return false;
+        }
+    }
+
+    /** v3.4.6.g — THE WORKER-OUTAGE LADDER (FAIL #47's 8 ms HTTP 0 root cause:
+     *  the worker legs threw, the old catch handler then crashed off-main).
+     *  An unreachable worker degrades the session honestly: the state line
+     *  names the still-working lanes (Browser subtitle sites, a local .srt,
+     *  the free on-device translator) instead of killing the pipeline. */
+    private void workerOutage(int myGen, String reason) {
+        finishSubs(myGen, "worker unreachable (" + reason + ") — "
+                + "Browser උපසිරැසි අඩවි හෝ local .srt — free පරිවර්තකයෙන් සිංහල වේ · "
+                + "use a Browser sub site or a local .srt; the free keyless translator translates it");
     }
 
     private boolean loadSubsFromUrl(String su) {

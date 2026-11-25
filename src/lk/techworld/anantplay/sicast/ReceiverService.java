@@ -495,6 +495,36 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
 
     // ---- ReceiverServer.Backend ----
 
+    // ── v3.4.6.g — THE CAST AUTO-OPEN CONTRACT ──────────────────────────────
+    // The real-phone timeline (3/3 casts missed for 5.18 s each) showed the
+    // watchdog waiting on PlayActivity.current()/bridgeSessionLive(), both
+    // of which flip only AFTER the whole engine warms up — while the launch
+    // itself was being BAL-blocked. markPlayerOpened() is now signalled THE
+    // INSTANT the bridge session opens (Media3TextureBridge.open →
+    // adoptBridgeSession + markPlayerOpened), so the 5 s watchdog knows the
+    // open is in flight even mid-warm-up, and onPlay launches through the
+    // BAL-ALLOWED PendingIntent lane (MainActivity.shellRoute).
+    private static volatile String playerOpenedSession;
+    private static volatile long playerOpenedAtMs;
+
+    /** Signalled the instant the in-shell player opens playback (never a lie). */
+    static void markPlayerOpened(String sessionId) {
+        playerOpenedSession = sessionId == null ? "" : sessionId;
+        playerOpenedAtMs = android.os.SystemClock.uptimeMillis();
+    }
+
+    /** True when a bridge session signalled open during THIS cast window. */
+    static boolean playerOpenedSignalled() { return playerOpenedSession != null; }
+
+    /** The /play wait loop's full open contract (bridge session OR signal). */
+    private static boolean playerOpenObserved() {
+        return PlayActivity.current() != null || PlayActivity.bridgeSessionLive()
+                || playerOpenedSignalled();
+    }
+
+    /** Reset the open signal at the START of a cast (a fresh 5 s window). */
+    private static void resetPlayerOpenSignal() { playerOpenedSession = null; }
+
     /** /play: open our player, wait for it (Cast.play's pattern, 5 s), answer. */
     @Override
     public String onPlay(Map<String, Object> body, String sourceAddr) {
@@ -515,6 +545,11 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         }
         Troubleshooter.record("CAST", "/play accepted · opening the Sinhala player");
 
+        // v3.4.6.g — a FRESH 5 s window per cast: the previous session's open
+        // signal must never satisfy THIS cast's watchdog (the 3/3 timeline's
+        // "did not open despite the overlay grant" was the launch being
+        // BAL-blocked, not a slow player).
+        resetPlayerOpenSignal();
         String castJson = MiniJson.write(body);
         // v3.4.6.d — ONE UNIFIED PLAYER: the cast opens the Flutter shell's
         // MORNYE CINEMA PLAYER (PlayerScreen over Media3TextureBridge) through
@@ -547,7 +582,7 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         int waits = overlay ? 50 : 12;
         for (int n = 0; n < waits; n++) {           // Cast.play's wait loop (Cast.java:171-176)
             try { Thread.sleep(100); } catch (InterruptedException e) { break; }
-            if (PlayActivity.current() != null || PlayActivity.bridgeSessionLive()) {
+            if (playerOpenObserved()) {
                 Diag.i("play", "player opened" + (overlay ? "" : " (no overlay perm — it worked anyway)"));
                 Troubleshooter.record("CAST", "player opened ✓" + (overlay ? "" : " (no overlay perm)"));
                 if (overlay) scheduleTakeover();
@@ -564,6 +599,17 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         Troubleshooter.record("CAST", "player did not open despite the overlay grant — notification posted");
         PlayActivity.notifyCastReady(this, title, castJson);   // last resort, still recoverable
         return ReceiverServer.whyJson("did not open");
+    }
+
+    // v3.4.6.g — the takeover also rides the BAL-ALLOWED lane: after a cast,
+    // AnantPlay's Remote may be in front, which backgrounds us and a plain
+    // startActivity() is then silently dropped by Android 14–16.
+    private void launchShellBal(String why) {
+        try {
+            MainActivity.shellLaunchBal(this, why);
+        } catch (Throwable t) {
+            Diag.w("takeover", "bal launch: " + t);
+        }
     }
 
     /** After a successful cast AnantPlay opens its Remote on top; ~0.8 s later we bring
@@ -589,9 +635,12 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
                 // PlayActivity UI. A bare MainActivity intent reorders the
                 // existing task to the front; the bridge session keeps serving
                 // /status while the shell is on screen.
+                // v3.4.6.g — through the BAL-ALLOWED lane: AnantPlay's Remote
+                // may be in front, which backgrounds us, and a plain
+                // startActivity() from a backgrounded service is silently
+                // dropped by Android 14–16.
                 Diag.i("takeover", "bringing the Mornye shell player to the front");
-                startActivity(new Intent(ReceiverService.this, MainActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
+                launchShellBal("takeover");
             } catch (Throwable t) {
                 Diag.w("takeover", "not allowed now: " + t + " — the user can tap the notification");
             }

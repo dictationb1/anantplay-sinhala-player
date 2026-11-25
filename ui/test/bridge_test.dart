@@ -391,9 +391,11 @@ void main() {
         const DeepOutcome(id: 56, domain: 'F', name: 'Uncaught crash gate (Last Crash)',
             pass: false, ms: 3, detail: 'FAIL — uncaught crash captured: IllegalStateException'),
       ];
+      // v3.4.6.g — the Dart layer is Domain H, ids 65–72 (H2 = 66 hubs,
+      // H4 = 68 settings) — never colliding with native G (57–64).
       final dart = [
-        const DeepOutcome(id: 57, domain: 'G', name: 'Bridge singleton hubs', pass: true, ms: 1, detail: 'ok'),
-        const DeepOutcome(id: 60, domain: 'G', name: 'Settings round-trip', pass: false, ms: 2,
+        const DeepOutcome(id: 66, domain: 'H', name: 'Bridge singleton hubs', pass: true, ms: 1, detail: 'ok'),
+        const DeepOutcome(id: 68, domain: 'H', name: 'Settings round-trip', pass: false, ms: 2,
             detail: 'FAIL — read back null'),
       ];
       final report = composeHonestReport('AnantPlay Sinhala Player v3.4.6.f (30412) — report body', native, dart);
@@ -401,7 +403,7 @@ void main() {
       final verdictIndex = report.indexOf('== MERGED VERDICT: 2/5 PASS · 3 FAIL ==');
       final fail47 = report.indexOf('FAIL ✗ 47. Worker');
       final fail56 = report.indexOf('FAIL ✗ 56. Uncaught crash');
-      final fail60 = report.indexOf('FAIL ✗ 60. Settings');
+      final fail60 = report.indexOf('FAIL ✗ 68. Settings');
       final bodyIndex = report.indexOf('report body');
       expect(verdictIndex, 0);
       for (final i in [fail47, fail56, fail60]) {
@@ -409,7 +411,7 @@ void main() {
         expect(i, lessThan(bodyIndex),
             reason: 'every FAIL must sit ABOVE the report body (nothing hidden)');
       }
-      expect(report, contains('== Domain G — Live Flutter UI (Dart layer'));
+      expect(report, contains('== Domain H — Live Flutter UI (Dart layer'));
     });
 
     test('the crash-gate outcome: a captured PlatformException FAILS honestly', () {

@@ -423,6 +423,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Browser').first, warnIfMissed: false);
       await tester.pumpAndSettle();
+
       expect(find.byType(BrowserScreen), findsOneWidget);
     });
 
@@ -531,9 +532,9 @@ void main() {
       onboardingVersion = 2;
       await tester.pumpWidget(upToDateApp());
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Open the official app'));
+      await tester.ensureVisible(find.text('Official app'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Open the official app'), warnIfMissed: false);
+      await tester.tap(find.text('Official app'), warnIfMissed: false);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
       expect(find.text('Install official AnantPlay'), findsOneWidget);
@@ -548,9 +549,9 @@ void main() {
       expect(find.text('Glass clarity'), findsOneWidget);
       expect(find.text('Live preview'), findsOneWidget);
       await tester.scrollUntilVisible(
-          find.text('AnantPlay Sinhala Player v3.4.6.f (30412)'), 240,
+          find.text('AnantPlay Sinhala Player v3.4.6.g (30413)'), 240,
           scrollable: find.byType(Scrollable).first);
-      expect(find.text('AnantPlay Sinhala Player v3.4.6.f (30412)'), findsOneWidget);
+      expect(find.text('AnantPlay Sinhala Player v3.4.6.g (30413)'), findsOneWidget);
       expect(find.text('ADVANCED'), findsOneWidget);
     });
 
@@ -798,7 +799,7 @@ void main() {
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
       await tester.pump();
       // The run title shows with the counter at 0/54.
-      expect(find.text('Running 56+8 deep feature probes… 0/56'), findsOneWidget);
+      expect(find.text('Running 72 deep feature probes… 0/72'), findsOneWidget);
       // Three live frames arrive: 1, 7, 32 of 54.
       for (final done in [1, 7, 32]) {
         await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
@@ -816,7 +817,7 @@ void main() {
         );
         await tester.pump(const Duration(milliseconds: 60));
       }
-      expect(find.text('Running 56+8 deep feature probes… 32/56'), findsOneWidget);
+      expect(find.text('Running 72 deep feature probes… 32/72'), findsOneWidget);
       // The run itself fired exactly once.
       expect(deepRuns, 1);
     });
@@ -1278,7 +1279,7 @@ void main() {
         );
         await tester.pump();
       }
-      expect(find.text('Running 56+8 deep feature probes… 54/56'), findsOneWidget);
+      expect(find.text('Running 72 deep feature probes… 54/72'), findsOneWidget);
 
       // The final full-run payload (a JSON string, exactly as the host sends it).
       final buf = StringBuffer('[');

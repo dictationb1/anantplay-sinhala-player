@@ -26,6 +26,8 @@ import 'app_state.dart';
 import 'home_screen.dart' show showInstallerSheet;
 import 'bridge.dart';
 import 'settings_mirror.dart';
+import 'package:anantplay_ui/main.dart'
+    show wallpaperSchemeAvailable, kWallpaperUnavailableCaption;
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -1054,9 +1056,16 @@ class _AccentRow extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(right: 10),
                     child: GestureDetector(
-                      onTap: () => AppState.of(context)
-                          .scope
-                          .putInt(SettingsMirror.kAccent, i),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        // a preset tap also clears the custom hex — the preset
+                        // becomes the ACTIVE accent immediately (v3.4.6.g: the
+                        // old code could leave a stale custom hex overriding
+                        // the visually selected preset).
+                        AppState.of(context).scope
+                          ..putString(SettingsMirror.kAccentHex, '')
+                          ..putInt(SettingsMirror.kAccent, i);
+                      },
                       child: Container(
                         width: 30,
                         height: 30,
@@ -1072,26 +1081,36 @@ class _AccentRow extends StatelessWidget {
                     ),
                   ),
                 const Spacer(),
-                // v3.4.6.c — the custom #RRGGBB hex picker (K_ACCENT_HEX).
+                // v3.4.6.g — the custom #RRGGBB Color Studio entry
+                // (K_ACCENT_HEX). THE REAL-PHONE FIX: the v3.4.6.f button was a
+                // null-color Container — its hit-test only covered the 1.4 px
+                // border ring and the # glyph, so a real finger tap landed
+                // NOWHERE (the "dead #" bug). opaque behavior + a solid lane
+                // background make the whole 40×30 target tappable, and the tap
+                // opens the full Mornye Liquid-Glass Color Studio sheet.
                 GestureDetector(
-                  onTap: () => _pickHex(context),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _openColorStudio(context),
                   child: Container(
-                    width: 40,
-                    height: 30,
+                    width: 44,
+                    height: 32,
+                    alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(9),
+                      borderRadius: BorderRadius.circular(10),
                       border: Border.all(
                           color: scheme.primary, width: 1.4),
-                      color: hex.isEmpty ? null : _parse(hex),
+                      // a SOLID lane: the target hit-tests everywhere now.
+                      color: hex.isEmpty
+                          ? scheme.primary.withValues(alpha: 0.14)
+                          : _parse(hex),
                     ),
-                    child: Center(
-                      child: hex.isEmpty
-                          ? Text('#',
-                              style: TextStyle(
-                                  color: scheme.primary,
-                                  fontWeight: FontWeight.w700))
-                          : const SizedBox.shrink(),
-                    ),
+                    child: hex.isEmpty
+                        ? Text('#',
+                            style: TextStyle(
+                                color: scheme.primary,
+                                fontWeight: FontWeight.w700))
+                        : Icon(mi.Icons.check_rounded,
+                            size: 18, color: scheme.onPrimary),
                   ),
                 ),
               ],
@@ -1108,6 +1127,47 @@ class _AccentRow extends StatelessWidget {
                 .scope
                 .putBool(SettingsMirror.kDynamicColor, v),
           ),
+          // v3.4.6.g — THE HONEST CAPTION: with the toggle ON but no OS scheme,
+          // say so — never fake the transformation. With a REAL scheme the
+          // caption confirms the live wallpaper theming lane.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 2, 6, 0),
+            child: ValueListenableBuilder<bool>(
+              valueListenable: wallpaperSchemeAvailable,
+              builder: (context, available, _) {
+                final on = AppState.of(context)
+                    .settings
+                    .b(SettingsMirror.kDynamicColor, false);
+                if (!on) return const SizedBox.shrink();
+                return Row(
+                  children: [
+                    Icon(
+                      available
+                          ? mi.Icons.palette_rounded
+                          : mi.Icons.info_outline_rounded,
+                      size: 14,
+                      color: available
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        available
+                            ? 'Live wallpaper ColorScheme — the whole app repaints from your wallpaper'
+                            : kWallpaperUnavailableCaption,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 11),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -1120,53 +1180,193 @@ class _AccentRow extends StatelessWidget {
     return v == null ? const Color(0xFF7FCDD0) : Color(v);
   }
 
-  void _pickHex(BuildContext context) {
-    final controller = TextEditingController(
-        text: hex.isEmpty ? '#7FCDD0' : hex);
+  /// v3.4.6.g — THE MORNYE LIQUID-GLASS COLOR STUDIO SHEET: an interactive
+  /// hue/saturation swatch grid, a live `#RRGGBB` hex input, a live preview
+  /// pill, and `Apply Color` — persisting K_ACCENT_HEX and repainting the
+  /// ENTIRE app the same frame (through _ThemedApp's AppState read).
+  void _openColorStudio(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    showDialog<void>(
+    final scope = AppState.of(context).scope;
+    final controller = TextEditingController(
+        text: hex.isEmpty ? '#7FCDD0' : '#${hex.toUpperCase()}');
+    showModalBottomSheet<void>(
       context: context,
-      builder: (d) => AlertDialog(
-        backgroundColor: scheme.surfaceContainerHigh,
-        title: Text('Custom accent',
-            style: TextStyle(color: scheme.onSurface)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(
-                RegExp(r'[0-9a-fA-F#]')),
-          ],
-          decoration: const InputDecoration(
-              hintText: '#RRGGBB', prefixIcon: Icon(mi.Icons.colorize_rounded)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              AppState.of(context).scope
-                  .putString(SettingsMirror.kAccentHex, '');
-              Navigator.pop(d);
-            },
-            child: const Text('Use preset'),
-          ),
-          FilledButton(
-            onPressed: () {
-              var v = controller.text.trim();
-              if (!v.startsWith('#')) v = '#$v';
-              final clean = RegExp(r'^#?([0-9a-fA-F]{6})$').hasMatch(v)
-                  ? v.replaceFirst('#', '').toUpperCase()
-                  : '';
-              if (clean.isNotEmpty) {
-                AppState.of(context).scope
-                    .putString(SettingsMirror.kAccentHex, clean);
-              }
-              Navigator.pop(d);
-            },
-            child: const Text('Apply'),
-          ),
-        ],
+      isScrollControlled: true,
+      backgroundColor: scheme.surfaceContainerHigh,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
+      builder: (sheet) {
+        // the 24-swatch hue/saturation grid: every hue family at two
+        // saturations — deterministic, tappable, live.
+        const grid = <Color>[
+          Color(0xFFFF6482), Color(0xFFFF8FA3), Color(0xFFFFB340), Color(0xFFFFCF70),
+          Color(0xFF63D668), Color(0xFF93E096), Color(0xFF7FCDD0), Color(0xFFB0E4E6),
+          Color(0xFF64D2FF), Color(0xFFA7E3FF), Color(0xFF7E7FF0), Color(0xFFB4B3F5),
+          Color(0xFFF07FD0), Color(0xFFF7B2E4), Color(0xFF26A69A), Color(0xFF80CBC4),
+          Color(0xFFEF5350), Color(0xFFEF9A9A), Color(0xFF66BB6A), Color(0xFFA5D6A7),
+          Color(0xFF42A5F5), Color(0xFF90CAF9), Color(0xFFEC407A), Color(0xFFF48FB1),
+        ];
+        return StatefulBuilder(
+          builder: (context, setSheet) {
+            final live = _normalizeHex(controller.text);
+            final preview = live == null
+                ? _parse(hex.isEmpty ? '7FCDD0' : hex)
+                : Color(0xFF000000 | int.parse(live, radix: 16));
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(mi.Icons.colorize_rounded,
+                            color: scheme.primary, size: 20),
+                        const SizedBox(width: 8),
+                        Text('Color Studio',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700)),
+                        const Spacer(),
+                        // ── the live preview pill ─────────────────────
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: preview,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: preview.withValues(alpha: 0.45),
+                                blurRadius: 16,
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            live == null ? 'Preview' : '#$live',
+                            style: TextStyle(
+                              color: preview.computeLuminance() < 0.179
+                                  ? Colors.white
+                                  : Colors.black,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                        'Tap a swatch or type a hex — the whole app repaints live on Apply Color.',
+                        style: TextStyle(
+                            color: scheme.onSurfaceVariant, fontSize: 11.5)),
+                    const SizedBox(height: 14),
+                    // ── the interactive hue/saturation grid ──────────
+                    GridView.count(
+                      crossAxisCount: 8,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      childAspectRatio: 1.05,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      children: [
+                        for (final c in grid)
+                          Builder(builder: (swatchContext) {
+                            final cHex = _toHex(c);
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                controller.text = '#$cHex';
+                                setSheet(() {});
+                              },
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: c,
+                                  border: live != null && live == cHex
+                                      ? Border.all(
+                                          color: scheme.onSurface,
+                                          width: 2.5)
+                                      : null,
+                                ),
+                              ),
+                            );
+                          }),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // ── the live #RRGGBB hex input ──────────────────
+                    TextField(
+                      controller: controller,
+                      onChanged: (_) => setSheet(() {}),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                            RegExp(r'[0-9a-fA-F#]')),
+                      ],
+                      decoration: InputDecoration(
+                        hintText: '#RRGGBB',
+                        prefixIcon:
+                            const Icon(mi.Icons.format_color_fill_rounded),
+                        suffixIcon: live == null
+                            ? Icon(mi.Icons.error_outline_rounded,
+                                color: scheme.error, size: 20)
+                            : Icon(mi.Icons.check_circle_rounded,
+                                color: scheme.primary, size: 20),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () {
+                            scope.putString(SettingsMirror.kAccentHex, '');
+                            Navigator.pop(sheet);
+                          },
+                          child: const Text('Use preset'),
+                        ),
+                        const Spacer(),
+                        FilledButton.icon(
+                          icon: const Icon(mi.Icons.check_rounded, size: 18),
+                          // K_ACCENT_HEX — the persisted custom accent.
+                          label: const Text('Apply Color'),
+                          onPressed: live == null
+                              ? null
+                              : () {
+                                  scope.putString(
+                                      SettingsMirror.kAccentHex, live);
+                                  Navigator.pop(sheet);
+                                },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
+  }
+
+  /// '#7fcdd0' | '7fcdd0' → '7FCDD0' (null when not a valid 6-hex).
+  static String? _normalizeHex(String raw) {
+    var v = raw.trim();
+    if (v.startsWith('#')) v = v.substring(1);
+    return RegExp(r'^([0-9a-fA-F]{6})$').hasMatch(v)
+        ? v.toUpperCase()
+        : null;
+  }
+
+  static String _toHex(Color c) {
+    var h = (c.toARGB32() & 0xFFFFFF).toRadixString(16).toUpperCase();
+    while (h.length < 6) {
+      h = '0$h';
+    }
+    return h;
   }
 }
 
@@ -1324,7 +1524,7 @@ class _VersionFooter extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 18, bottom: 6),
       child: Center(
-        child: Text('AnantPlay Sinhala Player v3.4.6.f (30412)',
+        child: Text('AnantPlay Sinhala Player v3.4.6.g (30413)',
             style: TextStyle(
                 color: scheme.onSurfaceVariant, fontSize: 11.5)),
       ),

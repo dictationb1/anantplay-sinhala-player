@@ -66,6 +66,32 @@ public final class PrivacyScrubber {
     private static final Pattern HW_MODEL_TOKEN = Pattern.compile(
         "(?<![A-Za-z0-9_\\-])[A-Za-z0-9][A-Za-z0-9_\\-]{3,17}(?![A-Za-z0-9_\\-])");
 
+    /**
+     * v3.4.6.g — THE PROSE GUARD (the {@code (<phone-model>)} false-positive fix).
+     *
+     * <p>The v3.4.2 VENDOR_MODEL pattern rightly treats "xiaomi"/"google"/… as
+     * phone vendors — but "nothing" is ALSO a vendor (Nothing Phone), so the
+     * honest report's own header — "== EVERY FAIL ✗ (the whole truth, first —
+     * nothing hidden) ==" — was scrubbed into "== EVERY FAIL ✗ (the whole
+     * truth, first — <phone-model>) ==" on the real phone, and "top-first"
+     * prose in the crash header met the same fate.
+     *
+     * <p>A vendor+model span is only a REAL model when the model tail carries a
+     * digit ("Xiaomi 24117RN76G", "Pixel 9", "Redmi Note 13", "Nothing Phone (2a)");
+     * report prose ("nothing hidden", "the whole truth", "top-first") never does
+     * and now survives byte-for-byte. A false NEGATIVE risk remains only for
+     * digitless retail names — accepted: a leaked rare model is recoverable by
+     * the field report's other lines, while a destroyed header hides every FAIL.
+     */
+    static boolean vendorModelLooksReal(String span) {
+        if (span == null || span.isEmpty()) return false;
+        for (int i = 0; i < span.length(); i++) {
+            char c = span.charAt(i);
+            if (c >= '0' && c <= '9') return true;
+        }
+        return false;
+    }
+
     /** An IMDb id — never an identifier of the phone, always kept verbatim. */
     private static final Pattern IMDB_ID = Pattern.compile("(?i)\\btt\\d{6,10}\\b");
 
@@ -267,7 +293,11 @@ public final class PrivacyScrubber {
             last = m.end();
         }
         sb.append(text, last, text.length());
-        String out = VENDOR_MODEL.matcher(sb.toString()).replaceAll(PHONE_MODEL);
+        // v3.4.6.g — the PROSE GUARD: a vendor+model span is only replaced when
+        // the model tail carries a digit (see vendorModelLooksReal). Report
+        // headers ("nothing hidden", "the whole truth", "top-first") survive.
+        String out = VENDOR_MODEL.matcher(sb.toString()).replaceAll(mr ->
+            vendorModelLooksReal(mr.group()) ? PHONE_MODEL : mr.group());
         // v3.4.2 — validate every candidate: only a REAL hardware model is replaced.
         out = HW_MODEL_TOKEN.matcher(out).replaceAll(mr ->
             isHwModel(mr.group()) ? PHONE_MODEL : mr.group());

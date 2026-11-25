@@ -159,13 +159,13 @@ check("release workflow rejects an APK at or above 50 MiB",
       'SIZE" -lt 52428800' in release_workflow)
 # v3.4.6.d — the workflow resolves the identity from the Gradle host (AGP 9 owns
 # it) AND from AppInfo, then asserts both against the pinned 3.4.6.d / 30410.
-check("build workflow validates version 3.4.6.f / 30412",
-      'test "$VERSION" = "3.4.6.f"' in build_workflow
-      and 'test "$CODE" = "30412"' in build_workflow
+check("build workflow validates version 3.4.6.g / 30413",
+      'test "$VERSION" = "3.4.6.g"' in build_workflow
+      and 'test "$CODE" = "30413"' in build_workflow
       and 'test "$GRADLE_VERSION" = "$VERSION"' in build_workflow
       and 'test "$APPINFO_CODE" = "$CODE"' in build_workflow)
-check("release workflow defaults to version 3.4.6.f",
-      "default: '3.4.6.f'" in release_workflow)
+check("release workflow defaults to version 3.4.6.g",
+      "default: '3.4.6.g'" in release_workflow)
 
 # Adaptive launcher icon remains a valid layered vector resource.
 try:

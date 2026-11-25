@@ -661,8 +661,36 @@ class AnantPlay {
   /// v3.4.6.e — the live deep-run progress frames only ({t:'deep', …}).
   Stream<Map<dynamic, dynamic>> deepProgressEvents() {
     return rawTroubleEvents()
-        .where((e) => e is Map && e['t'] == 'deep')
+        .map(_deepFrameMap)
+        .where((e) => e != null && e['t'] == 'deep')
         .cast<Map<dynamic, dynamic>>();
+  }
+
+  /// v3.4.6.g — THE LIVE STEP-BY-STEP FEED: one frame per probe START
+  /// ({t:'deepStart', id, domain, name}) — the Help tab renders
+  /// "▶ Checking #34 Security hardening flags…" the instant it begins.
+  Stream<Map<dynamic, dynamic>> deepStartEvents() {
+    return rawTroubleEvents()
+        .map(_deepFrameMap)
+        .where((e) => e != null && e['t'] == 'deepStart')
+        .cast<Map<dynamic, dynamic>>();
+  }
+
+  /// v3.4.6.g — THE REAL-DEVICE FEED FIX (Trap #2): a deep progress/start
+  /// frame arrives as EITHER a Map (the native EventChannel now sends the
+  /// LinkedHashMap directly) OR a JSON object string (MiniJson.write on older
+  /// hosts). Decode BOTH so the live step-by-step feed works on every host —
+  /// the v3.4.6.g feed was dead on the real phone because native sent strings
+  /// while Dart filtered `e is Map` (the tests pumped Maps and fake-passed).
+  static Map<dynamic, dynamic>? _deepFrameMap(Object? e) {
+    if (e is Map) return e;
+    if (e is String && e.startsWith('{')) {
+      try {
+        final d = jsonDecode(e);
+        if (d is Map) return d;
+      } catch (_) {}
+    }
+    return null;
   }
 
   static List<ProbeOutcome> _decodeOutcomes(Object? event) {
@@ -855,6 +883,14 @@ class AnantPlay {
   /// Activity.setRequestedOrientation; 'dispose' restores UNSPECIFIED.
   Future<void> playerSetOrientation(String mode) =>
       _player.invokeMethod('setOrientation', {'mode': mode});
+
+  /// v3.4.6.g — THE THERMAL PUMP-RATE CONTRACT: 4 Hz while the HUD is visible,
+  /// 1 Hz while it is hidden (the lightweight subtitle-cue check). PlayerScreen
+  /// calls 4 on show, 1 on hide — the native ticker adapts instantly, so a
+  /// 5–6 hour marathon session never burns 14,400 CPU wake-ups/hour for
+  /// nothing.
+  Future<void> playerSetPumpRate(int hz) =>
+      _player.invokeMethod('setPumpRate', {'hz': hz});
 
   /// v3.4.6.e — the subtitle LANGUAGE switch: re-fetches/re-applies the cue
   /// pipeline for the selected language code ('si' | 'en' | …) on the live

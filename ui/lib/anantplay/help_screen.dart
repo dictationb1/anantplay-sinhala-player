@@ -1,11 +1,14 @@
-// AnantPlay Sinhala Player v3.4.6.f — the Help & Troubleshoot hub.
+// AnantPlay Sinhala Player v3.4.6.g — the Help & Troubleshoot hub.
 //
 // THE HONEST TWO-LAYER FULL-APP DEEP TROUBLESHOOTER: one tap runs the
-// 6-domain native audit (A Auto-Updater Law · B Home & Cast · C Settings &
+// 7-domain native audit (A Auto-Updater Law · B Home & Cast · C Settings &
 // Customizations · D Browser · E Cinema Player & Subtitles · F Permissions &
-// Privacy — 56 live probes) with live progress, PLUS the v3.4.6.f Dart layer
-// (G — 8 live Flutter UI audits executed inside Dart against the live
-// AppState & AnantPlayBridge hubs). The merged verdict highlights EVERY
+// Privacy · G the v3.4.6.g real-phone fix contracts — 64 live probes) with
+// live progress, PLUS the Dart layer (H — 8 live Flutter UI audits executed
+// inside Dart against the live AppState & AnantPlayBridge hubs, ids 65–72).
+// The merged run is 72 unique sequential ids (1..72) across 8 domains — the
+// v3.4.6.g Domain/ID collision fix (the Dart layer used to be G/57–64 and
+// collided with the native G1–G8). The merged verdict highlights EVERY
 // FAIL ✗ at the very top of the report — nothing is ever hidden — and the
 // full privacy-safe report is copied to the clipboard AUTOMATICALLY
 // (native ClipboardManager + Flutter Clipboard) the instant the run ends,
@@ -41,7 +44,7 @@ class _HelpScreenState extends State<HelpScreen> {
   String _report = '';
   StreamSubscription<dynamic>? _probeSub;
   StreamSubscription<Map<dynamic, dynamic>>? _progressSub;
-  /// The live progress counter (n of 56 native probes, while a run is in flight).
+  /// The live progress counter (n of 72 probes — 64 native + 8 Dart — in flight).
   int _done = 0;
   final Map<String, bool> _expanded = {};
   /// v3.4.6.e — the watchdog Timer (owned; cancelled in dispose).
@@ -52,7 +55,7 @@ class _HelpScreenState extends State<HelpScreen> {
     super.initState();
     _loadLast();
     // v3.4.6.e — THE DEEP EVENTS, RAW: the anantplay/troubleshoot channel
-    // carries the final full 56-outcome payload (a JSON string) AND the
+    // carries the final full 64-outcome payload (a JSON string) AND the
     // per-probe live progress frames. The typed probeResults() stream
     // pre-decodes into the 10-point shape, so the deep payloads must be
     // routed from HERE.
@@ -65,11 +68,66 @@ class _HelpScreenState extends State<HelpScreen> {
       // native finally block restored it), so the Dart round-trips are safe.
       _runDartLayerAndFinish(outcomes);
     });
-    // v3.4.6.f — the LIVE COUNTER: "Running 56 deep feature probes… 32/56".
+    // v3.4.6.g — the LIVE COUNTER: "Running 72 deep feature probes… 32/72".
     _progressSub = AnantPlay.instance.deepProgressEvents().listen((frame) {
       if (!mounted || _running != true) return;
       final done = (frame['done'] as num?)?.toInt() ?? 0;
       if (done > 0) setState(() => _done = done);
+      // v3.4.6.g — THE LIVE STEP-BY-STEP FEED: the DONE frame lands as
+      // "✓ #47 PASS (120 ms)" / "✗ #47 FAIL (8 ms)" the instant the probe
+      // finishes, replacing its own "▶ Checking…" line in place.
+      final outcome = frame['outcome'];
+      if (outcome is Map) {
+        final id = (outcome['id'] as num?)?.toInt() ?? 0;
+        final pass = outcome['pass'] == true;
+        final ms = (outcome['ms'] as num?)?.toInt() ?? 0;
+        _upsertFeed(id,
+            '${pass ? '✓' : '✗'} #$id ${pass ? 'PASS' : 'FAIL'} ($ms ms)',
+            done: true);
+      }
+    });
+    // v3.4.6.g — the START frames: "▶ Checking #34 Security hardening flags…"
+    _startSub = AnantPlay.instance.deepStartEvents().listen((frame) {
+      if (!mounted || _running != true) return;
+      final id = (frame['id'] as num?)?.toInt() ?? 0;
+      final name = (frame['name'] ?? '') as String;
+      _upsertFeed(id, '▶ Checking #$id $name…', done: false);
+    });
+  }
+
+  // ── v3.4.6.g — THE LIVE STEP-BY-STEP TICKER STATE ────────────────────────
+  // One line per probe: "▶ Checking #34 Security hardening flags…" the instant
+  // it starts, flipped in place to "✓ #34 PASS (4 ms)" / "✗ #47 FAIL (8 ms)"
+  // the instant it lands. Auto-scrolls so the user watches every single
+  // feature being verified live under the progress bar.
+  final List<int> _feedIds = <int>[];
+  final List<String> _feedLines = <String>[];
+  final ScrollController _feedScroll = ScrollController();
+  StreamSubscription<Map<dynamic, dynamic>>? _startSub;
+
+  void _upsertFeed(int id, String line, {required bool done}) {
+    if (!mounted) return;
+    setState(() {
+      final i = _feedIds.indexOf(id);
+      if (i >= 0) {
+        _feedLines[i] = line;
+      } else {
+        _feedIds.add(id);
+        _feedLines.add(line);
+      }
+      // cap the ledger (the run is bounded; keep the newest 128 lines).
+      if (_feedLines.length > 128) {
+        _feedIds.removeRange(0, _feedIds.length - 128);
+        _feedLines.removeRange(0, _feedLines.length - 128);
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_feedScroll.hasClients) return;
+      _feedScroll.animateTo(
+        _feedScroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
     });
   }
 
@@ -80,7 +138,24 @@ class _HelpScreenState extends State<HelpScreen> {
     List<DeepOutcome> dartLayer = const [];
     try {
       final scope = AppState.of(context).scope;
-      dartLayer = await DartLayerAuditor.run(scope);
+      // v3.4.6.g — the Dart layer (Domain H, ids 65–72) streams into the SAME
+      // live step-by-step feed as the native probes, so the ticker covers all
+      // 72 unique sequential ids (▶ Checking #65 … → ✓ #65 PASS) and the live
+      // counter climbs 64 → 72. Zero duplicate ids, zero overwritten rows.
+      dartLayer = await DartLayerAuditor.run(
+        scope,
+        onStart: (id, name) {
+          if (!mounted) return;
+          _upsertFeed(id, '▶ Checking #$id $name…', done: false);
+        },
+        onDone: (o) {
+          if (!mounted) return;
+          setState(() => _done = o.id);
+          _upsertFeed(o.id,
+              '${o.pass ? '✓' : '✗'} #${o.id} ${o.pass ? 'PASS' : 'FAIL'} (${o.ms.round()} ms)',
+              done: true);
+        },
+      );
     } catch (_) {
       // The Dart layer itself failed to run — an honest empty ledger (the
       // native verdict still stands; the report says the layer threw).
@@ -143,6 +218,8 @@ class _HelpScreenState extends State<HelpScreen> {
   void dispose() {
     _probeSub?.cancel();
     _progressSub?.cancel();
+    _startSub?.cancel();
+    _feedScroll.dispose();
     _watchdog?.cancel();
     super.dispose();
   }
@@ -160,6 +237,8 @@ class _HelpScreenState extends State<HelpScreen> {
     setState(() {
       _running = true;
       _done = 0;   // the live counter restarts with the run
+      _feedIds.clear();
+      _feedLines.clear();   // v3.4.6.g — the ticker restarts with the run
     });
     try {
       await AnantPlay.instance.runDeepProbe();
@@ -267,16 +346,87 @@ class _HelpScreenState extends State<HelpScreen> {
             child: _ActionCard(
               icon: Icons.health_and_safety_rounded,
               title: _running
-                  ? 'Running 56+8 deep feature probes… $_done/56'
+                  ? 'Running 72 deep feature probes… $_done/72'
                   : _ranOnce || total > 0
                       ? 'Run full app troubleshoot again'
                       : 'Run full app troubleshoot',
               subtitle: _running
                   ? 'Live audit of every feature — settings are restored after.'
-                  : 'Every feature · 56 native + 8 Dart-layer probes · 7 domains · honest results.',
+                  : 'Every feature · 64 native + 8 Dart-layer probes · 8 domains · honest results.',
               onTap: _running ? null : _run,
             ),
           ),
+          // v3.4.6.g — THE LIVE PROGRESS BAR + STEP-BY-STEP TICKER: while the
+          // run is in flight the user sees the bar AND a live auto-scrolling
+          // feed of every probe as it executes (▶ Checking #34 … → ✓ #34 PASS).
+          if (_running || _feedLines.isNotEmpty)
+            StaggeredListItem(
+              index: _copied && !_running && total > 0 ? 2 : 1,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_running)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          minHeight: 6,
+                          value: (_done / 72).clamp(0.0, 1.0),
+                          backgroundColor: scheme.surfaceContainerHigh,
+                        ),
+                      ),
+                    if (_running) const SizedBox(height: 4),
+                    Text(
+                      _running ? 'Live — every probe as it executes:' : 'Last run:',
+                      style: TextStyle(
+                          color: scheme.onSurfaceVariant, fontSize: 11),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 210),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerHigh.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: ListView.builder(
+                        controller: _feedScroll,
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        itemCount: _feedLines.length,
+                        itemBuilder: (context, i) {
+                          final line = _feedLines[i];
+                          final pass = line.startsWith('✓');
+                          final fail = line.startsWith('✗');
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 1.5),
+                            child: Text(
+                              line,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontFamily: 'RobotoMono',
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures()
+                                ],
+                                color: fail
+                                    ? const Color(0xFFFF8A9B)
+                                    : pass
+                                        ? const Color(0xFF7CE38B)
+                                        : scheme.onSurfaceVariant,
+                                fontWeight: fail ? FontWeight.w700 : FontWeight.w500,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           StaggeredListItem(
             index: 2,
             child: _ActionCard(

@@ -5,7 +5,6 @@
 // Modification: only the package import below was rewritten from package:mornye/
 // to package:anantplay_ui/mornye_ui/; no other lines were changed in this file.
 import 'package:material_ui/material_ui.dart';
-import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoColors;
 import 'package:flutter/physics.dart';
 import 'package:material_3_expressive/material_3_expressive.dart';
 import 'package:anantplay_ui/mornye_ui/theme/app_motion.dart';
@@ -71,12 +70,47 @@ class _MornyeSwitch extends StatefulWidget {
 }
 
 class _MornyeSwitchState extends State<_MornyeSwitch>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   /// How far the thumb travels, from off to on.
   static const double _travel = 22;
 
   double? _dragPosition;
   bool _dragCancelled = false;
+
+  /// v3.4.6.g — THE TACTILE LIQUID-GLASS PHYSICS (the real-phone complaint:
+  /// the green switches felt static). The press controller drives the thumb
+  /// STRETCH while held or dragged (MornyeMotion.snappy — the 350 ms /
+  /// bounce-0.15 spring, the same one the travel rides), and while sliding
+  /// the thumb wears a luminous translucent sheen + rim highlight.
+  late final AnimationController _press = AnimationController.unbounded(
+    vsync: this,
+  );
+  late final Listenable _thumbChanges = Listenable.merge([_thumb, _press]);
+
+  @override
+  void dispose() {
+    _press.dispose();
+    _thumb.dispose();
+    super.dispose();
+  }
+
+  /// The hold in / release out — both on the snappy spring (bounce 0.15).
+  void _hold(bool held) {
+    if (!held && _press.value == 0 && !_press.isAnimating) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _press.value = held ? 1 : 0;
+      return;
+    }
+    _press.animateWith(
+      SpringSimulation(
+        MornyeMotion.snappySpring,
+        _press.value,
+        held ? 1 : 0,
+        _press.velocity,
+        snapToEnd: true,
+      ),
+    );
+  }
 
   /// The thumb, from off (0) to on (1). A drag places it under the finger;
   /// otherwise the snappy spring carries it to rest, starting from the
@@ -92,12 +126,6 @@ class _MornyeSwitchState extends State<_MornyeSwitch>
 
   /// The finger's velocity, in thumb travels a second, for the next move.
   double? _releaseVelocity;
-
-  @override
-  void dispose() {
-    _thumb.dispose();
-    super.dispose();
-  }
 
   /// Sends the thumb to the current value's side unless a drag holds it.
   /// Runs during build, after the parent has applied a new value, so a
@@ -136,7 +164,6 @@ class _MornyeSwitchState extends State<_MornyeSwitch>
     final value = widget.value;
     final onChanged = widget.onChanged;
     final scheme = Theme.of(context).colorScheme;
-    final active = CupertinoColors.systemGreen.resolveFrom(context);
     final enabled = onChanged != null;
     final fade = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
@@ -147,6 +174,14 @@ class _MornyeSwitchState extends State<_MornyeSwitch>
     _followValue();
 
     final position = _dragPosition ?? (value ? 1.0 : 0.0);
+    // v3.4.6.g — THE DYNAMIC ACCENT TRACK TINT: the ON track lerps the Mornye
+    // green toward the LIVE accent (a custom # hex, a preset or Material You
+    // wallpaper) — the whole switch family re-tints with the theme.
+    final trackOn = Color.lerp(
+      const Color(0xFF34C759),
+      scheme.primary,
+      0.45,
+    )!;
     final control = AnimatedContainer(
       duration: fade,
       curve: MornyeMotion.effectsFast.curve,
@@ -154,33 +189,79 @@ class _MornyeSwitchState extends State<_MornyeSwitch>
       height: 28,
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
-        color: position >= 0.5 ? active : inactive,
+        color: position >= 0.5 ? trackOn : inactive,
         borderRadius: BorderRadius.circular(14),
       ),
       child: AnimatedBuilder(
-        animation: _thumb,
-        // The thumb stays inside the track when the spring runs past a side.
+        animation: _thumbChanges,
+        // The thumb stays inside the track when the spring runs past a side;
+        // while held/dragged it STRETCHES (scaleX up, scaleY in — the tactile
+        // liquid-glass deformation on the snappy spring, bounce 0.15).
         builder: (context, child) => Align(
           alignment: AlignmentDirectional(
             -1 + _thumb.value.clamp(0.0, 1.0) * 2,
             0,
           ),
-          child: child,
-        ),
-        child: Container(
-          width: 37,
-          height: 24,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+          child: Transform.scale(
+            scaleX: 1 + 0.24 * _press.value.clamp(0.0, 1.0),
+            scaleY: 1 - 0.06 * _press.value.clamp(0.0, 1.0),
+            child: child,
           ),
+        ),
+        child: AnimatedBuilder(
+          animation: _press,
+          // v3.4.6.g — THE LUMINOUS GLASS THUMB: while pressed or mid-travel
+          // the thumb wears a translucent sheen + a live rim highlight (and a
+          // soft accent glow), then settles back to solid white at rest.
+          builder: (context, _) {
+            final sliding = _press.value > 0.02 ||
+                (_thumb.value > 0.02 && _thumb.value < 0.98);
+            final w = sliding ? 0.6 : 0.0;
+            return Container(
+              width: 37,
+              height: 24,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: sliding
+                    ? const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Colors.white, Color(0xE6FFFFFF)],
+                      )
+                    : null,
+                color: sliding ? null : Colors.white,
+                border: sliding
+                    ? Border.all(
+                        color: Colors.white.withValues(alpha: w),
+                        width: 1.2,
+                      )
+                    : null,
+                boxShadow: sliding
+                    ? [
+                        BoxShadow(
+                          color: trackOn.withValues(alpha: 0.35),
+                          blurRadius: 10,
+                          spreadRadius: 0.5,
+                        ),
+                      ]
+                    : null,
+              ),
+            );
+          },
         ),
       ),
     );
 
     return Listener(
-      onPointerDown: (_) => _dragCancelled = false,
-      onPointerCancel: (_) => _dragCancelled = true,
+      onPointerDown: (_) {
+        _dragCancelled = false;
+        _hold(true);
+      },
+      onPointerUp: (_) => _hold(false),
+      onPointerCancel: (_) {
+        _dragCancelled = true;
+        _hold(false);
+      },
       child: Semantics(
         label: widget.semanticLabel,
         toggled: value,

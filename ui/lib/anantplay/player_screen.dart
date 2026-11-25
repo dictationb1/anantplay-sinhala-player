@@ -15,8 +15,13 @@
 // the destination of Test Player / Play URL / Continue Watching / casts /
 // browser captures (real-phone complaint #3).
 import 'dart:async';
+import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show kIsWeb, Factory;
+import 'package:flutter/gestures.dart' show OneSequenceGestureRecognizer;
+import 'package:flutter/rendering.dart' show PlatformViewHitTestBehavior;
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show PlatformViewLink, AndroidViewSurface;
 import 'package:material_ui/material_ui.dart' hide Icons;
 import 'package:material_ui/material_ui.dart' as mi show Icons;
 
@@ -64,12 +69,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
   PlayerFrame _frame = PlayerFrame.empty;
   StreamSubscription<PlayerFrame>? _frameSub;
   bool _hudVisible = true;
+
+  /// v3.4.6.g — THE THERMAL UNMOUNT GATE: the HUD glass bars fade out smoothly
+  /// (AnimatedOpacity, 240 ms) and are then UNMOUNTED completely — zero
+  /// BackdropFilter, zero blur shaders, zero controllers alive while the
+  /// movie plays hidden. `_hudVisible` drives the fade; `_hudGone` drops the
+  /// subtree AFTER the fade so the transition is never a hard cut.
+  bool _hudGone = false;
   bool _locked = false;
   Timer? _hudTimer;
   double _speed = 1.0;
   String _aspect = 'fit';
   bool _draggingSeek = false;
   double _seekValue = 0;
+
+  /// v3.4.6.g — THE ZERO-GPU-COPY ENGINE LANE: on Android the viewport is the
+  /// native `anantplay/video_surface` SurfaceView PlatformView (HWC composites
+  /// decoded frames straight to the panel — no Impeller copy at 60–120 Hz);
+  /// everywhere else (tests, desktop) the Flutter Texture lane stays.
+  static bool get _useNativeSurface => !kIsWeb && Platform.isAndroid;
+
+  /// v3.4.6.g — the SurfaceView lane fallback latch: if the hybrid-composition
+  /// PlatformView fails to create (no factory / engine hiccup), fall back to
+  /// the SurfaceProducer Texture lane for the rest of the session — never a
+  /// dead black viewport. The native bridge keeps the producer texture attached
+  /// until a SurfaceView actually attaches, so the fallback is seamless.
+  bool _surfaceViewFailed = false;
 
   // ── v3.4.6.d — THE ZERO-LAG POSITION PUMP ────────────────────────────────
   // The 4 Hz position ticks land in a ValueNotifier that ONLY the seek bar
@@ -94,18 +119,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // v3.4.6.d — the position pump: ticks feed the notifier (the seek bar
       // + time text rebuild alone); a WHOLE-SCREEN rebuild happens only when
       // a structural field flips (playing/buffering/geometry/cue state).
+      // v3.4.6.g — THE ZERO-HEAT CONTRACT: while the HUD is hidden, the play
+      // and buffering flips paint NOTHING (no HUD on screen) and are skipped;
+      // ONLY a cue/subtitle/geometry change may rebuild — the lightweight
+      // 1 Hz subtitle-cue lane. NEVER a 4 Hz rebuild over a hidden HUD.
       if (!mounted) return;
       _frameNotifier.value = f;
       final old = _frame;
-      final structural = f.playing != old.playing ||
-          f.buffering != old.buffering ||
-          f.videoWidth != old.videoWidth ||
-          f.videoHeight != old.videoHeight ||
-          f.subtitleState != old.subtitleState ||
-          f.activeCueSi != old.activeCueSi;
+      final bool structural;
+      if (_hudGone) {
+        structural = f.videoWidth != old.videoWidth ||
+            f.videoHeight != old.videoHeight ||
+            f.subtitleState != old.subtitleState ||
+            f.activeCueSi != old.activeCueSi;
+      } else {
+        structural = f.playing != old.playing ||
+            f.buffering != old.buffering ||
+            f.videoWidth != old.videoWidth ||
+            f.videoHeight != old.videoHeight ||
+            f.subtitleState != old.subtitleState ||
+            f.activeCueSi != old.activeCueSi;
+      }
       _frame = f;
       if (structural) setState(() {});
     });
+    // v3.4.6.g — the native side starts the adaptive pump at 4 Hz while the
+    // HUD shows; PlayerScreen will drop it to 1 Hz the moment the HUD hides.
+    AnantPlay.instance.playerSetPumpRate(4);
     try {
       final s = await AnantPlay.instance.openPlayer(
         r.url,
@@ -143,13 +183,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _armHudTimer() {
     _hudTimer?.cancel();
-    _hudTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted && !_locked) setState(() => _hudVisible = false);
+    // v3.4.6.g — the 3.5 s auto-hide (was 4 s): the HUD floats ONLY on demand,
+    // then fades out smoothly and unmounts. The native pump drops to 1 Hz the
+    // moment the HUD goes (the marathon-session thermal contract).
+    _hudTimer = Timer(const Duration(milliseconds: 3500), _hideHud);
+  }
+
+  void _hideHud() {
+    if (!mounted || _locked) return;
+    setState(() => _hudVisible = false);
+    // the thermal handoff: 1 Hz while hidden (subtitle cue checks only).
+    AnantPlay.instance.playerSetPumpRate(1);
+    // smooth exit: keep the subtree mounted through the 240 ms fade, then
+    // unmount it entirely (zero blur shaders over the movie afterwards).
+    Future.delayed(const Duration(milliseconds: 260), () {
+      if (mounted && !_hudVisible) setState(() => _hudGone = true);
     });
   }
 
   void _toggleHud() {
-    setState(() => _hudVisible = !_hudVisible);
+    if (!_hudVisible) {
+      // floating back in: remount, fade in, pump back to 4 Hz.
+      setState(() {
+        _hudVisible = true;
+        _hudGone = false;
+      });
+      AnantPlay.instance.playerSetPumpRate(4);
+    } else {
+      setState(() => _hudVisible = false);
+    }
     if (_hudVisible) _armHudTimer();
   }
 
@@ -216,6 +278,49 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return BoxConstraints.tight(Size(w, h));
   }
 
+  /// v3.4.6.g — THE ZERO-GPU-COPY VIEWPORT (Trap #3 fix): a native SurfaceView
+  /// MUST be hosted with HYBRID COMPOSITION (PlatformViewLink +
+  /// AndroidViewSurface + PlatformViewsService.initExpensiveAndroidView). The
+  /// old `AndroidView` used Texture-Layer Hybrid Composition, which CANNOT
+  /// render an android.view.SurfaceView (its decoded frames go to a separate
+  /// surface, not the Flutter texture) → a black viewport on the real phone.
+  /// Hybrid composition adds the SurfaceView to the real Android view
+  /// hierarchy; the native setZOrderMediaOverlay(false) keeps it UNDER the
+  /// Flutter HUD bars / subtitle overlay / modal sheets. If creation fails,
+  /// latch the SurfaceProducer Texture fallback (never a black screen).
+  Widget _nativeVideoSurface() {
+    return PlatformViewLink(
+      viewType: 'anantplay/video_surface',
+      surfaceFactory: (context, controller) {
+        return AndroidViewSurface(
+          controller: controller as AndroidViewController,
+          // Empty recognizers + translucent hit test: taps fall through to the
+          // PlayerScreen GestureDetector (HUD toggle / double-tap seek) instead
+          // of being swallowed by the platform view.
+          gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+          hitTestBehavior: PlatformViewHitTestBehavior.translucent,
+        );
+      },
+      onCreatePlatformView: (params) {
+        final controller = PlatformViewsService.initExpensiveAndroidView(
+          id: params.id,
+          viewType: 'anantplay/video_surface',
+          layoutDirection: TextDirection.ltr,
+          creationParams: const <String, dynamic>{},
+          creationParamsCodec: const StandardMessageCodec(),
+          onFocus: () => params.onFocusChanged(true),
+        );
+        controller.addOnPlatformViewCreatedListener(params.onPlatformViewCreated);
+        controller.create().catchError((Object e) {
+          // The SurfaceView lane could not be created → seamless Texture
+          // fallback (the native producer texture is still attached).
+          if (mounted) setState(() => _surfaceViewFailed = true);
+        });
+        return controller;
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -234,18 +339,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // ── THE VIDEO (Flutter Texture on the Media3 surface) ────────────
+            // ── THE VIDEO ────────────────────────────────────────────────
+            // v3.4.6.g — TWO ENGINES, ONE VIEWPORT: on Android the movie rides
+            // the native `anantplay/video_surface` SurfaceView PlatformView —
+            // Android's Hardware Composer composites the decoded YUV frames
+            // directly onto the display panel (ZERO Impeller GPU copy at
+            // 60–120 Hz — the severe-overheat fix for 5–6 hour marathon
+            // sessions). The Flutter Texture (SurfaceProducer) stays as the
+            // automatic fallback lane everywhere else.
             // v3.4.6.d — its OWN isolated RepaintBoundary: HUD rebuilds and
-            // subtitle re-layers can never repaint the video layer (the GPU
-            // surface compositor keeps the movie on its own layer — the
-            // single biggest movie-streaming jank fix).
+            // subtitle re-layers can never repaint the video layer.
             if (hasVideo)
               RepaintBoundary(
                 child: Center(
                   child: LayoutBuilder(builder: (context, c) {
                     return Container(
                       constraints: _videoConstraints(c),
-                      child: Texture(textureId: _session.textureId),
+                      child: (_useNativeSurface && !_surfaceViewFailed)
+                          ? _nativeVideoSurface()
+                          : Texture(textureId: _session.textureId),
                     );
                   }),
                 ),
@@ -356,14 +468,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
 
             // ── THE TOP GLASS BAR ────────────────────────────────────────────
-            if (_hudVisible && !_locked)
+            if (!_hudGone && !_locked)
               Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
                 child: SafeArea(
                   bottom: false,
-                  child: Padding(
+                  child: AnimatedOpacity(
+                    opacity: _hudVisible ? 1 : 0,
+                    duration: const Duration(milliseconds: 240),
+                    child: Padding(
                     padding:
                         const EdgeInsets.fromLTRB(12, 8, 12, 8),
                     child: MornyeGlassPanel(
@@ -436,6 +551,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ),
                     ),
                   ),
+                  ),
                 ),
               ),
 
@@ -457,9 +573,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
 
             // ── THE CENTER CONTROLS ──────────────────────────────────────────
-            if (_hudVisible && !_locked)
+            if (!_hudGone && !_locked)
               Center(
-                child: Row(
+                child: AnimatedOpacity(
+                  opacity: _hudVisible ? 1 : 0,
+                  duration: const Duration(milliseconds: 240),
+                  child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _GlassIconButton(
@@ -502,6 +621,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                   ],
                 ),
+                ),
               ),
 
             // ── the buffering spinner over the center ────────────────────────
@@ -520,14 +640,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
             // seek bar, dock — is UNMOUNTED (maintainState: false), so ZERO
             // blur shaders execute over the video while a movie plays (the
             // v3.4.6.c ~70%-of-GPU-heat defect class).
-            if (_hudVisible && !_locked)
+            if (!_hudGone && !_locked)
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
                 child: SafeArea(
                   top: false,
-                  child: Padding(
+                  child: AnimatedOpacity(
+                    opacity: _hudVisible ? 1 : 0,
+                    duration: const Duration(milliseconds: 240),
+                    child: Padding(
                     padding:
                         const EdgeInsets.fromLTRB(12, 0, 12, 10),
                     child: MornyeGlassPanel(
@@ -700,6 +823,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ),
                       ),
                     ),
+                  ),
                   ),
                 ),
               ),

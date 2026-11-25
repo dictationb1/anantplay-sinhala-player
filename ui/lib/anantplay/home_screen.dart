@@ -24,6 +24,7 @@ import 'app_state.dart';
 import 'bridge.dart';
 import 'package:anantplay_ui/main.dart';
 import 'settings_mirror.dart';
+import 'onboarding_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -291,53 +292,107 @@ class _UpdateCard extends StatelessWidget {
 // ── the one-time quick-start card (K_QUICKSTART_DONE) ───────────────────────
 
 /// Mornye Glass, one glance: what to do first, and how to get back to the
-/// wizard later. It retires itself the moment the user says it has been read —
-/// the pref is a normal backed-up key, so it survives export/restore.
+/// wizard later. v3.4.6.g — THE REAL-PHONE FIX: on v3.4.6.f the `Got it` tap
+/// never visibly dismissed the banner (no spring collapse, no persistence the
+/// user could trust). The card now: (a) dismisses through the dedicated
+/// `homeTipDismissed` pref (honoring legacy `quickstartDone` holders so nobody
+/// who already dismissed it sees it again), (b) collapses with a real spring
+/// animation (AnimatedSize), and (c) carries a `Watch Tour` pill that opens
+/// the revamped Interactive Visual Setup & Value Guide.
 class _QuickStartCard extends StatelessWidget {
   const _QuickStartCard({required this.settings});
 
   final SettingsMirror settings;
 
+  bool get _dismissed =>
+      settings.b('homeTipDismissed', false) || settings.quickstartDone;
+
   @override
   Widget build(BuildContext context) {
-    if (settings.quickstartDone) return const SizedBox(height: 16);
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.4),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-              color:
-                  theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-          child: Row(
-            children: [
-              Icon(Icons.tips_and_updates_rounded,
-                  size: 22, color: theme.colorScheme.primary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'First time? Cast from AnantPlay, or open the Browser tab to '
-                  'watch with Sinhala subtitles.',
-                  style: TextStyle(
-                      fontSize: 13,
-                      height: 1.35,
-                      color: theme.colorScheme.onSurface),
+    // v3.4.6.g — the SPRING COLLAPSE: the AnimatedSize stays mounted while its
+    // child swaps card → shrink, so the banner visibly folds away (the
+    // v3.4.6.f hard-cut never registered as a dismissal).
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 340),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: _dismissed
+          ? const SizedBox(width: double.infinity)
+          : Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHigh
+                      .withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                      color: theme.colorScheme.outlineVariant
+                          .withValues(alpha: 0.4)),
+                ),
+                child: Padding(
+                  // v3.4.6.g — COMPACT: the two pills ride on ONE line with
+                  // the message (crisp 12sp, shrinkWrap tap targets) so the
+                  // banner stays exactly as tall as the v3.4.6.f card and the
+                  // quick-action tiles below remain in the tappable viewport.
+                  padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+                  child: Row(
+                    children: [
+                      Icon(Icons.tips_and_updates_rounded,
+                          size: 20, color: theme.colorScheme.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'First time? Cast from AnantPlay or open the Browser '
+                          'tab — Sinhala subtitles included.',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12,
+                              height: 1.3,
+                              color: theme.colorScheme.onSurface),
+                        ),
+                      ),
+                      // v3.4.6.g — the Watch Tour pill: opens the Interactive
+                      // Visual Setup & Value Guide beside the dismissal.
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(64, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                        onPressed: () => _openTour(context),
+                        child: const Text('Watch Tour'),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: const Size(56, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                        // v3.4.6.g — persists homeTipDismissed=true (the
+                        // K_HOME_TIP_DISMISSED round-trip probe G4 audits).
+                        onPressed: () => AppState.of(context)
+                            .scope
+                            .putBool('homeTipDismissed', true),
+                        child: const Text('Got it'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              TextButton(
-                onPressed: () => AppState.of(context).scope.dismissQuickstart(),
-                child: const Text('Got it'),
-              ),
-            ],
-          ),
-        ),
-      ),
+            ),
     );
+  }
+
+  /// The tour entry: the revamped onboarding guide on top of the shell.
+  static void _openTour(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => const OnboardingScreen(),
+      fullscreenDialog: true,
+    ));
   }
 }
 
@@ -359,7 +414,7 @@ class _QuickActions extends StatelessWidget {
         _ActionTile(
           icon: Icons.cast_rounded,
           title: 'AnantPlay',
-          subtitle: 'Open the official app',
+          subtitle: 'Official app',  // v3.4.6.g — short crisp (no '…' truncation)
           // v3.4.6.c — the official app, OR (not installed) the in-app
           // AnantPlayInstaller sheet — never a silent no-op.
           onTap: () async {
@@ -375,7 +430,7 @@ class _QuickActions extends StatelessWidget {
         _ActionTile(
           icon: Icons.public_rounded,
           title: 'Browser',
-          subtitle: 'Cinema WebView browser',
+          subtitle: 'Web & subs',
           // v3.4.6.c — complaint #1 fix: this tile switches the SHELL to the
           // live Browser tab (was: an openWebTab no-op that opened nothing).
           onTap: () => ShellRootState.of(context).openBrowserTab(),
@@ -383,13 +438,13 @@ class _QuickActions extends StatelessWidget {
         _ActionTile(
           icon: Icons.link_rounded,
           title: 'Play URL',
-          subtitle: 'Stream any link here',
+          subtitle: 'Stream link',
           onTap: () => _openUrlSheet(context),
         ),
         _ActionTile(
           icon: Icons.science_rounded,
           title: 'Test Player',
-          subtitle: 'Mornye cinema demo',
+          subtitle: 'Demo movie',
           // v3.4.6.c — complaint #3 fix: the MORNYE CINEMA PLAYER in the
           // shell (was: the raw Java PlayActivity).
           onTap: () => ShellRootState.of(context).pushPlayer(

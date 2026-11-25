@@ -367,7 +367,17 @@ public class WebBrowserView extends FrameLayout {
                 // and the app does the rest: download → unzip (5 MB zip-bomb cap,
                 // ".." traversal refused by SrtLoader) → Sinhala check → translate if
                 // not → attach to the movie that is playing RIGHT NOW.
+                // v3.4.6.g — the hidden Auto-extract .zip toggle (K_AUTO_ZIP)
+                // is HONORED here: a .zip archive is only auto-captured when
+                // the setting is on (a plain .srt/.vtt always captures — the
+                // user never asked for those to be blocked).
                 if (LkSubFinder.isSubtitleDownload(us)) {
+                    boolean zip = LkSubFinder.isZip(us);
+                    if (zip && !AppPrefs.autoZip(prefs)) {
+                        Diag.i("web", "zip subtitle skipped (autoZip off): " + StreamSniffer.hostOf(us));
+                        toast("auto-extract .zip is off in Settings — enable it to capture");
+                        return false;   // let the site handle it; never a dead tap
+                    }
                     Diag.i("web", "subtitle link captured: " + StreamSniffer.hostOf(us));
                     captureSubtitle(us);
                     return true;      // never navigate away from the page
