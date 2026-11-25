@@ -1548,7 +1548,7 @@ class _WelcomeStoryHeroState extends State<_WelcomeStoryHero>
                 colors: [Color(0xFF3E8E8F), Color(0xFF1E4E4F)],
               ),
             ),
-            child: const Icon(Icons.movie_creation_rounded,
+            child: const Icon(mi.Icons.movie_creation_rounded,
                 size: 44, color: Color(0xFF7FCDD0)),
           ),
           Positioned(
@@ -1556,7 +1556,7 @@ class _WelcomeStoryHeroState extends State<_WelcomeStoryHero>
             bottom: 14,
             child: Transform.scale(
               scale: 0.9 + 0.2 * pulse,
-              child: const Icon(Icons.cast_rounded,
+              child: const Icon(mi.Icons.cast_rounded,
                   size: 30, color: Color(0xFFFFB340)),
             ),
           ),
@@ -1623,7 +1623,7 @@ class _WelcomeStoryHeroState extends State<_WelcomeStoryHero>
               ],
             ),
           ),
-          Icon(Icons.play_circle_fill_rounded,
+          Icon(mi.Icons.play_circle_fill_rounded,
               size: 44,
               color: Colors.white.withValues(alpha: 0.55 + 0.45 * glow)),
         ],

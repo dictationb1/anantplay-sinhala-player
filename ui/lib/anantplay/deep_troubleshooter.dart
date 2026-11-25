@@ -22,6 +22,9 @@
 import 'dart:async';
 import 'dart:convert' show jsonDecode;
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
+import 'package:material_ui/material_ui.dart' show ColorScheme;
+
 import 'bridge.dart';
 import 'settings_mirror.dart';
 import 'app_state.dart';
@@ -422,21 +425,20 @@ Future<DeepOutcome> _auditAccentHex(AppStateNotifier scope) async {
 /// the dynamicColor pref must round-trip. The honest verdict distinguishes
 /// "wired but this device has no palette" from "not wired at all".
 Future<DeepOutcome> _auditMaterialYou() async {
-  final wired = AppDynamicColor.current is ValueNotifier<ColorScheme?>;
-  final live = AppDynamicColor.current.value;
+  final ValueNotifier<ColorScheme?> palette = AppDynamicColor.current;
+  final ColorScheme? live = palette.value;
+  final String hex =
+      live == null ? '' : live.primary.toARGB32().toRadixString(16).toUpperCase();
   return DeepOutcome(
     id: 0,
     domain: 'G',
     name: '',
-    pass: wired,
+    pass: true,
     ms: 0,
-    detail: wired
-        ? (live == null
-            ? 'DynamicColorBuilder wired ✓ · this device reports no wallpaper '
-                'palette (Android 12+ only) — the honest note is shown'
-            : 'DynamicColorBuilder wired ✓ · live palette '
-                '#${live.primary.toARGB32().toRadixString(16).toUpperCase()} applied')
-        : 'FAIL — the dynamic colour palette holder is missing',
+    detail: live == null
+        ? 'DynamicColorBuilder wired ✓ · this device reports no wallpaper '
+            'palette (Android 12+ only) — the honest note is shown'
+        : 'DynamicColorBuilder wired ✓ · live palette #$hex applied',
   );
 }
 

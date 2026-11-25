@@ -4419,13 +4419,16 @@ public class ReceiverLab {
             main.contains("\"anantplay/video_surface\"")
                 && main.contains("android.view.SurfaceView")
                 && main.contains("registerVideoSurfacePlatformView"));
-        check("v346g probes34-35: a non-throwing API-thread helper backs the hardening read",
-            WebBrowserView.liveHardeningState().length == 5
-                && WebBrowserView.liveHardeningState().length == 5
-                && readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java")
-                    .contains("try {")
+        // WebBrowserView is Android-only (never compiled by the lab), so this
+        // gate reads its SHIPPED SOURCE: the live WebSettings read is wrapped
+        // and MainActivity dispatches it to the UI thread with a bounded latch.
+        String browserView = readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java");
+        check("v346g probes34-35: the hardening read is non-throwing + UI-thread dispatched",
+            browserView.contains("static boolean[] liveHardeningState()")
+                && browserView.contains("} catch (Throwable t) {")
+                && browserView.contains("keep the last captured facts")
                 && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java")
-                    .contains("android.os.Looper.getMainLooper()"));
+                    .contains("java.util.concurrent.CountDownLatch"));
         String recv = readRepoFile("src/lk/techworld/anantplay/sicast/ReceiverService.java");
         check("v346g cast: markPlayerOpened + the watchdog's foreground proof exist",
             recv.contains("markPlayerOpened") && recv.contains("playerOpenedRecently")

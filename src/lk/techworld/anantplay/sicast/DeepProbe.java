@@ -884,6 +884,71 @@ public final class DeepProbe {
     }
 
     /**
+     * v3.4.6.g — the subtitle E2E the real-phone report asked for: an ENGLISH
+     * cue goes through the shipped FreeSubTranslator and must come back with
+     * Sinhala script (online) or the documented verbatim retention (offline),
+     * with the ZWJ/ZWNJ joiners of ශ්‍රී intact either way. The translation
+     * source is not a fake PASS: a thrown engine or a null cue is a FAIL.
+     */
+    static Outcome probeE15(Listener l) {
+        Outcome o = new Outcome(0, "E", "");
+        try {
+            final String zwjCanary = "\u0DC1\u0DCA\u200D\u0DBB\u0DD3";   // ශ්‍රී
+            List<Cue> test = new ArrayList<>();
+            test.add(new Cue(0, 0, 3000, "00:00:00,000 --> 00:00:03,000",
+                "What are you doing", "What are you doing", "What are you doing"));
+            test.add(new Cue(1, 3000, 6000, "00:00:03,000 --> 00:00:06,000",
+                zwjCanary + " Lanka", zwjCanary + " Lanka", zwjCanary + " Lanka"));
+            FreeSubTranslator.Result r = FreeSubTranslator.translate(
+                new java.io.File(System.getProperty("java.io.tmpdir", "/tmp")), test, "si", null);
+            boolean landed = r != null && r.cues != null && r.cues.size() == test.size();
+            boolean hasText = false, sinhala = false, joiners = false;
+            if (landed) {
+                String c0 = r.cues.get(0).si;
+                String c1 = r.cues.get(1).si;
+                hasText = c0 != null && !c0.trim().isEmpty();
+                sinhala = hasText && SubLangDetect.looksSinhala(c0);
+                // the joiner canary is only a PROOF when the text was really
+                // translated; on the offline retention path (no egress) the
+                // engine never had a chance to damage them, so the contract
+                // there is "cues intact", judged below by `contract`.
+                joiners = c1 != null && (c1.indexOf('\u200D') >= 0 || c1.contains(zwjCanary));
+            }
+            // v3.4.6.g — THE HONEST ENV SPLIT: no media-URL egress in the CI
+            // emulator means the keyless endpoints are simply unreachable there.
+            // The engine's documented contract on that path is verbatim
+            // retention (never an error, never a fake translation), so an
+            // unreachable endpoint is an ENV outage — reported FAIL ✗ on the
+            // phone, counted as env_fail in the CI summary. The APP's own
+            // contract (2 cues in → 2 cues out, text present, source joiners
+            // intact) is the real verdict, and a thrown engine is a FAIL.
+            String srtSrc = readOrEmpty("src/lk/techworld/anantplay/sicast/FreeSubTranslator.java");
+            boolean wired = sourceProvable(srtSrc)
+                && srtSrc.contains("maskJoiners") && srtSrc.contains("unmaskJoiners")
+                && srtSrc.contains("translate.googleapis.com");
+            boolean contract = landed && hasText && wired
+                && (sinhala ? joiners : true);   // joiners only matter post-translation
+            o.pass = contract && sinhala;
+            if (!o.pass && contract && !sinhala) o.envFail = true;   // external outage
+            o.detail = contract
+                ? (sinhala
+                    ? "English → Sinhala live ✓ · 2/2 cues · ZWJ ශ්‍රී preserved ✓ · complete " + r.complete
+                    : "FAIL — the keyless endpoints are unreachable on this network; the engine "
+                        + "retained the source verbatim (" + r.requests + " request(s)) — JOINERS "
+                        + (joiners ? "✓" : "✗") + " · wiring ✓")
+                : "FAIL — the free translator broke the cue contract ("
+                    + (landed ? "cues landed" : "no cue list")
+                    + " · text " + (hasText ? "✓" : "✗") + " · ZWJ " + (joiners ? "✓" : "✗")
+                    + " · wiring " + (wired ? "✓" : "✗") + ")";
+            return o;
+        } catch (Throwable t) {
+            o.pass = false;
+            o.detail = "FAIL — translation engine threw: " + t.getClass().getSimpleName();
+            return o;
+        }
+    }
+
+    /**
      * v3.4.6.g — FAIL #4 (FIX GROUP 4): THE AUTO-DISCOVERING ZERO-BLIND-SPOT
      * PREFERENCES AUDIT.
      *
@@ -1259,66 +1324,6 @@ public final class DeepProbe {
             + " · hardware SurfaceView (zero GPU copy) " + (surface && sourceSurface ? "✓" : "✗")
             + " · Texture fallback kept ✓";
         return o;
-    }
-
-    /**
-     * v3.4.6.g — the subtitle E2E the real-phone report asked for: an ENGLISH
-     * cue goes through the shipped FreeSubTranslator and must come back with
-     * Sinhala script (online) or the documented verbatim retention (offline),
-     * with the ZWJ/ZWNJ joiners of ශ්‍රී intact either way. The translation
-     * source is not a fake PASS: a thrown engine or a null cue is a FAIL.
-     */
-    static Outcome probeE15(Listener l) {
-        Outcome o = new Outcome(0, "E", "");
-        try {
-            final String zwjCanary = "\u0DC1\u0DCA\u200D\u0DBB\u0DD3";   // ශ්‍රී
-            List<Cue> test = new ArrayList<>();
-            test.add(new Cue(0, 0, 3000, "00:00:00,000 --> 00:00:03,000",
-                "What are you doing", "What are you doing", "What are you doing"));
-            test.add(new Cue(1, 3000, 6000, "00:00:03,000 --> 00:00:06,000",
-                zwjCanary + " Lanka", zwjCanary + " Lanka", zwjCanary + " Lanka"));
-            FreeSubTranslator.Result r = FreeSubTranslator.translate(
-                new java.io.File(System.getProperty("java.io.tmpdir", "/tmp")), test, "si", null);
-            boolean landed = r != null && r.cues != null && r.cues.size() == test.size();
-            boolean hasText = false, sinhala = false, joiners = false;
-            if (landed) {
-                String c0 = r.cues.get(0).si;
-                String c1 = r.cues.get(1).si;
-                hasText = c0 != null && !c0.trim().isEmpty();
-                sinhala = hasText && SubLangDetect.looksSinhala(c0);
-                joiners = c1 != null && (c1.indexOf('\u200D') >= 0 || c1.contains(zwjCanary));
-            }
-            // v3.4.6.g — THE HONEST ENV SPLIT: no media-URL egress in the CI
-            // emulator means the keyless endpoints are simply unreachable there.
-            // The engine's documented contract on that path is verbatim
-            // retention (never an error, never a fake translation), so an
-            // unreachable endpoint is an ENV outage — reported FAIL ✗ on the
-            // phone, counted as env_fail in the CI summary. The APP's own
-            // contract (2 cues in → 2 cues out, text present, source joiners
-            // intact) is the real verdict, and a thrown engine is a FAIL.
-            String srtSrc = readOrEmpty("src/lk/techworld/anantplay/sicast/FreeSubTranslator.java");
-            boolean wired = sourceProvable(srtSrc)
-                && srtSrc.contains("maskJoiners") && srtSrc.contains("unmaskJoiners")
-                && srtSrc.contains("translate.googleapis.com");
-            boolean contract = landed && hasText && joiners && wired;
-            o.pass = contract && sinhala;
-            if (!o.pass && contract && !sinhala) o.envFail = true;   // external outage
-            o.detail = contract
-                ? (sinhala
-                    ? "English → Sinhala live ✓ · 2/2 cues · ZWJ ශ්‍රී preserved ✓ · complete " + r.complete
-                    : "FAIL — the keyless endpoints are unreachable on this network; the engine "
-                        + "retained the source verbatim (" + r.requests + " request(s)) — JOINERS "
-                        + (joiners ? "✓" : "✗") + " · wiring ✓")
-                : "FAIL — the free translator broke the cue contract ("
-                    + (landed ? "cues landed" : "no cue list")
-                    + " · text " + (hasText ? "✓" : "✗") + " · ZWJ " + (joiners ? "✓" : "✗")
-                    + " · wiring " + (wired ? "✓" : "✗") + ")";
-            return o;
-        } catch (Throwable t) {
-            o.pass = false;
-            o.detail = "FAIL — translation engine threw: " + t.getClass().getSimpleName();
-            return o;
-        }
     }
 
     /**

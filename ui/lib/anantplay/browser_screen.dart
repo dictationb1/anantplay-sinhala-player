@@ -208,7 +208,7 @@ class _CaptureDock extends StatelessWidget {
                 icon: Icon(mi.Icons.translate_rounded,
                     size: 18, color: scheme.primary),
                 onPressed: () {
-                  final q = (newest['title'] ?? '').toString();
+                  final q = (newest?['title'] ?? '').toString();
                   AnantPlay.instance.openNativeWeb(
                       'https://tools.newzone.top/search?q=${Uri.encodeComponent(q)}');
                 },
