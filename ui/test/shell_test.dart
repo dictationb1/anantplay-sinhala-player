@@ -43,12 +43,16 @@ void main() {
     mock.setMockMethodCallHandler(const MethodChannel('anantplay/settings'), (call) async {
       switch (call.method) {
         case 'getAll':
+          // The REAL native method channel reads back what was persisted.
+          // Mirror that here: optimistic writes must survive refresh(), or a
+          // widget test would assert against a mock that lies to the app.
           return <String, Object>{
             'onboardingDone': onboardingDone,
             'onboardingStage': 0,
             'onboardingVersion': onboardingVersion,
             'themeMode': 'dark',
             'indexUrl': 'https://raw.githubusercontent.com/AnantPlay/index/main/index.json',
+            ...settingsPuts,
           };
         case 'putBool':
           settingsPuts[call.arguments['key'] as String] = call.arguments['value'];
