@@ -1270,7 +1270,7 @@ class _VersionFooter extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 18, bottom: 6),
       child: Center(
-        child: Text('AnantPlay Sinhala Player v3.4.6.d (30410)',
+        child: Text('AnantPlay Sinhala Player v3.4.6.e (30411)',
             style: TextStyle(
                 color: scheme.onSurfaceVariant, fontSize: 11.5)),
       ),

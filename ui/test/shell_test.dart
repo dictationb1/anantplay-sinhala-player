@@ -706,9 +706,14 @@ void main() {
 
   group('PlayerScreen (the Mornye cinema HUD)', () {
     // v3.4.6.e — THE COMPACT SUBTITLE CONTRACT: the rendered subtitle is
-    // bottom-anchored, width-capped at 82%, max 3 lines, tight 1.25 height,
-    // and the compact 10-28sp clamp (a stored 28 stays 28; a junk 99 from a
-    // legacy backup can never dominate the viewport).
+    // bottom-anchored, width-capped at 82% of the viewport, at most 3 lines,
+    // with a tight 1.25 line height and the compact 10-28sp clamp — the
+    // oversized-subtitle field complaint, asserted on the LIVE widget tree.
+    //
+    // The cue arrives exactly the way the native bridge sends it: one
+    // anantplay/player/events frame carrying activeCueSi. The test drives that
+    // frame itself rather than assuming a host-side demo cue exists, so the
+    // assertion can never silently pass on an empty string.
     testWidgets('the subtitle pill obeys the compact cinema contract (82% / 3 lines / 1.25)',
         (tester) async {
       onboardingDone = true;
@@ -721,20 +726,48 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(PlayerScreen), findsOneWidget);
 
-      // The active Sinhala test cue renders with the ZWJ conjunct preserved
-      // (ක්‍රියාත්මකයි carries U+200D) — never re-encoded.
-      final cue = find.textContaining('ක්‍රියාත්මකයි');
-      expect(cue, findsWidgets);
-      final textWidget = tester.widget<Text>(cue.first);
-      // The compact cinema typography: 3 lines max, softWrap, 1.25 height,
-      // and the font size inside the 10-28sp compact clamp (14 default).
+      // The Sinhala cue: the ZWJ conjunct in ක්‍රියාත්මකයි is carried verbatim.
+      const cue = 'ක්‍රියාත්මකයි — ශ්‍රී ලංකාවේ චිත්‍රපටිය';
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/player/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          'positionMs': 1000,
+          'durationMs': 600000,
+          'bufferedMs': 2000,
+          'playing': true,
+          'buffering': false,
+          'videoWidth': 1280,
+          'videoHeight': 720,
+          'activeCueSi': cue,
+          'subtitleState': 'ready · 906 cues',
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pump();
+
+      final pill = find.text(cue);
+      expect(pill, findsOneWidget, reason: 'the active Sinhala cue must render');
+      final textWidget = tester.widget<Text>(pill);
+      // The compact cinema typography.
       expect(textWidget.maxLines, 3);
       expect(textWidget.softWrap ?? true, isTrue);
       expect(textWidget.style?.height, 1.25);
-      expect(textWidget.style?.fontSize, lessThanOrEqualTo(28.0));
-      expect(textWidget.style?.fontSize, greaterThanOrEqualTo(10.0));
+      // The compact 10-28sp clamp (the default is 14 portrait / 15 landscape).
+      final size = textWidget.style!.fontSize!;
+      expect(size, greaterThanOrEqualTo(10.0));
+      expect(size, lessThanOrEqualTo(28.0));
+      // The 82% viewport width cap on the pill's ConstrainedBox.
+      final constrained = tester.widgetList<ConstrainedBox>(
+          find.ancestor(of: pill, matching: find.byType(ConstrainedBox)));
+      final width = MediaQuery.sizeOf(tester.element(pill)).width;
+      expect(
+        constrained.any((c) =>
+            c.constraints.maxWidth != null &&
+            (c.constraints.maxWidth! - width * 0.82).abs() < 0.5),
+        isTrue,
+        reason: 'the subtitle pill must be capped at 82% of the viewport',
+      );
     });
-
 
     testWidgets('the 5-icon dock + all sheet headers render (HUD contract)', (tester) async {
       onboardingDone = true;

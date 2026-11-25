@@ -77,14 +77,23 @@ class _HelpScreenState extends State<HelpScreen> {
   /// (anantplay/cast.copyToClipboard) AND Flutter's Clipboard.setData, then
   /// the green confirmation banner shows.
   Future<void> _autoCopyReport(List<DeepOutcome> outcomes) async {
-    final report = await AnantPlay.instance.deepReport();
+    // v3.4.6.e — a channel hiccup must never strand the run: if the report
+    // cannot be fetched the completion still lands (cards + counter reset),
+    // and the Copy Again row re-reads it on demand.
+    String report = '';
+    try {
+      report = await AnantPlay.instance.deepReport();
+    } catch (_) {}
     if (!mounted) return;
     setState(() {
       _report = report;
-      _copied = true;
+      _copied = report.isNotEmpty;
     });
+    if (report.isEmpty) return;
     // 1 — Flutter's clipboard.
-    await Clipboard.setData(ClipboardData(text: report));
+    try {
+      await Clipboard.setData(ClipboardData(text: report));
+    } catch (_) {}
     // 2 — the native ClipboardManager (the same lane Slide 6's Copy uses).
     try {
       await AnantPlay.instance.copyToClipboard(report);
@@ -123,7 +132,14 @@ class _HelpScreenState extends State<HelpScreen> {
       _running = true;
       _done = 0;   // the live counter restarts with the run
     });
-    await AnantPlay.instance.runDeepProbe();
+    try {
+      await AnantPlay.instance.runDeepProbe();
+    } catch (_) {
+      // v3.4.6.e — the launch itself failed (host not ready / channel error):
+      // surface it immediately instead of spinning for the 90 s watchdog.
+      if (mounted) setState(() => _running = false);
+      return;
+    }
     // The stream listener flips _running off; the watchdog covers a channel
     // hiccup so the button can never stay stuck (owned + cancelled).
     _watchdog?.cancel();
@@ -136,8 +152,12 @@ class _HelpScreenState extends State<HelpScreen> {
   }
 
   Future<void> _copy() async {
-    final report =
-        _report.isNotEmpty ? _report : await AnantPlay.instance.deepReport();
+    String report = _report;
+    if (report.isEmpty) {
+      try {
+        report = await AnantPlay.instance.deepReport();
+      } catch (_) {}
+    }
     await Clipboard.setData(ClipboardData(text: report));
     try {
       await AnantPlay.instance.copyToClipboard(report);
@@ -149,8 +169,13 @@ class _HelpScreenState extends State<HelpScreen> {
   }
 
   Future<void> _share() async {
-    final report =
-        _report.isNotEmpty ? _report : await AnantPlay.instance.deepReport();
+    String report = _report;
+    if (report.isEmpty) {
+      try {
+        report = await AnantPlay.instance.deepReport();
+      } catch (_) {}
+    }
+    if (report.isEmpty) return;
     await AnantPlay.instance.shareText(report);
     if (mounted) {
       ScaffoldMessenger.of(context)

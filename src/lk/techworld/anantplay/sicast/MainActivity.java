@@ -239,6 +239,133 @@ public class MainActivity extends FlutterActivity {
         // arrived before the engine was up, ACTION_VIEW/SEND, the
         // notifyCastReady notification) is forwarded now that channels exist.
         forwardLaunchRoute(getIntent());
+        // v3.4.6.e — THE CI SELF-TEST HOOK (see runCiDeepProbe).
+        maybeStartCiDeepProbe(getIntent());
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.6.e — THE LIVE 54-FEATURE SELF-TEST HOOK (hosted Android 36 KVM CI)
+    //
+    // WHY: the CI smoke job only proved the activity OPENS. Every release that
+    // shipped a dead Stop-Receiver button, oversized subtitles or a silently
+    // disabled updater passed that gate. This hook lets the SAME emulator run
+    // the SAME 54 probes the Help tab runs — inside real Android OS, against
+    // real SharedPreferences, a real foreground service, a real PackageManager
+    // and a real clipboard — and publish a machine-readable verdict to logcat.
+    //
+    // SAFETY (it can never be triggered by a user, and can never change state):
+    //   · it requires an explicit launch extra (the launcher activity MUST stay
+    //     exported for the home screen, so the gate is the flag itself),
+    //   · it is INERT unless that flag is present: ONE boolean read on the
+    //     launch intent at cold start, and nothing else at all,
+    //   · the only thing it can ever do is run the user-visible "Run full app
+    //     troubleshoot" action that the Help tab already exposes with one tap
+    //     — no privileged action, no hidden setting, no network write,
+    //   · the run itself is DeepProbe.runAll, i.e. snapshot → mutate → verify →
+    //     restore in a finally block: settings and the receiver's up/down state
+    //     come back exactly as the user left them,
+    //   · the published line carries only booleans, counters, HTTP codes and
+    //     feature names — and the full report is passed through the same
+    //     PrivacyScrubber fixed-point proof the Help tab shows the user.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /** True while a CI self-test run is in flight (never re-entered). */
+    private volatile boolean ciDeepProbeStarted;
+
+    /** Handle the `ci_run_deep_probe` launch extra (cold start + warm intent). */
+    private void maybeStartCiDeepProbe(Intent i) {
+        if (i == null) return;
+        boolean want = false;
+        try {
+            want = i.getBooleanExtra(DeepProbe.CI_EXTRA, false);
+        } catch (Throwable ignored) { }
+        if (!want) return;
+        runCiDeepProbe();
+    }
+
+    /**
+     * The self-test driver: settle (~3 s so the receiver/auto-update cold-start
+     * work finishes), run the real 54-probe matrix on a background thread, then
+     * publish one line per probe + the parsed summary + the clipboard proof.
+     */
+    private void runCiDeepProbe() {
+        if (ciDeepProbeStarted) return;
+        ciDeepProbeStarted = true;
+        main.postDelayed(() -> new Thread(() -> {
+            List<DeepProbe.Outcome> outcomes;
+            try {
+                outcomes = DeepProbe.runAll(deepHooks(), null);
+                DeepProbe.remember(outcomes);
+            } catch (Throwable t) {
+                // The matrix itself refuses to run: publish a FAILING summary so
+                // the workflow's assertion fails loudly instead of timing out.
+                android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_SUMMARY_KEY
+                        + " pass=0 fail=54 total=54 clipboard_copied=false"
+                        + " privacy_clean=false error=" + t.getClass().getSimpleName());
+                android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_DONE_KEY + " aborted");
+                return;
+            }
+            // 1 — every probe outcome, one parseable line each.
+            int pass = 0, fail = 0;
+            for (DeepProbe.Outcome o : outcomes) {
+                if (o != null && o.pass) pass++; else fail++;
+                android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.ciProbeLine(o));
+            }
+            // 2 — THE SAME clipboard payload the Help tab hands the user, through
+            //     BOTH lanes (native ClipboardManager + the Flutter Clipboard
+            //     call), so CI proves the auto-copy contract on a real Android
+            //     clipboard. The native write happens inline on THIS thread: the
+            //     verification below must observe this thread's write.
+            String report = "";
+            boolean copied = false;
+            try {
+                report = buildDeepReport();
+                if (report != null && !report.isEmpty()) {
+                    try {
+                        android.content.ClipboardManager cm =
+                                (android.content.ClipboardManager)
+                                    getSystemService(CLIPBOARD_SERVICE);
+                        if (cm != null) {
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                                    "AnantPlay deep report", report));
+                        }
+                    } catch (Throwable t) {
+                        android.util.Log.i(DeepProbe.CI_TAG, "CLIPBOARD_WRITE_FAILED " + t);
+                    }
+                    for (int k = 0; k < 20 && !copied; k++) {
+                        try {
+                            android.content.ClipboardManager cm =
+                                    (android.content.ClipboardManager)
+                                        getSystemService(CLIPBOARD_SERVICE);
+                            copied = cm != null && cm.hasPrimaryClip()
+                                    && cm.getPrimaryClip() != null
+                                    && cm.getPrimaryClip().getItemCount() > 0;
+                        } catch (Throwable ignored) { }
+                        if (!copied) {
+                            try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                        }
+                    }
+                    // the Flutter lane — the exact Help-tab call.
+                    final String r = report;
+                    main.post(() -> {
+                        try { copyToClipboard(r); } catch (Throwable ignored) { }
+                    });
+                }
+            } catch (Throwable t) {
+                android.util.Log.i(DeepProbe.CI_TAG, "REPORT_BUILD_FAILED " + t);
+            }
+            boolean privacy = DeepProbe.ciPrivacyClean(report);
+            // 3 — the parsed summary + the domain roll-up + the completion marker.
+            android.util.Log.i(DeepProbe.CI_TAG,
+                    DeepProbe.ciSummaryLine(outcomes, copied, privacy));
+            android.util.Log.i(DeepProbe.CI_TAG,
+                    "DEEP_PROBE_DOMAINS " + DeepProbe.ciDomainLine(outcomes)
+                            + " version=" + AppInfo.VERSION_NAME
+                            + " code=" + AppInfo.VERSION_CODE
+                            + " sdk=" + Build.VERSION.SDK_INT);
+            android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_DONE_KEY
+                    + " pass=" + pass + " fail=" + fail + " total=" + outcomes.size());
+        }, "ci-deep-probe").start(), 3000L);
     }
 
     /** The live engine (captured in configureFlutterEngine — the protected
@@ -1373,7 +1500,7 @@ public class MainActivity extends FlutterActivity {
      * probe ledger + Last Crash + the timeline, end-to-end privacy-scrubbed.
      * This is the payload the Help tab auto-copies to the clipboard.
      */
-    private String buildDeepReport() {
+    String buildDeepReport() {
         List<DeepProbe.Outcome> outcomes = DeepProbe.lastResults();
         StringBuilder sb = new StringBuilder(8192);
         sb.append("AnantPlay Sinhala Player v").append(AppInfo.VERSION_NAME)
@@ -1651,6 +1778,8 @@ public class MainActivity extends FlutterActivity {
         // a queued cast all land here while we are alive: forward through the
         // shell route pump (the Mornye Cinema Player opens IN the shell).
         forwardLaunchRoute(i);
+        // v3.4.6.e — a warm `am start --ez ci_run_deep_probe true` self-test.
+        maybeStartCiDeepProbe(i);
         if (SelfUpdater.ACTION_INSTALL_NOW.equals(i.getAction())) {
             SelfUpdater.installPendingUpdate(this, true);
         }

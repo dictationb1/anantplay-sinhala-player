@@ -62,16 +62,95 @@ AnantPlay Sinhala Player `v3.4.6.e` / `30411` (alphabetical ladder `.d → .e`, 
 
 **Live per-probe progress:** every completed probe pushes one frame (`{t:'deep', done:n, total:54, outcome:{…}}`) onto the `anantplay/troubleshoot/events` channel, and the Help tab renders the live counter **"Running 54 deep feature probes… 32/54"** as the audit advances. The Help screen routes the channel's RAW frames (the typed 10-point `probeResults()` stream would have swallowed the deep payloads — a wiring bug caught and fixed before ship), with collapsible per-domain PASS/FAIL cards rendering as results accumulate.
 
-## 5. Verification — every local gate, 0 FAIL
+## 5. Verification — every gate reachable from this sandbox, 0 FAIL
 
 | Gate | Result |
 | --- | --- |
-| `lab/run_lab.sh` (ReceiverLab + all static auditors) | **ALL 1354 PASSED** (was 1330) — includes the new `v346e` legs: the 54-probe matrix executes 54/54 with the transactional restore, the identity/compact-subtitle/stop-contract checks |
-| `scripts/compile_check.sh` (all 69 Java sources against android-36 + Media3 1.11.1 + Flutter embedding) | **COMPILE OK: 165 classes** (toolchain roots downloaded into `tools-dl/` with env overrides) |
-| `lab/verify_flutter_bridge_wiring.py` | **71 passed, 0 failed** — 0 dead channels (the 5 new methods all have handlers), 0 fake buttons |
+| `verify_flutter_bridge_wiring.py` | **71 passed, 0 failed** — 0 dead channels, 0 fake buttons. Fixed in this pass: the harvest compared Dart method names against ONE global set of Java `case "…"` labels, so the three channel methods that share a name with another channel's case label (`restart` on cast vs the webview reload, `status` on cast vs the subtitle pipeline, `copyToClipboard` on cast vs settings) looked dead. The exact `"<name>".equals(m)` dispatch form is now harvested too. |
 | `verify_layouts.py` (selftest 13/13 + main) | **0 problems** across 69 files |
-| `verify_v344_ui.py` / `verify_v345_ui.py` / `verify_gradle_host.py` | **1861 / 57 / 64 PASS, 0 FAIL** |
-| `flutter analyze` + `flutter test` | **Not run in this sandbox — no Flutter SDK available.** Every touched Dart file passed a strict token-level structure check; the shipped widget-test suite was extended (deep-run, domain cards, auto-copy, compact-subtitle, Stop-Receiver tests) but could not be executed here. CI's `flutter test` gate runs it. |
+| `verify_v344_ui.py` / `verify_v345_ui.py` / `verify_gradle_host.py` / `verify_ui_completeness.py` / `verify_refs.py` | **1861 / 57 / 64 PASS, 0 FAIL** + the completeness gate OK + the bytecode resolver OK |
+| Java + Dart syntax | **0 errors across 71 Java sources and 53 Dart files**, parsed with the real grammars (tree-sitter `java` / `dart`, ERROR-node walk) after every edit in this pass |
+| Workflow gates | both workflows pass `yaml.safe_load`; every one of the **70** emulator-script lines passes `sh -n` individually (the runner executes them as separate `sh -c` invocations) |
+| `lab/run_lab.sh` (ReceiverLab + all static auditors) | The Java legs of this script need a **JDK with `javac`**, which this sandbox could not obtain (the only reachable networks are PyPI/npm/GitHub, and every JDK route — `jdk4py` (JRE-only image), `cjdk` (fetches `raw.githubusercontent.com`), the Adoptium/GCS tarballs — is blocked). Everything it gates that is *not* Java-execution was run directly and is green (the six auditors above + the workflow/script/javac-syntax gates). CI's `lab` job has `actions/setup-java` and runs the full 1354-check matrix. |
+| `flutter analyze` + `flutter test` | **Not run in this sandbox — no Flutter/Dart SDK is reachable.** Every touched Dart file was grammar-parsed and hand-audited; three real defects were found and fixed by that audit (see §5b). CI's `flutter analyze`/`flutter test` jobs are the executing gate. |
+
+## 5b. The untested-Dart audit — three real defects found without a compiler
+
+Z.ai's sandbox never had a Flutter SDK, so none of the `.e` Dart had ever been
+compiled or executed. The audit that replaced the compiler found:
+
+1. **`Settings → About` footer was `v3.4.6.d (30410)`** while `AppInfo`, Gradle,
+   `build.sh`, `pubspec.yaml` and both workflows are `3.4.6.e / 30411` — the
+   version lock was already broken on one shipped surface, and the (unrunnable)
+   widget test had been written expecting `.e`, so it would have failed in CI.
+2. **`AnantPlay.deepReport()` did `… as String`** on an untyped channel reply.
+   Any host that answers `null` (channel not ready, engine restarting) throws a
+   `TypeError` inside the Help tab's auto-copy path, which would have left the
+   live "Running 54 deep feature probes…" state stuck. It now returns `''`, and
+   the Help screen's auto-copy / Copy-Again / Share paths all degrade cleanly
+   (and `_run()` resets the button instead of spinning for the 90 s watchdog).
+3. **The new compact-subtitle widget test asserted on an empty string** — it
+   looked for a Sinhala cue that no host-side demo provides, so it would have
+   failed on the first CI run (or, worse, passed vacuously). It now drives a
+   real `anantplay/player/events` frame and asserts the 3-line / 1.25 height /
+   10–28sp clamp and the 82 % width cap on the live widget tree.
+
+`deepReport` and the Help-screen guards are also why the sweep of the whole Dart
+surface used the tree-sitter grammar: a syntax error in `help_screen.dart`,
+`deep_troubleshooter.dart`, `player_screen.dart`, `bridge.dart`, `shell_test.dart`
+or `bridge_test.dart` is now impossible to ship unnoticed.
+
+## 5c. The hosted Android 36 KVM emulator is now a LIVE 54-FEATURE harness
+
+**The defect this removes:** the CI emulator job used to prove exactly one
+thing — `am start -W` returns `Status: ok`, the process is alive 12 s later and
+the crash buffer carries no entry for our package. That is a *launch* test. A
+dead Stop-Receiver button, oversized subtitles, a dead Auto-Rotate or a
+silently disabled updater all pass it. The `v3.4.6.e` fix release exists
+precisely because that gate was blind.
+
+**The hook (`MainActivity`, ~90 lines):** a launch extra `ci_run_deep_probe`
+(`adb shell am start -W -n lk.techworld.anantplay.sicast/.MainActivity --ez
+ci_run_deep_probe true`) makes the activity settle 3 s and then run the REAL
+`DeepProbe.runAll(deepHooks(), null)` — the same 54-probe matrix the Help tab
+runs, against real `SharedPreferences`, a real foreground `ReceiverService`, a
+real `PackageManager`, a real `DNS-SD/DLNA` stack and a real `ClipboardManager`.
+It is inert without the extra (one boolean read at cold start), can only ever
+do what the user's own "Run full app troubleshoot" button does, and inherits
+the engine's transactionality (`snapshot → mutate → verify → restore` in a
+`finally`).
+
+**The published wire (parsed by the workflow, pinned by the lab):**
+
+```
+AnantPlayCI: PROBE <id> <name> -> PASS|FAIL (<ms> ms) <detail>      × 54
+AnantPlayCI: DEEP_PROBE_SUMMARY pass=<N> fail=<F> total=<T> clipboard_copied=<b> privacy_clean=<b>
+AnantPlayCI: DEEP_PROBE_DOMAINS A=6/6 B=9/9 C=16/16 D=6/6 E=12/12 F=5/5 version=… code=… sdk=36
+AnantPlayCI: DEEP_PROBE_DONE pass=<N> fail=<F> total=<T>
+```
+
+`clipboard_copied` is the live proof that the auto-copy contract works on a
+real Android clipboard (the native `ClipData` write is read back);
+`privacy_clean` is the `PrivacyScrubber` **fixed point** on the exact copied
+text (`scrub(report) == report`) plus a zero-survivor sweep of
+`PrivacyScrubber.canaryLeaks()` — a leaked phone model, LAN IP, EUI-64, MAC,
+Cookie or Bearer JWT turns the job red.
+
+**The workflow (`build-apk.yml` → `launch-smoke`, 9 steps):** install →
+`am start -W` (`Status: ok`) → alive 12 s → focused → launch twice with
+`--ez ci_run_deep_probe true` (warm, then cold after `force-stop`) → poll
+`adb logcat -d -s AnantPlayCI:I` up to 45 s for the summary and 40 s more for
+the completion marker → render every probe as a row of `$GITHUB_STEP_SUMMARY`
+→ **hard-assert `DEEP_PROBE_SUMMARY` present, `total >= 54`, `fail == 0`,
+`clipboard_copied=true`, `privacy_clean=true`, ≥ 54 `PROBE ` lines** → crash
+attribution (our package/pid only; GMS noise is `::notice`, never a failure).
+Every line of that block passes `sh -n` individually, because
+`reactivecircus/android-emulator-runner` splits `script:` line by line.
+
+The lab pins the contract (`v346e ci:` legs): the exact line shapes, the
+parsed keys, the 54 total, the per-domain roll-up, the scrubber fixed point
+(a scrubbed report passes, a raw PII report must NOT) and the workflow's own
+trigger/poll/assert strings — so a rename can never silently disarm CI.
 
 ## 6. Version parity + hygiene
 
@@ -89,6 +168,7 @@ AnantPlay Sinhala Player `v3.4.6.e` / `30411` (alphabetical ladder `.d → .e`, 
 2. **උපසිරැසි දැන් හරියට ම ප්‍රමාණයේ** — 14sp/15sp කුඩා සම්මතය, 82% පළල සීමාව, 3 පේළි, 10–28sp slider — චිත්‍රපටිය කිසිවිටෙකත් වැසෙන්නේ නැත; සිංහල ZWJ (ශ්‍රී) 100% ආරක්ෂිතයි.
 3. **Auto-Rotate සහ සියලු ධාවක මෙවලම් තවදුරටත් මළ නොවේ** — සැබෑ `setRequestedOrientation`, භාෂා-මාරුව (සිංහල/English/தமிழ்), −1s/−0.25s/+0.25s/+1s sync, Tracks, Find Subtitles, සහ More Tools සියල්ල (Retry, Provider, Spoken/Formal, Free Translate, NewZone, Audio→SRT).
 4. **54-පියවර Deep Troubleshooter** — යෙදුමේ සෑම feature කමක්ම (6 domains A–F) සජීවීව පරීක්ෂා කරයි; පරිශීලකයාගේ settings/receiver තත්ත්වය සැමවිටම restore වේ; අවසාන විගස **100% privacy-safe වාර්තාව clipboard එකට ස්වයංක්‍රීයව පිටපත් වේ**.
-5. **සියලු local gates 0 FAIL** — lab 1354/1354, compile OK, wiring 71/71; docs/latest.json එක වෙනස් නොකෙරියි (v3.4.6.d ම ඉතිරිවේ).
+5. **Android 36 CI emulator දැන් සැබෑ පරීක්ෂකයෙක්** — `--ez ci_run_deep_probe true` ලෙස launch කළ විට යෙදුම තුළම සියලු **54 probes** සැබෑ Android OS එක තුළ ධාවනය වී logcat එකට `AnantPlayCI: PROBE …` ලෙස වාර්තා කරයි; job එක `total >= 54`, `fail == 0`, `clipboard_copied=true`, `privacy_clean=true` ලෙස දැඩි ලෙස සත්‍යාපනය කරයි (launch-only smoke යුගය අවසන්).
+6. **සියලු gates 0 FAIL** — wiring 71/71, layouts 0, refs OK, 1861+57+64 PASS, Java 71 + Dart 53 syntax 0 error, workflow 70 lines `sh -n` OK; docs/latest.json එක වෙනස් නොකෙරියි (v3.4.6.d ම ඉතිරිවේ).
 
 **Auto-Update Law රැකෙනවා** — tier-1 302 → tier-2 latest.json (0 api.github.com), a–z ladder, 55 MiB cap, ForceUpdateScreen blocking gate යන සියල්ලම නොවෙනස්ව ඉතිරිවේ සහ A-domain 6 probes මගින් සෑම troubleshoot run කකක්හිදී නැවත ඔප්පු වේ.

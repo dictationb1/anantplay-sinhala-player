@@ -1022,6 +1022,103 @@ public final class DeepProbe {
         return o instanceof Number ? o : Integer.valueOf(0);
     }
 
+    // ── v3.4.6.e — THE CI SELF-TEST CONTRACT ─────────────────────────────────
+    //
+    // The hosted Android 36 KVM smoke test used to prove ONE thing: the
+    // activity opens and survives 12 s. That is a launch test, not a feature
+    // test — a dead Stop button, a broken staircase of subtitle sizes or a
+    // silently disabled updater all pass it. This block turns the SAME 54
+    // probes the Help tab runs into a machine-readable logcat report so CI can
+    // assert every single feature LIVE inside real Android OS.
+    //
+    // The formatting helpers live HERE (pure Java, no android.*) so the lab can
+    // assert the exact wire shape the workflow parses — the summary line can
+    // never silently drift away from the gate that depends on it.
+
+    /** The tag every CI line rides. */
+    public static final String CI_TAG = "AnantPlayCI";
+    /** The exact token the workflow polls for (bounded, then hard-asserted). */
+    public static final String CI_SUMMARY_KEY = "DEEP_PROBE_SUMMARY";
+    /** The complete-matrix token the workflow asserts. */
+    public static final String CI_DONE_KEY = "DEEP_PROBE_DONE";
+    /** The trigger extra: `am start --ez ci_run_deep_probe true`. */
+    public static final String CI_EXTRA = "ci_run_deep_probe";
+
+    /** One probe's CI line: `PROBE <id> <name> -> PASS|FAIL (<ms> ms) <detail>`. */
+    public static String ciProbeLine(Outcome o) {
+        if (o == null) return "PROBE 0 (none) -> FAIL (0 ms) no outcome";
+        String name = (o.name == null ? "" : o.name).replace('\n', ' ').replace('\r', ' ');
+        String detail = (o.detail == null ? "" : o.detail).replace('\n', ' ').replace('\r', ' ');
+        StringBuilder sb = new StringBuilder(160);
+        // The workflow parses `PROBE <id> <name> -> PASS|FAIL (<ms> ms) <detail>`
+        // and counts `PROBE ` lines; id 0 can only mean "identity never
+        // stamped", so it is published as-is and the count assertion catches it.
+        sb.append("PROBE ").append(o.id).append(' ').append(name)
+          .append(" -> ").append(o.pass ? "PASS" : "FAIL")
+          .append(" (").append(o.ms).append(" ms)");
+        if (!detail.isEmpty()) sb.append(' ').append(detail);
+        return sb.toString();
+    }
+
+    /**
+     * The single machine-parsed summary line:
+     * `DEEP_PROBE_SUMMARY pass=<N> fail=<F> total=<T> clipboard_copied=<b> privacy_clean=<b>`.
+     */
+    public static String ciSummaryLine(List<Outcome> results, boolean clipboardCopied,
+                                       boolean privacyClean) {
+        int total = results == null ? 0 : results.size();
+        int pass = passCount(results);
+        return CI_SUMMARY_KEY
+            + " pass=" + pass
+            + " fail=" + (total - pass)
+            + " total=" + total
+            + " clipboard_copied=" + clipboardCopied
+            + " privacy_clean=" + privacyClean;
+    }
+
+    /**
+     * The privacy proof: run the REAL {@link PrivacyScrubber} over the WHOLE
+     * report text that is about to be copied and published, and demand zero
+     * canary survives. `scrub(report) == report` is the fixed-point contract —
+     * anything the scrubber would still change is a leak by definition.
+     */
+    public static boolean ciPrivacyClean(String copiedReport) {
+        if (copiedReport == null) return false;
+        try {
+            String once = PrivacyScrubber.scrub(copiedReport);
+            if (!once.equals(copiedReport)) return false;             // a canary survived
+            for (String canary : PrivacyScrubber.canaryLeaks()) {     // + the canonical field set
+                if (canary == null || canary.isEmpty()) continue;
+                if (copiedReport.contains(canary)) return false;
+            }
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * The per-domain roll-up for the CI job summary: `A=6/6 B=9/9 …` (keys in
+     * A–F order, missing domains omitted).
+     */
+    public static String ciDomainLine(List<Outcome> results) {
+        StringBuilder sb = new StringBuilder(96);
+        for (String d : new String[]{"A", "B", "C", "D", "E", "F"}) {
+            int n = 0, p = 0;
+            if (results != null) {
+                for (Outcome o : results) {
+                    if (o == null || !d.equals(o.domain)) continue;
+                    n++;
+                    if (o.pass) p++;
+                }
+            }
+            if (n == 0) continue;
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(d).append('=').append(p).append('/').append(n);
+        }
+        return sb.toString();
+    }
+
     // ── the source-contract helpers (guarded file reads, cached) ──────────────
     //
     // The probes above prove LIVE behavior; these read the SHIPPED SOURCE and

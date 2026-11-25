@@ -1635,6 +1635,7 @@ public class ReceiverLab {
         runLeg("v346eDeepProbeChecks", () -> { v346eDeepProbeChecks(); });
         runLeg("v346eVersionIdentityChecks", () -> { v346eVersionIdentityChecks(); });
         runLeg("v346eCompactSubtitleChecks", () -> { v346eCompactSubtitleChecks(); });
+        runLeg("v346eCiSelfTestContractChecks", () -> { v346eCiSelfTestContractChecks(); });
         runLeg("v346eStopReceiverContractChecks", () -> { v346eStopReceiverContractChecks(); });
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
@@ -7080,4 +7081,101 @@ public class ReceiverLab {
         };
     }
 
+
+    /**
+     * v3.4.6.e — THE CI SELF-TEST WIRE CONTRACT.
+     *
+     * The hosted Android 36 KVM smoke job parses logcat with shell greps. If
+     * the shape of the published lines drifts (a renamed key, a missing field,
+     * a summary that no longer carries clipboard_copied/privacy_clean) the
+     * emulator job either silently stops asserting anything or fails for the
+     * wrong reason. These checks pin the EXACT wire shape in the lab, where a
+     * drift is a fast red line instead of a 30-minute CI mystery.
+     */
+    static void v346eCiSelfTestContractChecks() throws Exception {
+        check("v346e ci: the trigger extra is ci_run_deep_probe",
+            "ci_run_deep_probe".equals(DeepProbe.CI_EXTRA));
+        check("v346e ci: the logcat tag is AnantPlayCI",
+            "AnantPlayCI".equals(DeepProbe.CI_TAG));
+        check("v346e ci: the polled summary key is DEEP_PROBE_SUMMARY",
+            "DEEP_PROBE_SUMMARY".equals(DeepProbe.CI_SUMMARY_KEY));
+        check("v346e ci: the completion key is DEEP_PROBE_DONE",
+            "DEEP_PROBE_DONE".equals(DeepProbe.CI_DONE_KEY));
+
+        // One probe line, byte for byte.
+        DeepProbe.Outcome o = new DeepProbe.Outcome(7, "B", "Stop Receiver live execution");
+        o.pass = true;
+        o.ms = 1234L;
+        o.detail = "stop → running == false";
+        String line = DeepProbe.ciProbeLine(o);
+        check("v346e ci: the probe line shape is PROBE <id> <name> -> PASS (<ms> ms) <detail>",
+            line.equals("PROBE 7 Stop Receiver live execution -> PASS (1234 ms) stop → running == false"),
+            line);
+        o.pass = false;
+        check("v346e ci: a failing probe line says FAIL",
+            DeepProbe.ciProbeLine(o).contains(" -> FAIL "));
+
+        // The summary line, parsed exactly like the workflow does.
+        LabHooks hooks = new LabHooks();
+        java.util.List<DeepProbe.Outcome> results = DeepProbe.runAll(hooks, null);
+        int total = results.size();
+        int pass = DeepProbe.passCount(results);
+        String summary = DeepProbe.ciSummaryLine(results, true, true);
+        java.util.Map<String, String> kv = new java.util.LinkedHashMap<>();
+        String[] parts = summary.split(" ");
+        for (int i = 1; i < parts.length; i++) {
+            int eq = parts[i].indexOf('=');
+            if (eq > 0) kv.put(parts[i].substring(0, eq), parts[i].substring(eq + 1));
+        }
+        check("v346e ci: the summary starts with the polled key",
+            summary.startsWith("DEEP_PROBE_SUMMARY "), summary);
+        check("v346e ci: the summary carries pass/fail/total",
+            String.valueOf(pass).equals(kv.get("pass"))
+                && String.valueOf(total - pass).equals(kv.get("fail"))
+                && String.valueOf(total).equals(kv.get("total")),
+            summary);
+        check("v346e ci: the summary carries clipboard_copied + privacy_clean",
+            "true".equals(kv.get("clipboard_copied")) && "true".equals(kv.get("privacy_clean")),
+            summary);
+        check("v346e ci: total is exactly the 54-probe matrix", total == 54, "total=" + total);
+
+        // The domain roll-up the job summary renders.
+        String domains = DeepProbe.ciDomainLine(results);
+        for (String d : new String[]{"A=6/6", "B=9/9", "C=16/16", "D=6/6", "E=12/12", "F=5/5"}) {
+            check("v346e ci: the domain roll-up carries " + d, domains.contains(d), domains);
+        }
+
+        // The privacy fixed point: a scrubbed report passes, a raw leak fails.
+        String clean = PrivacyScrubber.scrub(
+            "receiver: up (port 8765)\nprobes: 54/54 PASS\nLAN 192.168.1.39 model Xiaomi 24117RN76G");
+        check("v346e ci: a scrubbed report is privacy_clean", DeepProbe.ciPrivacyClean(clean));
+        check("v346e ci: an unscrubbed PII report is NOT privacy_clean",
+            !DeepProbe.ciPrivacyClean("LAN 192.168.1.39 model Xiaomi 24117RN76G"));
+        check("v346e ci: a null report is never privacy_clean", !DeepProbe.ciPrivacyClean(null));
+
+        // The hook lives in the shipped activity and is inert without the extra.
+        String activity = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        check("v346e ci: MainActivity reads the ci_run_deep_probe extra",
+            activity.contains("maybeStartCiDeepProbe")
+                && activity.contains("DeepProbe.CI_EXTRA")
+                && activity.contains("i.getBooleanExtra(DeepProbe.CI_EXTRA, false)"));
+        check("v346e ci: the hook runs the REAL 54-probe matrix transactionally",
+            activity.contains("DeepProbe.runAll(deepHooks(), null)")
+                && activity.contains("DeepProbe.remember(outcomes)"));
+        check("v346e ci: the hook publishes to android.util.Log under the CI tag",
+            activity.contains("android.util.Log.i(DeepProbe.CI_TAG"));
+        check("v346e ci: the hook writes the report to the real clipboard and verifies it",
+            activity.contains("ClipboardManager") && activity.contains("hasPrimaryClip()"));
+
+        // The workflow really drives it, and really asserts fail=0.
+        String wk = readRepoFile(".github/workflows/build-apk.yml");
+        check("v346e ci: the emulator job launches with --ez ci_run_deep_probe true",
+            wk.contains("--ez ci_run_deep_probe true"));
+        check("v346e ci: the emulator job polls AnantPlayCI logcat for the summary",
+            wk.contains("logcat -d -s AnantPlayCI:I") && wk.contains("DEEP_PROBE_SUMMARY"));
+        check("v346e ci: the emulator job hard-asserts fail=0 and total>=54",
+            wk.contains("fail=0") && wk.contains("total >= 54"), "");
+        check("v346e ci: the emulator job publishes every probe into the step summary",
+            wk.contains("AnantPlayCI: PROBE"));
+    }
 }

@@ -787,8 +787,16 @@ class AnantPlay {
 
   /// The full structured privacy-safe report (Status Summary + Domains A–F +
   /// Last Crash + Timeline) — the clipboard auto-copy payload.
-  Future<String> deepReport() async =>
-      await _trouble.invokeMethod('deepReport') as String;
+  ///
+  /// v3.4.6.e — NEVER an unchecked cast: a host that answers null (or with a
+  /// non-string) must degrade to the honest "no report yet" string, because
+  /// this is awaited inside the Help tab's auto-copy path and a TypeError
+  /// there would leave the banner stuck. The report is always built by the
+  /// native side, so an empty answer really does mean "nothing to copy yet".
+  Future<String> deepReport() async {
+    final Object? raw = await _trouble.invokeMethod('deepReport');
+    return raw is String ? raw : '';
+  }
 }
 
 extension<T> on Stream<T> {
