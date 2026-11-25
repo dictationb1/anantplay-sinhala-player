@@ -39,6 +39,7 @@ import 'package:anantplay_ui/mornye_ui/models/theme_settings.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_preparation.dart';
 import 'package:anantplay_ui/mornye_ui/theme/mornye_icons.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_chrome.dart';
+import 'package:dynamic_color/dynamic_color.dart';
 
 import 'anantplay/app_state.dart';
 import 'anantplay/bridge.dart';
@@ -294,7 +295,7 @@ class _ThemedApp extends StatelessWidget {
       colorScheme: scheme,
       scaffoldBackgroundColor: scheme.surface,
       extensions: [
-        for (final ThemeExtension<dynamic> e in base.extensions.values)
+        for (final ThemeExtension e in base.extensions.values as Iterable<ThemeExtension>)
           if (e is AppTokens) liveTokens else e,
       ],
     );

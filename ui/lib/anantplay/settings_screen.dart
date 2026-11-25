@@ -12,7 +12,8 @@
 // v3.4.6.c — complaint #2 fix: this screen is reachable BOTH from the
 // always-visible bottom tab bar AND Home's top-right gear, and every control
 // writes through the real `anantplay/settings` bridge (nothing decorative).
-import 'package:flutter/services.dart' show FilteringTextInputFormatter;
+import 'package:flutter/services.dart'
+    show FilteringTextInputFormatter, LengthLimitingTextInputFormatter;
 import 'package:material_ui/material_ui.dart' hide Icons;
 import 'package:material_ui/material_ui.dart' as mi show Icons;
 
