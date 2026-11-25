@@ -60,12 +60,11 @@ class _HelpScreenState extends State<HelpScreen> {
     // pre-decodes into the 10-point shape, so the deep payloads must be
     // routed from HERE.
     _probeSub = AnantPlay.instance.rawTroubleEvents().listen((event) {
-      // ignore: avoid_print
-      print('DBG probeSub event: ${event.runtimeType} mounted=$mounted');
-      if (event is! String) return;   // progress frames are Maps (below)
+      // The final payload is the JSON-array STRING of all native outcomes, but
+      // some Flutter embedding/test-messenger builds deliver it pre-decoded as
+      // a List. decodeDeepOutcomes handles BOTH; the per-probe progress frames
+      // are Maps ({t:'deep'/'deepStart'}) and decode to empty (routed below).
       final outcomes = decodeDeepOutcomes(event);
-      // ignore: avoid_print
-      print('DBG decoded ${outcomes.length} outcomes');
       if (!mounted || outcomes.isEmpty) return;
       // v3.4.6.f — LAYER 1 (the LIVE Dart audits) runs the moment the native
       // layer finishes: the receiver is back at its original state (the
@@ -144,8 +143,6 @@ class _HelpScreenState extends State<HelpScreen> {
     // gated behind the Dart round-trips), THEN run the 8 live Dart audits
     // (Domain H, ids 65–72) and merge them in as they land.
     if (!mounted) return;
-    // ignore: avoid_print
-    print('DBG rendering ${nativeOutcomes.length} native cards');
     setState(() {
       _results = nativeOutcomes;
       _ranOnce = true;
