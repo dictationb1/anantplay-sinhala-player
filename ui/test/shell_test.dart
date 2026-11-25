@@ -745,11 +745,15 @@ void main() {
           '"pass":true,"ms":40,"detail":"stop -> running == false"},'
           '{"id":24,"domain":"C","name":"Subtitle Studio compact bounds",'
           '"pass":true,"ms":5,"detail":"slider 10-28"}]';
+      // ignore: avoid_print
+      print('DBG test sending deepJson len=${deepJson.length}');
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'anantplay/troubleshoot/events',
         const StandardMethodCodec().encodeSuccessEnvelope(deepJson),
         (ByteData? data) {},
       );
+      // ignore: avoid_print
+      print('DBG test sent deepJson');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(const Duration(milliseconds: 100));
