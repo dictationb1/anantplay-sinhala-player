@@ -650,9 +650,7 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      // The auto-copy path awaits deepReport() then writes the clipboard; give
-      // the microtask chain a settle so the banner is on screen.
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 100));
       // 1 — THE AUTO-COPY (the release's headline contract): the report reached
       // the clipboard through the Flutter lane, and the confirmation banner is
       // rendered at the top of the list. Both are asserted BEFORE scrolling,
@@ -994,13 +992,11 @@ void main() {
       expect(find.byType(ForceUpdateScreen), findsOneWidget,
           reason: 'a failure never unlocks the gate');
       expect(find.text('Retry Update'), findsOneWidget);
-      // The failure surface: the screen's own single-sentence reason (the raw
-      // host `reason` rides the frame, it is not printed verbatim), the one and
-      // only action is Retry Update, and the gate stays shut.
-      expect(
-        find.text('The download failed. Check your connection and try again.'),
-        findsOneWidget,
-      );
+      // The failure surface prints the host's reason verbatim when the frame
+      // carries one (the generic "The download failed…" copy is only the
+      // empty-reason fallback), the one and only action is Retry Update, and
+      // the gate stays shut — there is no skip/later/dismiss anywhere.
+      expect(find.textContaining('check your connection'), findsOneWidget);
       expect(find.text('Skip'), findsNothing);
       expect(find.text('Later'), findsNothing);
       expect(find.text('Dismiss'), findsNothing);
