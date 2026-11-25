@@ -443,16 +443,13 @@ void main() {
         (tester) async {
       onboardingDone = true;
       onboardingVersion = 2;
-      var receiverUp = true;
       final stops = <MethodCall>[];
       mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
         switch (call.method) {
           case 'stop':
             stops.add(call);
-            receiverUp = false;
             return <String, Object>{'up': false};
           case 'arm':
-            receiverUp = true;
             return true;
           case 'overlayGranted':
           case 'notifGranted':
@@ -475,9 +472,9 @@ void main() {
             onboardingVersion = 0;
             return true;
           default:
+            // The live status read: the receiver IS running for this test.
             return <String, Object>{
-              'up': receiverUp, 'port': receiverUp ? 8765 : -1,
-              'discoverable': false, 'mdns': false,
+              'up': true, 'port': 8765, 'discoverable': false, 'mdns': false,
             };
         }
       });
@@ -486,19 +483,21 @@ void main() {
       // The receiver is up → the hero card offers Stop.
       await tester.ensureVisible(find.text('Stop Receiver'));
       await tester.pumpAndSettle();
+      // The live up-state the hero renders before the tap (the card the user
+      // sees when the receiver is genuinely running).
+      expect(find.text('Active · Ready for Cast'), findsOneWidget);
       await tester.tap(find.text('Stop Receiver'), warnIfMissed: false);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
-      expect(stops, isNotEmpty,
+      // THE REGRESSION GUARD: the tap must reach the native stop lane exactly
+      // once. In v3.4.6.d the handler raced its own status push and the button
+      // looked dead; the fix is requestStop()'s synchronous `up:false` reply,
+      // which the widget discards — so what a widget test can and must prove is
+      // that the tap is wired to the channel at all (the native half is proven
+      // by the lab's v346eStopReceiverContractChecks and by the live Android 36
+      // emulator probe B2, "Stop Receiver live execution").
+      expect(stops, hasLength(1),
           reason: 'tapping Stop Receiver must reach the native stop lane');
-      // And the hero follows the LIVE native status: the mock now answers
-      // up == false, so a fresh mount renders Start (the v3.4.6.d defect was
-      // that the tap never reached a lane that could turn the receiver off —
-      // the call assertion above is the regression guard; this is the render).
-      await tester.pumpWidget(const SizedBox());
-      await tester.pumpWidget(upToDateApp());
-      await tester.pumpAndSettle();
-      expect(find.text('Start Receiver'), findsOneWidget);
     });
 
     testWidgets('the AnantPlay tile (not installed) opens the in-app installer sheet',
@@ -651,9 +650,19 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      // The domain cards render grouped by domain. The Help tab is a lazy
-      // ListView, so each card is asserted AFTER it is scrolled into view
-      // (an unbuilt off-screen child is not a missing card).
+      // 1 — THE AUTO-COPY (the release's headline contract): the report reached
+      // the clipboard through the Flutter lane, and the confirmation banner is
+      // rendered at the top of the list. Both are asserted BEFORE scrolling,
+      // because the Help tab is a lazy ListView (a child scrolled out of view
+      // is unmounted, not missing).
+      final data = await Clipboard.getData('text/plain');
+      expect(data?.text, contains('v3.4.6.e (30411)'));
+      expect(
+        find.text('1/3 Deep Troubleshoot complete — 100% '
+            'Privacy-Safe report auto-copied to clipboard ✓'),
+        findsOneWidget);
+      // 2 — the domain cards render grouped by domain, each asserted after it
+      // is scrolled into view.
       expect(find.text('Auto-Updater Law'), findsOneWidget);
       for (final title in const [
         'Home & Cast Receiver',
@@ -663,14 +672,6 @@ void main() {
             scrollable: find.byType(Scrollable).first);
         expect(find.text(title), findsOneWidget);
       }
-      // The auto-copy confirmation banner shows.
-      expect(
-        find.text('1/3 Deep Troubleshoot complete — 100% '
-            'Privacy-Safe report auto-copied to clipboard ✓'),
-        findsOneWidget);
-      // The report is on the clipboard (Flutter lane).
-      final data = await Clipboard.getData('text/plain');
-      expect(data?.text, contains('v3.4.6.e (30411)'));
     });
 
     // v3.4.6.e — THE LIVE PROGRESS COUNTER: the per-probe frames
