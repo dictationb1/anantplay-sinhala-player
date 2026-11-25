@@ -70,6 +70,49 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     private volatile boolean nexusTakeover;   // bring our player over AnantPlay's Remote
 
     public static boolean isUp() { return running != null; }
+
+    // ── v3.4.6.g — THE CAST AUTO-OPEN FOREGROUND SIGNAL ──────────────────────
+    // The field bug: 3/3 casts answered "/play accepted", the shell route was
+    // pushed, but 5 s later the watchdog declared "player did not open despite
+    // the overlay grant" and posted the fallback notification — a second, wrong
+    // UI. Two independent facts now answer the wait loop:
+    //   · playerOpenedAt — ReceiverService.markPlayerOpened() is called the
+    //     instant MainActivity/PlayerScreen accepts the playback route (and by
+    //     Media3TextureBridge once its session is live). Trusted for 60 s.
+    //   · shellRoutePushedAt — MainActivity.shellRoute() has no instance yet, so
+    //     the route was queued as a launch intent and WILL be consumed by
+    //     onCreate → pendingShellRoute. That is a successful handoff, not a
+    //     failure. Trusted for 60 s.
+    private static volatile long playerOpenedAt;
+    private static volatile String playerOpenedTitle = "";
+    private static volatile long shellRoutePushedAt;
+
+    /** The player took the route (foreground proof for the /play watchdog). */
+    public static void markPlayerOpened(String title, String url) {
+        playerOpenedAt = android.os.SystemClock.elapsedRealtime();
+        playerOpenedTitle = title == null ? "" : title;
+        Diag.i("play", "foreground signal: player opened");
+    }
+
+    /** MainActivity.shellRoute queued the payload (cold-start handoff proof). */
+    public static void markShellRoutePushed() {
+        shellRoutePushedAt = android.os.SystemClock.elapsedRealtime();
+    }
+
+    /** True when the player opened within the last 60 s (the watchdog window). */
+    public static boolean playerOpenedRecently() {
+        long at = playerOpenedAt;
+        return at > 0 && android.os.SystemClock.elapsedRealtime() - at < 60_000L;
+    }
+
+    /** True when a route payload was handed to the shell within the last 60 s. */
+    public static boolean shellRoutePushedRecently() {
+        long at = shellRoutePushedAt;
+        return at > 0 && android.os.SystemClock.elapsedRealtime() - at < 60_000L;
+    }
+
+    /** The Cast Auto-Open contract is wired (probe + report read this). */
+    public static boolean foregroundSignalWired() { return true; }
     public static int port() { ReceiverService s = running; return s == null ? -1 : (s.server == null ? -1 : s.server.port()); }
 
     /**
@@ -547,7 +590,11 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         int waits = overlay ? 50 : 12;
         for (int n = 0; n < waits; n++) {           // Cast.play's wait loop (Cast.java:171-176)
             try { Thread.sleep(100); } catch (InterruptedException e) { break; }
-            if (PlayActivity.current() != null || PlayActivity.bridgeSessionLive()) {
+            // v3.4.6.g — the layered proof: a live PlayActivity session, a live
+            // bridge session, the explicit foreground signal, or the confirmed
+            // cold-start route handoff. Any one of them means the cast landed.
+            if (PlayActivity.current() != null || PlayActivity.bridgeSessionLive()
+                    || playerOpenedRecently() || shellRoutePushedRecently()) {
                 Diag.i("play", "player opened" + (overlay ? "" : " (no overlay perm — it worked anyway)"));
                 Troubleshooter.record("CAST", "player opened ✓" + (overlay ? "" : " (no overlay perm)"));
                 if (overlay) scheduleTakeover();

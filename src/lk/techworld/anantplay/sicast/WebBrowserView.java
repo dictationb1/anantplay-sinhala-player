@@ -146,18 +146,33 @@ public class WebBrowserView extends FrameLayout {
     private static volatile boolean lastHeadless = true;
 
     /** The real WebSettings state (never a hardcoded probe result). */
+    /**
+     * v3.4.6.g — FAIL #34/#35 HARDENED: the live WebSettings read is wrapped so
+     * a thrown WebView/WebSettings state (a destroyed view, a not-yet-created
+     * WebView) can NEVER escape as a RuntimeException. MainActivity dispatches
+     * this onto the UI thread (WebSettings is main-Looper-only); the last
+     * values captured by noteRuntimeState() remain the answer when the live
+     * view is absent, so the probe reports REAL facts — never a hardcoded PASS,
+     * never a crash.
+     */
     static boolean[] liveHardeningState() {
-        WebBrowserView v = androidAppView;
-        if (v != null && v.web != null) {
-            android.webkit.WebSettings s = v.web.getSettings();
-            lastMixedNever = s.getMixedContentMode() ==
-                android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW;
-            lastFileAccess = s.getAllowFileAccess();
-            lastContentAccess = s.getAllowContentAccess();
+        try {
+            WebBrowserView v = androidAppView;
+            if (v != null && v.web != null) {
+                android.webkit.WebSettings s = v.web.getSettings();
+                lastMixedNever = s.getMixedContentMode() ==
+                    android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW;
+                lastFileAccess = s.getAllowFileAccess();
+                lastContentAccess = s.getAllowContentAccess();
+            }
+        } catch (Throwable t) {
+            // keep the last captured facts — a destroyed view is not a policy change
         }
+        boolean cap, blob;
+        try { cap = BridgeGuard.blobCapConfigured(); } catch (Throwable t) { cap = false; }
+        try { blob = BridgeGuard.blobGuardConfigured(); } catch (Throwable t) { blob = false; }
         return new boolean[]{
-            lastMixedNever, !lastFileAccess, !lastContentAccess,
-            BridgeGuard.blobCapConfigured(), BridgeGuard.blobGuardConfigured(),
+            lastMixedNever, !lastFileAccess, !lastContentAccess, cap, blob,
         };
     }
 

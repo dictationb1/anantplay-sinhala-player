@@ -23,7 +23,7 @@ void main() {
         return <String, Object>{'pending': true, 'version': '3.4.6.b'};
       case 'appInfo':
         // v3.4.6.f — the REAL installed identity for the LAW #1 Dart audits.
-        return <String, Object>{'versionName': '3.4.6.f', 'versionCode': 30412};
+        return <String, Object>{'versionName': '3.4.6.g', 'versionCode': 30413};
       case 'list':
         return '[{"title":"ශ්‍රී ලංකාවේ චිත්‍රපටිය","url":"https://example.com/v.m3u8","source":"cast","pos":120000,"dur":600000,"at":1,"ephemeralRelay":false}]';
       case 'getAll':
@@ -420,6 +420,36 @@ void main() {
               'IllegalStateException: PlatformException(error, No active stream to cancel, null, null)');
       expect(crashOutcome.pass, isFalse);
       expect(crashOutcome.detail, contains('No active stream to cancel'));
+    });
+  });
+
+  // ══ v3.4.6.g — THE SURFACE SESSION + LADDER CONTRACT ═══════════════════════
+  group('v3.4.6.g hardware surface + version ladder', () {
+    test('PlayerSession decodes the hardware surfaceview lane (-2)', () {
+      final s = PlayerSession.fromMap(<String, Object>{
+        'textureId': -2,
+        'videoWidth': 3840,
+        'videoHeight': 2160,
+        'videoMode': 'surfaceview',
+      });
+      expect(s.textureId, -2);
+      expect(s.videoMode, 'surfaceview');
+      expect(s.videoWidth, 3840);
+    });
+
+    test('PlayerSession defaults to the texture lane (no videoMode key)', () {
+      final s = PlayerSession.fromMap(<String, Object>{'textureId': 7});
+      expect(s.textureId, 7);
+      expect(s.videoMode, 'texture');
+    });
+
+    test('isNewerVersion: v3.4.6.g beats .f, .f does not beat .g', () {
+      expect(isNewerVersion('3.4.6.g', '3.4.6.f'), isTrue);
+      expect(isNewerVersion('3.4.6.f', '3.4.6.g'), isFalse);
+      expect(isNewerVersion('3.4.6.g', '3.4.6.g'), isFalse,
+          reason: 'the self-lock stays mathematically impossible');
+      expect(isNewerVersion('3.4.6.h', '3.4.6.g'), isTrue);
+      expect(isNewerVersion('3.4.7', '3.4.6.g'), isTrue);
     });
   });
 }

@@ -1,4 +1,4 @@
-# AnantPlay Player (SI Cast Receiver) v3.4.6.f (versionCode 30412)
+# AnantPlay Player (SI Cast Receiver) v3.4.6.g (versionCode 30412)
 
 > **v3.4.6.c — THE ZERO-DEAD-BUTTON MORNYE SHELL · REAL CINEMA PLAYER + BROWSER · 16 KB-PAGE ENGINE · 55 MB UPDATER TIER.**
 > Mornye Glass is now the default surface, with live 10–95% clarity, optional rim

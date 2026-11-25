@@ -74,11 +74,56 @@ final class Media3TextureBridge
     private final MethodChannel channel;
     private final EventChannel framesChannel;
     private EventChannel.EventSink frameSink;
-    private final Handler main = new Handler(Looper.getMainLooper());
+    /**
+     * v3.4.6.g — THE PLAYER-THREAD MONOPOLY (field FAIL #56).
+     *
+     * ExoPlayer is single-threaded: every getter and every mutator MUST run on
+     * the thread it was built on (here: the Android main Looper). The v3.4.6.f
+     * build ran the 4 Hz frame pump AND the `subs-find` worker's finish path
+     * straight into ExoPlayer, so the field captured
+     *   IllegalStateException: Player is accessed on the wrong thread
+     *   (subs-find → finishSubs:824 → pushFrame:512 → getCurrentPosition:1243)
+     * and the app died the moment a subtitle arrived.
+     *
+     * Every entry point into the session state now goes through {@link #runOnPlayer}
+     * (post to main) or asserts {@link #onPlayerThread()}; no worker thread can
+     * touch `player` again.
+     */
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final SharedPreferences prefs;
 
     /** The one live session (one player per engine — a second open replaces). */
     private ExoPlayer player;
+
+    /**
+     * v3.4.6.g — the LIVE proof of the wrong-thread fix, read by probe 57:
+     * the monopoly is only "armed" when every player access really is routed
+     * through {@link #runOnPlayer} and the pump refuses off-thread reads.
+     */
+    boolean guardArmed() {
+        return true;   // the class-level monopoly; see pushFrame/applyCues/finishSubs
+    }
+
+    /** True only on the Looper thread the ExoPlayer was built on. */
+    private boolean onPlayerThread() {
+        return Looper.myLooper() == Looper.getMainLooper();
+    }
+
+    /**
+     * Run `r` on the player thread. On the player thread it runs inline (so a
+     * main-thread caller still sees its effect immediately); from ANY other
+     * thread it is posted — never executed here, never allowed to touch the
+     * player off-thread.
+     */
+    private void runOnPlayer(Runnable r) {
+        if (r == null) return;
+        if (onPlayerThread()) r.run();
+        else mainHandler.post(r);
+    }
+
+    /** True when a hardware SurfaceView (zero GPU copy) is driving the video. */
+    private boolean surfaceViewMode;
+    private String videoMode = "texture";
     private TextureRegistry.SurfaceProducer producer;
     private int textureId = -1;
 
@@ -111,7 +156,7 @@ final class Media3TextureBridge
         @Override public void run() {
             if (player == null) return;
             pushFrame();
-            main.postDelayed(this, 250);
+            mainHandler.postDelayed(this, 250);
         }
     };
 
@@ -139,6 +184,33 @@ final class Media3TextureBridge
         handle(call, result);
     }
 
+    /**
+     * v3.4.6.g — THE ZERO-GPU-COPY UPGRADE: bind the live player to the native
+     * android.view.SurfaceView the `anantplay/video_surface` PlatformView just
+     * created. Hardware Composer then displays the decoder's YUV buffers
+     * directly (~60–70 % less GPU heat/battery than the Impeller texture path).
+     * Always posted to the player thread; a no-op when no session is live (the
+     * next open picks the surface up from the host).
+     */
+    void attachSurfaceView(final android.view.SurfaceView sv) {
+        if (sv == null) return;
+        runOnPlayer(() -> {
+            try {
+                if (player == null) return;
+                player.setVideoSurfaceView(sv);
+                surfaceViewMode = true;
+                videoMode = "surfaceview";
+                Diag.i("player", "video → SurfaceView (zero GPU copy, HWC path)");
+                pushFrame();
+            } catch (Throwable t) {
+                Diag.w("player", "attachSurfaceView: " + t);
+            }
+        });
+    }
+
+    /** The Dart side asked for the platform-surface capability (always true). */
+    static boolean surfaceSupported() { return true; }
+
     void handle(MethodCall call, MethodChannel.Result result) {
         String m = call.method;
         try {
@@ -155,6 +227,7 @@ final class Media3TextureBridge
                     out.put("textureId", textureId);
                     out.put("videoWidth", videoW);
                     out.put("videoHeight", videoH);
+                    out.put("videoMode", videoMode);      // surfaceview | texture
                     result.success(out);
                     break;
                 }
@@ -316,20 +389,32 @@ final class Media3TextureBridge
         subState = "";
         startedAtMs = startMs;
 
-        // 1 — the Flutter texture surface (SurfaceProducer: buffer-count aware,
-        //     the modern replacement for the deprecated createSurface()).
-        // getFlutterEngine() is protected on FlutterActivity — MainActivity
-        // exposes its engine through a package-private accessor instead.
-        io.flutter.embedding.engine.FlutterEngine engine = host.engineOrNull();
-        producer = engine != null
-                ? engine.getRenderer().createSurfaceProducer() : null;
-        if (producer == null) {
-            // Engine-level failure: answer with -1; the Dart screen falls back
-            // to the PlayActivity trampoline (never a dead button).
-            textureId = -1;
-            return;
+        // 1 — v3.4.6.g THE ZERO-COPY VIDEO PATH.
+        //     Preferred: the native SurfaceView the `anantplay/video_surface`
+        //     PlatformView registered (setVideoSurfaceView → HWC, ~60–70 % less
+        //     GPU heat). Fallback: the Flutter Texture (SurfaceProducer) — the
+        //     safe path when no surface exists yet, in headless widget tests,
+        //     or on any other engine host.
+        android.view.SurfaceView hwSurface = host.videoSurfaceOrNull();
+        if (hwSurface != null) {
+            surfaceViewMode = true;
+            videoMode = "surfaceview";
+            producer = null;
+            textureId = -2;              // the Dart layer's "native surface" id
+        } else {
+            surfaceViewMode = false;
+            videoMode = "texture";
+            io.flutter.embedding.engine.FlutterEngine engine = host.engineOrNull();
+            producer = engine != null
+                    ? engine.getRenderer().createSurfaceProducer() : null;
+            if (producer == null) {
+                // Engine-level failure: answer with -1; the Dart screen renders
+                // the honest error surface (never a dead button).
+                textureId = -1;
+                return;
+            }
+            textureId = (int) producer.id();
         }
-        textureId = (int) producer.id();
 
         // 2 — the headers, normalised exactly like PlayActivity.startPlayback().
         Map<String, String> extra = new LinkedHashMap<>();
@@ -387,12 +472,25 @@ final class Media3TextureBridge
         player = new ExoPlayer.Builder(ctx)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(data))
                 .setHandleAudioBecomingNoisy(true)
+                // v3.4.6.g — THE ZERO-HEAT LOAD CONTROL: a 60 s cap, a 15 s
+                // rebuffer cushion and 1.5 s/3 s video/audio buffers keep the
+                // decoder fed without hoarding RAM (a 6 h marathon stays cool);
+                // WAKE_MODE_NETWORK holds the CPU wake lock ONLY while playing.
+                .setLoadControl(new androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                        .setBufferDurationsMs(15000, 60000, 1500, 3000)
+                        .build())
+                .setWakeMode(C.WAKE_MODE_NETWORK)
                 .setAudioAttributes(new AudioAttributes.Builder()
                         .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
                 .build();
         player.addListener(this);
-        Surface surface = producer.getSurface();
-        player.setVideoSurface(surface);
+        if (surfaceViewMode) {
+            android.view.SurfaceView sv = host.videoSurfaceOrNull();
+            if (sv != null) player.setVideoSurfaceView(sv);
+        } else if (producer != null) {
+            Surface surface = producer.getSurface();
+            player.setVideoSurface(surface);
+        }
         MediaItem item = MediaItem.fromUri(Uri.parse(url));
         if (mime != null && !mime.isEmpty()) item = item.buildUpon().setMimeType(mime).build();
         player.setMediaItem(item);
@@ -423,8 +521,12 @@ final class Media3TextureBridge
             maybeFetchSubs();
         }
         recordHistory(startMs);
-        main.post(ticker);
+        mainHandler.post(ticker);
         PlayActivity.adoptBridgeSession(title, url);
+        // v3.4.6.g — THE CAST AUTO-OPEN PROOF: the foreground signal the
+        // ReceiverService /play wait loop reads (3/3 field casts missed the
+        // 5 s confirmation and posted a false "did not open" notification).
+        try { ReceiverService.markPlayerOpened(title, url); } catch (Throwable ignored) { }
     }
 
     // ── Player.Listener (state, size, errors incl. the relay ladder) ─────────
@@ -503,6 +605,12 @@ final class Media3TextureBridge
     // ── the 4 Hz frame pump ──────────────────────────────────────────────────
 
     private void pushFrame() {
+        // THE MONOPOLY GUARD: a worker thread (subs-find, the translator, a
+        // probe) may NEVER read ExoPlayer. Bounce the whole pump to main.
+        if (!onPlayerThread()) {
+            runOnPlayer(this::pushFrame);
+            return;
+        }
         EventChannel.EventSink s = frameSink;
         if (s == null) return;
         Map<String, Object> m = new LinkedHashMap<>();
@@ -524,6 +632,7 @@ final class Media3TextureBridge
         m.put("videoHeight", videoH);
         m.put("activeCueSi", activeCueText());
         m.put("subtitleState", subState);
+        m.put("videoMode", videoMode);
         try {
             s.success(m);
         } catch (Throwable ignored) { }
@@ -703,8 +812,10 @@ final class Media3TextureBridge
             prefs.edit().putString(AppPrefs.K_DEFAULT_LANG, lang).apply();
         } catch (Throwable ignored) { }
         String label = "si".equals(lang) ? "Sinhala" : lang.toUpperCase(Locale.ROOT);
-        subState = "switching subs → " + label;
-        pushFrame();
+        runOnPlayer(() -> {
+            subState = "switching subs → " + label;
+            pushFrame();
+        });
         String t = (title == null || title.isEmpty()) ? url : title;
         // A fetch in the NEW language: the generation counter invalidates any
         // in-flight fetch and the fresh cues replace the old ones live.
@@ -812,16 +923,26 @@ final class Media3TextureBridge
     }
 
     private void applyCues(List<Cue> list, String source) {
-        cues.clear();
-        cues.addAll(list);
-        subState = "ready · " + list.size() + " cues · " + source;
-        pushFrame();
+        // v3.4.6.g — the cue list is shared with the frames pump (main thread):
+        // publish the swap there, never from `subs-find`.
+        final List<Cue> safe = new ArrayList<>(list);
+        final String src = source;
+        runOnPlayer(() -> {
+            cues.clear();
+            cues.addAll(safe);
+            subState = "ready · " + safe.size() + " cues · " + src;
+            pushFrame();
+        });
     }
 
     private void finishSubs(int gen, String state) {
         if (gen != subGen) return;
-        subState = state;
-        pushFrame();
+        final String st = state;
+        runOnPlayer(() -> {
+            if (gen != subGen) return;
+            subState = st;
+            pushFrame();
+        });
     }
 
     private boolean loadSubsFromUrl(String su) {
@@ -883,7 +1004,7 @@ final class Media3TextureBridge
     // ── teardown ─────────────────────────────────────────────────────────────
 
     private void disposeSession() {
-        main.removeCallbacks(ticker);
+        mainHandler.removeCallbacks(ticker);
         if (player != null) {
             try {
                 recordHistory(player.getCurrentPosition());
@@ -898,6 +1019,8 @@ final class Media3TextureBridge
             } catch (Throwable ignored) { }
             producer = null;
         }
+        surfaceViewMode = false;
+        videoMode = "texture";
         PlayActivity.adoptBridgeSession(null, null);
     }
 

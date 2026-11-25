@@ -1098,15 +1098,25 @@ class _AccentRow extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          // v3.4.6.c — Material You dynamic color toggle (K_DYNAMIC_COLOR).
-          _SwitchRow(
-            title: 'Material You dynamic color',
-            value: AppState.of(context)
-                .settings
-                .b(SettingsMirror.kDynamicColor, false),
-            onChanged: (v) => AppState.of(context)
-                .scope
-                .putBool(SettingsMirror.kDynamicColor, v),
+          // v3.4.6.g — REAL Material You: the toggle paints the wallpaper
+          // scheme (DynamicColorBuilder in main.dart). When the platform has no
+          // dynamic palette (Android ≤ 11 / desktop / tests) the row says so
+          // instead of faking it.
+          ValueListenableBuilder<ColorScheme?>(
+            valueListenable: AppDynamicColor.current,
+            builder: (context, live, _) => _SwitchRow(
+              title: 'Material You dynamic color',
+              subtitle: live == null
+                  ? 'Not available on this device (Android 12+ only) — the '
+                      'accent above is used'
+                  : 'Wallpaper palette ${live.primary.toARGB32().toRadixString(16).toUpperCase()} applied to the whole app',
+              value: AppState.of(context)
+                  .settings
+                  .b(SettingsMirror.kDynamicColor, false),
+              onChanged: (v) => AppState.of(context)
+                  .scope
+                  .putBool(SettingsMirror.kDynamicColor, v),
+            ),
           ),
         ],
       ),
@@ -1120,51 +1130,235 @@ class _AccentRow extends StatelessWidget {
     return v == null ? const Color(0xFF7FCDD0) : Color(v);
   }
 
-  void _pickHex(BuildContext context) {
-    final controller = TextEditingController(
-        text: hex.isEmpty ? '#7FCDD0' : hex);
+  /// v3.4.6.g — THE Mornye LIQUID-GLASS COLOR STUDIO SHEET.
+  ///
+  /// The v3.4.6.f build opened a bare AlertDialog with one text field: no
+  /// swatches, no preview, no "use preset" affordance inside the studio and —
+  /// worst — nothing visibly repainted. Tapping `#` now opens a real studio:
+  /// a curated 24-swatch grid, a live `#RRGGBB` field, a live colour preview
+  /// pill and an `Apply Color` action that persists K_ACCENT_HEX and repaints
+  /// the ENTIRE app on the very next frame (main.dart reads AppState.settings
+  /// every build, so the write alone is the repaint trigger).
+  Future<void> _pickHex(BuildContext context) async {
+    final picked = await showColorStudioSheet(context, initial: hex);
+    if (!context.mounted || picked == null) return;
+    final scope = AppState.of(context).scope;
+    if (picked.isEmpty) {
+      await scope.putString(SettingsMirror.kAccentHex, '');
+    } else {
+      await scope.putString(SettingsMirror.kAccentHex, picked);
+    }
+  }
+}
+
+/// The Color Studio sheet — one reusable surface (Settings + the Home guide).
+/// Returns the chosen `RRGGBB` (no `#`), or `''` for "back to presets", or
+/// null when the sheet was dismissed.
+Future<String?> showColorStudioSheet(BuildContext context,
+    {String initial = ''}) {
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => _ColorStudioSheet(initial: initial),
+  );
+}
+
+class _ColorStudioSheet extends StatefulWidget {
+  const _ColorStudioSheet({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_ColorStudioSheet> createState() => _ColorStudioSheetState();
+}
+
+class _ColorStudioSheetState extends State<_ColorStudioSheet> {
+  /// The curated Mornye palette (12 hues × 2 luminances) — instantly usable
+  /// without typing a hex code.
+  static const List<String> _studio = <String>[
+    '7FCDD0', '3E8E8F', '4DD0E1', '0288D1', '5C6BC0', '7E7FF0',
+    '9C7BF7', 'F07FD0', 'FF6482', 'EF5350', 'FFB340', 'FFD54F',
+    '63D668', '2E7D32', 'A5D6A7', '26A69A', '8D6E63', 'BCAAA4',
+    '64D2FF', '00B8D4', 'C0CA33', 'F4511E', 'AD1457', '455A64',
+  ];
+
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial.isEmpty ? '7FCDD0' : '#${widget.initial}');
+  String _hex = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _hex = _normalize(_controller.text) ?? '';
+    _controller.addListener(() {
+      final n = _normalize(_controller.text);
+      if (n != null && n != _hex) setState(() => _hex = n);
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  static String? _normalize(String raw) {
+    var v = raw.trim();
+    if (v.startsWith('#')) v = v.substring(1);
+    if (!RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(v)) return null;
+    return v.toUpperCase();
+  }
+
+  static Color _colorOf(String hex) =>
+      Color(int.parse('FF$hex', radix: 16));
+
+  @override
+  Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    showDialog<void>(
-      context: context,
-      builder: (d) => AlertDialog(
-        backgroundColor: scheme.surfaceContainerHigh,
-        title: Text('Custom accent',
-            style: TextStyle(color: scheme.onSurface)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(
-                RegExp(r'[0-9a-fA-F#]')),
-          ],
-          decoration: const InputDecoration(
-              hintText: '#RRGGBB', prefixIcon: Icon(mi.Icons.colorize_rounded)),
+    final Color preview =
+        _hex.isEmpty ? scheme.primary : _colorOf(_hex);
+    final bool isLight = preview.computeLuminance() > 0.55;
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Container(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+          border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.35)),
         ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              AppState.of(context).scope
-                  .putString(SettingsMirror.kAccentHex, '');
-              Navigator.pop(d);
-            },
-            child: const Text('Use preset'),
-          ),
-          FilledButton(
-            onPressed: () {
-              var v = controller.text.trim();
-              if (!v.startsWith('#')) v = '#$v';
-              final clean = RegExp(r'^#?([0-9a-fA-F]{6})$').hasMatch(v)
-                  ? v.replaceFirst('#', '').toUpperCase()
-                  : '';
-              if (clean.isNotEmpty) {
-                AppState.of(context).scope
-                    .putString(SettingsMirror.kAccentHex, clean);
-              }
-              Navigator.pop(d);
-            },
-            child: const Text('Apply'),
-          ),
-        ],
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 38,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: scheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Icon(mi.Icons.palette_rounded, size: 20, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text('Color Studio',
+                    style: TextStyle(
+                        color: scheme.onSurface,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700)),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text('A custom accent for the whole app — every button, pill, '
+                'slider and switch repaints instantly.',
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12.5)),
+            const SizedBox(height: 16),
+            // the curated swatch grid
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final h in _studio)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => _hex = h);
+                      _controller.text = '#$h';
+                      _controller.selection = TextSelection.collapsed(
+                          offset: _controller.text.length);
+                    },
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _colorOf(h),
+                        border: _hex == h
+                            ? Border.all(color: scheme.onSurface, width: 2.5)
+                            : Border.all(
+                                color: scheme.outlineVariant
+                                    .withValues(alpha: 0.45)),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            // the live #RRGGBB field + preview pill
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                          RegExp(r'[0-9a-fA-F#]')),
+                      LengthLimitingTextInputFormatter(7),
+                    ],
+                    style: TextStyle(color: scheme.onSurface),
+                    decoration: InputDecoration(
+                      hintText: '#RRGGBB',
+                      prefixIcon: Icon(mi.Icons.colorize_rounded,
+                          size: 18, color: scheme.primary),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // the LIVE preview pill (accent fill + its own contrast text)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  height: 46,
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: preview,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                          color: preview.withValues(alpha: 0.45),
+                          blurRadius: 14,
+                          spreadRadius: 1),
+                    ],
+                  ),
+                  child: Center(
+                    child: Text('Aa',
+                        style: TextStyle(
+                            color: isLight ? Colors.black : Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(context, ''),
+                  child: const Text('Use preset'),
+                ),
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: _hex.isEmpty
+                      ? null
+                      : () => Navigator.pop(context, _hex),
+                  icon: const Icon(mi.Icons.check_rounded, size: 18),
+                  label: const Text('Apply Color'),
+                  style: FilledButton.styleFrom(backgroundColor: preview,
+                      foregroundColor: isLight ? Colors.black : Colors.white),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1225,11 +1419,20 @@ class _SliderRow extends StatelessWidget {
 }
 
 class _SwitchRow extends StatelessWidget {
-  const _SwitchRow({required this.title, required this.value, required this.onChanged});
+  const _SwitchRow({
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+  });
 
   final String title;
   final bool value;
   final ValueChanged<bool> onChanged;
+
+  /// v3.4.6.g — the honest fact line under a row (e.g. whether the platform
+  /// actually provides a Material You palette).
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -1239,6 +1442,7 @@ class _SwitchRow extends StatelessWidget {
     // settings pages place their switches.
     return SettingsItem(
       title: title,
+      subtitle: subtitle,
       trailing: AppSwitch(value: value, onChanged: onChanged),
     );
   }

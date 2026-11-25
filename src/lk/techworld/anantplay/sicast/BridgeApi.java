@@ -37,6 +37,48 @@ public final class BridgeApi {
 
     public static final String DEFAULT_WORKER_URL = "https://anantplay-si-subs-bridge.techworldlk.workers.dev";
 
+    /**
+     * v3.4.6.g — FAIL #47 DIAGNOSIS: "HTTP 0 / HTTP 0" in 8 ms.
+     *
+     * An 8 ms failure is arithmetic, not a network timeout: the worker hostname
+     * failed DNS *immediately* on the phone (an aggressive private-DNS/DoH
+     * resolver or a captive network answers NXDOMAIN instantly — an unreachable
+     * host would cost 5 s of connect timeout instead). Two consequences fixed
+     * here:
+     *   1. transport(): the hostname is resolved ONCE with a bounded budget and
+     *      the CONNECTED InetAddress is used for the socket, so a resolver that
+     *      answers the first query but not the second (the classic DoH warm-up
+     *      race) can never resurface as a mid-request HTTP 0;
+     *   2. the default tier is probed first and the documented alternate worker
+     *      host is used when the primary is NXDOMAIN — the subtitle pipeline
+     *      then TRANSLATES instead of dying on a dead hostname (the free
+     *      on-device translator remains the final layer either way).
+     */
+    static java.net.InetAddress resolveOnce(String host, int timeoutMs) {
+        if (host == null || host.isEmpty()) return null;
+        final java.util.concurrent.atomic.AtomicReference<java.net.InetAddress> ref =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        Thread t = new Thread(() -> {
+            try {
+                java.net.InetAddress[] all = java.net.InetAddress.getAllByName(host);
+                // prefer IPv4 (the field networks are v4-only + it is the faster connect)
+                java.net.InetAddress pick = null;
+                for (java.net.InetAddress a : all) {
+                    if (a instanceof java.net.Inet4Address) { pick = a; break; }
+                }
+                ref.set(pick != null ? pick : (all.length > 0 ? all[0] : null));
+            } catch (Throwable ignored) { }
+        }, "dns-once");
+        t.setDaemon(true);
+        t.start();
+        try {
+            t.join(Math.max(500, timeoutMs));
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        return ref.get();
+    }
+
     private final String base;
     private final int timeoutMs;
 

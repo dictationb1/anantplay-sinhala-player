@@ -100,6 +100,15 @@ class AppStateNotifier extends ChangeNotifier {
 
   /// v3.4.6 — the wizard stage is persisted as the user advances (a phone call
   /// or a kill mid-wizard resumes on the same step instead of restarting).
+  /// v3.4.6.g — the Guide/Tour chip's entry: clear the "wizard seen" marker so
+  /// [SettingsMirror.onboardingCurrent] is false again and the shell renders
+  /// the interactive wizard. The persisted stage is reset by the caller.
+  Future<void> scopeStageForReplay() async {
+    await AnantPlay.instance
+        .putInt(SettingsMirror.kOnboardingVersion, 0);
+    await refresh();
+  }
+
   Future<void> setOnboardingStage(int stage) async {
     await AnantPlay.instance.putInt(SettingsMirror.kOnboardingStage, stage);
     await refresh();
@@ -255,4 +264,20 @@ class AppStateScopeData extends State<AppStateScope> with WidgetsBindingObserver
       child: widget.child,
     );
   }
+}
+
+/// v3.4.6.g — THE LIVE MATERIAL YOU PALETTE.
+///
+/// `DynamicColorBuilder` (main.dart) resolves the wallpaper-extracted colour
+/// scheme on Android 12–16 and publishes it here. Two consumers:
+///   · the app's themed root paints the whole UI from it when `dynamicColor`
+///     is ON;
+///   · Settings reads it for the honest "available / not available" subtitle
+///     and the live preview swatch — never a faked Material You.
+class AppDynamicColor {
+  AppDynamicColor._();
+
+  /// The live wallpaper scheme (null = platform does not support it).
+  static final ValueNotifier<ColorScheme?> current =
+      ValueNotifier<ColorScheme?>(null);
 }

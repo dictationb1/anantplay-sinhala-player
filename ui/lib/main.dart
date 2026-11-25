@@ -119,10 +119,12 @@ class AnantPlayApp extends StatelessWidget {
   }
 }
 
-/// v3.4.6.f — the live Mornye theme bridge. Every appearance key the Studio
-/// writes flows through [AppStateNotifier] into this widget; because it reads
-/// [AppState.of] during build, Flutter rebuilds + repaints the entire app the
+/// The live Mornye theme bridge. Every appearance key the Studio writes flows
+/// through the app state notifier into this widget; because it reads
+/// AppState.of during build, Flutter rebuilds + repaints the entire app the
 /// instant a preference changes (no restart, no setState in 40 screens).
+/// v3.4.6.g: wrapped in dynamic_color's DynamicColorBuilder for REAL
+/// Material You wallpaper palettes.
 class _ThemedApp extends StatelessWidget {
   const _ThemedApp();
 
@@ -159,21 +161,39 @@ class _ThemedApp extends StatelessWidget {
         s.s(SettingsMirror.kSurfaceStyle, 'glass') == 'flat';
     final bool outlines = flat ? false : s.glassOutlines;
 
-    final ThemeData light = _themeFor(
-      s, Brightness.light, accent, override, clarity, outlines,
-      amoled: false,
-    );
-    final ThemeData dark = _themeFor(
-      s, Brightness.dark, accent, override, clarity, outlines,
-      amoled: amoled,
-    );
-    return MaterialApp(
-      title: 'AnantPlay Player',
-      debugShowCheckedModeBanner: false,
-      themeMode: mode,
-      theme: light,
-      darkTheme: dark,
-      home: const ShellRoot(),
+    // ── v3.4.6.g — REAL MATERIAL YOU ──────────────────────────────────────
+    // The v3.4.6.f build FAKED dynamic color: `dynamicColor` on only nudged the
+    // seed to a hardcoded #6750A4, so toggling it changed almost nothing. The
+    // whole app is now wrapped in dynamic_color's DynamicColorBuilder: on
+    // Android 12–16 it hands back the REAL wallpaper-extracted ColorSchemes
+    // (light + dark), which are painted across primary/primaryContainer/
+    // secondary/tertiary/surface/surfaceContainerLow…Highest/nav pill/cards/
+    // sliders/switches/outlines — under Dark / AMOLED / Light alike. When the
+    // platform answers null (Android ≤ 11, desktop, tests) the preset seed is
+    // used and Settings shows the honest "not available on this device" note.
+    return DynamicColorBuilder(
+      builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+        // publish for Settings (the honest availability note + preview swatch)
+        AppDynamicColor.current.value = darkDynamic ?? lightDynamic;
+        final ThemeData light = _themeFor(
+          s, Brightness.light, accent, override, clarity, outlines,
+          amoled: false,
+          dynamic: lightDynamic,
+        );
+        final ThemeData dark = _themeFor(
+          s, Brightness.dark, accent, override, clarity, outlines,
+          amoled: amoled,
+          dynamic: darkDynamic,
+        );
+        return MaterialApp(
+          title: 'AnantPlay Player',
+          debugShowCheckedModeBanner: false,
+          themeMode: mode,
+          theme: light,
+          darkTheme: dark,
+          home: const ShellRoot(),
+        );
+      },
     );
   }
 
@@ -185,6 +205,7 @@ class _ThemedApp extends StatelessWidget {
     double clarity,
     bool outlines, {
     required bool amoled,
+    ColorScheme? dynamic,
   }) {
     final String? font = switch (s.s(SettingsMirror.kUiFont, '')) {
       '' => null,
@@ -198,6 +219,31 @@ class _ThemedApp extends StatelessWidget {
       glassOutlines: outlines,
     );
     ColorScheme scheme = base.colorScheme;
+    // v3.4.6.g — THE REAL WALLPAPER SCHEME WINS when Material You is ON: every
+    // role the shell paints with comes from the platform's dynamic palette. A
+    // custom #RRGGBB accent still overrides the accent roles (the user asked
+    // for that colour explicitly).
+    final bool you = s.b(SettingsMirror.kDynamicColor, false);
+    if (you && dynamic != null) {
+      scheme = dynamic.copyWith(
+        brightness: brightness,
+        onPrimary: dynamic.onPrimary,
+        primaryContainer: dynamic.primaryContainer,
+        secondary: dynamic.secondary,
+        secondaryContainer: dynamic.secondaryContainer,
+        tertiary: dynamic.tertiary,
+        tertiaryContainer: dynamic.tertiaryContainer,
+        surface: dynamic.surface,
+        surfaceContainerLowest: dynamic.surfaceContainerLowest,
+        surfaceContainerLow: dynamic.surfaceContainerLow,
+        surfaceContainer: dynamic.surfaceContainer,
+        surfaceContainerHigh: dynamic.surfaceContainerHigh,
+        surfaceContainerHighest: dynamic.surfaceContainerHighest,
+        outline: dynamic.outline,
+        outlineVariant: dynamic.outlineVariant,
+        inverseSurface: dynamic.inverseSurface,
+      );
+    }
     if (override != null) {
       scheme = scheme.copyWith(
         primary: override,
@@ -405,6 +451,16 @@ class ShellRootState extends State<ShellRoot> {
   /// Cinema Player (PlayerScreen over Media3TextureBridge) opens IN the shell.
   void pushPlayer(PlayRequest request) {
     setState(() => _activePlay = request);
+  }
+
+  /// v3.4.6.g — THE GUIDE/TOUR CHIP: re-open the interactive wizard on demand.
+  /// Rewinds the persisted stage to slide 1 and drops the seen-marker, so the
+  /// shell renders OnboardingScreen again (the same gate as a first launch).
+  Future<void> replayOnboarding() async {
+    final scope = AppState.of(context).scope;
+    await scope.scopeStageForReplay();
+    await scope.setOnboardingStage(0);
+    if (mounted) setState(() => _tab = 0);
   }
 
   /// The player route popped (back / PiP-less exit): clear the session.

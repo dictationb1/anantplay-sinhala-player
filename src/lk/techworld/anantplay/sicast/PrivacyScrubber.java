@@ -66,6 +66,20 @@ public final class PrivacyScrubber {
     private static final Pattern HW_MODEL_TOKEN = Pattern.compile(
         "(?<![A-Za-z0-9_\\-])[A-Za-z0-9][A-Za-z0-9_\\-]{3,17}(?![A-Za-z0-9_\\-])");
 
+    /** Ordinary English words that can follow a brand word in a sentence
+     *  ("nothing hidden", "nothing else", "one plus one"). */
+    private static final Pattern ENGLISH_STOP = Pattern.compile(
+        "(?i)^(hidden|else|new|here|there|to|and|or|but|is|was|has|had|will|"
+        + "more|less|wrong|missing|found|changed|special|important|unusual|"
+        + "outstanding|suspicious|plus|minus a|detected|reported|available)$");
+
+    /** True when the token carries at least one ASCII digit. */
+    private static boolean hasDigit(String s) {
+        if (s == null) return false;
+        for (int i = 0; i < s.length(); i++) if (s.charAt(i) >= '0' && s.charAt(i) <= '9') return true;
+        return false;
+    }
+
     /** An IMDb id — never an identifier of the phone, always kept verbatim. */
     private static final Pattern IMDB_ID = Pattern.compile("(?i)\\btt\\d{6,10}\\b");
 
@@ -267,7 +281,28 @@ public final class PrivacyScrubber {
             last = m.end();
         }
         sb.append(text, last, text.length());
-        String out = VENDOR_MODEL.matcher(sb.toString()).replaceAll(PHONE_MODEL);
+        // v3.4.6.g — THE HEADER FALSE POSITIVE. The vendor list carries the
+        // real brand "Nothing", so the report header "== EVERY FAIL ✗ (the whole
+        // truth, first — nothing hidden) ==" was scrubbed to
+        // "== EVERY FAIL ✗ (<phone-model>) ==" — the scrubber ate the sentence
+        // that says nothing is hidden. A vendor+model pair is now only replaced
+        // when the model TAIL carries a digit (every real model does:
+        // 24117RN76G, Note 13, Pixel 9, Galaxy A52, CPH2451) and the whole match
+        // is not an ordinary English phrase.
+        java.util.regex.Matcher vm = VENDOR_MODEL.matcher(sb.toString());
+        StringBuilder vmOut = new StringBuilder(sb.length());
+        int vmLast = 0;
+        while (vm.find()) {
+            String whole = vm.group();
+            String tail = whole.substring(vm.group(1).length()).trim();
+            boolean looksModel = hasDigit(tail) && tail.length() <= 40
+                && !ENGLISH_STOP.matcher(tail).find();
+            vmOut.append(sb, vmLast, vm.start());
+            vmOut.append(looksModel ? PHONE_MODEL : whole);
+            vmLast = vm.end();
+        }
+        vmOut.append(sb, vmLast, sb.length());
+        String out = vmOut.toString();
         // v3.4.2 — validate every candidate: only a REAL hardware model is replaced.
         out = HW_MODEL_TOKEN.matcher(out).replaceAll(mr ->
             isHwModel(mr.group()) ? PHONE_MODEL : mr.group());

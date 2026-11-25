@@ -300,7 +300,23 @@ class _QuickStartCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (settings.quickstartDone) return const SizedBox(height: 16);
+    if (settings.quickstartDone) {
+      // v3.4.6.g — dismissed: nothing but a compact GUIDE chip remains, so the
+      // wizard is always one tap away without re-showing the banner.
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: ActionChip(
+            visualDensity: VisualDensity.compact,
+            avatar: Icon(Icons.auto_stories_outlined,
+                size: 16, color: Theme.of(context).colorScheme.primary),
+            label: const Text('Tour', style: TextStyle(fontSize: 12)),
+            onPressed: () => ShellRootState.of(context).replayOnboarding(),
+          ),
+        ),
+      );
+    }
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -329,9 +345,20 @@ class _QuickStartCard extends StatelessWidget {
                       color: theme.colorScheme.onSurface),
                 ),
               ),
+              // v3.4.6.g — GOT IT (persists K_HOME_TIP_DISMISSED via the
+              // quickstart mirror + SettingsMirror, then the card springs away)
+              // plus the compact GUIDE chip beside it that reopens the wizard.
               TextButton(
                 onPressed: () => AppState.of(context).scope.dismissQuickstart(),
                 child: const Text('Got it'),
+              ),
+              const SizedBox(width: 2),
+              ActionChip(
+                visualDensity: VisualDensity.compact,
+                avatar: Icon(Icons.play_circle_outline_rounded,
+                    size: 16, color: theme.colorScheme.primary),
+                label: const Text('Guide', style: TextStyle(fontSize: 12)),
+                onPressed: () => ShellRootState.of(context).replayOnboarding(),
               ),
             ],
           ),
@@ -359,7 +386,7 @@ class _QuickActions extends StatelessWidget {
         _ActionTile(
           icon: Icons.cast_rounded,
           title: 'AnantPlay',
-          subtitle: 'Open the official app',
+          subtitle: 'Official app',
           // v3.4.6.c — the official app, OR (not installed) the in-app
           // AnantPlayInstaller sheet — never a silent no-op.
           onTap: () async {
@@ -375,7 +402,7 @@ class _QuickActions extends StatelessWidget {
         _ActionTile(
           icon: Icons.public_rounded,
           title: 'Browser',
-          subtitle: 'Cinema WebView browser',
+          subtitle: 'Web & subs',
           // v3.4.6.c — complaint #1 fix: this tile switches the SHELL to the
           // live Browser tab (was: an openWebTab no-op that opened nothing).
           onTap: () => ShellRootState.of(context).openBrowserTab(),
@@ -383,13 +410,13 @@ class _QuickActions extends StatelessWidget {
         _ActionTile(
           icon: Icons.link_rounded,
           title: 'Play URL',
-          subtitle: 'Stream any link here',
+          subtitle: 'Stream link',
           onTap: () => _openUrlSheet(context),
         ),
         _ActionTile(
           icon: Icons.science_rounded,
           title: 'Test Player',
-          subtitle: 'Mornye cinema demo',
+          subtitle: 'Demo movie',
           // v3.4.6.c — complaint #3 fix: the MORNYE CINEMA PLAYER in the
           // shell (was: the raw Java PlayActivity).
           onTap: () => ShellRootState.of(context).pushPlayer(

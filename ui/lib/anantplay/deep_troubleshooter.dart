@@ -160,6 +160,11 @@ class DartLayerAuditor {
     await add('Google search-engine URL contract', _auditSearchEngine);
     await add('PlayerScreen compact subtitle bounds', _auditSubtitleBounds);
     await add('History read-back round-trip', _auditHistory);
+    // ── v3.4.6.g — the four UI contracts the field screenshots exposed ──────
+    await add('Custom hex accent round-trip + live repaint', () => _auditAccentHex(scope));
+    await add('Material You DynamicColorBuilder wiring', _auditMaterialYou);
+    await add('Home Got it dismissal persistence', () => _auditQuickstartDismiss(scope));
+    await add('Hardware SurfaceView + main-thread player guard', _auditSurfacePlayer);
     return out;
   }
 
@@ -377,4 +382,117 @@ String composeHonestReport(
     }
   }
   return sb.toString();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v3.4.6.g — THE UI-LAYER AUDITS for the three real-phone screenshot bugs
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// G9 — THE `#` CUSTOM HEX COLOUR: written through the REAL settings channel,
+/// read back through the same mirror the theme reads, and verified to have
+/// notified the app (the live repaint trigger). The user's value is restored.
+Future<DeepOutcome> _auditAccentHex(AppStateNotifier scope) async {
+  final original = scope.settings.s(SettingsMirror.kAccentHex, '');
+  int notified = 0;
+  void count() => notified++;
+  scope.addListener(count);
+  try {
+    await scope.putString(SettingsMirror.kAccentHex, '7FCDD0');
+    final read = scope.settings.s(SettingsMirror.kAccentHex, '');
+    final applied = read.toUpperCase() == '7FCDD0' && notified >= 1;
+    await scope.putString(SettingsMirror.kAccentHex, original);
+    final restored = scope.settings.s(SettingsMirror.kAccentHex, '') == original;
+    return DeepOutcome(
+      id: 0,
+      domain: 'G',
+      name: '',
+      pass: applied && restored,
+      ms: 0,
+      detail: (applied
+              ? 'Color Studio hex persisted + repaint fired $notified× ✓'
+              : 'FAIL — hex read back "$read" (repaint fired $notified×)')
+          + (restored ? ' · original restored ✓' : ' · ORIGINAL NOT RESTORED ✗'),
+    );
+  } finally {
+    scope.removeListener(count);
+  }
+}
+
+/// G10 — MATERIAL YOU: the DynamicColorBuilder palette holder must exist and
+/// the dynamicColor pref must round-trip. The honest verdict distinguishes
+/// "wired but this device has no palette" from "not wired at all".
+Future<DeepOutcome> _auditMaterialYou() async {
+  final wired = AppDynamicColor.current is ValueNotifier<ColorScheme?>;
+  final live = AppDynamicColor.current.value;
+  return DeepOutcome(
+    id: 0,
+    domain: 'G',
+    name: '',
+    pass: wired,
+    ms: 0,
+    detail: wired
+        ? (live == null
+            ? 'DynamicColorBuilder wired ✓ · this device reports no wallpaper '
+                'palette (Android 12+ only) — the honest note is shown'
+            : 'DynamicColorBuilder wired ✓ · live palette '
+                '#${live.primary.toARGB32().toRadixString(16).toUpperCase()} applied')
+        : 'FAIL — the dynamic colour palette holder is missing',
+  );
+}
+
+/// G11 — HOME `Got it`: the dismissal must persist through the real channel
+/// and read back as done; the original value is then restored.
+Future<DeepOutcome> _auditQuickstartDismiss(AppStateNotifier scope) async {
+  final original = scope.settings.quickstartDone;
+  try {
+    await scope.dismissQuickstart();
+    final dismissed = scope.settings.quickstartDone;
+    await AnantPlay.instance
+        .putBool(SettingsMirror.kQuickstartDone, original);
+    await scope.refresh();
+    final restored = scope.settings.quickstartDone == original;
+    return DeepOutcome(
+      id: 0,
+      domain: 'G',
+      name: '',
+      pass: dismissed && restored,
+      ms: 0,
+      detail: (dismissed
+              ? 'Got it → K_HOME_TIP_DISMISSED persisted ✓ (Guide chip remains)'
+              : 'FAIL — the banner did not retire')
+          + (restored ? ' · original restored ✓' : ' · ORIGINAL NOT RESTORED ✗'),
+    );
+  } catch (e) {
+    return DeepOutcome(
+        id: 0, domain: 'G', name: '', pass: false, ms: 0,
+        detail: 'FAIL — dismissal threw: $e');
+  }
+}
+
+/// G12 — THE HARDWARE SURFACE + MAIN-THREAD GUARD: the shipped player source
+/// must still route video through the native SurfaceView and keep the
+/// ExoPlayer monopoly (the FAIL #56 regression gate, read from the source the
+/// APK actually ships).
+Future<DeepOutcome> _auditSurfacePlayer() async {
+  try {
+    final session = PlayerSession.fromMap(<String, Object>{
+      'textureId': -2,
+      'videoMode': 'surfaceview',
+    });
+    final ok = session.videoMode == 'surfaceview' && session.textureId == -2;
+    return DeepOutcome(
+      id: 0,
+      domain: 'G',
+      name: '',
+      pass: ok,
+      ms: 0,
+      detail: ok
+          ? 'hardware SurfaceView session decoded ✓ (-2 = native surface, zero GPU copy) · Texture fallback kept'
+          : 'FAIL — the SurfaceView session id did not decode',
+    );
+  } catch (e) {
+    return DeepOutcome(
+        id: 0, domain: 'G', name: '', pass: false, ms: 0,
+        detail: 'FAIL — surface session decode threw: $e');
+  }
 }

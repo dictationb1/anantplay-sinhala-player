@@ -766,6 +766,17 @@ public final class AppPrefs {
     public static boolean dlnaEnabled(SharedPreferences p) { return p.getBoolean(K_DLNASTART, true); }
     public static boolean mdnsEnabled(SharedPreferences p) { return p.getBoolean(K_MDNS, true); }
     public static String workerUrl(SharedPreferences p) { return normalizeWorkerUrl(p.getString(K_WORKER_URL, BridgeApi.DEFAULT_WORKER_URL)); }
+
+    /**
+     * v3.4.6.g — THE WORKER-RECOVERY RESET (FAIL #47's user-facing half).
+     * A hand-edited / stale / unreachable worker URL made every subtitle fetch
+     * answer HTTP 0. One call restores the shipped default so the Sinhala
+     * ladder runs again; returns the URL now in effect.
+     */
+    public static String resetWorkerUrl(SharedPreferences p) {
+        if (p != null) p.edit().remove(K_WORKER_URL).apply();
+        return BridgeApi.DEFAULT_WORKER_URL;
+    }
     public static boolean adBlock(SharedPreferences p) { return p.getBoolean(K_AD_BLOCK, true); }
     /** v3.4.0 - the desktop user-agent switch (was read inline before). */
     public static boolean webDesktopUa(SharedPreferences p) { return p.getBoolean(K_WEB_DESKTOP_UA, false); }

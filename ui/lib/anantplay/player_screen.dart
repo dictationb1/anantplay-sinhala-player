@@ -115,9 +115,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         startMs: r.resumeMs,
       );
       if (!mounted) return;
-      if (s.textureId < 0) {
+      if (s.textureId < 0 && s.textureId != -2) {
         // Bridge texture creation failed — the honest error surface (never a
-        // dead black screen): message + back.
+        // dead black screen): message + back. (-2 = the hardware SurfaceView
+        // session, i.e. real video on the zero-GPU-copy path.)
         setState(() => _session = s);
         return;
       }
@@ -220,7 +221,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final s = AppState.of(context).settings;
-    final hasVideo = _session.textureId >= 0;
+    // v3.4.6.g — -2 = the hardware SurfaceView session (still real video).
+    final hasVideo = _session.textureId >= 0 || _session.textureId == -2;
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -239,13 +241,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
             // subtitle re-layers can never repaint the video layer (the GPU
             // surface compositor keeps the movie on its own layer — the
             // single biggest movie-streaming jank fix).
+            // v3.4.6.g — ZERO-GPU-COPY: the native `anantplay/video_surface`
+            // PlatformView hosts a pure android.view.SurfaceView that Media3
+            // writes into directly (Hardware Composer scans the decoder's YUV
+            // buffers out — no Impeller shader pass per frame). textureId == -2
+            // is the bridge's "native surface" id; any real texture id keeps the
+            // proven Flutter `Texture` fallback (headless tests, no surface).
             if (hasVideo)
               RepaintBoundary(
                 child: Center(
                   child: LayoutBuilder(builder: (context, c) {
                     return Container(
                       constraints: _videoConstraints(c),
-                      child: Texture(textureId: _session.textureId),
+                      child: _session.textureId == -2
+                          ? AndroidView(
+                              viewType: 'anantplay/video_surface',
+                              creationParamsCodec:
+                                  const StandardMessageCodec(),
+                            )
+                          : Texture(textureId: _session.textureId),
                     );
                   }),
                 ),

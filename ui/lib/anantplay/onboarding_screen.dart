@@ -278,7 +278,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   ];
 
   static const _bodies = [
-    'Watch AnantPlay with instant Sinhala subtitles — one receiver, zero forks, Liquid-Glass cinema.',
+    'The whole story in three beats — tap the story to replay it:\n'
+        '1 · Pick a movie in AnantPlay\n'
+        '2 · Auto Sinhala subtitles\n'
+        '3 · Cool Cinema Player',
     'The official app sends the cast. Install it here — checked live, downloaded with real progress, confirmed in one tap.',
     'A cast arrives as a quiet notification when the screen can\'t open it automatically. One tap, and it plays.',
     'With the overlay permission a cast opens the player by itself — tap Cast, the Cinema springs open.',
@@ -289,7 +292,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   Widget _heroFor(int i) => switch (i) {
         // v3.4.6.d — every hero is INTERACTIVE: tapping replays the step-by-
         // step demonstration (the replay key re-seeds the animation state).
-        0 => _WelcomeHero(onReplay: _replayDemo, replay: _demoReplay),
+        0 => _WelcomeStoryHero(onReplay: _replayDemo, replay: _demoReplay),
         1 => _InstallHero(
             installed: _status.official,
             percent: _installPercent,
@@ -689,111 +692,6 @@ class _SlideShell extends StatelessWidget {
 // v3.4.6.d — THE INTERACTIVE DEMO CONTRACT: every hero takes `replay` (a
 // counter the parent bumps on tap) and restarts its step-by-step story from
 // frame 0 on every bump, so tapping the visual ALWAYS does something visible.
-
-/// Slide 1 — the app emblem breathing on a teal/cyan aura (tap = replay pulse).
-class _WelcomeHero extends StatefulWidget {
-  const _WelcomeHero({required this.onReplay, this.replay = 0});
-  final VoidCallback onReplay;
-  final int replay;
-
-  @override
-  State<_WelcomeHero> createState() => _WelcomeHeroState();
-}
-
-class _WelcomeHeroState extends State<_WelcomeHero>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _breath = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2600),
-  );
-
-  @override
-  void didUpdateWidget(_WelcomeHero old) {
-    super.didUpdateWidget(old);
-    // Tap-the-hero = restart the demo from frame 0 (visible every time).
-    if (widget.replay != old.replay) _breath.forward(from: 0);
-  }
-
-  @override
-  void dispose() {
-    _breath.dispose();
-    super.dispose();
-  }
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // The Mornye looping contract: ambient-motion-aware heroes. Reduced
-    // motion (or a test harness with disableAnimations) freezes the loop
-    // cleanly at its current frame; the spring timer never even starts.
-    final live = !MediaQuery.disableAnimationsOf(context);
-    if (live && !_breath.isAnimating) {
-      _breath.repeat(reverse: true);
-    } else if (!live && _breath.isAnimating) {
-      _breath.stop();
-    }
-  }
-
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: widget.onReplay,
-      child: SizedBox(
-        width: 210,
-        height: 210,
-        child: AnimatedBuilder(
-          animation: _breath,
-          builder: (context, _) {
-            final t = _breath.value;
-            final scale = 1.0 + 0.045 * Curves.easeInOut.transform(t);
-            final aura = 0.55 + 0.30 * t;
-            return Stack(
-              alignment: Alignment.center,
-              children: [
-                // the ambient teal/cyan Mornye aura
-                Container(
-                  width: 205,
-                  height: 205,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        Color.fromRGBO(62, 142, 143, aura),
-                        Color.fromRGBO(127, 205, 208, aura * 0.55),
-                        const Color(0x000F2E30),
-                      ],
-                      stops: const [0.05, 0.45, 1.0],
-                    ),
-                  ),
-                ),
-                Transform.scale(
-                  scale: scale,
-                  child: Container(
-                    width: 128,
-                    height: 128,
-                    decoration: BoxDecoration(
-                      color: const Color(0x1F1E4E4F),
-                      borderRadius: BorderRadius.circular(38),
-                      border: Border.all(color: const Color(0x663E8E8F)),
-                      boxShadow: const [
-                        BoxShadow(
-                            color: Color(0x553E8E8F),
-                            blurRadius: 24,
-                            spreadRadius: 2),
-                      ],
-                    ),
-                    child: const Icon(mi.Icons.cast_for_education_rounded,
-                        size: 62, color: Color(0xFF7FCDD0)),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
 
 /// Slide 2 — the live install state: a glowing green badge when installed, an
 /// animated download/demo (arrow bobbing into a tray with the live percent)
@@ -1501,4 +1399,248 @@ class _SourcesHeroState extends State<_SourcesHero>
         1 => '2. Add Index URL in Sources',
         _ => '3. Tap Cast — watch here',
       };
+}
+
+/// v3.4.6.g — SLIDE 1'S THREE-BEAT ANIMATED STORY.
+///
+/// The field complaint: the welcome slide showed one emblem, so a new user
+/// never actually SAW what the app does. This hero plays the full value
+/// proposition as three animated beats, advancing on a timer and replaying on
+/// tap (the Mornye "tap the hero to see it again" contract):
+///   1. Pick movie in AnantPlay   → a phone card with a poster and a cast tap
+///   2. Auto Sinhala Subtitles    → a cue line filling with සිංහල script
+///   3. Cool Cinema Player        → the play glyph + the HUD glow
+/// Reduced motion freezes on beat 1 (no looping animation in a11y mode).
+class _WelcomeStoryHero extends StatefulWidget {
+  const _WelcomeStoryHero({required this.onReplay, this.replay = 0});
+
+  final VoidCallback onReplay;
+  final int replay;
+
+  @override
+  State<_WelcomeStoryHero> createState() => _WelcomeStoryHeroState();
+}
+
+class _WelcomeStoryHeroState extends State<_WelcomeStoryHero>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _beat = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 4200),
+  );
+
+  static const _captions = <String>[
+    '1 · Pick a movie in AnantPlay',
+    '2 · Auto Sinhala Subtitles',
+    '3 · Cool Cinema Player',
+  ];
+
+  @override
+  void didUpdateWidget(_WelcomeStoryHero old) {
+    super.didUpdateWidget(old);
+    if (widget.replay != old.replay) _beat.forward(from: 0);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final live = !MediaQuery.disableAnimationsOf(context);
+    if (live && !_beat.isAnimating) {
+      _beat.repeat();
+    } else if (!live && _beat.isAnimating) {
+      _beat.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _beat.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onReplay,
+      child: SizedBox(
+        width: 250,
+        height: 230,
+        child: AnimatedBuilder(
+          animation: _beat,
+          builder: (context, _) {
+            final t = _beat.value;                 // 0..1 over three beats
+            final int beatIndex = (t * 3).floor().clamp(0, 2);
+            final double local = (t * 3) - beatIndex;   // 0..1 inside the beat
+            return Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // ── the three beats, cross-faded ──────────────────────────
+                SizedBox(
+                  height: 150,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 260),
+                    child: KeyedSubtree(
+                      key: ValueKey<int>(beatIndex),
+                      child: switch (beatIndex) {
+                        1 => _beatSubtitles(context, local),
+                        2 => _beatPlayer(context, local),
+                        _ => _beatPick(context, local),
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _captions[beatIndex],
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                // the three-beat progress dots
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var i = 0; i < 3; i++)
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        width: i == beatIndex ? 18 : 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: i == beatIndex
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .outlineVariant
+                                  .withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// BEAT 1 — a movie card with a cast pulse.
+  Widget _beatPick(BuildContext context, double local) {
+    final pulse = 0.5 + 0.5 * Curves.easeInOut.transform(
+        (local * 2 % 1.0));
+    return _beatCard(
+      context,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: 92,
+            height: 118,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF3E8E8F), Color(0xFF1E4E4F)],
+              ),
+            ),
+            child: const Icon(Icons.movie_creation_rounded,
+                size: 44, color: Color(0xFF7FCDD0)),
+          ),
+          Positioned(
+            right: 34,
+            bottom: 14,
+            child: Transform.scale(
+              scale: 0.9 + 0.2 * pulse,
+              child: const Icon(Icons.cast_rounded,
+                  size: 30, color: Color(0xFFFFB340)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// BEAT 2 — a cue filling with Sinhala script.
+  Widget _beatSubtitles(BuildContext context, double local) {
+    // a three-step reveal (no extra package: the Sinhala chunks are pre-cut so
+    // a conjunct like ශ්‍රී can never be split mid-grapheme)
+    final shown = (local * 3).clamp(0, 2).floor();
+    const steps = <String>['සිං', 'සිංහල', 'සිංහල උපසිරැසි'];
+    return _beatCard(
+      context,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            steps[shown],
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Text('English → Sinhala · 0 ads',
+                style: TextStyle(fontSize: 10.5, color: Colors.white70)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// BEAT 3 — the cinema player opening (the HUD glow).
+  Widget _beatPlayer(BuildContext context, double local) {
+    final glow = 0.4 + 0.6 * Curves.easeOut.transform(local);
+    return _beatCard(
+      context,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: 118,
+            height: 74,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0B1020),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF7FCDD0).withValues(alpha: 0.35 * glow),
+                  blurRadius: 22,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.play_circle_fill_rounded,
+              size: 44,
+              color: Colors.white.withValues(alpha: 0.55 + 0.45 * glow)),
+        ],
+      ),
+    );
+  }
+
+  Widget _beatCard(BuildContext context, {required Widget child}) {
+    return Container(
+      width: 200,
+      height: 150,
+      decoration: BoxDecoration(
+        color: const Color(0x1F1E4E4F),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0x663E8E8F)),
+      ),
+      child: Center(child: child),
+    );
+  }
 }

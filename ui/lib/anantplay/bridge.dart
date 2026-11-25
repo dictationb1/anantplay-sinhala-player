@@ -1,4 +1,4 @@
-// AnantPlay Sinhala Player v3.4.6.f — the Dart side of the 8-channel bridge.
+// AnantPlay Sinhala Player v3.4.6.g — the Dart side of the 8-channel bridge.
 //
 // Every call maps 1:1 onto the Java host (MainActivity.configureFlutterEngine):
 //   anantplay/cast, /player, /subs, /browser, /settings, /history, /updater,
@@ -155,7 +155,7 @@ class AppBuildInfo {
 /// v3.4.6.f — the DART MIRROR of UpdateChecker.isNewer (Java): strictly-newer
 /// four-segment comparison with the whole a–z alphabetical lane, so the Dart
 /// gate (ShellRoot + ForceUpdateScreen) enforces LAW #1 identically:
-/// 3.4.6 < 3.4.6.a < … < 3.4.6.e < 3.4.6.f < … < 3.4.6.z < 3.4.7.
+/// 3.4.6 < 3.4.6.a < … < 3.4.6.e < 3.4.6.f < 3.4.6.g < … < 3.4.6.z < 3.4.7.
 /// `v3.4.6.f → v3.4.6.f` answers FALSE — the self-lock is impossible here.
 bool isNewerVersion(String? candidate, String? current) {
   final List<int> a = _parseVersion(candidate);
@@ -421,6 +421,7 @@ class PlayerSession {
     required this.textureId,
     required this.videoWidth,
     required this.videoHeight,
+    this.videoMode = 'texture',
   });
 
   factory PlayerSession.fromMap(Object? map) {
@@ -429,12 +430,19 @@ class PlayerSession {
       textureId: (m['textureId'] as num?)?.toInt() ?? -1,
       videoWidth: (m['videoWidth'] as num?)?.toInt() ?? 0,
       videoHeight: (m['videoHeight'] as num?)?.toInt() ?? 0,
+      // v3.4.6.g — 'surfaceview' (hardware, zero GPU copy) | 'texture' (fallback)
+      videoMode: (m['videoMode'] as String?) ?? 'texture',
     );
   }
 
   final int textureId;
   final int videoWidth;
   final int videoHeight;
+
+  /// v3.4.6.g — which rendering lane this session uses: `surfaceview` (the
+  /// native android.view.SurfaceView, Hardware-Composer scanned, zero GPU
+  /// copies) or `texture` (the Flutter/Impeller fallback).
+  final String videoMode;
 }
 
 /// v3.4.6.c — one frame of the player position stream (the EventChannel the

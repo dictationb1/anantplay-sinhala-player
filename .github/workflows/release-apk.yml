@@ -37,7 +37,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.4.6.c — no leading v)'
         required: true
-        default: '3.4.6.f'
+        default: '3.4.6.g'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -123,8 +123,11 @@ jobs:
           # strictly higher, so no shipped build can ever be "updated" downward.
           if [ "$V" = "3.4.6.e" ]; then
             [ "$CODE" -eq 30411 ] || { echo "::error::3.4.6.e must derive exactly 30411 (got $CODE)"; exit 1; }
+          elif [ "$V" = "3.4.6.f" ]; then
+            [ "$CODE" -eq 30412 ] || { echo "::error::3.4.6.f must derive exactly 30412 (got $CODE)"; exit 1; }
           else
-            [ "$CODE" -gt 30410 ] || { echo "::error::derived versionCode $CODE for '$V' is not above the live 3.4.6.d (30410)"; exit 1; }
+            # v3.4.6.g — the monotonic floor moved with the shipped .f (30412).
+            [ "$CODE" -gt 30412 ] || { echo "::error::derived versionCode $CODE for '$V' is not above the live 3.4.6.f (30412)"; exit 1; }
           fi
           # the wide lane reserves 100 slots per numeric version; a patch or minor
           # of 100+ would spill into the next lane, so it is refused loudly.

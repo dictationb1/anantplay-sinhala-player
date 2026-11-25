@@ -31,8 +31,14 @@ final class AppInfo {
     // v3.4.6.e→v3.4.6.e self-lock, the background multi-download, the
     // `No active stream to cancel` EventChannel collision, and the fake
     // PASSes in the deep troubleshooter (Probe 47's HTTP 0 lie).
-    static final String VERSION_NAME = "3.4.6.f";
-    static final int VERSION_CODE = 30412;
+    // v3.4.6.g (code 30413): THE CRASH / THERMAL / CAST RELEASE — kills the
+    // wrong-thread ExoPlayer crash (subs-find → pushFrame), probes 34/35's
+    // UI-thread RuntimeException, the 3/3 cast auto-open misses and the
+    // PrivacyScrubber header false positive; adds the zero-GPU-copy hardware
+    // SurfaceView player, the honest live-step troubleshooter, the Color
+    // Studio and REAL Material You.
+    static final String VERSION_NAME = "3.4.6.g";
+    static final int VERSION_CODE = 30413;
     static final String NAME = "AnantPlay Sinhala Player";
     private AppInfo() { }
 }

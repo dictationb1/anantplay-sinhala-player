@@ -15,6 +15,7 @@
 // settings + receiver state first and restores them in a finally block,
 // and the Dart layer restores every value it touches (theme, search engine).
 import 'dart:async';
+import 'dart:ui' show FontFeature;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -41,8 +42,14 @@ class _HelpScreenState extends State<HelpScreen> {
   String _report = '';
   StreamSubscription<dynamic>? _probeSub;
   StreamSubscription<Map<dynamic, dynamic>>? _progressSub;
-  /// The live progress counter (n of 56 native probes, while a run is in flight).
+  /// The live progress counter (n of the native probes, while a run is in flight).
   int _done = 0;
+
+  /// v3.4.6.g — THE LIVE TICKER LINES: every probe's own start/verdict line,
+  /// newest last. Rendered under the progress bar in real time
+  /// ("▶ #34 Security hardening flags…" → "✓ PASS (4 ms)" / "✗ FAIL (...)").
+  final List<_TickerLine> _ticker = <_TickerLine>[];
+  int _tickerTotal = 0;
   final Map<String, bool> _expanded = {};
   /// v3.4.6.e — the watchdog Timer (owned; cancelled in dispose).
   Timer? _watchdog;
@@ -66,10 +73,34 @@ class _HelpScreenState extends State<HelpScreen> {
       _runDartLayerAndFinish(outcomes);
     });
     // v3.4.6.f — the LIVE COUNTER: "Running 56 deep feature probes… 32/56".
+    // v3.4.6.g — THE LIVE STEP-BY-STEP TICKER. Every progress frame carries the
+    // probe that just finished (`outcome`: id/domain/name/pass/ms/detail), so the
+    // screen streams the run as it happens instead of showing a bare counter.
     _progressSub = AnantPlay.instance.deepProgressEvents().listen((frame) {
       if (!mounted || _running != true) return;
       final done = (frame['done'] as num?)?.toInt() ?? 0;
-      if (done > 0) setState(() => _done = done);
+      final total = (frame['total'] as num?)?.toInt() ?? 0;
+      _TickerLine? line;
+      final raw = frame['outcome'];
+      if (raw is Map) {
+        line = _TickerLine(
+          id: (raw['id'] as num?)?.toInt() ?? done,
+          domain: (raw['domain'] ?? '?').toString(),
+          name: (raw['name'] ?? '').toString(),
+          pass: raw['pass'] == true,
+          ms: (raw['ms'] as num?)?.toInt() ?? 0,
+          detail: (raw['detail'] ?? '').toString(),
+        );
+      }
+      setState(() {
+        if (done > 0) _done = done;
+        if (total > 0) _tickerTotal = total;
+        if (line != null) {
+          _ticker.add(line);
+          // bounded memory: the ticker shows the whole run, capped at 200 lines
+          if (_ticker.length > 200) _ticker.removeAt(0);
+        }
+      });
     });
   }
 
@@ -160,6 +191,8 @@ class _HelpScreenState extends State<HelpScreen> {
     setState(() {
       _running = true;
       _done = 0;   // the live counter restarts with the run
+      _ticker.clear();   // and so does the step-by-step ticker
+      _tickerTotal = 0;
     });
     try {
       await AnantPlay.instance.runDeepProbe();
@@ -260,6 +293,18 @@ class _HelpScreenState extends State<HelpScreen> {
                     ],
                   ),
                 ),
+              ),
+            ),
+          // v3.4.6.g — THE LIVE STEP-BY-STEP TICKER, directly below the run
+          // control: every probe streams in as it executes, with its exact
+          // latency and verdict — nothing is ever hidden behind a spinner.
+          if (_running || _ticker.isNotEmpty)
+            StaggeredListItem(
+              index: 0,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _LiveTicker(lines: _ticker, running: _running,
+                    done: _done, total: _tickerTotal),
               ),
             ),
           StaggeredListItem(
@@ -533,6 +578,174 @@ class _DomainCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// v3.4.6.g — ONE live ticker line (a probe that finished during this run).
+class _TickerLine {
+  const _TickerLine({
+    required this.id,
+    required this.domain,
+    required this.name,
+    required this.pass,
+    required this.ms,
+    required this.detail,
+  });
+
+  final int id;
+  final String domain;
+  final String name;
+  final bool pass;
+  final int ms;
+  final String detail;
+
+  String get text => pass
+      ? '✓ PASS ($ms ms) · #$id $domain $name'
+      : '✗ FAIL ($ms ms) · #$id $domain $name — $detail';
+}
+
+/// The auto-scrolling live feed of probe verdicts (Mornye glass, monospace
+/// rhythm, newest last, honest colours).
+class _LiveTicker extends StatefulWidget {
+  const _LiveTicker({
+    required this.lines,
+    required this.running,
+    required this.done,
+    required this.total,
+  });
+
+  final List<_TickerLine> lines;
+  final bool running;
+  final int done;
+  final int total;
+
+  @override
+  State<_LiveTicker> createState() => _LiveTickerState();
+}
+
+class _LiveTickerState extends State<_LiveTicker> {
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void didUpdateWidget(_LiveTicker old) {
+    super.didUpdateWidget(old);
+    // follow the newest line (never fights a user who scrolled up)
+    if (widget.lines.length != old.lines.length && _scroll.hasClients) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scroll.hasClients) return;
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final int total = widget.total > 0 ? widget.total : (widget.done > 0 ? widget.done : 1);
+    final double progress = (widget.done / total).clamp(0.0, 1.0);
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(widget.running
+                      ? Icons.bolt_rounded
+                      : Icons.checklist_rounded,
+                  size: 18, color: scheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  widget.running
+                      ? 'Running live · ${widget.done}/$total probes'
+                      : 'Last run · ${widget.lines.length} probes streamed',
+                  style: TextStyle(
+                      color: scheme.onSurface,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: widget.running ? progress : 1.0,
+              minHeight: 3,
+              backgroundColor: scheme.outlineVariant.withValues(alpha: 0.35),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 132,
+            child: widget.lines.isEmpty
+                ? Center(
+                    child: Text('Waiting for the first probe…',
+                        style: TextStyle(
+                            color: scheme.onSurfaceVariant, fontSize: 11.5)),
+                  )
+                : ListView.builder(
+                    controller: _scroll,
+                    padding: EdgeInsets.zero,
+                    itemCount: widget.lines.length,
+                    itemBuilder: (context, i) {
+                      final l = widget.lines[i];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 1.5),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              l.pass
+                                  ? Icons.check_circle_rounded
+                                  : Icons.cancel_rounded,
+                              size: 13,
+                              color: l.pass
+                                  ? const Color(0xFF63D668)
+                                  : scheme.error,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                l.text,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
+                                  fontSize: 10.5,
+                                  height: 1.3,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures()
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }

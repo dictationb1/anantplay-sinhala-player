@@ -154,27 +154,87 @@ class _MornyeSwitchState extends State<_MornyeSwitch>
       height: 28,
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
-        color: position >= 0.5 ? active : inactive,
+        // v3.4.6.g — the glass track takes the live accent tint while ON, with
+        // a soft inner rim so the glass reads even on a flat surface.
+        gradient: position >= 0.5
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [active, active.withValues(alpha: 0.82)],
+              )
+            : null,
+        color: position >= 0.5 ? null : inactive,
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+            color: position >= 0.5
+                ? active.withValues(alpha: 0.55)
+                : Colors.transparent,
+            width: 0.6),
       ),
       child: AnimatedBuilder(
         animation: _thumb,
         // The thumb stays inside the track when the spring runs past a side.
-        builder: (context, child) => Align(
-          alignment: AlignmentDirectional(
-            -1 + _thumb.value.clamp(0.0, 1.0) * 2,
-            0,
-          ),
-          child: child,
-        ),
-        child: Container(
-          width: 37,
-          height: 24,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
+        //
+        // v3.4.6.g — THE AUTHENTIC MORNYE LIQUID-GLASS THUMB: the same snappy
+        // spring now drives a tactile squash-and-stretch (the thumb widens
+        // while it travels and settles back to 37 dp), a luminous translucent
+        // glass fill with a specular top rim, and a soft accent glow, so the
+        // control feels like sliding glass under the finger — Mornye's own
+        // switch physics, not a reskinned Material pill.
+        builder: (context, child) {
+          final double v = _thumb.value.clamp(0.0, 1.0);
+          // velocity-driven stretch: fast travel = wider thumb, at rest = 1.0
+          final double speed = (_thumb.velocity.abs() / 6.0).clamp(0.0, 1.0);
+          final double stretch = 1.0 + 0.14 * speed;
+          final double w = 37.0 * stretch;
+          return Align(
+            alignment: AlignmentDirectional(-1 + v * 2, 0),
+            child: Container(
+              width: w,
+              height: 24,
+              decoration: BoxDecoration(
+                // luminous glass: near-white core, translucent body
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.white,
+                    Colors.white.withValues(alpha: 0.86),
+                    Colors.white.withValues(alpha: 0.94),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.55), width: 0.6),
+                boxShadow: [
+                  // the specular rim + the accent-tinted glow
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.22),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1.5),
+                  ),
+                  BoxShadow(
+                    color: active.withValues(alpha: 0.30 * v),
+                    blurRadius: 10,
+                    spreadRadius: 0.5,
+                  ),
+                ],
+              ),
+              // the specular highlight arc that reads as glass
+              child: Align(
+                alignment: const Alignment(0, -0.55),
+                child: Container(
+                  height: 6,
+                  margin: const EdgeInsets.symmetric(horizontal: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
 

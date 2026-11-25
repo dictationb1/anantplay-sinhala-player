@@ -199,6 +199,21 @@ class _CaptureDock extends StatelessWidget {
                   ),
                 ),
               const SizedBox(width: 6),
+              // v3.4.6.g — THE BUILT-IN NEWZONE / AUTO-TRANSLATE HELPER: one tap
+              // opens the NewZone subtitle translator on the page title, so an
+              // English .srt becomes Sinhala without leaving the browser flow.
+              IconButton(
+                tooltip: 'NewZone · Auto-Translate',
+                visualDensity: VisualDensity.compact,
+                icon: Icon(mi.Icons.translate_rounded,
+                    size: 18, color: scheme.primary),
+                onPressed: () {
+                  final q = (newest['title'] ?? '').toString();
+                  AnantPlay.instance.openNativeWeb(
+                      'https://tools.newzone.top/search?q=${Uri.encodeComponent(q)}');
+                },
+              ),
+              const SizedBox(width: 6),
               Icon(
                 open
                     ? mi.Icons.keyboard_arrow_down_rounded

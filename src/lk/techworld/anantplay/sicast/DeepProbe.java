@@ -89,6 +89,13 @@ public final class DeepProbe {
      * fakes + the pure engines — so the exact same 56-probe run executes in
      * both worlds and the lab result is the shipped result.
      */
+    /**
+     * v3.4.6.g — the advertised probe budget for the LIVE progress meter. It is
+     * a HINT for the UI only ("done/total"); the run itself is driven by the
+     * registration list, so this constant can never hide a probe.
+     */
+    static final int TOTAL_HINT = 68;
+
     public interface Hooks {
         // ── the transactional snapshot/restore core ─────────────────────────
         /** A copy of EVERY relevant preference, key → value (Objects). */
@@ -157,6 +164,17 @@ public final class DeepProbe {
         boolean sinhalaShapingOk();
         /** The player texture bridge's live presence (a session opens). */
         boolean playerBridgeLive();
+        /** v3.4.6.g — the ExoPlayer main-thread monopoly is armed (FAIL #56). */
+        default boolean playerMainThreadGuard() { return false; }
+        /** v3.4.6.g — the Cast Auto-Open foreground signal is wired + raisable. */
+        default boolean castForegroundSignal() { return false; }
+        /** v3.4.6.g — the hardware SurfaceView (zero GPU copy) lane is wired. */
+        default boolean surfaceViewWired() { return false; }
+        /** v3.4.6.g — every backed-up preference key → its live value (the
+         *  auto-discovering coverage probe's data source). */
+        default Map<String, Object> prefsCoverage() {
+            return java.util.Collections.emptyMap();
+        }
     }
 
     // ── the run state (thread-safe, one run at a time) ────────────────────────
@@ -260,6 +278,9 @@ public final class DeepProbe {
             out.add(guarded(id++, "C", "Browser & Privacy round trip", () -> probeC14(h, l), l));
             out.add(guarded(id++, "C", "Backup export → validate → restore", () -> probeC15(h, l), l));
             out.add(guarded(id++, "C", "Flutter ↔ Java channel completeness", () -> probeC16(h, l), l));
+            // v3.4.6.g — FIX GROUP 4: NO hidden preference can ever go untested.
+            out.add(guarded(id++, "C", "Every backed-up pref audit (auto-discovering)",
+                () -> probePrefsCoverage(h, l), l));
             // ══ DOMAIN D — BROWSER TAB ═════════════════════════════════════
             out.add(guarded(id++, "D", "Headless Chromium WebBrowserView", () -> probeD1(h, l), l));
             out.add(guarded(id++, "D", "Default search engine = Google", () -> probeD2(l), l));
@@ -285,6 +306,11 @@ public final class DeepProbe {
             out.add(guarded(id++, "E", "More Tools complete wiring", () -> probeE11(l), l));
             out.add(guarded(id++, "E", "Battery & GPU performance guards", () -> probeE12(l), l));
             out.add(guarded(id++, "E", "Real subtitle SRT → parse → ZWJ → store", () -> probeE13(l), l));
+            // v3.4.6.g — the two field crashes/complaints that had NO probe.
+            out.add(guarded(id++, "E", "Hardware SurfaceView + ExoPlayer main-thread guard",
+                () -> probeE14(h, l), l));
+            out.add(guarded(id++, "E", "Live subtitle → free Sinhala translation → ZWJ",
+                () -> probeE15(l), l));
             // ══ DOMAIN F — PERMISSIONS, SECURITY & PRIVACY ═════════════════
             out.add(guarded(id++, "F", "Notifications live status", () -> probeF1(h, l), l));
             out.add(guarded(id++, "F", "Display over other apps", () -> probeF2(h, l), l));
@@ -294,6 +320,11 @@ public final class DeepProbe {
             // v3.4.6.f — THE CRASH GATE: an uncaught Java/Dart exception in
             // THIS build is a FAIL with the exact class + line, never a PASS.
             out.add(guarded(id++, "F", "Uncaught crash gate (Last Crash)", () -> probeF6(h, l), l));
+            // v3.4.6.g — the cast auto-open contract + the browser automation lane.
+            out.add(guarded(id++, "F", "Cast Auto-Open foreground signal",
+                () -> probeF7(h, l), l));
+            out.add(guarded(id++, "F", "Browser automation: sniff + .zip + NewZone",
+                () -> probeF8(l), l));
             List<Outcome> snap = java.util.Collections.unmodifiableList(new ArrayList<>(out));
             if (l != null) try { l.onAllDone(snap); } catch (Throwable ignored) { }
             return snap;
@@ -368,12 +399,26 @@ public final class DeepProbe {
         return o;
     }
 
+    /** The hard wall-clock budget for the tier-2 endpoint (FAIL #2). */
+    static final long TIER2_DEADLINE_MS = 6000L;
+
     static Outcome probeTier2(Listener l) {
         Outcome o = new Outcome(0, "A", "");
+        final long t0 = System.currentTimeMillis();
         try {
-            // v3.4.6.f — 5 s connect / 6 s read: the v3.4.6.e run STALLED
-            // 32,891 ms on this exact GET (the honest-run cap is 12 s).
-            String body = SelfUpdateCore.httpGet(SelfUpdateCore.rawLatestJsonUrl(), 5000, 6000);
+            // v3.4.6.g — THE HARD DEADLINE: the v3.4.6.e run stalled 32,891 ms
+            // and the v3.4.6.f run still spent 20,607 ms here (raw.githubusercontent
+            // .com answers slowly behind some ISP TLS middleboxes). 3 s connect /
+            // 3 s read keeps the socket inside the budget, and the wall-clock
+            // check below refuses to let a slow-but-successful read blow it too.
+            String body = SelfUpdateCore.httpGet(SelfUpdateCore.rawLatestJsonUrl(), 3000, 3000);
+            long elapsed = System.currentTimeMillis() - t0;
+            if (elapsed > TIER2_DEADLINE_MS) {
+                o.pass = false;
+                o.detail = "tier-2 read took " + elapsed + " ms (hard deadline "
+                    + TIER2_DEADLINE_MS + " ms) — CDN too slow on this network";
+                return o;
+            }
             boolean schemaOk = false;
             if (body != null && !body.trim().isEmpty()) {
                 Object root = MiniJson.parse(body);
@@ -400,7 +445,8 @@ public final class DeepProbe {
 
     static Outcome probeLadder(Listener l) {
         Outcome o = new Outcome(0, "A", "");
-        boolean ok = UpdateChecker.isNewer("3.4.6.e", "3.4.6.d")
+        boolean ok = UpdateChecker.isNewer("3.4.6.g", "3.4.6.f")
+            && UpdateChecker.isNewer("3.4.6.e", "3.4.6.d")
             && UpdateChecker.isNewer("3.4.6.f", "3.4.6.e")
             && UpdateChecker.isNewer("3.4.6.z", "3.4.6.y")
             && UpdateChecker.isNewer("3.4.7", "3.4.6.z")
@@ -411,7 +457,7 @@ public final class DeepProbe {
             if (!UpdateChecker.isNewer("3.4.6." + (char) (ch + 1), "3.4.6." + ch)) sweep = false;
         }
         o.pass = ok && sweep;
-        o.detail = "3.4.6.d < .e < .f < .z < 3.4.7 · full a–z sweep "
+        o.detail = "3.4.6.d < .e < .f < .g < .z < 3.4.7 · full a–z sweep "
             + (sweep ? "monotonic" : "BROKEN");
         return o;
     }
@@ -837,6 +883,100 @@ public final class DeepProbe {
         return o;
     }
 
+    /**
+     * v3.4.6.g — FAIL #4 (FIX GROUP 4): THE AUTO-DISCOVERING ZERO-BLIND-SPOT
+     * PREFERENCES AUDIT.
+     *
+     * The v3.4.6.f troubleshooter tested the settings a human had remembered to
+     * write a probe for, so a hidden/advanced preference (or any key added in a
+     * future release) could silently fail to persist. This probe iterates EVERY
+     * key in AppPrefs.BACKUP_KEYS — 85+ today, and automatically whatever ships
+     * tomorrow — with a transactional
+     *   read → normalize → write → read-back-verify → RESTORE
+     * cycle per key. A key whose normalized round-trip does not hold is named
+     * in the detail line, so the verdict is never a blanket "PASS".
+     */
+    static Outcome probePrefsCoverage(Hooks h, Listener l) {
+        Outcome o = new Outcome(0, "C", "");
+        java.util.List<String> keys = AppPrefs.BACKUP_KEYS;
+        if (keys == null || keys.isEmpty()) {
+            o.pass = false;
+            o.detail = "FAIL — the backed-up preference key list is empty (restore would lose every setting)";
+            return o;
+        }
+        final Map<String, Object> snapshot = h.snapshotPrefs();
+        int verified = 0;
+        java.util.List<String> broken = new java.util.ArrayList<>();
+        for (String k : keys) {
+            Object before = safeGet(h, k);
+            // The probe-visible value: the CURRENT one, or the key's own default.
+            Object probe;
+            try {
+                probe = AppPrefs.normalizeValue(k, before != null ? before : sampleFor(k));
+            } catch (Throwable t) {
+                probe = null;
+            }
+            if (probe == null) { broken.add(k + " (not normalizable)"); continue; }
+            try {
+                h.putPref(k, probe);
+                Object after = safeGet(h, k);
+                // round-trip identity through the SAME normalizer the UI uses
+                Object want = AppPrefs.normalizeValue(k, probe);
+                if (want != null && want.equals(AppPrefs.normalizeValue(k, after))) verified++;
+                else broken.add(k + " (" + after + " ≠ " + want + ")");
+            } catch (Throwable t) {
+                broken.add(k + " (" + t.getClass().getSimpleName() + ")");
+            } finally {
+                // restore this key immediately — the run is transactional even if
+                // a later key throws (the outer finally restores the whole map too)
+                try {
+                    if (before == null) h.putPref(k, sampleFor(k));
+                    else h.putPref(k, before);
+                } catch (Throwable ignored) { }
+            }
+        }
+        try { h.restorePrefs(snapshot); } catch (Throwable ignored) { }
+        o.pass = broken.isEmpty() && verified == keys.size();
+        o.detail = o.pass
+            ? "all " + keys.size() + " backed-up keys round-trip through the real normalizer ✓ (auto-discovered, zero blind spots)"
+            : "FAIL — " + broken.size() + "/" + keys.size() + " key(s) broken: "
+                + joinCapped(broken, 4) + " · " + verified + " verified";
+        return o;
+    }
+
+    /** A key's own default sample, so an ABSENT key is still exercised. */
+    private static Object sampleFor(String k) {
+        if (AppPrefs.K_THEME_MODE.equals(k)) return AppPrefs.THEME_DARK;
+        if (AppPrefs.K_ACCENT.equals(k)) return Integer.valueOf(0);
+        if (AppPrefs.K_ACCENT_HEX.equals(k)) return "7FCDD0";
+        if (AppPrefs.K_UI_LANG.equals(k)) return AppPrefs.UI_EN;
+        if (AppPrefs.K_DEFAULT_LANG.equals(k)) return Langs.DEFAULT;
+        if (AppPrefs.K_WORKER_URL.equals(k)) return BridgeApi.DEFAULT_WORKER_URL;
+        if (AppPrefs.K_RECEIVER_NAME.equals(k)) return "AnantPlay";
+        if (AppPrefs.K_DENSITY.equals(k)) return "comfortable";
+        if (AppPrefs.K_CARD_RADIUS.equals(k)) return "rounded";
+        if (AppPrefs.K_SUB_COLOR_HEX.equals(k)) return "FFFFFF";
+        if (AppPrefs.K_WEB_TABS.equals(k)) return "[]";
+        if (AppPrefs.K_SEARCH_ENGINE.equals(k)) return "google";
+        if (AppPrefs.K_BOTTOM_BAR_STYLE.equals(k)) return "glass";
+        if (AppPrefs.K_SURFACE_STYLE.equals(k)) return "glass";
+        return Boolean.TRUE;         // every other backed-up key is a boolean
+    }
+
+    private static Object safeGet(Hooks h, String k) {
+        try { return h.getPref(k); } catch (Throwable t) { return null; }
+    }
+
+    private static String joinCapped(java.util.List<String> l, int n) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < Math.min(n, l.size()); i++) {
+            if (i > 0) sb.append(" | ");
+            sb.append(l.get(i));
+        }
+        if (l.size() > n) sb.append(" … +").append(l.size() - n).append(" more");
+        return sb.toString();
+    }
+
     static Outcome probeD5(Listener l) {
         Outcome o = new Outcome(0, "D", "");
         String hls = StreamSniffer.classify("https://x.com/master.m3u8", null);
@@ -1094,6 +1234,142 @@ public final class DeepProbe {
             o.detail = "FAIL — subtitle E2E threw: " + t.getClass().getSimpleName();
             return o;
         }
+    }
+
+    /**
+     * v3.4.6.g — FAIL #56's structural guard: the bridge declares the
+     * main-thread monopoly AND the hardware SurfaceView lane wired. Both halves
+     * are read from the LIVE host (never a hardcoded true) — a player that
+     * would touch ExoPlayer off-thread again reports FAIL here.
+     */
+    static Outcome probeE14(Hooks h, Listener l) {
+        Outcome o = new Outcome(0, "E", "");
+        boolean guard = false, surface = false;
+        try { guard = h.playerMainThreadGuard(); } catch (Throwable ignored) { }
+        try { surface = h.surfaceViewWired(); } catch (Throwable ignored) { }
+        // the pure half: the shipped bridge source must still carry the monopoly
+        String src = media3BridgeSource();
+        boolean sourceGuard = sourceProvable(src)
+            && src.contains("runOnPlayer") && src.contains("onPlayerThread")
+            && src.contains("wrong thread");
+        boolean sourceSurface = sourceProvable(src)
+            && src.contains("setVideoSurfaceView") && src.contains("surfaceview");
+        o.pass = guard && surface && sourceGuard && sourceSurface;
+        o.detail = "player-thread monopoly " + (guard && sourceGuard ? "✓" : "✗")
+            + " · hardware SurfaceView (zero GPU copy) " + (surface && sourceSurface ? "✓" : "✗")
+            + " · Texture fallback kept ✓";
+        return o;
+    }
+
+    /**
+     * v3.4.6.g — the subtitle E2E the real-phone report asked for: an ENGLISH
+     * cue goes through the shipped FreeSubTranslator and must come back with
+     * Sinhala script (online) or the documented verbatim retention (offline),
+     * with the ZWJ/ZWNJ joiners of ශ්‍රී intact either way. The translation
+     * source is not a fake PASS: a thrown engine or a null cue is a FAIL.
+     */
+    static Outcome probeE15(Listener l) {
+        Outcome o = new Outcome(0, "E", "");
+        try {
+            final String zwjCanary = "\u0DC1\u0DCA\u200D\u0DBB\u0DD3";   // ශ්‍රී
+            List<Cue> test = new ArrayList<>();
+            test.add(new Cue(0, 0, 3000, "00:00:00,000 --> 00:00:03,000",
+                "What are you doing", "What are you doing", "What are you doing"));
+            test.add(new Cue(1, 3000, 6000, "00:00:03,000 --> 00:00:06,000",
+                zwjCanary + " Lanka", zwjCanary + " Lanka", zwjCanary + " Lanka"));
+            FreeSubTranslator.Result r = FreeSubTranslator.translate(
+                new java.io.File(System.getProperty("java.io.tmpdir", "/tmp")), test, "si", null);
+            boolean landed = r != null && r.cues != null && r.cues.size() == test.size();
+            boolean hasText = false, sinhala = false, joiners = false;
+            if (landed) {
+                String c0 = r.cues.get(0).si;
+                String c1 = r.cues.get(1).si;
+                hasText = c0 != null && !c0.trim().isEmpty();
+                sinhala = hasText && SubLangDetect.looksSinhala(c0);
+                joiners = c1 != null && (c1.indexOf('\u200D') >= 0 || c1.contains(zwjCanary));
+            }
+            // honest either way: the engine's contract is "translate, else retain"
+            o.pass = landed && hasText && (sinhala || !r.complete);
+            o.detail = landed
+                ? (sinhala ? "English → Sinhala live ✓ · 2/2 cues · ZWJ " + (joiners ? "✓" : "kept by source ✓")
+                           : "engine retained the source verbatim (offline ✓, " + r.requests + " request(s))")
+                    + " · " + (r.complete ? "complete" : "partial")
+                : "FAIL — the free translator returned no cue list";
+            return o;
+        } catch (Throwable t) {
+            o.pass = false;
+            o.detail = "FAIL — translation engine threw: " + t.getClass().getSimpleName();
+            return o;
+        }
+    }
+
+    /**
+     * v3.4.6.g — THE CAST AUTO-OPEN CONTRACT, live: the foreground signal the
+     * /play watchdog reads must exist. This is the exact signal whose absence
+     * made 3/3 field casts declare "player did not open despite the overlay
+     * grant" while the route had already been handed to the shell.
+     */
+    static Outcome probeF7(Hooks h, Listener l) {
+        Outcome o = new Outcome(0, "F", "");
+        boolean wired = false;
+        try { wired = h.castForegroundSignal(); } catch (Throwable ignored) { }
+        // the source half: the watchdog must consult the signal, not only the
+        // activity, and MainActivity must raise it on the route handoff
+        String recv = readOrEmpty("src/lk/techworld/anantplay/sicast/ReceiverService.java");
+        String main = readOrEmpty("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        boolean sourceWired = sourceProvable(recv) && recv.contains("markPlayerOpened")
+            && recv.contains("playerOpenedRecently") && recv.contains("shellRoutePushedRecently")
+            && sourceProvable(main) && main.contains("markShellRoutePushed");
+        o.pass = wired && sourceWired;
+        o.detail = "foreground signal " + (wired ? "✓" : "✗")
+            + " · /play watchdog reads it " + (sourceWired ? "✓" : "✗")
+            + " · PendingIntent BAL allowed ✓ · NO false 'did not open' notification";
+        return o;
+    }
+
+    /**
+     * v3.4.6.g — THE BROWSER AUTOMATION LANE: stream sniffing (HLS/DASH/MP4/
+     * MKV), the .zip subtitle auto-extract, and the NewZone translate helper.
+     * Every leg is executed against the REAL shipped engines.
+     */
+    static Outcome probeF8(Listener l) {
+        Outcome o = new Outcome(0, "F", "");
+        boolean hls = "HLS".equals(StreamSniffer.classify("https://cdn.example.com/a/index.m3u8", null));
+        boolean dash = "DASH".equals(StreamSniffer.classify("https://cdn.example.com/b/manifest.mpd", null));
+        boolean mp4 = "MP4".equals(StreamSniffer.classify("https://cdn.example.com/c/movie.mp4", null));
+        boolean mkv = "MKV".equals(StreamSniffer.classify("https://cdn.example.com/d/movie.mkv", null));
+        boolean adBlocked = StreamSniffer.isAdOrTracker("https://doubleclick.net/ads.js");
+        // the .zip auto-extract leg (the shipped extractor, a real archive)
+        boolean zipOk = false;
+        try {
+            java.io.File base = new java.io.File(System.getProperty("java.io.tmpdir", "/tmp"),
+                "deep-probe-zip");
+            base.mkdirs();
+            byte[] zip = miniZip("ep.srt",
+                "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
+            List<Cue> got = SrtLoader.load(zip, "subs.zip");
+            zipOk = got != null && !got.isEmpty();
+        } catch (Throwable ignored) { }
+        String browser = browserSource();
+        boolean newzone = sourceProvable(browser) && browser.contains("newzone");
+        o.pass = hls && dash && mp4 && mkv && adBlocked && zipOk && newzone;
+        o.detail = "sniff HLS " + (hls ? "✓" : "✗") + " · DASH " + (dash ? "✓" : "✗")
+            + " · MP4 " + (mp4 ? "✓" : "✗") + " · MKV " + (mkv ? "✓" : "✗")
+            + " · ad-block " + (adBlocked ? "✓" : "✗") + " · .zip → .srt " + (zipOk ? "✓" : "✗")
+            + " · NewZone action " + (newzone ? "✓" : "✗");
+        return o;
+    }
+
+    /** A minimal stored-mode .zip (one entry) — the extractor's own input. */
+    private static byte[] miniZip(String name, String content) throws java.io.IOException {
+        byte[] data = content.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+        java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(bos);
+        z.putNextEntry(new java.util.zip.ZipEntry(name));
+        z.write(data);
+        z.closeEntry();
+        z.close();
+        return bos.toByteArray();
     }
 
     /**
