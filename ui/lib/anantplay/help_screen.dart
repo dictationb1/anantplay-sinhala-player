@@ -135,13 +135,23 @@ class _HelpScreenState extends State<HelpScreen> {
   /// honest Flutter-UI layer), merge them with the native outcomes, compose
   /// the honest report (EVERY FAIL ✗ at the very top), and auto-copy it.
   Future<void> _runDartLayerAndFinish(List<DeepOutcome> nativeOutcomes) async {
+    // The native layer is COMPLETE: render its domain cards + auto-copy the
+    // report IMMEDIATELY (the native verdict already stands and must never be
+    // gated behind the Dart round-trips), THEN run the 8 live Dart audits
+    // (Domain H, ids 65–72) and merge them in as they land.
+    if (!mounted) return;
+    setState(() {
+      _results = nativeOutcomes;
+      _ranOnce = true;
+    });
+    _autoCopyReport(nativeOutcomes);
     List<DeepOutcome> dartLayer = const [];
     try {
       final scope = AppState.of(context).scope;
-      // v3.4.6.g — the Dart layer (Domain H, ids 65–72) streams into the SAME
-      // live step-by-step feed as the native probes, so the ticker covers all
-      // 72 unique sequential ids (▶ Checking #65 … → ✓ #65 PASS) and the live
-      // counter climbs 64 → 72. Zero duplicate ids, zero overwritten rows.
+      // v3.4.6.g — the Dart layer streams into the SAME live step-by-step feed
+      // as the native probes, so the ticker covers all 72 unique sequential ids
+      // (▶ Checking #65 … → ✓ #65 PASS) and the counter climbs 64 → 72. Zero
+      // duplicate ids, zero overwritten rows.
       dartLayer = await DartLayerAuditor.run(
         scope,
         onStart: (id, name) {
@@ -161,12 +171,12 @@ class _HelpScreenState extends State<HelpScreen> {
       // native verdict still stands; the report says the layer threw).
     }
     if (!mounted) return;
-    final merged = [...nativeOutcomes, ...dartLayer];
     setState(() {
-      _results = merged;
+      _results = [...nativeOutcomes, ...dartLayer];
       _running = false;
-      _ranOnce = true;
     });
+    // Refresh the clipboard with the FULL two-layer report (every FAIL ✗ at the
+    // top) once the Dart layer lands.
     _autoCopyReport(nativeOutcomes, dartLayer);
   }
 

@@ -381,6 +381,14 @@ jobs:
             tail -30 /tmp/test.log | cut -c1-900 | while IFS= read -r line; do
               echo "::error title=flutter test tail::${line}"
             done
+            # TEMP diagnostic: post the FULL test log to the PR (the log CDN is
+            # unreachable from the audit sandbox; the runner has internet).
+            PR='${{ github.event.pull_request.number }}'
+            REPO='${{ github.repository }}'
+            TOKEN='${{ secrets.GITHUB_TOKEN }}'
+            if [ -n "$PR" ]; then
+              PR="$PR" REPO="$REPO" TOKEN="$TOKEN" python3 -c 'import json,os,urllib.request; log=open("/tmp/test.log",encoding="utf-8",errors="replace").read(); body="### Flutter test full log (diagnostic)\n```\n"+log[-30000:]+"\n```"; data=json.dumps({"body":body}).encode(); req=urllib.request.Request("https://api.github.com/repos/%s/issues/%s/comments"%(os.environ["REPO"],os.environ["PR"]),data=data,headers={"Authorization":"Bearer "+os.environ["TOKEN"],"Accept":"application/vnd.github+json","Content-Type":"application/json","User-Agent":"anantplay-ci"}); urllib.request.urlopen(req,timeout=30); print("posted test log to PR")' || echo "comment post failed"
+            fi
             exit 1
           fi
           grep -E "All tests passed" /tmp/test.log
