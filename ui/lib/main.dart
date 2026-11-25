@@ -25,6 +25,8 @@
 //   4. A cast / a DLNA SetAVTransportURI / a Test tap / a shared URL all
 //      pump through the SAME shell route (ShellRoot.pushPlayer) so the
 //      Mornye Cinema Player opens IN the shell.
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -37,6 +39,8 @@ import 'package:anantplay_ui/mornye_ui/theme/mornye_icons.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_chrome.dart';
 
 import 'anantplay/app_state.dart';
+import 'anantplay/bridge.dart';
+import 'anantplay/force_update_screen.dart';
 import 'anantplay/help_screen.dart';
 import 'anantplay/home_screen.dart';
 import 'anantplay/onboarding_screen.dart';
@@ -160,6 +164,19 @@ class ShellRootState extends State<ShellRoot> {
   /// The URL the Browser tab should open first (an openWebTab handoff).
   String? _pendingWebUrl;
 
+  /// v3.4.6.d — THE MANDATORY FORCE-UPDATE LOCK: true the moment a strictly
+  /// newer release is known (gate:available). While true the ENTIRE viewport
+  /// is ForceUpdateScreen — no tabs, no onboarding, no player, no Back.
+  bool _forceUpdateLock = false;
+
+  /// The last gate:available frame (current → next), handed to the
+  /// ForceUpdateScreen so it renders armed even when IT subscribed after
+  /// the event landed (the shell's listener fired first — exactly the cold
+  /// handoff when a pending APK re-arms the gate at boot).
+  UpdateGateEvent? _lastGate;
+
+  StreamSubscription<UpdateGateEvent>? _gateSub;
+
   static ShellRootState of(BuildContext context) =>
       context.findAncestorStateOfType<ShellRootState>()!;
 
@@ -175,6 +192,24 @@ class ShellRootState extends State<ShellRoot> {
   @override
   void initState() {
     super.initState();
+    // v3.4.6.d — THE MANDATORY GATE SUBSCRIPTION: the instant the host pushes
+    // gate:available (a strictly newer release resolved through Tier-1/Tier-2,
+    // zero api.github.com calls), the lock flips on and the whole app becomes
+    // ForceUpdateScreen. `uptodate` (no update / the release vanished) is the
+    // ONLY thing that unlocks it.
+    _gateSub = AnantPlay.instance.updateGateEvents().listen((e) {
+      if (!mounted) return;
+      if (e.gate == 'available' && e.next.isNotEmpty) {
+        setState(() {
+          _lastGate = e;
+          _forceUpdateLock = true;
+        });
+      } else if (e.gate == 'uptodate') {
+        if (_forceUpdateLock) {
+          setState(() => _forceUpdateLock = false);
+        }
+      }
+    });
     // The launch/upgrade onboarding gate: v3.4.6.a wrote onboardingDone=true
     // with NO version stamp, so upgraders were silently skipped — the exact
     // complaint #4. K_ONBOARDING_VERSION (default 1 for a legacy install,
@@ -186,6 +221,12 @@ class ShellRootState extends State<ShellRoot> {
         state.scope.setOnboardingStage(0);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _gateSub?.cancel();
+    super.dispose();
   }
 
   void selectTab(int index) {
@@ -220,6 +261,17 @@ class ShellRootState extends State<ShellRoot> {
   @override
   Widget build(BuildContext context) {
     final state = AppState.of(context);
+    // ── v3.4.6.d — THE MANDATORY FORCE-UPDATE LOCK ──────────────────────────
+    // While a strictly newer release is known, the ForceUpdateScreen IS the
+    // app: no onboarding, no tabs, no player. PopScope(canPop: false) inside
+    // blocks the hardware Back; there is NO skip/dismiss/later anywhere.
+    if (_forceUpdateLock) {
+      return ForceUpdateScreen(
+        key: const ValueKey('force-update-gate'),
+        currentVersion: '3.4.6.d',
+        initialGate: _lastGate,
+      );
+    }
     if (!state.settings.onboardingCurrent) {
       return const OnboardingScreen();
     }
@@ -237,11 +289,15 @@ class ShellRootState extends State<ShellRoot> {
 
     // The four pages stay OFFSTAGE-alive (never disposed on a tab switch, so
     // the browser keeps its page and the scroll positions survive).
+    // v3.4.6.d — TickerMode gates every OFFSTAGE tab: the ambient/looping
+    // AnimationControllers inside a hidden tab stop ticking (the battery
+    // drain fix — an offstage Home pulse no longer repaints at 60 fps while
+    // the user watches a movie in the Browser tab).
     final pages = [
-      const HomeScreen(),
-      BrowserScreen(initialUrl: _pendingWebUrl),
-      const SettingsScreen(),
-      const HelpScreen(),
+      TickerMode(enabled: _tab == 0, child: const HomeScreen()),
+      TickerMode(enabled: _tab == 1, child: BrowserScreen(initialUrl: _pendingWebUrl)),
+      TickerMode(enabled: _tab == 2, child: const SettingsScreen()),
+      TickerMode(enabled: _tab == 3, child: const HelpScreen()),
     ];
     return Scaffold(
       backgroundColor: scheme.surface,

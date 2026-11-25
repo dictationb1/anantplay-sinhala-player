@@ -121,6 +121,8 @@ class SettingsMirror {
   static const kDlna = 'dlnaEnabled';
   static const kMdns = 'mdnsEnabled';
   static const kWorkerUrl = 'workerUrl';
+  /// v3.4.6.d — the subtitle pipeline's default language (AppPrefs.K_DEFAULT_LANG).
+  static const kDefaultLang = 'defaultLang';
 
   String get themeMode => s(kThemeMode, 'dark');
   bool get dynamicColor => b(kDynamicColor, false);

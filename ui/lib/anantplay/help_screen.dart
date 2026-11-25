@@ -27,6 +27,9 @@ class _HelpScreenState extends State<HelpScreen> {
   bool _running = false;
   bool _ranOnce = false;
   StreamSubscription<List<ProbeOutcome>>? _probeSub;
+  /// v3.4.6.d — the 20 s watchdog Timer, owned so dispose can cancel it (a
+  /// pending timer at teardown fails the widget-test invariants).
+  Timer? _watchdog;
 
   @override
   void initState() {
@@ -41,13 +44,39 @@ class _HelpScreenState extends State<HelpScreen> {
           _running = false;
           _ranOnce = true;
         });
+        // v3.4.6.d — THE 1-TAP AUTO-COPY CONTRACT: the moment Probe 10
+        // finishes, the complete privacy-safe report is copied to the
+        // Android clipboard AUTOMATICALLY (zero extra tap) and the green
+        // confirmation pill shows. Copy Again + Share stay right below.
+        _autoCopyReport(outcomes);
       }
     });
+  }
+
+  /// v3.4.6.d — the automatic clipboard copy the moment all 10 probes land.
+  Future<void> _autoCopyReport(List<ProbeOutcome> outcomes) async {
+    final passed = outcomes.where((o) => o.pass).length;
+    final lines = outcomes
+        .map((o) =>
+            '${o.pass ? "PASS" : "FAIL"} #${o.id} ${o.name} (${o.ms.toInt()}ms)')
+        .join('\n');
+    final report =
+        'AnantPlay Sinhala Player v3.4.6.d (30410) — $passed/${outcomes.length} PASS\n$lines';
+    await Clipboard.setData(ClipboardData(text: report));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            '$passed/${outcomes.length} Troubleshoot complete — Privacy-safe report auto-copied to clipboard ✓'),
+        backgroundColor: const Color(0xFF1E4634),
+        duration: const Duration(seconds: 4),
+      ));
+    }
   }
 
   @override
   void dispose() {
     _probeSub?.cancel();
+    _watchdog?.cancel();
     super.dispose();
   }
 
@@ -60,24 +89,27 @@ class _HelpScreenState extends State<HelpScreen> {
     setState(() => _running = true);
     await AnantPlay.instance.runProbe();
     // The stream listener flips _running off; a 20 s watchdog covers a
-    // channel hiccup so the button can never stay stuck.
-    await Future<void>.delayed(const Duration(seconds: 20));
-    if (mounted && _running) {
-      await _loadLast();
-      setState(() => _running = false);
-    }
+    // channel hiccup so the button can never stay stuck. The Timer is
+    // owned + cancelled in dispose (v3.4.6.d), never leaked at teardown.
+    _watchdog?.cancel();
+    _watchdog = Timer(const Duration(seconds: 20), () async {
+      if (mounted && _running) {
+        await _loadLast();
+        setState(() => _running = false);
+      }
+    });
   }
 
   String get _report {
     if (_results.isEmpty) {
-      return 'AnantPlay Sinhala Player v3.4.6.c (30409) — no probe run yet.';
+      return 'AnantPlay Sinhala Player v3.4.6.d (30410) — no probe run yet.';
     }
     final passed = _results.where((o) => o.pass).length;
     final lines = _results
         .map((o) =>
             '${o.pass ? "PASS" : "FAIL"} #${o.id} ${o.name} (${o.ms.toInt()}ms)')
         .join('\n');
-    return 'AnantPlay Sinhala Player v3.4.6.c (30409) — $passed/${_results.length} PASS\n$lines';
+    return 'AnantPlay Sinhala Player v3.4.6.d (30410) — $passed/${_results.length} PASS\n$lines';
   }
 
   Future<void> _copy() async {
@@ -130,7 +162,7 @@ class _HelpScreenState extends State<HelpScreen> {
             index: 1,
             child: _ActionCard(
               icon: Icons.copy_rounded,
-              title: 'Copy privacy-safe report',
+              title: 'Copy Again',
               subtitle: 'Zero personal data — IMDb IDs and milliseconds only.',
               onTap: () => _copy(),
             ),

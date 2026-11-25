@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v3.4.6.c — THE APK LAUNCH-INTEGRITY GATE (the dead-on-arrival killer).
+"""v3.4.6.d — THE APK LAUNCH-INTEGRITY GATE (the dead-on-arrival killer).
 
 Why this gate exists: v3.4.6 INSTALLED fine and then crashed instantly on
 launch on Android 16 hardware while every CI gate of record was green —
@@ -36,8 +36,8 @@ enforces the REAL rules (audit trap #1), not the false residue-zero theory:
       one APK was the size bug (13.96 MB dead weight) AND hid the defect.
   L3  THE LAUNCH PATH: the compiled AndroidManifest carries MAIN/LAUNCHER on
       the app's MainActivity, targetSdk 36, minSdk 26, extractNativeLibs
-      consistent with useLegacyPackaging, and versionCode 30409 /
-      versionName 3.4.6.c.
+      consistent with useLegacyPackaging, and versionCode 30410 /
+      versionName 3.4.6.d.
   L4  THE DART+ASSET PAIR: libapp.so (the AOT snapshot) exists for the same
       ABI as the engine, and the Flutter assets root carries
       AssetManifest.bin + FontManifest.json + the shader artifact
@@ -58,8 +58,8 @@ import zipfile
 # ── constants of the audit ────────────────────────────────────────────────────
 PAGE_16K = 0x4000
 TARGET_ABI = "arm64-v8a"
-EXPECT_CODE = 30409
-EXPECT_NAME = "3.4.6.c"
+EXPECT_CODE = 30410
+EXPECT_NAME = "3.4.6.d"
 MAX_APK_BYTES = 50 * 1024 * 1024  # the shipping gate (build.sh/workflows)
 
 failures = []
@@ -439,7 +439,7 @@ def main():
 
     for f in failures:
         print("::error title=launch-integrity::%s" % f)
-    print("v3.4.6.c launch integrity: %d checks, %d failed" % (checks, len(failures)))
+    print("v3.4.6.d launch integrity: %d checks, %d failed" % (checks, len(failures)))
     return 1 if failures else 0
 
 

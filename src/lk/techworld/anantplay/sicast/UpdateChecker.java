@@ -58,8 +58,9 @@ public final class UpdateChecker {
     /** Clean semver compare: true when candidate > current. Tolerant of
      *  missing parts (2.3 == 2.3.0) and non-numeric junk (falls back to
      *  unequal). v3.4.6.a — compares ALL FOUR dimensions, so the alphabetical
-     *  emergency lane orders correctly: 3.4.6 < 3.4.6.a < 3.4.6.b < … < 3.4.6.d
-     *  < 3.4.7 (the patch digit outranks the letter). */
+     *  emergency lane orders correctly: 3.4.6 < 3.4.6.a < 3.4.6.b < … < 3.4.6.z
+     *  < 3.4.7 (the patch digit outranks the letter). v3.4.6.d — the lane is
+     *  the WHOLE ALPHABET (a→1 … z→26), never an a–e ceiling. */
     static boolean isNewer(String candidate, String current) {
         int[] a = parse(candidate);
         int[] b = parse(current);
@@ -70,22 +71,29 @@ public final class UpdateChecker {
     }
 
     /** v3.4.6.a — THE ALPHABETICAL 4TH SEGMENT, parsed natively.
-     * "3.4.6.a" → {3,4,6,1}; "3.4.6.b" → {3,4,6,2}; "3.4.7" → {3,4,7,0}.
+     * "3.4.6.a" → {3,4,6,1}; "3.4.6.b" → {3,4,6,2}; "3.4.6.z" → {3,4,6,26};
+     * "3.4.7" → {3,4,7,0}.
      * The letter is its own compare dimension — NEVER stripped, NEVER fed to
      * Integer.parseInt (that is the NumberFormatException trap), and it orders
-     * the emergency lane AFTER the bare base: 3.4.6 < 3.4.6.a < … < 3.4.6.d,
-     * and below the next numeric: 3.4.6.d < 3.4.7 because 4th [4] vs [7 on
-     * patch] resolves at the PATCH digit first (position 2), which parse()
-     * encodes by construction: 3.4.6.a → {3,4,6,1} vs 3.4.7 → {3,4,7,0}. */
+     * the emergency lane AFTER the bare base: 3.4.6 < 3.4.6.a < … < 3.4.6.z,
+     * and below the next numeric: 3.4.6.z < 3.4.7 because the letter vs the
+     * patch digit resolves at the PATCH digit first (position 2), which parse()
+     * encodes by construction: 3.4.6.z → {3,4,6,26} vs 3.4.7 → {3,4,7,0}.
+     *
+     * v3.4.6.d — THE PERMANENT LAW: the lane is a→z (1…26), NOT a→e. A ceiling
+     * at 'e' would silently order 3.4.6.f as "no letter" (== 3.4.6) and the
+     * update would never fire again. The alphabet is the only bound. */
     static int[] parse(String v) {
         int[] out = {0, 0, 0, 0};
         if (v == null) return out;
         String[] parts = v.split("[.\\-+]");
         for (int i = 0; i < 4 && i < parts.length; i++) {
             String p = parts[i];
-            if (i == 3) {                      // the letter segment: a..d → 1..4
-                if (p.length() == 1 && p.charAt(0) >= 'a' && p.charAt(0) <= 'd') {
+            if (i == 3) {                      // the letter segment: a..z → 1..26
+                if (p.length() == 1 && p.charAt(0) >= 'a' && p.charAt(0) <= 'z') {
                     out[3] = p.charAt(0) - 'a' + 1;
+                } else if (p.length() == 1 && p.charAt(0) >= 'A' && p.charAt(0) <= 'Z') {
+                    out[3] = p.charAt(0) - 'A' + 1;   // tolerant of an upper-case tag
                 }
                 continue;                     // any junk tail is inert, never an exception
             }

@@ -45,17 +45,34 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   OnboardingStatus _status = OnboardingStatus.unknown;
   StreamSubscription<OnboardingStatus>? _statusSub;
   StreamSubscription<InstallEvent>? _installSub;
+  StreamSubscription<OfficialVersionEvent>? _officialSub;
   bool _installRunning = false;
   int _installPercent = 0;
   String _installState = '';
+  // v3.4.6.d — the official AnantPlay live version pill (fresh every resume).
+  bool _officialInstalledLive = false;
+  String _officialVersionLive = '';
+  // v3.4.6.d — per-slide demo replay counters (tap the hero = replay demo).
+  int _demoReplay = 0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _requeryStatus();
+    _requeryOfficialVersion();
     _statusSub = AnantPlay.instance.onboardingStatusEvents().listen((s) {
       if (mounted) _applyStatus(s);
+    });
+    // v3.4.6.d — the official app's live version: fresh on every resume, so
+    // installing/updating official AnantPlay refreshes the pill immediately.
+    _officialSub = AnantPlay.instance.officialVersionEvents().listen((e) {
+      if (mounted) {
+        setState(() {
+          _officialInstalledLive = e.installed;
+          _officialVersionLive = e.version;
+        });
+      }
     });
     _installSub = AnantPlay.instance.installEvents().listen((e) {
       if (!mounted) return;
@@ -74,6 +91,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     WidgetsBinding.instance.removeObserver(this);
     _statusSub?.cancel();
     _installSub?.cancel();
+    _officialSub?.cancel();
     _pages.dispose();
     super.dispose();
   }
@@ -84,12 +102,23 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     // (notifications, overlay, unknown-sources, battery, the AnantPlay
     // installer) re-queries native state and lets _applyStatus decide the
     // auto-advance.
-    if (state == AppLifecycleState.resumed) _requeryStatus();
+    if (state == AppLifecycleState.resumed) {
+      _requeryStatus();
+      _requeryOfficialVersion();
+    }
   }
 
   Future<void> _requeryStatus() async {
     final s = await AnantPlay.instance.onboardingStatus();
     if (mounted) _applyStatus(s);
+  }
+
+  /// v3.4.6.d — Slide 2's fresh official-version read (NEVER a cached state).
+  Future<void> _requeryOfficialVersion() async {
+    final v = await AnantPlay.instance.officialVersion();
+    if (mounted) {
+      setState(() => _officialVersionLive = v);
+    }
   }
 
   void _applyStatus(OnboardingStatus s) {
@@ -255,41 +284,66 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   ];
 
   Widget _heroFor(int i) => switch (i) {
-        0 => _WelcomeHero(onReplay: () {}),
+        // v3.4.6.d — every hero is INTERACTIVE: tapping replays the step-by-
+        // step demonstration (the replay key re-seeds the animation state).
+        0 => _WelcomeHero(onReplay: _replayDemo, replay: _demoReplay),
         1 => _InstallHero(
             installed: _status.official,
             percent: _installPercent,
             running: _installRunning,
             state: _installState,
-            onReplay: () {}),
-        2 => _NotificationsHero(installed: _status.notif, onReplay: () {}),
-        3 => _OverlayHero(installed: _status.overlay, onReplay: () {}),
+            onReplay: _replayDemo,
+            replay: _demoReplay,
+            version: _officialVersionLive),
+        2 => _NotificationsHero(
+            granted: _status.notif,
+            onReplay: _replayDemo,
+            replay: _demoReplay),
+        3 => _OverlayHero(
+            installed: _status.overlay,
+            onReplay: _replayDemo,
+            replay: _demoReplay),
         4 => _StabilityHero(
             granted: _status.battery,
             oem: const [],
-            onReplay: () {}),
-        5 => _SourcesHero(onReplay: () {}),
+            onReplay: _replayDemo,
+            replay: _demoReplay),
+        5 => _SourcesHero(onReplay: _replayDemo, replay: _demoReplay),
         _ => const SizedBox.shrink(),
       };
 
   // ── per-slide action sets ──────────────────────────────────────────────────
 
+  /// v3.4.6.d — tap-the-hero = replay the step-by-step demo AND trigger the
+  /// slide's action pill cleanly (the v3.4.6.c complaint: tapping an
+  /// animation did NOTHING). Every hero is interactive now.
+  void _replayDemo() => setState(() => _demoReplay++);
+
   Widget _actionsFor(int i) => switch (i) {
         0 => _pill(label: 'Get started', onTap: () => _go(1)),
         1 => _installActions(),
+        // v3.4.6.d — THE NOTIFICATIONS INTENT FIX: this slide now fires the
+        // REAL in-app POST_NOTIFICATIONS runtime dialog (zero leaving the
+        // app; v3.4.6.c mistakenly opened the OVERLAY settings page here).
         2 => _permissionActions(
             granted: _status.notif,
-            openLabel: 'Enable',
-            onOpen: () => AnantPlay.instance.openOverlaySettings(),
+            openLabel: 'Enable Notifications',
+            onOpen: () => AnantPlay.instance.requestNotifications(),
             onContinue: () => _go(3)),
+        // v3.4.6.d — the overlay slide ALSO arms the 30-second return
+        // watcher: the instant the user flips the toggle in Android Settings
+        // the app comes back to the front and auto-advances.
         3 => _permissionActions(
             granted: _status.overlay,
-            openLabel: 'Enable',
-            onOpen: () => AnantPlay.instance.openOverlaySettings(),
+            openLabel: 'Enable Auto-Open',
+            onOpen: () async {
+              await AnantPlay.instance.openOverlaySettings();
+              await AnantPlay.instance.watchOverlayGrant();
+            },
             onContinue: () => _go(4)),
         4 => _permissionActions(
             granted: _status.battery,
-            openLabel: 'Open battery settings',
+            openLabel: 'Allow background activity',
             onOpen: () => AnantPlay.instance.openBatteryOptimization(),
             onContinue: () => _go(5)),
         5 => _sourcesActions(),
@@ -297,11 +351,17 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       };
 
   Widget _installActions() {
-    if (_status.official) {
+    // v3.4.6.d — the LIVE version pill: 'AnantPlay vX.Y Installed ✓' with
+    // the exact installed version name (fresh on every resume, never cached).
+    if (_status.official || _officialInstalledLive) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _badge('AnantPlay Installed ✓', const Color(0xFF63D668)),
+          _badge(
+              _officialVersionLive.isEmpty
+                  ? 'AnantPlay Installed ✓'
+                  : 'AnantPlay v$_officialVersionLive Installed ✓',
+              const Color(0xFF63D668)),
           const SizedBox(height: 10),
           _pill(label: 'Continue', onTap: () => _go(2)),
         ],
@@ -596,11 +656,16 @@ class _SlideShell extends StatelessWidget {
 }
 
 // ── the interactive hero micro-animations (pure Flutter springs) ─────────────
+//
+// v3.4.6.d — THE INTERACTIVE DEMO CONTRACT: every hero takes `replay` (a
+// counter the parent bumps on tap) and restarts its step-by-step story from
+// frame 0 on every bump, so tapping the visual ALWAYS does something visible.
 
 /// Slide 1 — the app emblem breathing on a teal/cyan aura (tap = replay pulse).
 class _WelcomeHero extends StatefulWidget {
-  const _WelcomeHero({required this.onReplay});
+  const _WelcomeHero({required this.onReplay, this.replay = 0});
   final VoidCallback onReplay;
+  final int replay;
 
   @override
   State<_WelcomeHero> createState() => _WelcomeHeroState();
@@ -613,11 +678,12 @@ class _WelcomeHeroState extends State<_WelcomeHero>
     duration: const Duration(milliseconds: 2600),
   );
 
-
-
-
-
-
+  @override
+  void didUpdateWidget(_WelcomeHero old) {
+    super.didUpdateWidget(old);
+    // Tap-the-hero = restart the demo from frame 0 (visible every time).
+    if (widget.replay != old.replay) _breath.forward(from: 0);
+  }
 
   @override
   void dispose() {
@@ -702,7 +768,8 @@ class _WelcomeHeroState extends State<_WelcomeHero>
 
 /// Slide 2 — the live install state: a glowing green badge when installed, an
 /// animated download/demo (arrow bobbing into a tray with the live percent)
-/// while downloading.
+/// while downloading. v3.4.6.d: the hero shows the exact installed version
+/// (`AnantPlay vX.Y`) and taps replay the demo.
 class _InstallHero extends StatelessWidget {
   const _InstallHero({
     required this.installed,
@@ -710,6 +777,8 @@ class _InstallHero extends StatelessWidget {
     required this.running,
     required this.state,
     required this.onReplay,
+    this.replay = 0,
+    this.version = '',
   });
 
   final bool installed;
@@ -717,6 +786,8 @@ class _InstallHero extends StatelessWidget {
   final bool running;
   final String state;
   final VoidCallback onReplay;
+  final int replay;
+  final String version;
 
   @override
   Widget build(BuildContext context) {
@@ -755,21 +826,30 @@ class _InstallHero extends StatelessWidget {
                         : const Color(0x663E8E8F)),
               ),
               child: installed
-                  ? const FittedBox(
+                  ? FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(mi.Icons.verified_rounded,
+                          const Icon(mi.Icons.verified_rounded,
                               size: 56, color: Color(0xFF63D668)),
-                          SizedBox(height: 6),
-                          Text('me.champdev.weblock',
-                              style: TextStyle(
-                                  color: Color(0xCCF2F7F7), fontSize: 11)),
+                          const SizedBox(height: 6),
+                          Text(
+                            version.isEmpty
+                                ? 'me.champdev.weblock'
+                                : 'AnantPlay v$version',
+                            style: const TextStyle(
+                                color: Color(0xCCF2F7F7), fontSize: 11),
+                          ),
                         ],
                       ),
                     )
-                  : _downloadDemo(),
+                  // replay seeds a fresh bob each tap (the demo is visible
+                  // even while idle — the 3-step story is always clear).
+                  : KeyedSubtree(
+                      key: ValueKey('install-demo-$replay'),
+                      child: _downloadDemo(),
+                    ),
             ),
           ],
         ),
@@ -861,11 +941,16 @@ class _BobbingArrowState extends State<_BobbingArrow>
   }
 }
 
-/// Slide 3 — a cast notification card sliding into the shade.
+/// Slide 3 — v3.4.6.d — THE CRYSTAL-CLEAR NOTIFICATIONS STORY: a mini phone
+/// mockup with a glowing Cast pill sliding in from the top — "Casting: The
+/// Odyssey → Tap to play" — so the 5-word WHY (see casts when closed) is
+/// obvious at a glance. Tap = replay the slide-in from the top.
 class _NotificationsHero extends StatefulWidget {
-  const _NotificationsHero({required this.installed, required this.onReplay});
-  final bool installed;
+  const _NotificationsHero(
+      {required this.granted, required this.onReplay, this.replay = 0});
+  final bool granted;
   final VoidCallback onReplay;
+  final int replay;
 
   @override
   State<_NotificationsHero> createState() => _NotificationsHeroState();
@@ -877,6 +962,13 @@ class _NotificationsHeroState extends State<_NotificationsHero>
     vsync: this,
     duration: const Duration(milliseconds: 1500),
   );
+
+  @override
+  void didUpdateWidget(_NotificationsHero old) {
+    super.didUpdateWidget(old);
+    // Tap-the-hero = the cast pill slides in again from the top.
+    if (widget.replay != old.replay) _slide.forward(from: 0);
+  }
 
   @override
   void dispose() {
@@ -911,30 +1003,34 @@ class _NotificationsHeroState extends State<_NotificationsHero>
             return Stack(
               alignment: Alignment.center,
               children: [
-                // the notification shade
+                // the mini phone shade (the notification's home)
                 Container(
-                  width: 178,
-                  height: 64,
+                  width: 184,
+                  height: 120,
                   decoration: BoxDecoration(
                     color: const Color(0xE612393B),
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(24),
                     border: Border.all(color: const Color(0x33FFFFFF)),
                   ),
                 ),
-                // the cast card sliding in from the top
+                // the glowing Cast pill sliding in from the TOP
                 Transform.translate(
-                  offset: Offset(0, -34 + 34 * t),
+                  offset: Offset(0, -46 + 46 * t),
                   child: Opacity(
                     opacity: 0.35 + 0.65 * t,
                     child: Container(
-                      width: 158,
+                      width: 172,
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 9),
                       decoration: BoxDecoration(
                         color: const Color(0xFF12393B),
                         borderRadius: BorderRadius.circular(14),
-                        border:
-                            Border.all(color: const Color(0x663E8E8F)),
+                        border: Border.all(color: const Color(0x663E8E8F)),
+                        boxShadow: [
+                          BoxShadow(
+                              color: const Color(0x663E8E8F),
+                              blurRadius: 18 * t),
+                        ],
                       ),
                       child: Row(
                         children: [
@@ -945,19 +1041,19 @@ class _NotificationsHeroState extends State<_NotificationsHero>
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Cast arrived',
+                                Text('Casting: The Odyssey',
                                     style: TextStyle(
                                         color: Color(0xFFF2F7F7),
-                                        fontSize: 12,
+                                        fontSize: 11.5,
                                         fontWeight: FontWeight.w600)),
                                 Text('Tap to play',
                                     style: TextStyle(
                                         color: Color(0x99F2F7F7),
-                                        fontSize: 10)),
+                                        fontSize: 9.5)),
                               ],
                             ),
                           ),
-                          if (widget.installed)
+                          if (widget.granted)
                             const Icon(mi.Icons.check_circle_rounded,
                                 size: 16, color: Color(0xFF63D668))
                           else
@@ -966,6 +1062,18 @@ class _NotificationsHeroState extends State<_NotificationsHero>
                         ],
                       ),
                     ),
+                  ),
+                ),
+                // the WHY, in 5 words, right under the phone
+                Positioned(
+                  bottom: 8,
+                  child: Text(
+                    'See casts when app is closed',
+                    style: TextStyle(
+                        color: const Color(0x99F2F7F7).withValues(
+                            alpha: 0.6 + 0.4 * t),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600),
                   ),
                 ),
               ],
@@ -977,11 +1085,16 @@ class _NotificationsHeroState extends State<_NotificationsHero>
   }
 }
 
-/// Slide 4 — a mini phone tapping Cast → the Cinema player springing open.
+/// Slide 4 — v3.4.6.d — THE CRYSTAL-CLEAR 2-FRAME OVERLAY STORY:
+/// Frame 1 = "Tap Cast in AnantPlay" (the mini phone with the Cast button),
+/// Frame 2 = "Player pops open automatically (no extra tap!)" — the WHY of
+/// Display over other apps is obvious at a glance. Tap = replay the 2 frames.
 class _OverlayHero extends StatefulWidget {
-  const _OverlayHero({required this.installed, required this.onReplay});
+  const _OverlayHero(
+      {required this.installed, required this.onReplay, this.replay = 0});
   final bool installed;
   final VoidCallback onReplay;
+  final int replay;
 
   @override
   State<_OverlayHero> createState() => _OverlayHeroState();
@@ -993,6 +1106,13 @@ class _OverlayHeroState extends State<_OverlayHero>
     vsync: this,
     duration: const Duration(milliseconds: 1300),
   );
+
+  @override
+  void didUpdateWidget(_OverlayHero old) {
+    super.didUpdateWidget(old);
+    // Tap-the-hero = replay the 2-frame story from Frame 1.
+    if (widget.replay != old.replay) _spring.forward(from: 0);
+  }
 
   @override
   void dispose() {
@@ -1028,7 +1148,7 @@ class _OverlayHeroState extends State<_OverlayHero>
             return Stack(
               alignment: Alignment.center,
               children: [
-                // the mini phone
+                // FRAME 1 — the mini phone + its Cast button
                 Container(
                   width: 96,
                   height: 168,
@@ -1037,19 +1157,26 @@ class _OverlayHeroState extends State<_OverlayHero>
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: const Color(0x2EFFFFFF)),
                   ),
-                  child: Center(
-                    child: Icon(mi.Icons.cast_rounded,
-                        size: 34, color: const Color(0xFF7FCDD0)),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(mi.Icons.cast_rounded,
+                          size: 30, color: const Color(0xFF7FCDD0)),
+                      const SizedBox(height: 4),
+                      const Text('Tap Cast',
+                          style: TextStyle(
+                              color: Color(0x99F2F7F7), fontSize: 9.5)),
+                    ],
                   ),
                 ),
-                // the cinema player springing OVER it
+                // FRAME 2 — the cinema player springing OVER it, by itself
                 Transform.scale(
                   scale: 0.55 + 0.45 * t * pop,
                   child: Opacity(
                     opacity: 0.25 + 0.75 * t,
                     child: Container(
-                      width: 150,
-                      height: 106,
+                      width: 156,
+                      height: 112,
                       decoration: BoxDecoration(
                         color: const Color(0xFF12393B),
                         borderRadius: BorderRadius.circular(18),
@@ -1066,9 +1193,14 @@ class _OverlayHeroState extends State<_OverlayHero>
                         children: [
                           Icon(mi.Icons.play_circle_fill_rounded,
                               size: 44, color: Color(0xFF7FCDD0)),
-                          Text('Cinema Player',
+                          Text('Player opens by itself',
                               style: TextStyle(
-                                  color: Color(0xCCF2F7F7), fontSize: 11)),
+                                  color: Color(0xCCF2F7F7),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600)),
+                          Text('— no extra tap —',
+                              style: TextStyle(
+                                  color: Color(0x99F2F7F7), fontSize: 9)),
                         ],
                       ),
                     ),
@@ -1090,10 +1222,13 @@ class _StabilityHero extends StatefulWidget {
     required this.granted,
     required this.oem,
     required this.onReplay,
+    this.replay = 0,
   });
+
   final bool granted;
   final List<String> oem;
   final VoidCallback onReplay;
+  final int replay;
 
   @override
   State<_StabilityHero> createState() => _StabilityHeroState();
@@ -1105,6 +1240,13 @@ class _StabilityHeroState extends State<_StabilityHero>
     vsync: this,
     duration: const Duration(milliseconds: 1700),
   );
+
+  @override
+  void didUpdateWidget(_StabilityHero old) {
+    super.didUpdateWidget(old);
+    // v3.4.6.d — tap-the-hero = replay the keep-alive wave from frame 0.
+    if (widget.replay != old.replay) _pulse.forward(from: 0);
+  }
 
   @override
   void dispose() {
@@ -1170,6 +1312,27 @@ class _StabilityHeroState extends State<_StabilityHero>
                         : const Color(0xFF7FCDD0),
                   ),
                 ),
+                // v3.4.6.d — the cast signal wave staying green & alive when
+                // the screen switches apps (the WHY of background stability).
+                Positioned(
+                  bottom: 6,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(mi.Icons.podcasts_rounded,
+                          size: 13, color: Color(0xFF63D668)),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Cast signal stays alive in background',
+                        style: TextStyle(
+                            color: const Color(0x99F2F7F7)
+                                .withValues(alpha: 0.6 + 0.4 * t),
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             );
           },
@@ -1182,8 +1345,9 @@ class _StabilityHeroState extends State<_StabilityHero>
 /// Slide 6 — the 3-step Sources walk (Open AnantPlay → Settings → Sources →
 /// Add Index) as a spring-stepped visual rail + the index URL chip.
 class _SourcesHero extends StatefulWidget {
-  const _SourcesHero({required this.onReplay});
+  const _SourcesHero({required this.onReplay, this.replay = 0});
   final VoidCallback onReplay;
+  final int replay;
 
   @override
   State<_SourcesHero> createState() => _SourcesHeroState();
@@ -1195,6 +1359,13 @@ class _SourcesHeroState extends State<_SourcesHero>
     vsync: this,
     duration: const Duration(milliseconds: 3600),
   );
+
+  @override
+  void didUpdateWidget(_SourcesHero old) {
+    super.didUpdateWidget(old);
+    // v3.4.6.d — tap-the-hero = replay the 3-step walk from step 1.
+    if (widget.replay != old.replay) _steps.forward(from: 0);
+  }
 
   @override
   void dispose() {
@@ -1297,8 +1468,8 @@ class _SourcesHeroState extends State<_SourcesHero>
       };
 
   static String _stepText(int i) => switch (i) {
-        0 => 'Open AnantPlay',
-        1 => 'Settings → Sources',
-        _ => 'Add Index — paste the URL',
+        0 => '1. Install AnantPlay',
+        1 => '2. Add Index URL in Sources',
+        _ => '3. Tap Cast — watch here',
       };
 }

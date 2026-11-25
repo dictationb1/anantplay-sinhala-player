@@ -97,7 +97,9 @@ public class WebBrowserView extends FrameLayout {
     private View fullscreenView;
     private android.webkit.WebChromeClient.CustomViewCallback fullscreenCb;
 
-    static final String HOME_URL = "https://duckduckgo.com/";
+    // v3.4.6.d — Google is the default home + search engine (DuckDuckGo was
+    // the v3.4.6.c default; DDG/Startpage/Brave stay available in Settings).
+    static final String HOME_URL = "https://www.google.com/";
     private static final String UA_DESKTOP =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
@@ -108,21 +110,67 @@ public class WebBrowserView extends FrameLayout {
         buildUi();
     }
 
+    /**
+     * v3.4.6.d — THE HEADLESS (CHROME-HIDDEN) CONSTRUCTOR: used whenever the
+     * view is embedded in the Flutter shell as the anantplay/webview
+     * PlatformView. EVERY piece of the old Java browser chrome is omitted —
+     * no Java omnibar, no Java nav buttons, no Java tab strip, no Java speed
+     * dial, no Java snackbar pills — so ONLY the pure native Chromium WebView
+     * viewport renders. The Flutter BrowserScreen owns 100% of the visible
+     * UI (the Mornye omnibar, speed dial and capture dock), while 100% of
+     * the hardened Chromium settings (MIXED_CONTENT_NEVER_ALLOW, BridgeGuard
+     * Blob subtitle capture, StreamSniffer, ad/tracker blocker, reader dark
+     * mode, the JS automation hooks) keep working unchanged.
+     */
+    public WebBrowserView(Activity act, boolean headlessMode) {
+        super(act);
+        this.act = act;
+        this.prefs = act.getSharedPreferences("sicast", Context.MODE_PRIVATE);
+        this.headless = headlessMode;
+        buildUi();
+    }
+
+    /** True when embedded in the Flutter shell (all Java chrome omitted). */
+    private boolean headless;
+
     private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
+    /**
+     * v3.4.6.d — the SHARED web host builder: the FrameLayout that stacks the
+     * progress bar, the (non-headless) speed-dial start page and the hardened
+     * Chromium WebView. Called by BOTH constructors — the headless (Flutter
+     * PlatformView) lane passes exactly this and NOTHING else, so only the
+     * pure WebView viewport renders while every hardened setting survives.
+     */
+    private void buildWebHost() {
+        webHost = new FrameLayout(act);
+        column.addView(webHost, new LinearLayout.LayoutParams(-1, 0, 1f));
+    }
+
     // ── UI ─────────────────────────────────────────────────────────────────────
+
+    /** v3.4.6.d — the vertical host (field so the headless lane can share it). */
+    private LinearLayout column;
 
     private void buildUi() {
         setBackgroundColor(0xFF0B1020);
 
-        LinearLayout column = new LinearLayout(act);
+        column = new LinearLayout(act);
         column.setOrientation(LinearLayout.VERTICAL);
         addView(column, new FrameLayout.LayoutParams(-1, -1));
+        // v3.4.6.d — HEADLESS (the Flutter PlatformView lane): the column
+        // hosts ONLY the WebView viewport — the Java omnibar, tab strip,
+        // suggestions, shield and speed dial are all OMITTED (the Flutter
+        // BrowserScreen owns 100% of the visible UI). Every hardened
+        // Chromium setting below still applies to the WebView.
 
         // ── v3.4.0 — THE OM NIBAR: one widget, two positions (K_OMNIBAR_POS).
         //    Bottom is the default because it is the only reachable place on a 6.7" phone.
-        final boolean omnibarBottom = AppPrefs.omnibarBottom(prefs);
-        LinearLayout bar = new LinearLayout(act);
+        // v3.4.6.d — OMITTED entirely in headless mode (Flutter renders the omnibar).
+        final boolean omnibarBottom = !headless && AppPrefs.omnibarBottom(prefs);
+        LinearLayout bar = null;
+        if (!headless) {
+        bar = new LinearLayout(act);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         GlassSurface.apply(bar, prefs, 0xFF0E1526, 22);
@@ -196,18 +244,21 @@ public class WebBrowserView extends FrameLayout {
         bar.addView(shieldBtn, new LinearLayout.LayoutParams(dp(44), dp(44)));
         bar.addView(navBtn(R.drawable.ic_refresh, v -> reload()), new LinearLayout.LayoutParams(dp(44), dp(44)));
         bar.addView(navBtn(R.drawable.ic_more_dots, v -> menu()), new LinearLayout.LayoutParams(dp(44), dp(44)));
+        }   // v3.4.6.d — end of the !headless Java omnibar block
 
         // ── the tab strip (v3.4.0: light tabs - one renderer, zero OOM risk) ──
-        tabStrip = new LinearLayout(act);
-        tabStrip.setOrientation(LinearLayout.HORIZONTAL);
-        GlassSurface.apply(tabStrip, prefs, 0xFF0B1020, 10);
-        tabStrip.setPadding(dp(8), dp(4), dp(8), dp(6));
-        column.addView(tabStrip, new LinearLayout.LayoutParams(-1, -2));
+        // v3.4.6.d — OMITTED in headless mode (no Java tab strip in the shell).
+        if (!headless) {
+            tabStrip = new LinearLayout(act);
+            tabStrip.setOrientation(LinearLayout.HORIZONTAL);
+            GlassSurface.apply(tabStrip, prefs, 0xFF0B1020, 10);
+            tabStrip.setPadding(dp(8), dp(4), dp(8), dp(6));
+            column.addView(tabStrip, new LinearLayout.LayoutParams(-1, -2));
+        }
 
         // ── the web host: WebView + progress + start page + capture dock ALL stack here,
         //    so every child uses FrameLayout.LayoutParams (the v3.3.1 static gate) ──
-        webHost = new FrameLayout(act);
-        column.addView(webHost, new LinearLayout.LayoutParams(-1, 0, 1f));
+        buildWebHost();
 
         progress = new ProgressBar(act, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
@@ -219,10 +270,13 @@ public class WebBrowserView extends FrameLayout {
         // ── v3.4.0 — THE VISUAL SPEED DIAL (replaces the clipped horizontal chip row):
         //    a GridLayout with 2/3/4 columns in two groups, so link 5-8 can never fall
         //    off the right edge again. ──
-        startPage = new FrameLayout(act);
-        startPage.setBackgroundColor(0xFF0B1020);
-        webHost.addView(startPage, new FrameLayout.LayoutParams(-1, -1));
-        rebuildStartPage();
+        // v3.4.6.d — OMITTED in headless mode (the Mornye Flutter speed dial renders).
+        if (!headless) {
+            startPage = new FrameLayout(act);
+            startPage.setBackgroundColor(0xFF0B1020);
+            webHost.addView(startPage, new FrameLayout.LayoutParams(-1, -1));
+            rebuildStartPage();
+        }
 
         // ── the WebView ──
         web = new WebView(act);
@@ -341,7 +395,7 @@ public class WebBrowserView extends FrameLayout {
                             "(function(){try{document.documentElement.style.colorScheme='dark';}catch(e){}})()", null);
                     } catch (Throwable ignored) { }
                 }
-                urlBox.setText(url == null ? "" : url);
+                if (urlBox != null) urlBox.setText(url == null ? "" : url);
                 // clean dark-mode styling: color-scheme dark so sites that honour
                 // it render dark, and our own background shows through the rest
                 v.evaluateJavascript("try{document.documentElement.style.colorScheme='dark'}catch(e){}", null);
@@ -421,58 +475,74 @@ public class WebBrowserView extends FrameLayout {
         webHost.addView(web, new FrameLayout.LayoutParams(-1, -1));
 
         // ── the floating pill + ⚡Auto chip ──
-        pillRow = new LinearLayout(act);
-        pillRow.setOrientation(LinearLayout.HORIZONTAL);
-        pillRow.setGravity(Gravity.CENTER_VERTICAL);
-        GradientDrawable rowBg = new GradientDrawable();
-        rowBg.setColor(0xF20E1424);
-        rowBg.setCornerRadius(dp(22));
-        rowBg.setStroke(dp(1), 0x33FFFFFF);
-        pillRow.setBackground(rowBg);
-        pillRow.setPadding(dp(6), dp(4), dp(6), dp(4));
-        pillRow.setVisibility(View.GONE);
-        FrameLayout.LayoutParams pl = new FrameLayout.LayoutParams(-2, -2,
-            Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        pl.bottomMargin = dp(16);
-        webHost.addView(pillRow, pl);
+        // v3.4.6.d — OMITTED in headless mode (the Flutter capture dock owns
+        // the sniffed-stream surface; report() also pushes shell events).
+        if (!headless) {
+            pillRow = new LinearLayout(act);
+            pillRow.setOrientation(LinearLayout.HORIZONTAL);
+            pillRow.setGravity(Gravity.CENTER_VERTICAL);
+            GradientDrawable rowBg = new GradientDrawable();
+            rowBg.setColor(0xF20E1424);
+            rowBg.setCornerRadius(dp(22));
+            rowBg.setStroke(dp(1), 0x33FFFFFF);
+            pillRow.setBackground(rowBg);
+            pillRow.setPadding(dp(6), dp(4), dp(6), dp(4));
+            pillRow.setVisibility(View.GONE);
+            FrameLayout.LayoutParams pl = new FrameLayout.LayoutParams(-2, -2,
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            pl.bottomMargin = dp(16);
+            webHost.addView(pillRow, pl);
 
-        pill = new TextView(act);
-        pill.setTextColor(0xFFE2E8F0);
-        pill.setTextSize(13f);
-        pill.setTypeface(Typeface.DEFAULT_BOLD);
-        pill.setPadding(dp(12), dp(10), dp(12), dp(10));
-        pill.setOnClickListener(v -> playLatest());
-        pillRow.addView(pill, new LinearLayout.LayoutParams(-2, -2));
+            pill = new TextView(act);
+            pill.setTextColor(0xFFE2E8F0);
+            pill.setTextSize(13f);
+            pill.setTypeface(Typeface.DEFAULT_BOLD);
+            pill.setPadding(dp(12), dp(10), dp(12), dp(10));
+            pill.setOnClickListener(v -> playLatest());
+            pillRow.addView(pill, new LinearLayout.LayoutParams(-2, -2));
 
-        autoChip = new ImageView(act);
-        autoChip.setScaleType(ImageView.ScaleType.CENTER);
-        autoChip.setPadding(dp(12), dp(12), dp(12), dp(12));
-        autoChip.setBackground(rounded(0xFF101A30));
-        autoChip.setMinimumWidth(dp(44));
-        autoChip.setMinimumHeight(dp(44));
-        autoChip.setFocusable(true);
-        autoChip.setOnClickListener(v -> {
-            boolean on = !prefs.getBoolean("autoOpenSniffed", false);
-            prefs.edit().putBoolean("autoOpenSniffed", on).apply();
+            autoChip = new ImageView(act);
+            autoChip.setScaleType(ImageView.ScaleType.CENTER);
+            autoChip.setPadding(dp(12), dp(12), dp(12), dp(12));
+            autoChip.setBackground(rounded(0xFF101A30));
+            autoChip.setMinimumWidth(dp(44));
+            autoChip.setMinimumHeight(dp(44));
+            autoChip.setFocusable(true);
+            autoChip.setOnClickListener(v -> {
+                boolean on = !prefs.getBoolean("autoOpenSniffed", false);
+                prefs.edit().putBoolean("autoOpenSniffed", on).apply();
+                paintAutoChip();
+                toast(on ? "Automatic stream open enabled" : "Automatic stream open disabled");
+            });
+            pillRow.addView(autoChip, new LinearLayout.LayoutParams(dp(44), dp(44)));
             paintAutoChip();
-            toast(on ? "Automatic stream open enabled" : "Automatic stream open disabled");
-        });
-        pillRow.addView(autoChip, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        paintAutoChip();
+        }   // v3.4.6.d — end of the !headless floating-pill block
 
-        if (omnibarBottom) {
+        if (omnibarBottom && bar != null && suggestBox != null) {
             // the dropdown sits ABOVE the omnibar, in the same linear column
             column.addView(suggestBox, new LinearLayout.LayoutParams(-1, -2));
             column.addView(bar, new LinearLayout.LayoutParams(-1, -2));
-        } else {
+        } else if (!headless && suggestBox != null) {
             column.addView(suggestBox, new LinearLayout.LayoutParams(-1, -2));
         }
-        rebuildTabs();
-        applyImeInsets();          // v3.4.2 — the omnibar rides above the keyboard
+        if (!headless) {
+            rebuildTabs();
+            applyImeInsets();      // v3.4.2 — the omnibar rides above the keyboard
+        }
 
         if (Build.VERSION.SDK_INT >= 19) web.setWebContentsDebuggingEnabled(false);
         String last = prefs.getString("webLastUrl", "");
-        if (last != null && !last.isEmpty()) load(last); else showStartPage();
+        // v3.4.6.d — headless boots STRAIGHT to the page (no Java start page;
+        // the Flutter speed dial is the home surface when no URL is passed).
+        if (headless) {
+            // the Flutter side hands the initial URL through creationParams;
+            // restore the last page so tab switches keep the position.
+            if (last != null && !last.isEmpty()) load(last);
+        } else if (last != null && !last.isEmpty()) {
+            load(last);
+        } else {
+            showStartPage();
+        }
     }
 
     /** v3.4.0 - the shield badge: the live blocked count (hidden at zero). */
@@ -793,6 +863,7 @@ public class WebBrowserView extends FrameLayout {
     }
 
     private void rebuildStartPage() {
+        if (startPage == null) return;   // v3.4.6.d — headless: Flutter renders the dial
         if (startPage == null) return;
         startPage.removeAllViews();
         ThemeEngine.Palette p = ThemeEngine.palette(AppPrefs.themeMode(prefs), 0,
@@ -1015,11 +1086,37 @@ public class WebBrowserView extends FrameLayout {
         Diag.i("web", "stream sniffed: [" + hit.kind + "] " + StreamSniffer.hostOf(hit.url)
             + (hit.pageTitle.isEmpty() ? "" : " — \"" + hit.pageTitle + "\""));
         act.runOnUiThread(() -> {
+            // v3.4.6.d — HEADLESS: the hit flows to the Flutter capture dock
+            // through the shell route pump (t='sniff') instead of the Java pill.
+            if (headless) {
+                try {
+                    Map<String, Object> m = new LinkedHashMap<String, Object>();
+                    m.put("t", "sniff");
+                    m.put("url", hit.url);
+                    m.put("kind", hit.kind == null ? "STREAM" : hit.kind);
+                    m.put("title", hit.pageTitle == null ? "" : hit.pageTitle);
+                    Map<String, String> h = new LinkedHashMap<String, String>();
+                    if (hit.referer != null && !hit.referer.isEmpty()) h.put("Referer", hit.referer);
+                    if (hit.origin != null && !hit.origin.isEmpty()) h.put("Origin", hit.origin);
+                    if (hit.cookie != null && !hit.cookie.isEmpty()) h.put("Cookie", hit.cookie);
+                    if (hit.ua != null && !hit.ua.isEmpty()) h.put("User-Agent", hit.ua);
+                    m.put("headers", MiniJson.write(new LinkedHashMap<String, Object>(h)));
+                    MainActivity.shellRoute(act, "sniff", hit.url,
+                        hit.pageTitle == null ? "" : hit.pageTitle,
+                        MiniJson.write(new LinkedHashMap<String, Object>(h)), false, 0L);
+                } catch (Throwable e) {
+                    Diag.w("web", "sniff push: " + e);
+                }
+                maybeAutoOpen(hit);
+                return;
+            }
             // v3.3.1 — read the size through the synchronized accessor: `hits` is a
             // plain LinkedHashMap written by the sniffer thread, so touching it
             // directly from the UI thread was an unsynchronised read of live state.
-            pill.setText(hit.pillLabel(hitCount()));
-            pillRow.setVisibility(View.VISIBLE);
+            if (pill != null && pillRow != null) {
+                pill.setText(hit.pillLabel(hitCount()));
+                pillRow.setVisibility(View.VISIBLE);
+            }
             maybeAutoOpen(hit);
         });
     }
@@ -1049,14 +1146,16 @@ public class WebBrowserView extends FrameLayout {
         if (hit.origin != null && !hit.origin.isEmpty()) headers.put("Origin", hit.origin);
         if (hit.cookie != null && !hit.cookie.isEmpty()) headers.put("Cookie", hit.cookie);
         if (hit.ua != null && !hit.ua.isEmpty()) headers.put("User-Agent", hit.ua);
-        Intent i = new Intent(act, PlayActivity.class)
-            .putExtra("url", hit.url)
-            .putExtra("title", hit.pageTitle == null || hit.pageTitle.isEmpty()
-                ? StreamSniffer.hostOf(hit.url) : hit.pageTitle);
-        if (!headers.isEmpty()) i.putExtra("headers", MiniJson.write(new LinkedHashMap<String, Object>(headers)));
+        // v3.4.6.d — ONE UNIFIED PLAYER: every sniffed stream opens the
+        // in-shell MORNYE CINEMA PLAYER through the shell route pump (was:
+        // the raw Java PlayActivity — the v3.4.6.c "two video players"
+        // complaint).
+        String title = hit.pageTitle == null || hit.pageTitle.isEmpty()
+            ? StreamSniffer.hostOf(hit.url) : hit.pageTitle;
+        String headersJson = headers.isEmpty() ? "" : MiniJson.write(new LinkedHashMap<String, Object>(headers));
         try {
-            act.startActivity(i);
-            Diag.i("web", "opened in Cinema Player: [" + hit.kind + "] " + hit.url);
+            PlayActivity.trampolineToShell(act, hit.url, title, headersJson, false);
+            Diag.i("web", "opened in the Mornye Cinema Player: [" + hit.kind + "] " + hit.url);
         } catch (Throwable t) {
             Diag.w("web", "player launch: " + t);
             toast(Chrome.pick("Could not open the player · player එක විවෘත කළ නොහැක"));
@@ -1236,6 +1335,7 @@ public class WebBrowserView extends FrameLayout {
 
     public void onPauseWeb() { try { web.onPause(); } catch (Throwable ignored) { } }
     public void onResumeWeb() { try { web.onResume(); rebuildStartPage(); } catch (Throwable ignored) { } }
+    // (rebuildStartPage is a null-guarded no-op in headless mode)
 
     /** v3.2.0 — rebuild the quick-links chip row from the CURRENT prefs list
      *  (so an edit in Settings lands the next time the Web tab is shown). */
