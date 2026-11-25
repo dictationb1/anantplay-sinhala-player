@@ -125,11 +125,14 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     final previous = _status;
     setState(() => _status = s);
     // the slide's OWN permission flipped false → true: confirm + glide on.
+    // v3.4.6.f — slide 5 also springs when the INSTALL-UPDATES grant lands
+    // (the LAW #3 onboarding guarantee: update-install permission, day one).
     final flipped = switch (_page) {
       1 => !previous.official && s.official,
       2 => !previous.notif && s.notif,
       3 => !previous.overlay && s.overlay,
-      4 => !previous.battery && s.battery,
+      4 => (!previous.battery && s.battery)
+          || (!previous.installs && s.installs),
       _ => false,
     };
     if (flipped) {
@@ -279,7 +282,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     'The official app sends the cast. Install it here — checked live, downloaded with real progress, confirmed in one tap.',
     'A cast arrives as a quiet notification when the screen can\'t open it automatically. One tap, and it plays.',
     'With the overlay permission a cast opens the player by itself — tap Cast, the Cinema springs open.',
-    'Keep Cast ready on every device: allow background activity once, so the receiver always answers.',
+    'Keep Cast ready on every device: allow background activity once, so the receiver always answers — and allow app updates so future AnantPlay updates install in one tap.',
     'AnantPlay takes no deep-link for indexes — copy your Index URL once, open AnantPlay, add it under Sources.',
   ];
 
@@ -341,14 +344,40 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               await AnantPlay.instance.watchOverlayGrant();
             },
             onContinue: () => _go(4)),
-        4 => _permissionActions(
+        4 => _stabilityActions(),
+        5 => _sourcesActions(),
+        _ => const SizedBox.shrink(),
+      };
+
+  /// v3.4.6.f — LAW #3's ONBOARDING HALF: slide 5 ("Keep Cast ready") now
+  /// carries BOTH stability permissions — background activity AND the
+  /// install-updates (unknown-sources) grant — so brand-new AND upgrading
+  /// users can guarantee update-install permission right away (the exact
+  /// permission the ForceUpdateScreen's Step 1 of 2 needs at update time).
+  Widget _stabilityActions() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _permissionActions(
             granted: _status.battery,
             openLabel: 'Allow background activity',
             onOpen: () => AnantPlay.instance.openBatteryOptimization(),
             onContinue: () => _go(5)),
-        5 => _sourcesActions(),
-        _ => const SizedBox.shrink(),
-      };
+        const SizedBox(height: 8),
+        _permissionActions(
+            granted: _status.installs,
+            openLabel: 'Allow App Updates',
+            onOpen: () async {
+              // Opens Settings → Install unknown apps (the exact page the
+              // updater's Step 1 of 2 opens); the resume re-query + the
+              // _applyStatus listener spring "Enabled ✓" the instant the
+              // toggle flips (the shared auto-advance machinery).
+              await AnantPlay.instance.openUnknownSources();
+            },
+            onContinue: () => _go(5)),
+      ],
+    );
+  }
 
   Widget _installActions() {
     // v3.4.6.d — the LIVE version pill: 'AnantPlay vX.Y Installed ✓' with

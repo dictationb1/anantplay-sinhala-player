@@ -13,7 +13,7 @@ the shipped delta had (all four were hard build failures, not warnings):
   G3  THE FLUTTER PLUGIN IS APPLIED.  Without dev.flutter.flutter-gradle-plugin
       the engine AAR is never resolved and :flutter is never packaged.
   G4  THE VERSION TRIAD AGREES.  Gradle host / AppInfo / build.sh / workflows all
-      say 3.4.6.e + 30411, and the wrapper + AGP pins match Flutter 3.50.1
+      say 3.4.6.f + 30412, and the wrapper + AGP pins match Flutter 3.50.1
       (Gradle 9.5.0, AGP 9.3.1) — a mismatch here is an instant CI failure.
   G5  THE MODULE CONTRACT.  ui/.android/include_flutter.groovy is what
       settings.gradle evaluates; the pubspec must declare a module + the real
@@ -172,7 +172,7 @@ version_pins = {
     "build.sh": buildsh,
 }
 for name, text in version_pins.items():
-    check("%s carries 3.4.6.e + 30411" % name, "3.4.6.e" in text and "30411" in text)
+    check("%s carries 3.4.6.f + 30412" % name, "3.4.6.f" in text and "30412" in text)
 check("the manifest no longer carries the AGP-9-obsolete package attribute",
       'package="lk.techworld' not in manifest)
 # v3.4.6 — AGP 9 rejects <uses-sdk>; the SDK levels are owned by the Gradle host
@@ -225,10 +225,10 @@ check("the flutter extension points at the module (ui/, lib/main.dart)",
 
 # ── G5: the Flutter module contract ──────────────────────────────────────────
 pubspec = read("ui/pubspec.yaml")
-check("pubspec carries the 3.4.6.e / 30411 identity in a pub-semver-VALID, Gradle-integer build number",
-      re.search(r"^version: 3\.4\.6\+30411$", pubspec, re.M) is not None
-      and "3.4.6.e" in pubspec
-      and "3.4.6.e+30411" not in pubspec
+check("pubspec carries the 3.4.6.f / 30412 identity in a pub-semver-VALID, Gradle-integer build number",
+      re.search(r"^version: 3\.4\.6\+30412$", pubspec, re.M) is not None
+      and "3.4.6.f" in pubspec
+      and "3.4.6.f+30412" not in pubspec
       and re.search(r"^version: .*\.\w+$", pubspec, re.M) is None)
 check("pubspec declares the add-to-app module block", re.search(r"^  module:", pubspec, re.M) is not None)
 _asset_dirs = re.findall(r"^\s+- (mornye/[A-Za-z0-9_.-]+|assets/[A-Za-z0-9_/.-]+/)$", pubspec, re.M)

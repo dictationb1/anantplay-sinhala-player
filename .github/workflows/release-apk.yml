@@ -37,7 +37,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.4.6.c — no leading v)'
         required: true
-        default: '3.4.6.e'
+        default: '3.4.6.f'
 
 concurrency:
   group: release-${{ github.ref }}

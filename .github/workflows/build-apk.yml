@@ -56,8 +56,8 @@ jobs:
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.e"
-          test "$CODE" = "30411"
+          test "$VERSION" = "3.4.6.f"
+          test "$CODE" = "30412"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -411,8 +411,8 @@ jobs:
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.e"
-          test "$CODE" = "30411"
+          test "$VERSION" = "3.4.6.f"
+          test "$CODE" = "30412"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -812,8 +812,8 @@ jobs:
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.e"
-          test "$CODE" = "30411"
+          test "$VERSION" = "3.4.6.f"
+          test "$CODE" = "30412"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
@@ -1037,13 +1037,19 @@ jobs:
             if ! grep -q 'DEEP_PROBE_SUMMARY' /tmp/deeplines.txt; then echo '::error title=deep-probe::DEEP_PROBE_SUMMARY never appeared in AnantPlayCI logcat within 45 s — the in-app 54-probe self-test did not run'; { echo '### deep-probe FAIL: no DEEP_PROBE_SUMMARY'; echo '```'; tail -80 /tmp/deeplines.txt; echo '```'; echo '#### crash buffer'; echo '```'; adb logcat -d -b crash 2>&1 | tail -120; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
             tr -d '\r' < /tmp/deeplines.txt | grep 'DEEP_PROBE_SUMMARY' | tail -1 > /tmp/summary.txt
             cat /tmp/summary.txt
-            grep -o 'pass=[0-9][0-9]*' /tmp/summary.txt | head -1 | cut -d= -f2 > /tmp/npass.txt || true
-            grep -o 'fail=[0-9][0-9]*' /tmp/summary.txt | head -1 | cut -d= -f2 > /tmp/nfail.txt || true
-            grep -o 'total=[0-9][0-9]*' /tmp/summary.txt | head -1 | cut -d= -f2 > /tmp/ntotal.txt || true
+            # v3.4.6.f — token-boundary parses: a bare `fail=` grep would also
+            # match the `env_fail=` token and turn an external outage into a
+            # fake app failure (or hide a real one).
+            grep -oE '(^|[[:space:]])pass=[0-9]+' /tmp/summary.txt | head -1 | tr -d ' ' | cut -d= -f2 > /tmp/npass.txt || true
+            grep -oE '(^|[[:space:]])fail=[0-9]+' /tmp/summary.txt | head -1 | tr -d ' ' | cut -d= -f2 > /tmp/nfail.txt || true
+            grep -oE '(^|[[:space:]])env_fail=[0-9]+' /tmp/summary.txt | head -1 | tr -d ' ' | cut -d= -f2 > /tmp/nenvfail.txt || true
+            if ! grep -Eq '^[0-9]+$' /tmp/nenvfail.txt; then echo 0 > /tmp/nenvfail.txt; fi
+            grep -oE '(^|[[:space:]])total=[0-9]+' /tmp/summary.txt | head -1 | tr -d ' ' | cut -d= -f2 > /tmp/ntotal.txt || true
             grep -c 'PROBE [0-9]' /tmp/deeplines.txt > /tmp/nlines.txt || true
-            echo "parsed from the summary line: pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) total=$(cat /tmp/ntotal.txt) probe_lines=$(cat /tmp/nlines.txt)"
-            { echo ''; echo "**parsed:** pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) total=$(cat /tmp/ntotal.txt) · per-probe lines=$(cat /tmp/nlines.txt)"; } >> "$GITHUB_STEP_SUMMARY"
-            if ! grep -Eq '^[0-9]+$' /tmp/npass.txt || ! grep -Eq '^[0-9]+$' /tmp/nfail.txt || ! grep -Eq '^[0-9]+$' /tmp/ntotal.txt; then echo "::error title=deep-probe::the summary line did not parse (pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) total=$(cat /tmp/ntotal.txt)) from: $(cat /tmp/summary.txt)"; exit 1; fi
+            echo "parsed from the summary line: pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) env_fail=$(cat /tmp/nenvfail.txt) total=$(cat /tmp/ntotal.txt) probe_lines=$(cat /tmp/nlines.txt)"
+            { echo ''; echo "**parsed:** pass=$(cat /tmp/npass.txt) app_fail=$(cat /tmp/nfail.txt) env_fail=$(cat /tmp/nenvfail.txt) total=$(cat /tmp/ntotal.txt) · per-probe lines=$(cat /tmp/nlines.txt)"; } >> "$GITHUB_STEP_SUMMARY"
+            if ! grep -Eq '^[0-9]+$' /tmp/npass.txt || ! grep -Eq '^[0-9]+$' /tmp/nfail.txt || ! grep -Eq '^[0-9]+$' /tmp/nenvfail.txt || ! grep -Eq '^[0-9]+$' /tmp/ntotal.txt; then echo "::error title=deep-probe::the summary line did not parse (pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) env_fail=$(cat /tmp/nenvfail.txt) total=$(cat /tmp/ntotal.txt)) from: $(cat /tmp/summary.txt)"; exit 1; fi
+            if [ "$(cat /tmp/nenvfail.txt)" -gt 0 ]; then echo "::notice title=deep-probe env_fail::$(cat /tmp/nenvfail.txt) external Worker probe(s) unreachable on this CI emulator — the app report still shows FAIL ✗ honestly, but this is an optional environment outage, NOT an app/code failure (fail must stay 0)"; fi
             if [ "$(cat /tmp/ntotal.txt)" -lt 54 ]; then echo "::error title=deep-probe::total=$(cat /tmp/ntotal.txt) but the matrix must execute at least 54 probes"; tail -40 /tmp/deeplines.txt >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
             if [ "$(cat /tmp/nlines.txt)" -lt 54 ]; then echo "::error title=deep-probe::only $(cat /tmp/nlines.txt) per-probe lines were published (expected >= 54)"; exit 1; fi
             sed -n 's/.*\(PROBE [0-9][0-9]* .* -> FAIL .*\)/\1/p' /tmp/deeplines.txt > /tmp/fails.txt || true
@@ -1062,4 +1068,8 @@ jobs:
             if grep -q 'lk\.techworld\.anantplay\.sicast' /tmp/ourcrash.txt; then echo '::error title=deep-probe::OUR APP crashed (FATAL/SIGSEGV/SIGABRT in lk.techworld.anantplay.sicast)'; { echo '### deep-probe FAIL: OUR APP crashed during the 54-probe self-test'; echo '```'; cat /tmp/ourcrash.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; head -40 /tmp/ourcrash.txt | while IFS= read -r line; do echo "::error title=deep-probe our-crash::${line}"; done; exit 1; fi
             if grep -qE 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' /tmp/crashbuf.txt; then echo '::notice title=deep-probe::crash buffer has entries, NONE attributed to our app (emulator-image noise, e.g. com.google.android.gms) — recorded, NOT failing'; { echo '### deep-probe: unrelated crash-buffer entries (emulator image noise — not our app)'; echo '```'; tail -120 /tmp/crashbuf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; fi
             { echo '### deep-probe logcat "AnantPlayCI:I" (full capture)'; echo '```'; cat /tmp/deeplines.txt; echo '```'; echo '### logcat "*:E" (inspection)'; echo '```'; adb logcat -d '*:E' 2>&1 | tail -60; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-            echo "::notice title=deep-probe::LIVE 54-feature audit PASSED on Android 36 — $(cat /tmp/summary.txt) · 0 crashes attributed to our app · MainActivity focused (pid $(cat /tmp/pid.txt | tr -d '\r\n'))."
+            # v3.4.6.f — ZERO `No active stream to cancel` (the v3.4.6.e
+            # EventChannel cancellation storm must never return).
+            adb logcat -d 2>&1 | grep -F 'No active stream to cancel' > /tmp/cancelstorm.txt || true
+            if grep -q . /tmp/cancelstorm.txt; then echo '::error title=deep-probe::EventChannel cancel storm detected (No active stream to cancel)'; head -20 /tmp/cancelstorm.txt >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
+            echo "::notice title=deep-probe::LIVE 54-feature audit PASSED on Android 36 — $(cat /tmp/summary.txt) · 0 crashes attributed to our app · 0 No active stream to cancel · MainActivity focused (pid $(cat /tmp/pid.txt | tr -d '\r\n'))."

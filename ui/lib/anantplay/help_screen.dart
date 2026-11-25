@@ -1,16 +1,19 @@
-// AnantPlay Sinhala Player v3.4.6.e — the Help & Troubleshoot hub.
+// AnantPlay Sinhala Player v3.4.6.f — the Help & Troubleshoot hub.
 //
-// THE 54-PROBE FULL-APP DEEP TROUBLESHOOTER: one tap runs the 6-domain
-// live audit (A Auto-Updater Law · B Home & Cast · C Settings &
-// Customizations · D Browser · E Cinema Player & Subtitles · F Permissions
-// & Privacy) with live progress ("Running 54 deep feature probes… 32/54"),
-// grouped collapsible PASS/FAIL cards per domain, and — the INSTANT the
-// final probe completes — the full privacy-safe report is copied to the
-// clipboard AUTOMATICALLY (native ClipboardManager + Flutter Clipboard)
-// with the green confirmation banner, plus Copy Again + Share buttons.
+// THE HONEST TWO-LAYER FULL-APP DEEP TROUBLESHOOTER: one tap runs the
+// 6-domain native audit (A Auto-Updater Law · B Home & Cast · C Settings &
+// Customizations · D Browser · E Cinema Player & Subtitles · F Permissions &
+// Privacy — 56 live probes) with live progress, PLUS the v3.4.6.f Dart layer
+// (G — 8 live Flutter UI audits executed inside Dart against the live
+// AppState & AnantPlayBridge hubs). The merged verdict highlights EVERY
+// FAIL ✗ at the very top of the report — nothing is ever hidden — and the
+// full privacy-safe report is copied to the clipboard AUTOMATICALLY
+// (native ClipboardManager + Flutter Clipboard) the instant the run ends,
+// with Copy Again + Share buttons.
 //
 // The run is NON-DESTRUCTIVE: the native engine snapshots the user's
-// settings + receiver state first and restores them in a finally block.
+// settings + receiver state first and restores them in a finally block,
+// and the Dart layer restores every value it touches (theme, search engine).
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
@@ -18,6 +21,7 @@ import 'package:flutter/services.dart';
 
 import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
 
+import 'action_feedback.dart';
 import 'app_state.dart';
 import 'bridge.dart';
 import 'deep_troubleshooter.dart';
@@ -37,7 +41,7 @@ class _HelpScreenState extends State<HelpScreen> {
   String _report = '';
   StreamSubscription<dynamic>? _probeSub;
   StreamSubscription<Map<dynamic, dynamic>>? _progressSub;
-  /// v3.4.6.e — the LIVE progress counter (n of 54, while a run is in flight).
+  /// The live progress counter (n of 56 native probes, while a run is in flight).
   int _done = 0;
   final Map<String, bool> _expanded = {};
   /// v3.4.6.e — the watchdog Timer (owned; cancelled in dispose).
@@ -48,7 +52,7 @@ class _HelpScreenState extends State<HelpScreen> {
     super.initState();
     _loadLast();
     // v3.4.6.e — THE DEEP EVENTS, RAW: the anantplay/troubleshoot channel
-    // carries the final full 54-outcome payload (a JSON string) AND the
+    // carries the final full 56-outcome payload (a JSON string) AND the
     // per-probe live progress frames. The typed probeResults() stream
     // pre-decodes into the 10-point shape, so the deep payloads must be
     // routed from HERE.
@@ -56,14 +60,12 @@ class _HelpScreenState extends State<HelpScreen> {
       if (event is! String) return;   // progress frames are Maps (below)
       final outcomes = decodeDeepOutcomes(event);
       if (!mounted || outcomes.isEmpty) return;
-      setState(() {
-        _results = outcomes;
-        _running = false;
-        _ranOnce = true;
-      });
-      _autoCopyReport(outcomes);
+      // v3.4.6.f — LAYER 1 (the LIVE Dart audits) runs the moment the native
+      // layer finishes: the receiver is back at its original state (the
+      // native finally block restored it), so the Dart round-trips are safe.
+      _runDartLayerAndFinish(outcomes);
     });
-    // v3.4.6.e — the LIVE COUNTER: "Running 54 deep feature probes… 32/54".
+    // v3.4.6.f — the LIVE COUNTER: "Running 56 deep feature probes… 32/56".
     _progressSub = AnantPlay.instance.deepProgressEvents().listen((frame) {
       if (!mounted || _running != true) return;
       final done = (frame['done'] as num?)?.toInt() ?? 0;
@@ -71,19 +73,44 @@ class _HelpScreenState extends State<HelpScreen> {
     });
   }
 
-  /// v3.4.6.e — the AUTOMATIC clipboard copy the moment the final probe
-  /// lands: the full structured report (built on the Java side, scrubbed)
+  /// v3.4.6.f — THE TWO-LAYER COMPLETION: run the 8 live Dart audits (the
+  /// honest Flutter-UI layer), merge them with the native outcomes, compose
+  /// the honest report (EVERY FAIL ✗ at the very top), and auto-copy it.
+  Future<void> _runDartLayerAndFinish(List<DeepOutcome> nativeOutcomes) async {
+    List<DeepOutcome> dartLayer = const [];
+    try {
+      final scope = AppState.of(context).scope;
+      dartLayer = await DartLayerAuditor.run(scope);
+    } catch (_) {
+      // The Dart layer itself failed to run — an honest empty ledger (the
+      // native verdict still stands; the report says the layer threw).
+    }
+    if (!mounted) return;
+    final merged = [...nativeOutcomes, ...dartLayer];
+    setState(() {
+      _results = merged;
+      _running = false;
+      _ranOnce = true;
+    });
+    _autoCopyReport(nativeOutcomes, dartLayer);
+  }
+
+  /// The AUTOMATIC clipboard copy the moment the final probe lands: the full
+  /// TWO-LAYER structured report (the Java side's scrubbed report + the Dart
+  /// layer ledger + the merged honest verdict with every FAIL at the top)
   /// goes to the phone's clipboard through BOTH the native ClipboardManager
   /// (anantplay/cast.copyToClipboard) AND Flutter's Clipboard.setData, then
-  /// the green confirmation banner shows.
-  Future<void> _autoCopyReport(List<DeepOutcome> outcomes) async {
+  /// the confirmation banner shows the truthful pass/fail counts.
+  Future<void> _autoCopyReport(List<DeepOutcome> nativeOutcomes,
+      [List<DeepOutcome> dartOutcomes = const []]) async {
     // v3.4.6.e — a channel hiccup must never strand the run: if the report
     // cannot be fetched the completion still lands (cards + counter reset),
     // and the Copy Again row re-reads it on demand.
-    String report = '';
+    String nativeReport = '';
     try {
-      report = await AnantPlay.instance.deepReport();
+      nativeReport = await AnantPlay.instance.deepReport();
     } catch (_) {}
+    final report = composeHonestReport(nativeReport, nativeOutcomes, dartOutcomes);
     if (!mounted) return;
     setState(() {
       _report = report;
@@ -98,13 +125,15 @@ class _HelpScreenState extends State<HelpScreen> {
     try {
       await AnantPlay.instance.copyToClipboard(report);
     } catch (_) {}
-    final passed = outcomes.where((o) => o.pass).length;
+    final all = [...nativeOutcomes, ...dartOutcomes];
+    final passed = all.where((o) => o.pass).length;
+    final failed = all.length - passed;
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
-            '$passed/${outcomes.length} Deep Troubleshoot complete — 100% '
-            'Privacy-Safe report auto-copied to clipboard ✓'),
-        backgroundColor: const Color(0xFF1E4634),
+            '$passed/${all.length} PASS · $failed FAIL — honest report '
+            'auto-copied ✓${failed > 0 ? ' (see every FAIL at the top)' : ''}'),
+        backgroundColor: failed > 0 ? const Color(0xFF46201E) : const Color(0xFF1E4634),
         duration: const Duration(seconds: 5),
       ));
     }
@@ -220,8 +249,8 @@ class _HelpScreenState extends State<HelpScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          '$passed/$total Deep Troubleshoot complete — 100% '
-                          'Privacy-Safe report auto-copied to clipboard ✓',
+                          '$passed/$total PASS · ${total - passed} FAIL — honest '
+                          'two-layer report auto-copied to clipboard ✓',
                           style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12.5,
@@ -238,13 +267,13 @@ class _HelpScreenState extends State<HelpScreen> {
             child: _ActionCard(
               icon: Icons.health_and_safety_rounded,
               title: _running
-                  ? 'Running 54 deep feature probes… $_done/54'
+                  ? 'Running 56+8 deep feature probes… $_done/56'
                   : _ranOnce || total > 0
                       ? 'Run full app troubleshoot again'
                       : 'Run full app troubleshoot',
               subtitle: _running
                   ? 'Live audit of every feature — settings are restored after.'
-                  : 'Every feature in the app · 54 probes · 6 domains · live results.',
+                  : 'Every feature · 56 native + 8 Dart-layer probes · 7 domains · honest results.',
               onTap: _running ? null : _run,
             ),
           ),
@@ -272,7 +301,7 @@ class _HelpScreenState extends State<HelpScreen> {
               icon: Icons.update_rounded,
               title: 'Check for update',
               subtitle: 'Direct release check — no API calls.',
-              onTap: () => AnantPlay.instance.checkForUpdate(),
+              onTap: () => checkForUpdateWithFeedback(context),
             ),
           ),
           StaggeredListItem(

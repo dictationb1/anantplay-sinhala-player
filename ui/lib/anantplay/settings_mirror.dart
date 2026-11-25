@@ -45,6 +45,28 @@ class SettingsMirror {
   /// through this, so the local flip never loses any other live value).
   Map<String, Object?> get raw => _values;
 
+  /// v3.4.6.f — GAP #2: value equality. AppState.updateShouldNotify compares
+  /// snapshots; without this every refresh forced a full-tree rebuild even
+  /// when no setting had actually changed.
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! SettingsMirror) return false;
+    if (_values.length != other._values.length) return false;
+    for (final MapEntry<String, Object?> entry in _values.entries) {
+      if (!other._values.containsKey(entry.key) ||
+          other._values[entry.key] != entry.value) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hashAllUnordered(
+        _values.entries.map((e) => Object.hash(e.key, e.value)),
+      );
+
   bool b(String key, bool def) {
     final v = _values[key];
     return v is bool ? v : def;

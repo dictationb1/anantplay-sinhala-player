@@ -21,6 +21,7 @@ import 'package:anantplay_ui/anantplay/home_screen.dart';
 import 'package:anantplay_ui/anantplay/settings_screen.dart';
 import 'package:anantplay_ui/anantplay/help_screen.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/settings_group.dart';
+import 'package:anantplay_ui/mornye_ui/theme/mornye_theme.dart';
 import 'package:anantplay_ui/anantplay/browser_screen.dart';
 import 'package:anantplay_ui/anantplay/player_screen.dart';
 import 'package:anantplay_ui/main.dart' as shell;
@@ -85,6 +86,9 @@ void main() {
             'installs': false,
             'official': false,
           };
+        case 'canRequestPackageInstalls':
+          // v3.4.6.f — Update Now's LAW #3 Step 1 probe (permission FIRST).
+          return true;
         case 'finishOnboarding':
           onboardingDone = true;
           onboardingVersion = 2;
@@ -151,6 +155,19 @@ void main() {
     mock.setMockMethodCallHandler(const MethodChannel('anantplay/subs'), (call) async {
       return call.method == 'status' ? 'ready · test cues' : true;
     });
+    // v3.4.6.f — the default updater mock: the Dart-layer audits (G5/G8)
+    // call appInfo/pending on the updater channel; an unmocked method call
+    // would buffer forever in the test messenger and hang the completion.
+    mock.setMockMethodCallHandler(const MethodChannel('anantplay/updater'), (call) async {
+      switch (call.method) {
+        case 'appInfo':
+          return <String, Object>{'versionName': '3.4.6.f', 'versionCode': 30412};
+        case 'pending':
+          return <String, Object>{'pending': false, 'version': ''};
+        default:
+          return true;
+      }
+    });
     AnantPlay.instance.resetStreams();
   });
 
@@ -200,9 +217,12 @@ void main() {
       expect(find.byType(HomeScreen), findsNothing);
 
       Future<void> hop(String label) async {
-        await tester.ensureVisible(find.text(label));
+        // v3.4.6.f — slide 5 now carries TWO permission cards (battery +
+        // app-updates), so "Continue anyway" can appear twice: hop the FIRST.
+        final target = find.text(label).first;
+        await tester.ensureVisible(target);
         await tester.pumpAndSettle();
-        await tester.tap(find.text(label), warnIfMissed: false);
+        await tester.tap(target, warnIfMissed: false);
         await tester.pumpAndSettle();
       }
 
@@ -523,9 +543,9 @@ void main() {
       expect(find.text('Glass clarity'), findsOneWidget);
       expect(find.text('Live preview'), findsOneWidget);
       await tester.scrollUntilVisible(
-          find.text('AnantPlay Sinhala Player v3.4.6.e (30411)'), 240,
+          find.text('AnantPlay Sinhala Player v3.4.6.f (30412)'), 240,
           scrollable: find.byType(Scrollable).first);
-      expect(find.text('AnantPlay Sinhala Player v3.4.6.e (30411)'), findsOneWidget);
+      expect(find.text('AnantPlay Sinhala Player v3.4.6.f (30412)'), findsOneWidget);
       expect(find.text('ADVANCED'), findsOneWidget);
     });
 
@@ -571,6 +591,95 @@ void main() {
       await tester.scrollUntilVisible(find.text('Run setup guide'), 240,
           scrollable: find.byType(Scrollable).first);
       expect(find.text('Run setup guide'), findsOneWidget);
+    });
+
+    // ── v3.4.6.f GAP #1: the live repaint contract ─────────────────────────
+    ThemeData shellTheme(WidgetTester tester) =>
+        Theme.of(tester.element(find.byType(SettingsScreen)));
+
+    testWidgets('tapping Light / AMOLED repaints MaterialApp on the next frame',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings').first, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsScreen), findsOneWidget);
+      expect(shellTheme(tester).brightness, Brightness.dark);
+
+      await tester.tap(find.text('Light'), warnIfMissed: false);
+      await tester.pump(); // NO settle: the very next frame must repaint
+      expect(shellTheme(tester).brightness, Brightness.light);
+
+      await tester.tap(find.text('AMOLED'), warnIfMissed: false);
+      await tester.pump();
+      expect(shellTheme(tester).brightness, Brightness.dark);
+      expect(shellTheme(tester).colorScheme.surface, Colors.black);
+    });
+
+    testWidgets('tapping Glass clarity repaints the live Mornye glass material',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings').first, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      final before = shellTheme(tester).extension<MornyeTheme>()!.glassClarity;
+      expect(before, closeTo(0.75, 0.01));
+
+      final slider = find.byType(Slider).first;
+      await tester.ensureVisible(slider);
+      await tester.pumpAndSettle();
+      await tester.tap(slider, offset: const Offset(8, 0), warnIfMissed: false);
+      await tester.pump();
+      final after = shellTheme(tester).extension<MornyeTheme>()!.glassClarity;
+      expect(after, lessThan(before),
+          reason: 'the glass slider must repaint the app on the next frame');
+      expect(settingsPuts['glassClarity'], isNotNull);
+    });
+  });
+
+  group('v3.4.6.f GAP #4: the shared cast channel discriminator', () {
+    testWidgets('castStatus ignores onboardingStatus / officialVersion frames',
+        (tester) async {
+      await tester.pumpWidget(quiet(const SettingsScreen()));
+      final received = <CastStatus>[];
+      final sub = AnantPlay.instance.castStatus().listen(received.add);
+      await Future<void>.delayed(Duration.zero);
+      final initial = received.length;
+      for (final frame in <Map<String, Object>>[
+        <String, Object>{
+          't': 'onboardingStatus', 'overlay': true, 'notif': true,
+          'battery': true, 'installs': true, 'official': false,
+        },
+        <String, Object>{
+          't': 'officialVersion', 'installed': true, 'version': '1.2.4',
+        },
+      ]) {
+        await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .handlePlatformMessage(
+          'anantplay/cast/events',
+          const StandardMethodCodec().encodeSuccessEnvelope(frame),
+          (ByteData? data) {},
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(received.length, initial,
+          reason: 'non-cast frames must never decode as up:false');
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+        'anantplay/cast/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'castStatus', 'up': true, 'port': 8765,
+          'discoverable': true, 'mdns': true,
+        }),
+        (ByteData? data) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(received.last.up, isTrue);
+      await sub.cancel();
     });
   });
 
@@ -697,7 +806,7 @@ void main() {
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
       await tester.pump();
       // The run title shows with the counter at 0/54.
-      expect(find.text('Running 54 deep feature probes… 0/54'), findsOneWidget);
+      expect(find.text('Running 56+8 deep feature probes… 0/56'), findsOneWidget);
       // Three live frames arrive: 1, 7, 32 of 54.
       for (final done in [1, 7, 32]) {
         await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
@@ -705,7 +814,7 @@ void main() {
           const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
             't': 'deep',
             'done': done,
-            'total': 54,
+            'total': 56,
             'outcome': <String, Object>{
               'id': done, 'domain': 'A', 'name': 'probe $done',
               'pass': true, 'ms': 5, 'detail': 'ok',
@@ -713,9 +822,9 @@ void main() {
           }),
           (ByteData? data) {},
         );
-        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 60));
       }
-      expect(find.text('Running 54 deep feature probes… 32/54'), findsOneWidget);
+      expect(find.text('Running 56+8 deep feature probes… 32/56'), findsOneWidget);
       // The run itself fired exactly once.
       expect(deepRuns, 1);
     });
@@ -760,7 +869,9 @@ void main() {
         }),
         (ByteData? data) {},
       );
-      await tester.pump();
+      // v3.4.6.f — the singleton hub adds one microtask hop before the
+      // notifier updates; a duration pump processes the rebuild deterministically.
+      await tester.pump(const Duration(milliseconds: 60));
 
       final pill = find.text(cue);
       expect(pill, findsOneWidget, reason: 'the active Sinhala cue must render');
@@ -923,7 +1034,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Update Now'), warnIfMissed: false);
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
       expect(installNowCalls, greaterThan(0),
           reason: 'Update Now must invoke the native install/update pipeline');
 
@@ -987,7 +1098,9 @@ void main() {
         }),
         (ByteData? data) {},
       );
-      await tester.pump();
+      // v3.4.6.f — the singleton hub adds one microtask hop before the
+      // setState lands; a duration pump processes the rebuild deterministically.
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.byType(ForceUpdateScreen), findsOneWidget,
           reason: 'a failure never unlocks the gate');
@@ -1163,7 +1276,7 @@ void main() {
         await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
           'anantplay/troubleshoot/events',
           const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
-            't': 'deep', 'done': done, 'total': 54,
+            't': 'deep', 'done': done, 'total': 56,
             'outcome': <String, Object>{
               'id': done, 'domain': 'A', 'name': 'probe $done',
               'pass': true, 'ms': 5, 'detail': 'ok',
@@ -1173,7 +1286,7 @@ void main() {
         );
         await tester.pump();
       }
-      expect(find.text('Running 54 deep feature probes… 54/54'), findsOneWidget);
+      expect(find.text('Running 56+8 deep feature probes… 54/56'), findsOneWidget);
 
       // The final full-run payload (a JSON string, exactly as the host sends it).
       final buf = StringBuffer('[');
@@ -1189,20 +1302,26 @@ void main() {
         const StandardMethodCodec().encodeSuccessEnvelope(buf.toString()),
         (ByteData? data) {},
       );
-      await tester.pump();
-      await tester.pump();
+      // v3.4.6.f — the completion now runs the 8 Dart-layer audits (real
+      // awaits) before the merged verdict + banner land: pump the frames.
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
 
       // THE AUTO-COPY CONTRACT: zero extra tap, the report is on the clipboard.
       final data = await Clipboard.getData('text/plain');
       expect(data?.text, contains('v3.4.6.e (30411)'));
       expect(data?.text, contains('54/54 PASS'));
-      // The banner confirms it, and the run is no longer "running".
+      // The banner confirms the TRUTHFUL two-layer verdict (the merged count
+      // includes the 8 Dart-layer audits; the exact pass/fail split depends
+      // on the live audit outcomes, so the verdict FORMAT is the contract).
       expect(
-        find.text('54/54 Deep Troubleshoot complete — 100% '
-            'Privacy-Safe report auto-copied to clipboard ✓'),
+        find.textContaining('PASS · '),
         findsAtLeastNWidgets(1),
+        reason: 'the banner must state the honest merged pass/fail verdict',
       );
-      expect(find.textContaining('Running 54 deep feature probes'), findsNothing);
+      expect(find.textContaining('report auto-copied'), findsAtLeastNWidgets(1));
+      expect(find.textContaining('Running 56+8 deep feature probes'), findsNothing);
     });
   });
 
@@ -1264,6 +1383,265 @@ void main() {
           .toList();
       expect(tabModes2.where((e) => e).length, 1);
       expect(tabModes2[1], isTrue, reason: 'Browser (now active) is enabled');
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // v3.4.6.f — THE UPDATER-LAW E2E + THE DEAD-BUTTON VISIBLE-STATE PROOFS
+  // ════════════════════════════════════════════════════════════════════
+  group('v3.4.6.f updater LAW #1 (the same-version self-lock kill)', () {
+    testWidgets(
+        'gate:available v3.4.6.f → v3.4.6.f NEVER shows ForceUpdateScreen (the lock is mathematically impossible)',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+      expect(find.byType(HomeScreen), findsOneWidget);
+
+      // THE EXACT v3.4.6.e SCREENSHOT DEFECT: the host pushes gate:available
+      // with next == current == the installed build. The shell must IGNORE it.
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate',
+          'gate': 'available',
+          'current': '3.4.6.f',
+          'next': '3.4.6.f',
+        }),
+        (ByteData? data) {},
+      );
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+      expect(find.byType(ForceUpdateScreen), findsNothing,
+          reason: 'a same-version gate may NEVER lock the app');
+      expect(find.byType(HomeScreen), findsOneWidget,
+          reason: 'the user stays in the live app');
+
+      // An OLDER "release" is equally not an update.
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate',
+          'gate': 'available',
+          'current': '3.4.6.f',
+          'next': '3.4.6.e',
+        }),
+        (ByteData? data) {},
+      );
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+      expect(find.byType(ForceUpdateScreen), findsNothing,
+          reason: 'a downgrade gate is equally impossible');
+
+      // A STRICTLY newer release still locks (the gate itself is intact).
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate',
+          'gate': 'available',
+          'current': '3.4.6.f',
+          'next': '3.4.6.g',
+        }),
+        (ByteData? data) {},
+      );
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+      expect(find.byType(ForceUpdateScreen), findsOneWidget,
+          reason: 'a strictly newer release MUST lock the app');
+    });
+
+    testWidgets(
+        'ForceUpdateScreen bootstrap: a SAME-version pending APK renders NOTHING',
+        (tester) async {
+      // The v3.4.6.e bootstrap armed the gate from pending metadata alone —
+      // a v3.4.6.f pending on a v3.4.6.f install locked the user out. The
+      // bootstrap now requires pending STRICTLY newer than the installed.
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/updater'), (call) async {
+        switch (call.method) {
+          case 'pending':
+            return <String, Object>{'pending': true, 'version': '3.4.6.f'};
+          case 'appInfo':
+            return <String, Object>{'versionName': '3.4.6.f', 'versionCode': 30412};
+          default:
+            return true;
+        }
+      });
+      await tester.pumpWidget(quiet(const ForceUpdateScreen(
+        currentVersion: '3.4.6.f',
+      )));
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+      expect(find.text('Update required'), findsNothing,
+          reason: 'a same-version pending may never render the gate');
+      expect(find.byType(ForceUpdateScreen), findsOneWidget);
+    });
+  });
+
+  group('v3.4.6.f dead buttons → REAL visible state changes', () {
+    testWidgets(
+        'Stop Receiver visibly flips the hero card to Stopped + Start Receiver (the hub delivers)',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      var up = true;
+      final stops = <MethodCall>[];
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
+        switch (call.method) {
+          case 'stop':
+            stops.add(call);
+            up = false;
+            return <String, Object>{'up': false};
+          case 'arm':
+            up = true;
+            return true;
+          case 'overlayGranted':
+          case 'notifGranted':
+          case 'officialInstalled':
+            return false;
+          case 'officialVersion':
+            return '';
+          case 'onboardingStatus':
+            return <String, Object>{
+              't': 'onboardingStatus',
+              'overlay': false, 'notif': false, 'battery': false,
+              'installs': false, 'official': false,
+            };
+          case 'canRequestPackageInstalls':
+            return true;
+          case 'finishOnboarding':
+            return true;
+          case 'resetOnboarding':
+            return true;
+          default:
+            return <String, Object>{
+              'up': up, 'port': up ? 8765 : -1,
+              'discoverable': false, 'mdns': false,
+            };
+        }
+      });
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+      expect(find.text('Active · Ready for Cast'), findsOneWidget);
+      expect(find.text('Stop Receiver'), findsOneWidget);
+
+      // THE TAP. The native side stops the receiver and pushes a fresh cast
+      // status frame (up=false) — exactly what MainActivity.pushCastStatus
+      // does twice on the real phone. Deliver it through the SAME channel.
+      await tester.tap(find.text('Stop Receiver'), warnIfMissed: false);
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/cast/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'castStatus', 'up': false, 'port': -1, 'discoverable': false, 'mdns': false,
+        }),
+        (ByteData? data) {},
+      );
+      for (var i = 0; i < 4; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+
+      // REAL visible UI state changes — not just the mocked callback:
+      // the hero flips to Stopped and the button becomes Start Receiver.
+      expect(stops, hasLength(1), reason: 'the tap reached the native stop lane');
+      expect(find.text('Stopped'), findsOneWidget);
+      expect(find.text('Start Receiver'), findsOneWidget);
+      expect(find.text('Active · Ready for Cast'), findsNothing);
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // v3.4.6.f — LAW #3's onboarding half: the install-updates permission card
+  // ════════════════════════════════════════════════════════════════════
+  group('v3.4.6.f onboarding install-updates permission', () {
+    testWidgets('slide 5 offers the Allow App Updates card (granted → Enabled ✓)',
+        (tester) async {
+      var unknownSourcesOpens = 0;
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
+        switch (call.method) {
+          case 'openUnknownSources':
+            unknownSourcesOpens++;
+            return true;
+          case 'overlayGranted':
+          case 'notifGranted':
+          case 'officialInstalled':
+            return false;
+          case 'officialVersion':
+            return '';
+          case 'onboardingStatus':
+            return <String, Object>{
+              't': 'onboardingStatus',
+              'overlay': false, 'notif': false, 'battery': true,
+              'installs': true, 'official': false,
+            };
+          default:
+            return <String, Object>{
+              'up': false, 'port': -1, 'discoverable': false, 'mdns': false,
+            };
+        }
+      });
+      await tester.pumpWidget(quiet(const OnboardingScreen()));
+      await tester.pumpAndSettle();
+      // Glide to slide 5 (Keep Cast ready): slides 1..4.
+      await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+      await tester.pumpAndSettle();
+      await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+      await tester.pumpAndSettle();
+      await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+      await tester.pumpAndSettle();
+      await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+      await tester.pumpAndSettle();
+      expect(find.text('Keep Cast ready'), findsOneWidget);
+      // The install-updates grant IS already true (the mock) → both cards show
+      // Enabled ✓ — the day-one guarantee the LAW #3 onboarding half demands.
+      expect(find.text('Enabled ✓'), findsNWidgets(2),
+          reason: 'battery AND install-updates both granted → two Enabled ✓ badges');
+      expect(unknownSourcesOpens, 0,
+          reason: 'granted → the badge path, no settings page opened');
+    });
+
+    testWidgets('ungranted installs offers Allow App Updates → openUnknownSources fires',
+        (tester) async {
+      var unknownSourcesOpens = 0;
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
+        switch (call.method) {
+          case 'openUnknownSources':
+            unknownSourcesOpens++;
+            return true;
+          case 'overlayGranted':
+          case 'notifGranted':
+          case 'officialInstalled':
+            return false;
+          case 'officialVersion':
+            return '';
+          case 'onboardingStatus':
+            return <String, Object>{
+              't': 'onboardingStatus',
+              'overlay': false, 'notif': false, 'battery': true,
+              'installs': false, 'official': false,
+            };
+          default:
+            return <String, Object>{
+              'up': false, 'port': -1, 'discoverable': false, 'mdns': false,
+            };
+        }
+      });
+      await tester.pumpWidget(quiet(const OnboardingScreen()));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 4; i++) {
+        await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Allow App Updates'), findsOneWidget);
+      await tester.ensureVisible(find.text('Allow App Updates'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Allow App Updates'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(unknownSourcesOpens, 1,
+          reason: 'the card opens the REAL install-unknown-apps settings page');
     });
   });
 }

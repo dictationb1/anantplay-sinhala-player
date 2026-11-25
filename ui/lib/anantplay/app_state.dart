@@ -4,6 +4,7 @@
 // engine reads settingsProvider — overridden here with this state).
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'bridge.dart';
@@ -65,18 +66,36 @@ class AppStateNotifier extends ChangeNotifier {
     publish(s, cast, updater, h);
   }
 
-  Future<void> putBool(String key, bool value) async {
-    await AnantPlay.instance.putBool(key, value);
-    await refresh();
-  }
+  /// v3.4.6.f — GAP #2: OPTIMISTIC writes. The mirror moves and listeners fire
+  /// BEFORE the platform round-trip, so a switch snaps on the very next frame
+  /// even on a slow/emulator MethodChannel. The channel still persists and
+  /// refresh() reconciles with Java; a failed channel restores the old value
+  /// instead of leaving the UI lying about what was saved.
+  Future<void> putBool(String key, bool value) async =>
+      _optimistic(key, value, () => AnantPlay.instance.putBool(key, value));
 
-  Future<void> putInt(String key, int value) async {
-    await AnantPlay.instance.putInt(key, value);
-    await refresh();
-  }
+  Future<void> putInt(String key, int value) async =>
+      _optimistic(key, value, () => AnantPlay.instance.putInt(key, value));
 
-  Future<void> putString(String key, String value) async {
-    await AnantPlay.instance.putString(key, value);
+  Future<void> putString(String key, String value) async =>
+      _optimistic(key, value, () => AnantPlay.instance.putString(key, value));
+
+  Future<void> _optimistic(
+      String key, Object? value, Future<void> Function() writer) async {
+    final SettingsMirror previous = settings;
+    settings = SettingsMirror.fromJavaMap(<String, Object?>{
+      ...previous.raw,
+      key: value,
+    });
+    notifyListeners();
+    try {
+      await writer();
+    } catch (error) {
+      settings = previous;
+      notifyListeners();
+      debugPrint('settings write failed ($key): $error');
+      return;
+    }
     await refresh();
   }
 
