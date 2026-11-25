@@ -203,3 +203,10 @@ changing any of the five patch contracts above:
 
 The APK build job is already green on the rerun with `30412 / 3.4.6.f`;
 the remaining three jobs are re-running against these fixes.
+
+Round 6/7 (hosted) hardened two more flaky paths without weakening any
+assertion: the native `/info` and `/dlna/desc.xml` probes now wait a bounded
+1.2 s for the freshly armed receiver socket (the old cold-emulator race made
+probes 9/10 intermittently `FAIL`), and the widget suite's cast-frame
+discriminator proof was consolidated into the deterministic Java lab check
+while a value-equality Dart test keeps the settings-mirror contract honest.

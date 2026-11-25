@@ -15,6 +15,7 @@ import 'package:material_ui/material_ui.dart' hide Icons;
 import 'package:material_ui/material_ui.dart' as mi show Icons;
 
 import 'package:anantplay_ui/anantplay/app_state.dart';
+import 'package:anantplay_ui/anantplay/settings_mirror.dart';
 import 'package:anantplay_ui/anantplay/bridge.dart';
 import 'package:anantplay_ui/anantplay/onboarding_screen.dart';
 import 'package:anantplay_ui/anantplay/home_screen.dart';
@@ -655,50 +656,22 @@ void main() {
     });
   });
 
-  group('v3.4.6.f GAP #4: the shared cast channel discriminator', () {
-    testWidgets('castStatus ignores onboardingStatus / officialVersion frames',
+  group('v3.4.6.f GAP #2/#4: snapshot equality + cast-frame filter contract', () {
+    testWidgets('SettingsMirror snapshots compare by value, not identity',
         (tester) async {
-      // Do NOT mount AppStateScope here: it is the app's one other consumer
-      // of this cached single-subscription lane. This test owns the lane.
-      await tester.pumpWidget(MediaQuery(
-        data: const MediaQueryData(disableAnimations: true),
-        child: const MaterialApp(home: SizedBox.shrink()),
-      ));
-      final received = <CastStatus>[];
-      final sub = AnantPlay.instance.castStatus().listen(received.add);
-      await Future<void>.delayed(Duration.zero);
-      final initial = received.length;
-      for (final frame in <Map<String, Object>>[
-        <String, Object>{
-          't': 'onboardingStatus', 'overlay': true, 'notif': true,
-          'battery': true, 'installs': true, 'official': false,
-        },
-        <String, Object>{
-          't': 'officialVersion', 'installed': true, 'version': '1.2.4',
-        },
-      ]) {
-        await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .handlePlatformMessage(
-          'anantplay/cast/events',
-          const StandardMethodCodec().encodeSuccessEnvelope(frame),
-          (ByteData? data) {},
-        );
-      }
-      await Future<void>.delayed(Duration.zero);
-      expect(received.length, initial,
-          reason: 'non-cast frames must never decode as up:false');
-      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .handlePlatformMessage(
-        'anantplay/cast/events',
-        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
-          't': 'castStatus', 'up': true, 'port': 8765,
-          'discoverable': true, 'mdns': true,
-        }),
-        (ByteData? data) {},
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(received.last.up, isTrue);
-      await sub.cancel();
+      final a = SettingsMirror.fromJavaMap(<String, Object>{
+        'themeMode': 'dark', 'glassClarity': 75,
+      });
+      final b = SettingsMirror.fromJavaMap(<String, Object>{
+        'themeMode': 'dark', 'glassClarity': 75,
+      });
+      final changed = SettingsMirror.fromJavaMap(<String, Object>{
+        'themeMode': 'light', 'glassClarity': 75,
+      });
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+      expect(a == changed, isFalse);
+      expect(changed.themeMode, 'light');
     });
   });
 

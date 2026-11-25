@@ -1855,9 +1855,21 @@ public class MainActivity extends FlutterActivity {
             @Override public int receiverInfoHttp() {
                 int port = ReceiverService.port();
                 if (port <= 0) return 0;
+                // The receiver is started asynchronously: isUp() flips before
+                // the server socket accepts. Give the freshly armed service a
+                // bounded readiness window instead of reporting a false
+                // environment failure on a cold emulator.
+                for (int attempt = 0; attempt < 12; attempt++) {
+                    int code = httpCode(port, "/info");
+                    if (code != 0) return code;
+                    try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                }
+                return 0;
+            }
+            private int httpCode(int port, String path) {
                 try {
                     java.net.HttpURLConnection c = (java.net.HttpURLConnection)
-                        new java.net.URL("http://127.0.0.1:" + port + "/info").openConnection();
+                        new java.net.URL("http://127.0.0.1:" + port + path).openConnection();
                     c.setConnectTimeout(1500); c.setReadTimeout(1500);
                     int code = c.getResponseCode();
                     c.disconnect();
@@ -1867,6 +1879,14 @@ public class MainActivity extends FlutterActivity {
             @Override public int[] dlnaDescHttp() {
                 int port = ReceiverService.port();
                 if (port <= 0) return new int[]{0, 0};
+                for (int attempt = 0; attempt < 12; attempt++) {
+                    int[] r = dlnaOnce(port);
+                    if (r[0] != 0) return r;
+                    try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                }
+                return new int[]{0, 0};
+            }
+            private int[] dlnaOnce(int port) {
                 try {
                     java.net.HttpURLConnection c = (java.net.HttpURLConnection)
                         new java.net.URL("http://127.0.0.1:" + port + "/dlna/desc.xml").openConnection();
