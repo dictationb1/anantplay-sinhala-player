@@ -1037,9 +1037,14 @@ jobs:
             if ! grep -q 'DEEP_PROBE_SUMMARY' /tmp/deeplines.txt; then echo '::error title=deep-probe::DEEP_PROBE_SUMMARY never appeared in AnantPlayCI logcat within 45 s — the in-app 54-probe self-test did not run'; { echo '### deep-probe FAIL: no DEEP_PROBE_SUMMARY'; echo '```'; tail -80 /tmp/deeplines.txt; echo '```'; echo '#### crash buffer'; echo '```'; adb logcat -d -b crash 2>&1 | tail -120; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
             tr -d '\r' < /tmp/deeplines.txt | grep 'DEEP_PROBE_SUMMARY' | tail -1 > /tmp/summary.txt
             cat /tmp/summary.txt
-            NPASS=$(sed -n 's/.* pass=\([0-9][0-9]*\).*/\1/p' /tmp/summary.txt | tail -1)
-            NFAIL=$(sed -n 's/.* fail=\([0-9][0-9]*\).*/\1/p' /tmp/summary.txt | tail -1)
-            NTOTAL=$(sed -n 's/.* total=\([0-9][0-9]*\).*/\1/p' /tmp/summary.txt | tail -1)
+            # The capture line carries a logcat prefix (date, pid, tag) BEFORE
+            # the fields — anchor on the field marker, not the line start.
+            tr -d '\r' < /tmp/summary.txt | grep -o 'pass=[0-9][0-9]*' | head -1 | cut -d= -f2 > /tmp/npass.txt || true
+            tr -d '\r' < /tmp/summary.txt | grep -o 'fail=[0-9][0-9]*' | head -1 | cut -d= -f2 > /tmp/nfail.txt || true
+            tr -d '\r' < /tmp/summary.txt | grep -o 'total=[0-9][0-9]*' | head -1 | cut -d= -f2 > /tmp/ntotal.txt || true
+            NPASS=$(cat /tmp/npass.txt 2>/dev/null)
+            NFAIL=$(cat /tmp/nfail.txt 2>/dev/null)
+            NTOTAL=$(cat /tmp/ntotal.txt 2>/dev/null)
             echo "::notice title=deep-probe parse::pass=$NPASS fail=$NFAIL total=$NTOTAL (from: $(cat /tmp/summary.txt))"
             echo "parsed: pass=$NPASS fail=$NFAIL total=$NTOTAL"
             probe_lines=$(grep -c 'PROBE [0-9]' /tmp/deeplines.txt || true)
