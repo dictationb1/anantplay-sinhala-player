@@ -4481,7 +4481,7 @@ public class ReceiverLab {
         String player = readRepoFile("ui/lib/anantplay/player_screen.dart");
         check("v346g ui: the player renders the native video_surface PlatformView",
             player.contains("anantplay/video_surface") && player.contains("AndroidView"));
-        String browser = readRepoFile("ui/lib/anantplay/browser_screen.dart").toLowerCase(java.util.Locale.ROOT);
+        String browser = readRepoFile("ui/lib/anantplay/browser_screen.dart");
         check("v346g ui: the browser dock carries the NewZone auto-translate action",
             browser.contains("newzone") && browser.contains("Auto-Translate")
                 && browser.contains("newzone.top"));
@@ -7053,8 +7053,8 @@ public class ReceiverLab {
                 case "D": dd++; break; case "E": e++; break; default: f++;
             }
         }
-        check("v346f deep: the domain counts are 6/9/16/6/13/6",
-            a == 6 && b == 9 && c == 16 && dd == 6 && e == 13 && f == 6,
+        check("v346g deep: the domain counts are 6/9/17/6/15/8",
+            a == 6 && b == 9 && c == 17 && dd == 6 && e == 15 && f == 8,
             a + "/" + b + "/" + c + "/" + dd + "/" + e + "/" + f);
         // Every probe landed a PASS/FAIL verdict + a non-empty detail + ms.
         boolean allLanded = true;
@@ -7072,10 +7072,10 @@ public class ReceiverLab {
         check("v346e deep: the receiver state is restored (non-destructive)", !hooks.receiverRunning);
         // A second run refuses while RUNNING (single-flight) — executed.
         DeepProbe.remember(results);
-        check("v346f deep: lastResults() carries the run", DeepProbe.lastResults().size() == 56);
+        check("v346g deep: lastResults() carries the run", DeepProbe.lastResults().size() == 61);
         int pass = DeepProbe.passCount(results);
-        check("v346f deep: the lab hooks drive the expected PASSes", pass >= 52,
-            pass + "/56 (offline-sensitive probes are environmental)");
+        check("v346g deep: the lab hooks drive the expected PASSes", pass >= 55,
+            pass + "/61 (offline-sensitive probes are environmental)");
         // DeepProbe is pure: no android.* import may exist in its bytecode.
         boolean pure = true;
         try {
@@ -7358,11 +7358,11 @@ public class ReceiverLab {
             && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30413}")
             && buildSh.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30412}"));
         String gradle = readRepoFile("android/app/build.gradle");
-        check("v346f id: gradle declares 30412 / \"3.4.6.f\"",
-            gradle.contains("versionCode = 30412") && gradle.contains("versionName = \"3.4.6.f\""));
+        check("v346g id: gradle declares 30413 / \"3.4.6.g\"",
+            gradle.contains("versionCode = 30413") && gradle.contains("versionName = \"3.4.6.g\""));
         String pubspec = readRepoFile("ui/pubspec.yaml");
-        check("v346f id: ui/pubspec.yaml is 3.4.6+30412 (pure integer build)",
-            pubspec.contains("version: 3.4.6+30412"));
+        check("v346g id: ui/pubspec.yaml is 3.4.6+30413 (pure integer build)",
+            pubspec.contains("version: 3.4.6+30413"));
         // docs/latest.json — THE TWO-LEG CONTRACT, WITHOUT A HARDCODED VERSION.
         // On a release branch it still points at the PREVIOUS live release (the
         // post-merge release job is the only writer). On main, after that job
@@ -7391,13 +7391,14 @@ public class ReceiverLab {
             latest.contains("/releases/download/v" + liveV + "/AnantPlay-Sinhala-Player-v" + liveV + ".apk"),
             "url does not derive from " + liveV);
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
-        check("v346f id: the release workflow defaults to 3.4.6.f and derives 30412",
-            relYml.contains("default: '3.4.6.f'")
-            && relYml.contains("3.4.6.e must derive exactly 30411"));
+        check("v346g id: the release workflow defaults to 3.4.6.g and derives 30413",
+            relYml.contains("default: '3.4.6.g'")
+            && relYml.contains("3.4.6.e must derive exactly 30411")
+            && relYml.contains("3.4.6.f must derive exactly 30412"));
         String buildApkYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346f id: build-apk.yml locks 3.4.6.f / 30412",
-            buildApkYml.contains("test \"$VERSION\" = \"3.4.6.f\"")
-            && buildApkYml.contains("test \"$CODE\" = \"30412\""));
+        check("v346g id: build-apk.yml locks 3.4.6.g / 30413",
+            buildApkYml.contains("test \"$VERSION\" = \"3.4.6.g\"")
+            && buildApkYml.contains("test \"$CODE\" = \"30413\""));
     }
 
     /** The compact cinema subtitle contract (the oversized fix). */
@@ -7581,12 +7582,12 @@ public class ReceiverLab {
         check("v346e ci: the summary carries clipboard_copied + privacy_clean",
             "true".equals(kv.get("clipboard_copied")) && "true".equals(kv.get("privacy_clean")),
             summary);
-        check("v346f ci: total is exactly the 56-probe matrix", total == 56, "total=" + total);
+        check("v346g ci: total is exactly the 61-probe matrix", total == 61, "total=" + total);
 
         // The domain roll-up the job summary renders.
         String domains = DeepProbe.ciDomainLine(results);
-        for (String d : new String[]{"A=6/6", "B=9/9", "C=16/16", "D=6/6", "E=13/13", "F=6/6"}) {
-            check("v346f ci: the domain roll-up carries " + d, domains.contains(d), domains);
+        for (String d : new String[]{"A=6/6", "B=9/9", "C=17/17", "D=6/6", "E=15/15", "F=8/8"}) {
+            check("v346g ci: the domain roll-up carries " + d, domains.contains(d), domains);
         }
 
         // The privacy fixed point: a scrubbed report passes, a raw leak fails.
