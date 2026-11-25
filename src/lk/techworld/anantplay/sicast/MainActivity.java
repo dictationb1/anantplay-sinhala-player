@@ -282,7 +282,10 @@ public class MainActivity extends FlutterActivity {
                         return;                          // already unpacked
                     }
                 }
+                // The atlas may be packed at the asset root (AGP's plain asset
+                // merge) or under the Flutter module's bundle — try both.
                 int n = unpackAssetDir("src-atlas", dir);
+                if (n <= 0) n = unpackAssetDir("flutter_assets/src-atlas", dir);
                 if (n <= 0) { DeepProbe.setSourceBase(null); return; }
                 try {
                     java.nio.file.Files.write(stamp.toPath(),
