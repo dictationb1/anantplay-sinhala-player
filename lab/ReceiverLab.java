@@ -5280,7 +5280,13 @@ public class ReceiverLab {
         // ── 1. NO CEILING ANYWHERE: a–z only, and the old caps are gone ────────
         check("v346d LAW: SelfUpdater VERSION_PATTERN is a–z (no a–e ceiling)",
             upd.contains("VERSION_PATTERN = \"[0-9]+\\\\.[0-9]+\\\\.[0-9]+(\\\\.[a-z])?\"")
-                && !upd.contains("[a-e]") && !upd.contains("[a-d]"),
+                // the cap proof must look at the DECLARATION (stripComments is
+                // line-based and cannot strip the block comment that explains
+                // why the old a–e cap was removed).
+                && !readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdater.java")
+                    .contains("(\\\\.[a-e])?")
+                && !readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdater.java")
+                    .contains("(\\\\.[a-d])?"),
             "the pending-metadata gate must accept .f/.g/…/.z and carry no letter cap");
         // count the EXACT source literal "(\\\\.[a-z])?" in the raw file (the same
         // two-backslash text the shipped regex string carries), never a loose regex
