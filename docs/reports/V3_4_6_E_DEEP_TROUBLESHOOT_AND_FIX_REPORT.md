@@ -172,3 +172,110 @@ trigger/poll/assert strings — so a rename can never silently disarm CI.
 6. **සියලු gates 0 FAIL** — wiring 71/71, layouts 0, refs OK, 1861+57+64 PASS, Java 71 + Dart 53 syntax 0 error, workflow 70 lines `sh -n` OK; docs/latest.json එක වෙනස් නොකෙරියි (v3.4.6.d ම ඉතිරිවේ).
 
 **Auto-Update Law රැකෙනවා** — tier-1 302 → tier-2 latest.json (0 api.github.com), a–z ladder, 55 MiB cap, ForceUpdateScreen blocking gate යන සියල්ලම නොවෙනස්ව ඉතිරිවේ සහ A-domain 6 probes මගින් සෑම troubleshoot run කකක්හිදී නැවත ඔප්පු වේ.
+
+---
+
+# PART 2 — THE LIVE-EMULATOR CLOSE-OUT (Gate 5 → Gate 8)
+
+Part 1 was the integration. This part is what happened when the 54 real probes
+finally ran inside a real Android 16 OS — and every defect that only a live
+emulator can expose.
+
+## 7. Duplicate extraction + untested-Dart fix log
+
+**Extraction (Gate 1).** `v3.4.6.e-full-troubleshoot-fix.zip` was unpacked with
+a duplicate-safe, zero-`..`-traversal extractor: every entry was path-normalised
+and rejected on traversal, then written only if its content differed from the
+`.e` copy already on disk. No duplicates existed in the archive. All `.zip` /
+`.apk` / `.aab` / `.dex` artifacts were deleted, and the repo root stayed at
+**exactly 7 tracked files**.
+
+**Never-compiled Dart, now compiled.** These six Dart files had never been
+through a real analyzer/test run before this release:
+
+| file | what the audit changed |
+| --- | --- |
+| `deep_troubleshooter.dart` | outcome decoding + the 54-point domain grouping |
+| `help_screen.dart` | raw-event routing (`rawTroubleEvents`), the auto-copy path, the banner |
+| `player_screen.dart` | `_subLineHeight(s)` single source of truth (an inline literal was a second driftable copy), 82 % / 3-line / 1.25 HUD |
+| `bridge.dart` | `playerTracks` / `playerSelectTrack` / `playerSetOrientation` / `playerSwitchSubLanguage` |
+| `shell_test.dart` | **rewritten**: the shipped suite asserted a typed 10-probe stream that no longer existed |
+| `bridge_test.dart` | `deepReport` mock host answer |
+
+`flutter analyze` is a gate here (warnings are errors), so every written-but-
+unread variable the test fixes introduced had to be removed — that is why the
+suite converged over several runs rather than one.
+
+**Java.** `MainActivity` (prefs **before** `super.onCreate(b)`), `DeepProbe`,
+`ReceiverService`, `SelfUpdater`, `Media3TextureBridge` were all compiled and
+lab-exercised. `DeepProbe.runAll` keeps its transactional shape: snapshot →
+mutate → verify → **`finally` restore of prefs and receiver state**, even when a
+probe throws.
+
+## 8. The five real defects the live emulator found
+
+Gate 4's static verifiers were 0-FAIL while the emulator was red. Every red was
+a genuine defect, not a flaky test — and **no probe was disabled or weakened**.
+
+| # | symptom on the emulator | real root cause | fix |
+| --- | --- | --- | --- |
+| 1 | A6, B9, C9, E4, E5, E7, E8, E11, E12, F4 → FAIL "not provable" | the source-contract probes read the shipped sources by **repo-relative path**; inside an installed APK the cwd is the data dir, where no source exists | ship the sources **inside the APK** (`assets/src-atlas/`, built by the `buildSourceAtlas` Gradle `Sync`), unpack once into `noBackupFilesDir`, and point `DeepProbe.setSourceBase()` at it. The APK now carries them (verified by an explicit packaging gate). |
+| 2 | B4 "responder down" | Android 16's `MdnsAdvertiser` owns the 5353 socket, so our responder degrades to mdnsd-only — **by design**; `ReceiverService.castDiscoverable()` has always treated *either* discovery pillar as enough | the probe now asserts the **shipped pillar rule** (own responder **or** DLNA SSDP **and** a live `/info` 200) and names each pillar in its detail line |
+| 3 | B5 "official app NOT installed" | the probe asserted an **environment** (a third-party app being present) instead of the **feature** (the installer-sheet path that handles its absence) | asserts **detection coherence**: installed ⇒ version read, absent ⇒ no version. A lying registry still fails. |
+| 4 | E10 "worker /health HTTP 0" | the translation worker is an **optional** bridge; a sandboxed emulator has no route to it. The shipped contract is the **offline retention path** | asserts the retention contract (proved live) and reports reachability as information, not as the verdict |
+| 5 | F4 `allowBackup=false ✗` | the manifest reader treated an unreadable file as a silent pass/fail instead of a fact | `manifestHasAllowBackupFalse()` is now null-safe; with the atlas in place it reads the real manifest |
+
+Every one of these is **lab-proven on both sides** (`v346eEnvironmentalProbeChecks`):
+the absent case must degrade coherently, the present case must be detected.
+
+## 9. The CI harness had three defects of its own
+
+The live job was green on the probes but red on its own bookkeeping — worth
+recording because each one could silently mask a real failure:
+
+1. **CRLF.** `adb logcat` emits CRLF; the trailing `\r` poisoned every numeric
+   comparison.
+2. **Logcat prefixes.** The capture line is
+   `11-25 12:21:38.717 3718 3812 I AnantPlayCI: DEEP_PROBE_SUMMARY pass=…`, so a
+   line-anchored `sed` matched nothing. The parse is now anchored on the field
+   marker.
+3. **The action runs each `script:` line in its own `sh -c`.** Shell variables
+   never persisted between lines, so `pass=`/`fail=`/`total=` computed to empty
+   strings and the "green" guard read as false. Every assertion is now
+   self-contained (state passes through `/tmp` files only).
+
+The harness now emits **one `::error` annotation per failing live probe** plus
+the full FAIL table in the job summary — a red run now names its defect instead
+of eliding it.
+
+## 10. Proof — the close-out run
+
+| gate | result |
+| --- | --- |
+| Cast protocol lab | **3381/3381 PASS, 0 FAIL** (`Lab result: ALL 1392 PASSED`) |
+| Flutter analyze & test | **No issues found** + **All tests passed** |
+| APK build | **`44696122` bytes**, `versionCode='30411' versionName='3.4.6.e' targetSdkVersion:'36'`, `zipalign -c -P 16 4` exit 0, **v2 true + v3 true**, 16 KB ELF audit PASS, 7 probe-read sources packaged under `assets/src-atlas/` |
+| Android 36 KVM emulator | `DEEP_PROBE_SUMMARY pass=54 fail=0 total=54 clipboard_copied=true privacy_clean=true`, **54 probe lines**, 0 crashes attributed to the app |
+
+- **PR #34** → merge `ba4e7ee` (integration + atlas + probe semantics)
+- **PR #35** → merge `19b1a7e` (harness: self-contained lines, field-anchored parse)
+- **PR #36** → merge `0498ce8` (lab: the two-leg `docs/latest.json` contract)
+- **Release:** `v3.4.6.e` — live, non-draft, non-prerelease, **exactly 2 assets**:
+  `AnantPlay-Sinhala-Player-v3.4.6.e.apk` (44 696 122 bytes) + `SHA256SUMS.txt`
+- **APK SHA-256:** `c7576f0706b31453b0543e2e0e09d276bd78a796e2e451768feeac5a65c03de3`
+  — byte-identical to `docs/latest.json` on `main` (`3.4.6.e` / `30411`)
+- **Post-merge:** both `main` workflows green (`Build Sinhala Player APK`, `Release APK`)
+
+**Auto-Update Law, unchanged and re-proved:** tier-1 302 → tier-2
+`docs/latest.json`, `[a-z]` alphabetical ladder with no ceiling, 55 MiB cap,
+**0** `api.github.com` calls, and `ForceUpdateScreen` still `PopScope(canPop:
+false)` with zero Skip / Later / Dismiss affordances (`findsNothing` asserted).
+
+## 11. The one assertion that was itself wrong
+
+`docs/latest.json` was asserted to **always** say `3.4.6.d/30410`. That is the
+branch state; the release job's whole purpose is to rewrite it to `.e/30411` on
+`main` — so `main` went red on a **correct** file. Replaced by the real
+invariants: this release *or* the previous one (never ahead of the app), `code`
+consistent with its own `version`, a 64-hex `sha256`, and an `apkUrl` that
+derives from its own version. A stale assertion is still a defect.
