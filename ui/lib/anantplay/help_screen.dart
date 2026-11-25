@@ -1,8 +1,12 @@
-// AnantPlay Sinhala Player v3.4.6.b — the Help & Troubleshoot hub: 1-tap full
-// probe run, the report copy/share, manual update check, and the wizard
-// re-run.
+// AnantPlay Sinhala Player v3.4.6.c — the Help & Troubleshoot hub: 1-tap full
+// 10-probe run with LIVE results, 1-tap Copy privacy-safe report, 1-tap Share
+// report, 1-tap Check for update, and Re-run Setup Wizard.
 // v3.4.6.b — FULL MORNYE PARITY: the action cards reveal on the upstream
 // StaggeredListItem ladder (the exact upstream list-entry effect).
+// v3.4.6.c — reachable from the ALWAYS-VISIBLE bottom Help tab (was an
+// orphaned widget nothing rendered — real-phone complaint #1/#2).
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
@@ -21,36 +25,88 @@ class HelpScreen extends StatefulWidget {
 class _HelpScreenState extends State<HelpScreen> {
   List<ProbeOutcome> _results = const [];
   bool _running = false;
+  bool _ranOnce = false;
+  StreamSubscription<List<ProbeOutcome>>? _probeSub;
 
   @override
   void initState() {
     super.initState();
     _loadLast();
+    // v3.4.6.c — LIVE results: the probe stream pushes the 10 outcomes the
+    // moment the run ends (was: a blind "running…" label with no feedback).
+    _probeSub = AnantPlay.instance.probeResults().listen((outcomes) {
+      if (mounted && outcomes.isNotEmpty) {
+        setState(() {
+          _results = outcomes;
+          _running = false;
+          _ranOnce = true;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _probeSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadLast() async {
     final last = await AnantPlay.instance.lastProbeResults();
-    if (mounted) setState(() => _results = last);
+    if (mounted && last.isNotEmpty) setState(() => _results = last);
   }
 
   Future<void> _run() async {
     setState(() => _running = true);
     await AnantPlay.instance.runProbe();
-    if (mounted) {
+    // The stream listener flips _running off; a 20 s watchdog covers a
+    // channel hiccup so the button can never stay stuck.
+    await Future<void>.delayed(const Duration(seconds: 20));
+    if (mounted && _running) {
+      await _loadLast();
       setState(() => _running = false);
-      _loadLast();
+    }
+  }
+
+  String get _report {
+    if (_results.isEmpty) {
+      return 'AnantPlay Sinhala Player v3.4.6.c (30409) — no probe run yet.';
+    }
+    final passed = _results.where((o) => o.pass).length;
+    final lines = _results
+        .map((o) =>
+            '${o.pass ? "PASS" : "FAIL"} #${o.id} ${o.name} (${o.ms.toInt()}ms)')
+        .join('\n');
+    return 'AnantPlay Sinhala Player v3.4.6.c (30409) — $passed/${_results.length} PASS\n$lines';
+  }
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: _report));
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Report copied')));
+    }
+  }
+
+  Future<void> _share() async {
+    // v3.4.6.c — 1-tap share through the system sheet (ACTION_SEND).
+    await AnantPlay.instance.shareText(_report);
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Sharing the report…')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final passed = _results.where((o) => o.pass).length;
     final total = _results.length;
     return Scaffold(
-      backgroundColor: const Color(0xFF0F2E30),
+      backgroundColor: scheme.surface,
       appBar: AppBar(
         title: const Text('Troubleshoot'),
-        backgroundColor: const Color(0x330F2E30),
+        backgroundColor: scheme.scrim.withValues(alpha: 0.2),
         surfaceTintColor: Colors.transparent,
       ),
       body: ListView(
@@ -60,8 +116,13 @@ class _HelpScreenState extends State<HelpScreen> {
             index: 0,
             child: _ActionCard(
               icon: Icons.health_and_safety_rounded,
-              title: _running ? 'Running the 10-point probe…' : 'Run full app troubleshoot',
-              subtitle: 'Receiver · cast · subtitles · updater — all 10 probes.',
+              title: _running
+                  ? 'Running the 10-point probe…'
+                  : _ranOnce || total > 0
+                      ? 'Run full app troubleshoot again'
+                      : 'Run full app troubleshoot',
+              subtitle:
+                  'Receiver · cast · subtitles · updater — all 10 probes, live results.',
               onTap: _running ? null : _run,
             ),
           ),
@@ -77,6 +138,15 @@ class _HelpScreenState extends State<HelpScreen> {
           StaggeredListItem(
             index: 2,
             child: _ActionCard(
+              icon: Icons.ios_share_rounded,
+              title: 'Share report',
+              subtitle: 'Open the system share sheet with the full report.',
+              onTap: () => _share(),
+            ),
+          ),
+          StaggeredListItem(
+            index: 3,
+            child: _ActionCard(
               icon: Icons.update_rounded,
               title: 'Check for update',
               subtitle: 'Direct release check — no API calls.',
@@ -84,22 +154,28 @@ class _HelpScreenState extends State<HelpScreen> {
             ),
           ),
           StaggeredListItem(
-            index: 3,
+            index: 4,
             child: _ActionCard(
               icon: Icons.restart_alt_rounded,
               title: 'Run setup wizard',
-              subtitle: 'Replay the first-launch checklist.',
-              onTap: () => AppState.of(context).scope.putBool('onboardingDone', false),
+              subtitle: 'Replay the 6-slide first-launch guide.',
+              // v3.4.6.c — the version-stamped re-arm (was: a raw putBool the
+              // upgraded shell's gate ignored — the wizard never reopened).
+              onTap: () => AppState.of(context).scope.rerunOnboarding(),
             ),
           ),
-          if (_results.isNotEmpty) ...[
+          if (_results.isNotEmpty || _running) ...[
             const SizedBox(height: 10),
-            Text(_running ? '…' : '$passed/$total PASS',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    color: passed == total ? const Color(0xFF63D668) : const Color(0xFFFFB340),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700)),
+            Text(
+              _running ? '…' : '$passed/$total PASS',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  color: passed == total
+                      ? const Color(0xFF63D668)
+                      : scheme.tertiary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 6),
             for (final o in _results)
               _ProbeRow(outcome: o),
@@ -107,17 +183,6 @@ class _HelpScreenState extends State<HelpScreen> {
         ],
       ),
     );
-  }
-
-  Future<void> _copy() async {
-    final report = _results
-        .map((o) => '${o.pass ? "PASS" : "FAIL"} #${o.id} ${o.name} (${o.ms.toInt()}ms)')
-        .join('\n');
-    await Clipboard.setData(ClipboardData(text: report));
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Report copied')));
-    }
   }
 }
 
@@ -136,10 +201,11 @@ class _ActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Material(
-        color: const Color(0x0FFFFFFF),
+        color: scheme.surfaceContainerHigh.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(18),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
@@ -148,7 +214,8 @@ class _ActionCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0x1FFFFFFF)),
+              border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.4)),
             ),
             child: Row(
               children: [
@@ -156,10 +223,10 @@ class _ActionCard extends StatelessWidget {
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(
-                    color: const Color(0x1F1E4E4F),
+                    color: scheme.primaryContainer.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(icon, color: const Color(0xFF7FCDD0), size: 20),
+                  child: Icon(icon, color: scheme.primary, size: 20),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -167,15 +234,20 @@ class _ActionCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(title,
-                          style: const TextStyle(
-                              color: Color(0xFFF2F7F7), fontSize: 14, fontWeight: FontWeight.w600)),
+                          style: TextStyle(
+                              color: scheme.onSurface,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600)),
                       const SizedBox(height: 3),
                       Text(subtitle,
-                          style: const TextStyle(color: Color(0x80F2F7F7), fontSize: 11.5)),
+                          style: TextStyle(
+                              color: scheme.onSurfaceVariant,
+                              fontSize: 11.5)),
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right_rounded, color: Color(0x66F2F7F7)),
+                Icon(Icons.chevron_right_rounded,
+                    color: scheme.onSurfaceVariant),
               ],
             ),
           ),
@@ -192,13 +264,18 @@ class _ProbeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
           Icon(
-            outcome.pass ? Icons.check_circle_rounded : Icons.cancel_rounded,
-            color: outcome.pass ? const Color(0xFF63D668) : const Color(0xFFFF6482),
+            outcome.pass
+                ? Icons.check_circle_rounded
+                : Icons.cancel_rounded,
+            color: outcome.pass
+                ? const Color(0xFF63D668)
+                : scheme.error,
             size: 17,
           ),
           const SizedBox(width: 10),
@@ -206,10 +283,12 @@ class _ProbeRow extends StatelessWidget {
             child: Text('#${outcome.id} ${outcome.name}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Color(0xCCF2F7F7), fontSize: 13)),
+                style: TextStyle(
+                    color: scheme.onSurface, fontSize: 13)),
           ),
           Text('${outcome.ms.toInt()} ms',
-              style: const TextStyle(color: Color(0x59F2F7F7), fontSize: 11)),
+              style: TextStyle(
+                  color: scheme.onSurfaceVariant, fontSize: 11)),
         ],
       ),
     );

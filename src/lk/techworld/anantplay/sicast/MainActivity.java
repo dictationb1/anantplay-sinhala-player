@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
@@ -75,6 +76,116 @@ public class MainActivity extends FlutterActivity {
     private EventChannel.EventSink updateSink;
     /** Probe completion events → Flutter. */
     private EventChannel.EventSink troubleSink;
+    /** v3.4.6.c — shell route events → Flutter (play / web-tab handoffs). */
+    private EventChannel.EventSink shellSink;
+
+    // ── v3.4.6.c — THE SHELL ROUTE PUMP ─────────────────────────────────────
+    // Casts (/play), DLNA SetAVTransportURI, shares and Test taps route INTO
+    // the Flutter shell's Mornye Cinema Player instead of opening the raw
+    // Java PlayActivity. Native code (or a fresh launch intent) calls
+    // shellRoute(...); it brings this activity forward and pushes one route
+    // blob onto the anantplay/shell/events EventChannel — ShellRootState
+    // renders the PlayerScreen (or switches to the Browser tab) from it.
+    private static MainActivity instance;
+
+    /** Push a route blob into the Flutter shell and bring the task forward. */
+    static void shellRoute(android.content.Context c, String type, String url,
+                           String title, String headers, boolean test, long startMs) {
+        MainActivity a = instance;
+        if (a == null) {
+            // The engine is not up (process cold start with a cast intent):
+            // remember the launch intent; MainActivity.onCreate forwards it
+            // after configureFlutterEngine (see pendingShellRoute).
+            try {
+                android.content.Intent i = new android.content.Intent(c, MainActivity.class)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        .putExtra("shellRouteType", type)
+                        .putExtra("url", url)
+                        .putExtra("title", title == null ? "" : title)
+                        .putExtra("headersJson", headers == null ? "" : headers)
+                        .putExtra("test", test)
+                        .putExtra("startMs", startMs);
+                c.startActivity(i);
+            } catch (Throwable t) {
+                Diag.w("shell", "cold route: " + t);
+            }
+            return;
+        }
+        a.pushShellRoute(type, url, title, headers, test, startMs);
+    }
+
+    private void pushShellRoute(String type, String url, String title,
+                                String headers, boolean test, long startMs) {
+        // Bring OUR task forward (a cast can arrive while we are backgrounded).
+        try {
+            android.app.ActivityManager am = getSystemService(android.app.ActivityManager.class);
+            if (am != null) {
+                for (android.app.ActivityManager.AppTask t : am.getAppTasks()) {
+                    if (t.getTaskInfo().taskId == getTaskId()) {
+                        // bringToFront + moveTaskToHome(false) — the API-31+
+                        // moveToAndReturnToDefault equivalent that compiles on
+                        // every platform level we build against.
+                        t.moveToFront();
+                        break;
+                    }
+                }
+            }
+        } catch (Throwable ignored) { }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("t", type);                 // 'play' | 'web'
+        m.put("url", url == null ? "" : url);
+        m.put("title", title == null ? "" : title);
+        m.put("headers", headers == null ? "" : headers);
+        m.put("test", test);
+        m.put("startMs", startMs);
+        final EventChannel.EventSink s = shellSink;
+        if (s != null) {
+            main.post(() -> {
+                try { s.success(m); } catch (Throwable t) { Diag.w("shell", "push: " + t); }
+            });
+        } else {
+            // The shell has not subscribed yet (engine warm-up): queue it —
+            // the stream handler replays the ONE latest route on listen.
+            pendingRoute = m;
+        }
+    }
+
+    /** The route queued while the shell EventChannel had no listener. */
+    private Map<String, Object> pendingRoute;
+
+    /** A cold-launch intent carrying a shell route, forwarded once channels exist. */
+    private void forwardLaunchRoute(Intent i) {
+        if (i == null) return;
+        String url = i.getStringExtra("url");
+        String castJson = i.getStringExtra("castJson");
+        boolean test = i.getBooleanExtra("test", false);
+        String webUrl = i.getStringExtra("webUrl");
+        if (webUrl == null) webUrl = i.getStringExtra("web");
+        if (castJson != null && !castJson.isEmpty()) {
+            // the notifyCastReady notification / a cold cast: decode the
+            // payload exactly like PlayActivity.parseIntent's castJson leg.
+            try {
+                Map<String, Object> m = Cue.statusOf(castJson);
+                String u = MiniJson.str(m, "url");
+                String t = MiniJson.str(m, "title");
+                if (t == null || t.isEmpty()) t = MiniJson.str(m, "pageTitle");
+                pushShellRoute("play", u == null ? "" : u,
+                        t == null ? "" : t, MiniJson.str(m, "headers"), false, 0L);
+            } catch (Throwable t) {
+                Diag.w("shell", "castJson: " + t);
+            }
+        } else if (url != null && !url.isEmpty()) {
+            pushShellRoute("play", url, i.getStringExtra("title"),
+                    i.getStringExtra("headersJson"), test, i.getLongExtra("startMs", 0L));
+        } else if (test) {
+            pushShellRoute("play", "", "Sinhala Player Test", "", true, 0L);
+        } else if (webUrl != null && !webUrl.isEmpty()) {
+            pushShellRoute("web", webUrl, "", "", false, 0L);
+        } else {
+            String found = firstHttpUrl(i);
+            if (found != null) pushShellRoute("play", found, found, "", false, 0L);
+        }
+    }
 
     // ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -96,11 +207,23 @@ public class MainActivity extends FlutterActivity {
         // getSharedPreferences(...) is legal here: attachBaseContext has
         // already run by onCreate, so the ContextWrapper is live.
         prefs = getSharedPreferences("sicast", MODE_PRIVATE);
+        instance = this;
         super.onCreate(b);
+        // v3.4.6.c — a cold launch that carries a shell route (a cast that
+        // arrived before the engine was up, ACTION_VIEW/SEND, the
+        // notifyCastReady notification) is forwarded now that channels exist.
+        forwardLaunchRoute(getIntent());
     }
+
+    /** The live engine (captured in configureFlutterEngine — the protected
+     *  FlutterActivity getter is not reachable from Media3TextureBridge). */
+    private FlutterEngine engine;
+
+    FlutterEngine engineOrNull() { return engine; }
 
     @Override
     public void configureFlutterEngine(FlutterEngine engine) {
+        this.engine = engine;
         super.configureFlutterEngine(engine);
 
         new MethodChannel(engine.getDartExecutor().getBinaryMessenger(), CH_CAST)
@@ -145,9 +268,29 @@ public class MainActivity extends FlutterActivity {
                     @Override public void onListen(Object a, EventChannel.EventSink s) { troubleSink = s; }
                     @Override public void onCancel(Object a) { troubleSink = null; }
                 });
+        // v3.4.6.c — the shell route pump (cast / DLNA / share / test → the
+        // in-shell Mornye Cinema Player; openWebTab → the Browser tab).
+        new EventChannel(engine.getDartExecutor().getBinaryMessenger(), "anantplay/shell/events")
+                .setStreamHandler(new EventChannel.StreamHandler() {
+                    @Override public void onListen(Object a, EventChannel.EventSink s) {
+                        shellSink = s;
+                        // A route queued before the shell subscribed replays now.
+                        if (pendingRoute != null) {
+                            Map<String, Object> r = pendingRoute;
+                            pendingRoute = null;
+                            main.post(() -> {
+                                try { s.success(r); } catch (Throwable ignored) { }
+                            });
+                        }
+                    }
+                    @Override public void onCancel(Object a) { shellSink = null; }
+                });
 
         // the native Media3 player bridge: hardware video inside a Flutter Texture
         playerBridge = new Media3TextureBridge(this, engine);
+
+        // v3.4.6.c — the Browser tab's hardened native WebBrowserView.
+        registerBrowserPlatformView(engine);
 
         // THE immediate on-launch auto-updater (the v3.2.0 contract, unchanged):
         // direct Tier-1/Tier-2 check with live progress into the glass banner.
@@ -205,13 +348,6 @@ public class MainActivity extends FlutterActivity {
         if (s != null) s.success(onboardingStatusMap());
     }
 
-    @Override
-    protected void onDestroy() {
-        if (playerBridge != null) playerBridge.dispose();
-        SelfUpdater.setUiListener(null);
-        super.onDestroy();
-    }
-
     // ── anantplay/cast ────────────────────────────────────────────────────────
 
     private void onCastCall(MethodCall call, MethodChannel.Result result) {
@@ -264,7 +400,30 @@ public class MainActivity extends FlutterActivity {
                 Miui.openAnantPlay(this);
                 result.success(true);
             } else if ("testPlayer".equals(m)) {
-                startActivity(new Intent(this, PlayActivity.class).putExtra("test", true));
+                // v3.4.6.c — the MORNYE CINEMA PLAYER (in-shell), not the raw
+                // Java PlayActivity (real-phone complaint #3).
+                pushShellRoute("play", "", "Sinhala Player Test", "", true, 0L);
+                result.success(true);
+            } else if ("shareText".equals(m)) {
+                // v3.4.6.c — Help's 1-tap Share (the system ACTION_SEND sheet).
+                String text = call.argument("text");
+                try {
+                    Intent send = new Intent(Intent.ACTION_SEND)
+                            .setType("text/plain")
+                            .putExtra(Intent.EXTRA_TEXT, text == null ? "" : text);
+                    startActivity(Intent.createChooser(send, "Share report"));
+                } catch (Throwable t) {
+                    Diag.w("cast", "share: " + t);
+                }
+                result.success(true);
+            } else if ("resetOnboarding".equals(m)) {
+                // v3.4.6.c — "Run Setup Guide": drop the done flag AND the
+                // version stamp (the shell's version gate re-opens once).
+                prefs.edit()
+                        .putBoolean(AppPrefs.K_ONBOARDING_DONE, false)
+                        .putInt(AppPrefs.K_ONBOARDING_STAGE, 0)
+                        .putInt(AppPrefs.K_ONBOARDING_VERSION, 0)
+                        .apply();
                 result.success(true);
             } else if ("finishOnboarding".equals(m)) {
                 // v3.4.6.b — THE UNBREAKABLE FINISH PATH: a DEDICATED writer that
@@ -272,8 +431,12 @@ public class MainActivity extends FlutterActivity {
                 // setter — bypassing nothing (putBool would work too, but this
                 // channel is the one surface that can NEVER be filtered by any
                 // allowlist, backup or otherwise, and it pins the stage to 5).
+                // v3.4.6.c — it ALSO stamps the wizard VERSION (2 = the current
+                // 6-slide interactive wizard has been seen), so an upgrader's
+                // gate never re-fires after Finish.
                 AppPrefs.setOnboardingDone(prefs, true);
                 AppPrefs.setOnboardingStage(prefs, 5);
+                AppPrefs.setOnboardingVersion(prefs, 2);
                 result.success(true);
             } else if ("canRequestPackageInstalls".equals(m)) {
                 result.success(AnantPlayInstaller.canRequestPackageInstalls(this));
@@ -395,17 +558,16 @@ public class MainActivity extends FlutterActivity {
     // ── anantplay/subs ────────────────────────────────────────────────────────
 
     private void onSubsCall(MethodCall call, MethodChannel.Result result) {
-        // The subtitle workhorse (search → download → translate → polish) stays
-        // 100% inside PlayActivity's proven engine; the Flutter shell hands it
-        // URLs/titles and renders results through the player screen.
+        // v3.4.6.c — the subtitle workhorse rides ON the Media3TextureBridge
+        // session (its cues render as the active Sinhala cue on the frames
+        // stream, styled live by the Mornye HUD). These handoffs only need to
+        // surface through the shell when no bridge session is live.
         try {
             if ("openPlayerSearch".equals(call.method)) {
-                Intent i = new Intent(this, PlayActivity.class);
                 String url = call.argument("url");
                 String title = call.argument("title");
-                if (url != null && !url.isEmpty()) i.putExtra("url", url);
-                if (title != null && !title.isEmpty()) i.putExtra("title", title);
-                startActivity(i);
+                pushShellRoute("play", url == null ? "" : url,
+                        title == null ? "" : title, "", false, 0L);
                 result.success(true);
             } else {
                 result.notImplemented();
@@ -420,29 +582,78 @@ public class MainActivity extends FlutterActivity {
     private void onBrowserCall(MethodCall call, MethodChannel.Result result) {
         try {
             if ("openInPlayer".equals(call.method)) {
-                // a captured/sniffed stream from the browser tab → the player
-                Intent i = new Intent(this, PlayActivity.class);
+                // v3.4.6.c — a captured/sniffed stream from the browser tab →
+                // the IN-SHELL Mornye Cinema Player (was: PlayActivity).
                 String url = call.argument("url");
                 String headers = call.argument("headers");
                 String title = call.argument("title");
-                if (url != null && !url.isEmpty()) i.putExtra("url", url);
-                if (headers != null && !headers.isEmpty()) i.putExtra("headersJson", headers);
-                if (title != null && !title.isEmpty()) i.putExtra("title", title);
-                startActivity(i);
+                pushShellRoute("play", url == null ? "" : url,
+                        title == null ? "" : title, headers == null ? "" : headers,
+                        false, 0L);
                 result.success(true);
             } else if ("openWebTab".equals(call.method)) {
-                // the v3.4.5 Web tab handoff: open the cinema browser on a URL
-                Intent i = new Intent(this, PlayActivity.class);
+                // v3.4.6.c — the shell's live Browser tab (was: a PlayActivity
+                // web handoff that rendered the OLD Java browser screen).
                 String url = call.argument("url");
-                if (url != null && !url.isEmpty()) i.putExtra("web", url);
-                startActivity(i);
+                pushShellRoute("web", url == null ? "" : url, "", "", false, 0L);
                 result.success(true);
+            } else if ("loadNative".equals(call.method)) {
+                // v3.4.6.c — load a URL inside the ATTACHED browser
+                // PlatformView (the Browser tab's own omnibar handoffs).
+                WebBrowserView v = browserView;
+                if (v != null) {
+                    String url = call.argument("url");
+                    if (url != null && !url.isEmpty()) v.load(url);
+                    result.success(true);
+                } else {
+                    result.success(false);
+                }
             } else {
                 result.notImplemented();
             }
         } catch (Throwable t) {
             result.error("browser", String.valueOf(t), null);
         }
+    }
+
+    // ── the Browser tab's native PlatformView (anantplay/webview) ────────────
+
+    /** The one attached browser view (null while the Browser tab is offstage). */
+    private WebBrowserView browserView;
+
+    /**
+     * v3.4.6.c — the PlatformView factory hosting the hardened WebBrowserView
+     * (MIXED_CONTENT_NEVER_ALLOW · BridgeGuard Blob capture · StreamSniffer ·
+     * ad-block counter · reader dark — the full native browser, now INSIDE the
+     * Mornye shell instead of the old Java screen). PlatformViewFactory is an
+     * abstract class (create() + onDispose()), NOT a lambda.
+     */
+    private void registerBrowserPlatformView(FlutterEngine engine) {
+        engine.getPlatformViewsController()
+                .getRegistry()
+                .registerViewFactory("anantplay/webview",
+                        new io.flutter.plugin.platform.PlatformViewFactory(
+                                io.flutter.plugin.common.StandardMessageCodec.INSTANCE) {
+                            @Override
+                            public io.flutter.plugin.platform.PlatformView create(
+                                    android.content.Context context, int viewId, Object args) {
+                                final WebBrowserView v = new WebBrowserView(MainActivity.this);
+                                browserView = v;
+                                if (args instanceof Map) {
+                                    Object url = ((Map<?, ?>) args).get("url");
+                                    if (url instanceof String && !((String) url).isEmpty()) {
+                                        v.load((String) url);
+                                    }
+                                }
+                                return new io.flutter.plugin.platform.PlatformView() {
+                                    @Override public View getView() { return v; }
+                                    @Override public void dispose() {
+                                        if (browserView == v) browserView = null;
+                                        try { v.destroy(); } catch (Throwable ignored) { }
+                                    }
+                                };
+                            }
+                        });
     }
 
     // ── anantplay/settings ───────────────────────────────────────────────────
@@ -515,6 +726,9 @@ public class MainActivity extends FlutterActivity {
         // corrupt stored value is normalized exactly like every other key.
         m.put(AppPrefs.K_ONBOARDING_DONE, AppPrefs.onboardingDone(prefs));
         m.put(AppPrefs.K_ONBOARDING_STAGE, AppPrefs.onboardingStage(prefs));
+        // v3.4.6.c — the VERSION int the shell's upgrade gate reads (a v3.4.6.a
+        // install answers 1 → the new wizard shows exactly once).
+        m.put(AppPrefs.K_ONBOARDING_VERSION, AppPrefs.onboardingVersion(prefs));
         m.put(AppPrefs.K_THEME_MODE, AppPrefs.themeMode(prefs));
         m.put(AppPrefs.K_DYNAMIC_COLOR, AppPrefs.dynamicColor(prefs));
         m.put(AppPrefs.K_ACCENT, AppPrefs.accent(prefs));
@@ -719,15 +933,27 @@ public class MainActivity extends FlutterActivity {
         return sb.append(']').toString();
     }
 
-    // ── shared URL intents (ACTION_VIEW / ACTION_SEND still route to the player) ──
+    // ── shared URL intents (ACTION_VIEW / ACTION_SEND route into the shell player) ──
 
     @Override
     protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
-        String url = firstHttpUrl(i);
-        if (url != null) {
-            startActivity(new Intent(this, PlayActivity.class).putExtra("url", url));
+        setIntent(i);
+        // v3.4.6.c — a shared/opened URL, the SelfUpdater INSTALL_NOW action or
+        // a queued cast all land here while we are alive: forward through the
+        // shell route pump (the Mornye Cinema Player opens IN the shell).
+        forwardLaunchRoute(i);
+        if (SelfUpdater.ACTION_INSTALL_NOW.equals(i.getAction())) {
+            SelfUpdater.installPendingUpdate(this, true);
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        instance = null;
+        if (playerBridge != null) playerBridge.dispose();
+        SelfUpdater.setUiListener(null);
+        super.onDestroy();
     }
 
     private String firstHttpUrl(Intent i) {

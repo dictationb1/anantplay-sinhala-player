@@ -187,6 +187,133 @@ class UpdaterEvent {
   final String value;
 }
 
+/// v3.4.6.c — the native texture session Media3TextureBridge.open returns:
+/// the live textureId (a Flutter Texture renders it) + the first video
+/// geometry (updated live on the frames stream).
+class PlayerSession {
+  const PlayerSession({
+    required this.textureId,
+    required this.videoWidth,
+    required this.videoHeight,
+  });
+
+  factory PlayerSession.fromMap(Object? map) {
+    final m = map is Map ? map : const <dynamic, dynamic>{};
+    return PlayerSession(
+      textureId: (m['textureId'] as num?)?.toInt() ?? -1,
+      videoWidth: (m['videoWidth'] as num?)?.toInt() ?? 0,
+      videoHeight: (m['videoHeight'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  final int textureId;
+  final int videoWidth;
+  final int videoHeight;
+}
+
+/// v3.4.6.c — one frame of the player position stream (the EventChannel the
+/// bridge pushes at ~4 Hz: position, duration, buffered, play state, the
+/// active Sinhala cue text, and the subtitle pipeline status).
+class PlayerFrame {
+  const PlayerFrame({
+    required this.positionMs,
+    required this.durationMs,
+    required this.bufferedMs,
+    required this.playing,
+    required this.buffering,
+    required this.videoWidth,
+    required this.videoHeight,
+    required this.activeCueSi,
+    required this.subtitleState,
+  });
+
+  static const empty = PlayerFrame(
+    positionMs: 0,
+    durationMs: 0,
+    bufferedMs: 0,
+    playing: false,
+    buffering: false,
+    videoWidth: 0,
+    videoHeight: 0,
+    activeCueSi: '',
+    subtitleState: '',
+  );
+
+  factory PlayerFrame.fromMap(Object? event) {
+    final m = event is Map ? event : const <dynamic, dynamic>{};
+    return PlayerFrame(
+      positionMs: (m['positionMs'] as num?)?.toInt() ?? 0,
+      durationMs: (m['durationMs'] as num?)?.toInt() ?? 0,
+      bufferedMs: (m['bufferedMs'] as num?)?.toInt() ?? 0,
+      playing: m['playing'] == true,
+      buffering: m['buffering'] == true,
+      videoWidth: (m['videoWidth'] as num?)?.toInt() ?? 0,
+      videoHeight: (m['videoHeight'] as num?)?.toInt() ?? 0,
+      activeCueSi: (m['activeCueSi'] as String?) ?? '',
+      subtitleState: (m['subtitleState'] as String?) ?? '',
+    );
+  }
+
+  final int positionMs;
+  final int durationMs;
+  final int bufferedMs;
+  final bool playing;
+  final bool buffering;
+  final int videoWidth;
+  final int videoHeight;
+
+  /// The Sinhala cue that should be on screen RIGHT NOW (ZWJ/ZWNJ preserved
+  /// verbatim — the bridge never re-encodes cue text).
+  final String activeCueSi;
+
+  /// The live subtitle pipeline status ("ready · 906 cues · subz.lk").
+  final String subtitleState;
+}
+
+/// v3.4.6.c — one selectable track group from Media3 (video quality or audio
+/// language): the group's tracks with labels and the currently-active index.
+class PlayerTrackGroup {
+  const PlayerTrackGroup({
+    required this.type,
+    required this.tracks,
+    required this.selected,
+  });
+
+  final String type; // 'video' | 'audio'
+  final List<PlayerTrack> tracks;
+  final int selected;
+
+  static List<PlayerTrackGroup> decode(Object? raw) {
+    if (raw is! List) return const [];
+    final out = <PlayerTrackGroup>[];
+    for (final g in raw) {
+      if (g is! Map) continue;
+      final list = (g['tracks'] as List?) ?? const [];
+      out.add(PlayerTrackGroup(
+        type: (g['type'] as String?) ?? '',
+        selected: (g['selected'] as num?)?.toInt() ?? -1,
+        tracks: [
+          for (final t in list)
+            if (t is Map)
+              PlayerTrack(
+                index: (t['index'] as num?)?.toInt() ?? -1,
+                label: (t['label'] as String?) ?? '',
+              ),
+        ],
+      ));
+    }
+    return out;
+  }
+}
+
+/// One track inside a [PlayerTrackGroup].
+class PlayerTrack {
+  const PlayerTrack({required this.index, required this.label});
+
+  final int index;
+  final String label;
+}
+
 // ── anantplay/cast ─────────────────────────────────────────────────────────
 
 /// The AnantPlay native bridge surface (one singleton per app).
@@ -263,10 +390,15 @@ class AnantPlay {
 
   // ── v3.4.6.b — the unbreakable onboarding finish + in-app installer ─────────
 
-  /// THE dedicated persistence path: K_ONBOARDING_DONE = true through the
-  /// native `finishOnboarding` handler (AppPrefs.setOnboardingDone — a writer
-  /// no allowlist ever filters). Never silently dropped, never normalized away.
+  /// THE dedicated persistence path: K_ONBOARDING_DONE = true AND the
+  /// K_ONBOARDING_VERSION stamp through the native `finishOnboarding` handler
+  /// (AppPrefs.setOnboardingDone — a writer no allowlist ever filters). Never
+  /// silently dropped, never normalized away.
   Future<void> finishOnboarding() => _cast.invokeMethod('finishOnboarding');
+
+  /// v3.4.6.c — "Run Setup Guide": drop the done flag AND the version stamp
+  /// so the shell's gate re-opens the 6-slide wizard exactly once more.
+  Future<void> resetOnboarding() => _cast.invokeMethod('resetOnboarding');
 
   /// The live permission/install snapshot (overlay · notif · battery ·
   /// installs · official app) — one native round-trip for the whole wizard.
@@ -312,23 +444,117 @@ class AnantPlay {
   Future<void> copyToClipboard(String text) =>
       _cast.invokeMethod('copyToClipboard', {'text': text});
 
+  /// v3.4.6.c — Help's 1-tap Share (the system ACTION_SEND sheet).
+  Future<void> shareText(String text) =>
+      _cast.invokeMethod('shareText', {'text': text});
+
   /// The editable Saved Index URL box (backed-up pref, returns the stored value).
   Future<String> saveIndexUrl(String url) async =>
       await _cast.invokeMethod('saveIndexUrl', {'url': url});
 
   // ── anantplay/player ─────────────────────────────────────────────────────
 
-  /// Hand a URL (with optional headers/title) to the native Media3 engine.
-  Future<void> playUrl(String url, {String? headers, String? title, bool test = false}) =>
-      _player.invokeMethod('open', {
-        if (url.isNotEmpty) 'url': url,
+  /// v3.4.6.c — THE REAL TEXTURE PLAYER SURFACE. `open` builds a hardware
+  /// ExoPlayer inside the Flutter TextureRegistry (SurfaceProducer) and
+  /// returns the live textureId + video geometry; the HUD then drives the
+  /// control methods and listens to the position EventChannel below.
+  Future<PlayerSession> openPlayer(
+    String url, {
+    String? headers,
+    String? title,
+    bool test = false,
+    int startMs = 0,
+  }) async {
+    final map = await _player.invokeMethod('open', {
+      if (url.isNotEmpty) 'url': url,
+      if (headers != null && headers.isNotEmpty) 'headers': headers,
+      if (title != null && title.isNotEmpty) 'title': title,
+      if (test) 'test': true,
+      if (startMs > 0) 'startMs': startMs,
+    });
+    return PlayerSession.fromMap(map);
+  }
+
+  /// v3.4.6.c — a captured/sniffed browser stream → the in-shell Mornye
+  /// Cinema Player (NOT PlayActivity — the exact complaint #3 fix).
+  Future<void> playCaptured(String url, {String? headers, String? title}) =>
+      _browser.invokeMethod('openInPlayer', {
+        'url': url,
         if (headers != null && headers.isNotEmpty) 'headers': headers,
         if (title != null && title.isNotEmpty) 'title': title,
-        if (test) 'test': true,
       });
+
+  /// v3.4.6.c — the cast / DLNA / share / openWebTab route pump: the native
+  /// layer pushes a route blob here; the shell (ShellRootState) picks it up
+  /// and renders the Mornye Player or switches to the Browser tab. The blob
+  /// shape: {t: 'play'|'web', url, headers, title, test, startMs}.
+  Stream<Map<dynamic, dynamic>> shellRoutes() {
+    return _shellRouteStream ??= EventChannel('anantplay/shell/events')
+        .receiveBroadcastStream()
+        .where((e) => e is Map)
+        .map((e) => e as Map<dynamic, dynamic>);
+  }
+
+  Stream<Map<dynamic, dynamic>>? _shellRouteStream;
 
   /// The live player status snapshot (the cast server's /status JSON).
   Future<String> playerState() async => await _player.invokeMethod('state');
+
+  // ── player controls (Media3TextureBridge, all main-thread) ────────────────
+
+  Future<void> playerPlay() => _player.invokeMethod('play');
+  Future<void> playerPause() => _player.invokeMethod('pause');
+  Future<void> playerSeek(int positionMs) =>
+      _player.invokeMethod('seek', {'positionMs': positionMs});
+  Future<void> playerSetSpeed(double speed) =>
+      _player.invokeMethod('setSpeed', {'speed': speed});
+  Future<void> playerSetVolume(double volume) =>
+      _player.invokeMethod('setVolume', {'volume': volume});
+  Future<void> playerSelectTrack(int type, int index) =>
+      _player.invokeMethod('selectTrack', {'type': type, 'index': index});
+  Future<List<PlayerTrackGroup>> playerTracks() async =>
+      PlayerTrackGroup.decode(await _player.invokeMethod('tracks'));
+  Future<void> playerDispose() => _player.invokeMethod('dispose');
+
+  /// The player position EventChannel: {positionMs, durationMs, bufferedMs,
+  /// playing, buffering, videoWidth, videoHeight, activeCueSi, subtitleState}.
+  Stream<PlayerFrame> playerFrames() {
+    return _frameStream ??= EventChannel('anantplay/player/events')
+        .receiveBroadcastStream()
+        .map(PlayerFrame.fromMap);
+  }
+
+  Stream<PlayerFrame>? _frameStream;
+
+  // ── v3.4.6.c — the in-shell subtitle pipeline (the proven native engine) ──
+
+  /// Search → fetch → translate Sinhala subs for a title (the 10-site ladder
+  /// with subz.lk in tier 1, cast subs first, the free translator fallback).
+  /// Emits progress strings ("fetching…" / "90 cues · subz.lk") and finishes
+  /// with the applied cue list on the player's active session.
+  Future<void> findSubtitles(String title, {String? imdb, int season = 0, int episode = 0}) =>
+      _subs.invokeMethod('find', {
+        'title': title,
+        if (imdb != null && imdb.isNotEmpty) 'imdb': imdb,
+        'season': season,
+        'episode': episode,
+      });
+
+  /// Load a local .srt/.zip subtitle (SAF content URI picked in the sheet).
+  Future<bool> loadSubtitleFile(String uri) async =>
+      await _subs.invokeMethod('loadFile', {'uri': uri});
+
+  /// Load a subtitle from a pasted URL (auto-download → unzip → detect).
+  Future<bool> loadSubtitleUrl(String url) async =>
+      await _subs.invokeMethod('loadUrl', {'url': url});
+
+  /// Shift the active subtitles by ±ms (the Sync stepper in the sheet).
+  Future<void> shiftSubtitles(int deltaMs) =>
+      _subs.invokeMethod('shift', {'deltaMs': deltaMs});
+
+  /// The current subtitle status line ("ready · 906 cues · cached").
+  Future<String> subtitleStatus() async =>
+      await _subs.invokeMethod('status');
 
   // ── anantplay/subs + browser ─────────────────────────────────────────────
 
@@ -347,6 +573,11 @@ class AnantPlay {
 
   Future<void> openWebTab(String url) =>
       _browser.invokeMethod('openWebTab', {'url': url});
+
+  /// v3.4.6.c — load a URL inside the ATTACHED native browser PlatformView
+  /// (the WebBrowserView already on screen in the Browser tab).
+  Future<void> openNativeWeb(String url) =>
+      _browser.invokeMethod('loadNative', {'url': url});
 
   // ── anantplay/settings ───────────────────────────────────────────────────
 

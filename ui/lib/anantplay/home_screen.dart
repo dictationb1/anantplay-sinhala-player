@@ -1,17 +1,25 @@
-// AnantPlay Sinhala Player v3.4.6.b — the Home shell: Mornye collapsing large
-// title, receiver hero glass card (pulsing dot + Start/Stop), the instant
-// in-app auto-update glass banner (live % + 1-tap Update Now), quick-action
-// tiles, and Continue Watching (WatchHistory with progress + resume).
-// v3.4.6.b — FULL MORNYE PARITY: the entry reveal is now Mornye's
-// StaggeredListItem (the upstream Home exact effect: each section springs up
-// after its own delay on the spatial spring, opacity on the effects spring,
-// reduced-motion and scrolled-page aware), matching the upstream reveal.
+// AnantPlay Sinhala Player v3.4.6.c — the Home shell: Mornye collapsing large
+// title with the top-right Settings + Check-Update glass buttons, the instant
+// in-app auto-update glass card (live 0→100% + 1-tap Update Now), the receiver
+// hero glass card (Start/Stop flips status + the native ReceiverService
+// immediately), 4 REAL quick-action tiles (every one does something visible),
+// and Continue Watching (progress, exact resume timestamp, 1-tap resume,
+// delete row, clear all).
+//
+// v3.4.6.c — THE "FAKE UI" FIX, per tile:
+//   · AnantPlay → launches the official app OR the in-app installer sheet
+//   · Browser   → switches the SHELL to the live Browser tab (no PlayActivity)
+//   · Play URL  → the Mornye glass URL sheet (Paste + Play) → PlayerScreen
+//   · Test      → the MORNYE CINEMA PLAYER (player_screen.dart over the real
+//                 Media3TextureBridge) with the Mux HLS test + Sinhala demo
+import 'package:flutter/services.dart' show Clipboard;
 import 'package:material_ui/material_ui.dart';
 
 import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
 
 import 'app_state.dart';
 import 'bridge.dart';
+import 'package:anantplay_ui/main.dart';
 import 'settings_mirror.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -25,18 +33,35 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppState.of(context);
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: const Color(0xFF0F2E30),
+      backgroundColor: scheme.surface,
       body: SafeArea(
         bottom: false,
         child: CustomScrollView(
           slivers: [
             SliverAppBar.large(
               title: const Text('AnantPlay Player'),
-              backgroundColor: const Color(0x330F2E30),
+              backgroundColor: scheme.scrim.withValues(alpha: 0.2),
               surfaceTintColor: Colors.transparent,
               expandedHeight: 128,
               pinned: true,
+              // v3.4.6.c — complaint #1/#2 fix: Settings is ALWAYS 1-tap
+              // reachable from Home's own top bar, in ADDITION to the tab.
+              actions: [
+                IconButton(
+                  tooltip: 'Check for update',
+                  icon: const Icon(Icons.system_update_rounded),
+                  onPressed: () => AnantPlay.instance.checkForUpdate(),
+                ),
+                IconButton(
+                  tooltip: 'Settings',
+                  icon: const Icon(Icons.settings_rounded),
+                  onPressed: () =>
+                      ShellRootState.of(context).selectTab(2),
+                ),
+                const SizedBox(width: 4),
+              ],
             ),
             SliverToBoxAdapter(
               child: Padding(
@@ -52,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       index: 0,
                       duration: const Duration(milliseconds: 250),
                       staggerDelay: const Duration(milliseconds: 40),
-                      child: _UpdateBanner(event: state.updaterEvent),
+                      child: _UpdateCard(event: state.updaterEvent),
                     ),
                     const SizedBox(height: 16),
                     StaggeredListItem(
@@ -91,13 +116,18 @@ class _ReceiverHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final up = status.up;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0x14FFFFFF),
+        color: scheme.surfaceContainerHigh.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0x2EFFFFFF)),
+        border: Border.all(
+            color: up
+                ? scheme.primary.withValues(alpha: 0.55)
+                : scheme.outlineVariant.withValues(alpha: 0.4),
+            width: up ? 1.4 : 1),
       ),
       child: Column(
         children: [
@@ -108,18 +138,22 @@ class _ReceiverHero extends StatelessWidget {
                 height: 9,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: up ? const Color(0xFF3E8E8F) : const Color(0x66F2F7F7),
+                  color: up ? scheme.primary : scheme.outline,
                   boxShadow: up
-                      ? [const BoxShadow(color: Color(0x553E8E8F), blurRadius: 8)]
+                      ? [BoxShadow(
+                          color: scheme.primary.withValues(alpha: 0.5),
+                          blurRadius: 8)]
                       : null,
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  up ? 'Receiver ready' : 'Receiver stopped',
-                  style: const TextStyle(
-                    color: Color(0xFFF2F7F7),
+                  // v3.4.6.c — the user-visible status flip the hero owes:
+                  // the label states exactly what the receiver is doing.
+                  up ? 'Active · Ready for Cast' : 'Stopped',
+                  style: TextStyle(
+                    color: scheme.onSurface,
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                   ),
@@ -127,33 +161,48 @@ class _ReceiverHero extends StatelessWidget {
               ),
               Text(
                 up && status.port > 0 ? ':${status.port}' : '',
-                style: const TextStyle(color: Color(0x99F2F7F7), fontSize: 13),
+                style: TextStyle(
+                    color: scheme.onSurfaceVariant, fontSize: 13),
               ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
             up
-                ? (status.mdns ? 'Announced on the LAN — cast from AnantPlay.' : 'Cast server up (announcing…).')
+                ? (status.mdns
+                    ? 'Announced on the LAN — cast from AnantPlay.'
+                    : 'Cast server up (announcing…).')
                 : 'Start it to accept casts from the official app.',
-            style: const TextStyle(color: Color(0x99F2F7F7), fontSize: 12.5, height: 1.4),
+            style: TextStyle(
+                color: scheme.onSurfaceVariant, fontSize: 12.5, height: 1.4),
           ),
           const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
                 child: FilledButton.icon(
+                  // v3.4.6.c — REAL toggle: arm/stop the native ReceiverService
+                  // and flip the card (the status stream pushes the change).
                   onPressed: () => up
                       ? AnantPlay.instance.stopReceiver()
                       : AnantPlay.instance.armReceiver(),
                   style: FilledButton.styleFrom(
-                    backgroundColor: up ? const Color(0x1FFFFFFF) : const Color(0xFF1E4E4F),
-                    foregroundColor: const Color(0xFFF2F7F7),
+                    backgroundColor: up
+                        ? scheme.surfaceContainerHighest
+                        : scheme.primary,
+                    foregroundColor:
+                        up ? scheme.onSurface : scheme.onPrimary,
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(13)),
                   ),
-                  icon: Icon(up ? Icons.stop_rounded : Icons.play_arrow_rounded, size: 18),
-                  label: Text(up ? 'Stop' : 'Start',
+                  icon: Icon(
+                      up ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                      size: 18),
+                  label: Text(
+                      up
+                          ? 'Stop Receiver'
+                          : 'Start Receiver',
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                 ),
               ),
@@ -165,46 +214,54 @@ class _ReceiverHero extends StatelessWidget {
   }
 }
 
-// ── the auto-update glass banner ────────────────────────────────────────────
+// ── the auto-update glass card ───────────────────────────────────────────────
 
-class _UpdateBanner extends StatelessWidget {
-  const _UpdateBanner({required this.event});
+class _UpdateCard extends StatelessWidget {
+  const _UpdateCard({required this.event});
 
   final UpdaterEvent? event;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final e = event;
     if (e == null) return const SizedBox.shrink();
     final isProgress = e.type == 'progress';
     final isPending = e.type == 'pending' || e.type == 'available';
     if (!isProgress && !isPending) return const SizedBox.shrink();
+    final pct = int.tryParse(e.value) ?? 0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0x1A1E4E4F),
+        color: scheme.primaryContainer.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0x2E3E8E8F)),
+        border:
+            Border.all(color: scheme.primary.withValues(alpha: 0.4)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.system_update_rounded, color: Color(0xFF3E8E8F), size: 20),
+          Icon(Icons.system_update_rounded,
+              color: scheme.primary, size: 20),
           const SizedBox(width: 12),
           Expanded(
             child: isProgress
                 ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Downloading v${e.value} — ${e.value}%…',
-                          style: const TextStyle(color: Color(0xFFF2F7F7), fontSize: 13.5)),
+                      Text('Downloading update — $pct%…',
+                          style: TextStyle(
+                              color: scheme.onSurface, fontSize: 13.5)),
                       const SizedBox(height: 6),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(3),
                         child: LinearProgressIndicator(
-                          value: (int.tryParse(e.value) ?? 0) / 100.0,
+                          // v3.4.6.c — the live 0→100% bar (the old banner
+                          // printed the version string into the percent).
+                          value: pct.clamp(0, 100) / 100.0,
                           minHeight: 4,
-                          backgroundColor: const Color(0x1FFFFFFF),
-                          color: const Color(0xFF3E8E8F),
+                          backgroundColor:
+                              scheme.onSurface.withValues(alpha: 0.1),
+                          color: scheme.primary,
                         ),
                       ),
                     ],
@@ -213,13 +270,14 @@ class _UpdateBanner extends StatelessWidget {
                     e.type == 'pending'
                         ? 'Update ready: v${e.value} — tap to install'
                         : 'Update available: v${e.value}',
-                    style: const TextStyle(color: Color(0xFFF2F7F7), fontSize: 13.5),
+                    style: TextStyle(
+                        color: scheme.onSurface, fontSize: 13.5),
                   ),
           ),
           if (!isProgress)
             TextButton(
               onPressed: () => AnantPlay.instance.installPendingUpdate(),
-              child: const Text('Update now', style: TextStyle(color: Color(0xFF7FCDD0))),
+              child: const Text('Update Now'),
             ),
         ],
       ),
@@ -245,9 +303,11 @@ class _QuickStartCard extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 16),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: const Color(0x1AFFFFFF),
+          color: theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.4),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0x26FFFFFF)),
+          border: Border.all(
+              color:
+                  theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
         ),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
@@ -256,11 +316,14 @@ class _QuickStartCard extends StatelessWidget {
               Icon(Icons.tips_and_updates_rounded,
                   size: 22, color: theme.colorScheme.primary),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'First time? Cast from AnantPlay, or open the Browser tab to '
                   'watch with Sinhala subtitles.',
-                  style: TextStyle(fontSize: 13, height: 1.35),
+                  style: TextStyle(
+                      fontSize: 13,
+                      height: 1.35,
+                      color: theme.colorScheme.onSurface),
                 ),
               ),
               TextButton(
@@ -289,42 +352,226 @@ class _QuickActions extends StatelessWidget {
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
       childAspectRatio: 1.62,
-      children: const [
+      children: [
         _ActionTile(
           icon: Icons.cast_rounded,
           title: 'AnantPlay',
           subtitle: 'Open the official app',
-          action: _openOfficial,
+          // v3.4.6.c — the official app, OR (not installed) the in-app
+          // AnantPlayInstaller sheet — never a silent no-op.
+          onTap: () async {
+            final installed = await AnantPlay.instance.officialInstalled();
+            if (!context.mounted) return;
+            if (installed) {
+              await AnantPlay.instance.openOfficialApp();
+            } else {
+              showInstallerSheet(context);
+            }
+          },
         ),
         _ActionTile(
           icon: Icons.public_rounded,
           title: 'Browser',
           subtitle: 'Cinema WebView browser',
-          action: _openBrowser,
+          // v3.4.6.c — complaint #1 fix: this tile switches the SHELL to the
+          // live Browser tab (was: an openWebTab no-op that opened nothing).
+          onTap: () => ShellRootState.of(context).openBrowserTab(),
         ),
         _ActionTile(
           icon: Icons.link_rounded,
           title: 'Play URL',
           subtitle: 'Stream any link here',
-          action: _playUrl,
+          onTap: () => _openUrlSheet(context),
         ),
         _ActionTile(
           icon: Icons.science_rounded,
-          title: 'Test',
-          subtitle: 'Try the demo stream',
-          action: _testPlayer,
+          title: 'Test Player',
+          subtitle: 'Mornye cinema demo',
+          // v3.4.6.c — complaint #3 fix: the MORNYE CINEMA PLAYER in the
+          // shell (was: the raw Java PlayActivity).
+          onTap: () => ShellRootState.of(context).pushPlayer(
+                const PlayRequest(
+                  url: '',
+                  test: true,
+                ),
+              ),
         ),
       ],
     );
   }
 
-  static Future<void> _openOfficial() => AnantPlay.instance.openOfficialApp();
-  static Future<void> _openBrowser() => AnantPlay.instance.openWebTab('');
-  static Future<void> _playUrl() async {
-    await AnantPlay.instance.playUrl('');
+  /// The Mornye Liquid-Glass URL sheet: Paste (clipboard) + Play. Empty input
+  /// is refused with a hint — the button can never be a dead tap.
+  static void _openUrlSheet(BuildContext context) {
+    final controller = TextEditingController();
+    final scheme = Theme.of(context).colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: scheme.surfaceContainerHigh,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+              20, 20, 20, 20 + MediaQuery.viewInsetsOf(sheetContext).bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Play a URL',
+                  style: TextStyle(
+                      color: scheme.onSurface,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Text('Any HLS / DASH / MP4 link — played in the Mornye Cinema Player.',
+                  style: TextStyle(
+                      color: scheme.onSurfaceVariant, fontSize: 12.5)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'https://example.com/stream.m3u8',
+                  prefixIcon: const Icon(Icons.link_rounded),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.content_paste_rounded, size: 18),
+                    label: const Text('Paste'),
+                    onPressed: () async {
+                      final data = await Clipboard.getData('text/plain');
+                      final text = data?.text?.trim() ?? '';
+                      if (text.isNotEmpty) controller.text = text;
+                    },
+                  ),
+                  const Spacer(),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                    label: const Text('Play'),
+                    onPressed: () {
+                      final url = controller.text.trim();
+                      if (!url.startsWith('http')) {
+                        ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            const SnackBar(
+                                content: Text(
+                                    'Paste a http(s) link first')));
+                        return;
+                      }
+                      Navigator.pop(sheetContext);
+                      ShellRootState.of(context).pushPlayer(PlayRequest(
+                          url: url, title: url));
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The in-app AnantPlay installer sheet (official app not installed): the
+/// same live resolve → percent → PackageInstaller pipeline onboarding uses.
+void showInstallerSheet(BuildContext context) {
+  final scheme = Theme.of(context).colorScheme;
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: scheme.surfaceContainerHigh,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+    ),
+    builder: (sheetContext) {
+      return _InstallerSheet(scheme: scheme);
+    },
+  );
+}
+
+class _InstallerSheet extends StatefulWidget {
+  const _InstallerSheet({required this.scheme});
+
+  final ColorScheme scheme;
+
+  @override
+  State<_InstallerSheet> createState() => _InstallerSheetState();
+}
+
+class _InstallerSheetState extends State<_InstallerSheet> {
+  int _percent = 0;
+  String _state = '';
+  bool _running = false;
+
+  @override
+  void initState() {
+    super.initState();
+    AnantPlay.instance.installEvents().listen((e) {
+      if (!mounted) return;
+      setState(() {
+        if (e.type == 'installProgress') {
+          _running = true;
+          _percent = e.percent;
+        } else {
+          _state = e.extra.isEmpty ? e.value : '${e.value} · ${e.extra}';
+        }
+      });
+    });
   }
 
-  static Future<void> _testPlayer() => AnantPlay.instance.runTestPlayer();
+  @override
+  Widget build(BuildContext context) {
+    final scheme = widget.scheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Install official AnantPlay',
+              style: TextStyle(
+                  color: scheme.onSurface,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text(
+              'AnantPlay is the casting remote — install it to cast movies here.',
+              style:
+                  TextStyle(color: scheme.onSurfaceVariant, fontSize: 12.5)),
+          const SizedBox(height: 16),
+          if (_running || _percent > 0) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(
+                value: _percent.clamp(0, 100) / 100.0,
+                minHeight: 5,
+                backgroundColor: scheme.onSurface.withValues(alpha: 0.1),
+                color: scheme.primary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(_state.isEmpty ? '$_percent%' : _state,
+                style: TextStyle(
+                    color: scheme.onSurfaceVariant, fontSize: 12)),
+            const SizedBox(height: 12),
+          ] else
+            FilledButton.icon(
+              icon: const Icon(Icons.download_rounded, size: 20),
+              label: const Text('Download & Install'),
+              onPressed: () =>
+                  AnantPlay.instance.installOfficialAnantPlay(),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ActionTile extends StatelessWidget {
@@ -332,27 +579,29 @@ class _ActionTile extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
-    required this.action,
+    required this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
-  final Future<void> Function() action;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: const Color(0x0FFFFFFF),
+      color: scheme.surfaceContainerHigh.withValues(alpha: 0.35),
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: () => action(),
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0x1FFFFFFF)),
+            border: Border.all(
+                color: scheme.outlineVariant.withValues(alpha: 0.4)),
           ),
           child: Row(
             children: [
@@ -360,10 +609,10 @@ class _ActionTile extends StatelessWidget {
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: const Color(0x1F1E4E4F),
+                  color: scheme.primaryContainer.withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, color: const Color(0xFF7FCDD0), size: 20),
+                child: Icon(icon, color: scheme.primary, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -372,13 +621,17 @@ class _ActionTile extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(title,
-                        style: const TextStyle(
-                            color: Color(0xFFF2F7F7), fontSize: 14, fontWeight: FontWeight.w600)),
+                        style: TextStyle(
+                            color: scheme.onSurface,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600)),
                     const SizedBox(height: 2),
                     Text(subtitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Color(0x80F2F7F7), fontSize: 11.5)),
+                        style: TextStyle(
+                            color: scheme.onSurfaceVariant,
+                            fontSize: 11.5)),
                   ],
                 ),
               ),
@@ -399,21 +652,44 @@ class _ContinueWatching extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     if (history.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 18),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 18),
         child: Center(
-          child: Text('Nothing watched yet — cast or open a link to begin.',
-              style: TextStyle(color: Color(0x80F2F7F7), fontSize: 13)),
+          child: Text(
+              'Nothing watched yet — cast or open a link to begin.',
+              style: TextStyle(
+                  color: scheme.onSurfaceVariant, fontSize: 13)),
         ),
       );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Continue watching',
-            style: TextStyle(
-                color: Color(0xFFF2F7F7), fontSize: 17, fontWeight: FontWeight.w700)),
+        Row(
+          children: [
+            Expanded(
+              child: Text('Continue watching',
+                  style: TextStyle(
+                      color: scheme.onSurface,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700)),
+            ),
+            TextButton(
+              // v3.4.6.c — Clear all (each row also has its own delete).
+              onPressed: () {
+                // fire-and-forget per row, then one refresh — the scope
+                // notifies the shell itself; no context use after await.
+                for (final it in List<HistoryItem>.from(history)) {
+                  AnantPlay.instance.removeHistory(it.key);
+                }
+                AppState.of(context).scope.refresh();
+              },
+              child: const Text('Clear all'),
+            ),
+          ],
+        ),
         const SizedBox(height: 10),
         for (final it in history.take(6))
           _HistoryRow(item: it),
@@ -429,15 +705,23 @@ class _HistoryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final resumable = item.resumable;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: const Color(0x0AFFFFFF),
+        color: scheme.surfaceContainerHigh.withValues(alpha: 0.25),
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () => AnantPlay.instance.playUrl(item.url, title: item.title),
+          // v3.4.6.c — 1-tap resume IN the Mornye Cinema Player, at the
+          // saved position (the bridge seeks on open), with the timestamp
+          // shown right on the row.
+          onTap: () => ShellRootState.of(context).pushPlayer(PlayRequest(
+                url: item.url,
+                title: item.title,
+                resumeMs: item.pos.round(),
+              )),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
@@ -446,34 +730,69 @@ class _HistoryRow extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(item.title.isEmpty ? item.url : item.title,
+                      Text(
+                          item.title.isEmpty ? item.url : item.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: Color(0xFFF2F7F7), fontSize: 13.5, fontWeight: FontWeight.w500)),
+                          style: TextStyle(
+                              color: scheme.onSurface,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w500)),
                       const SizedBox(height: 6),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(3),
                         child: LinearProgressIndicator(
                           value: item.percent / 100.0,
                           minHeight: 3,
-                          backgroundColor: const Color(0x1FFFFFFF),
-                          color: const Color(0xFF3E8E8F),
+                          backgroundColor:
+                              scheme.onSurface.withValues(alpha: 0.1),
+                          color: scheme.primary,
                         ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.dur > 0
+                            ? '${_clock(item.pos)} / ${_clock(item.dur)}'
+                            : _clock(item.pos),
+                        style: TextStyle(
+                            color: scheme.onSurfaceVariant, fontSize: 11),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 10),
                 if (resumable)
-                  const Icon(Icons.play_arrow_rounded, color: Color(0xFF7FCDD0), size: 20)
+                  Icon(Icons.play_arrow_rounded,
+                      color: scheme.primary, size: 20)
                 else
-                  const Icon(Icons.replay_rounded, color: Color(0x66F2F7F7), size: 16),
+                  Icon(Icons.replay_rounded,
+                      color: scheme.onSurfaceVariant, size: 16),
+                // v3.4.6.c — per-row delete (Dismissible-style tap target).
+                IconButton(
+                  tooltip: 'Remove',
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(Icons.close_rounded,
+                      size: 16, color: scheme.onSurfaceVariant),
+                  onPressed: () {
+                    AnantPlay.instance.removeHistory(item.key);
+                    AppState.of(context).scope.refresh();
+                  },
+                ),
               ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  static String _clock(double ms) {
+    final s = (ms / 1000).round();
+    final h = s ~/ 3600;
+    final m = (s % 3600) ~/ 60;
+    final sec = s % 60;
+    return h > 0
+        ? '$h:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}'
+        : '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 }

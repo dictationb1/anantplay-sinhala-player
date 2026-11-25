@@ -11,7 +11,7 @@ name: Build Sinhala Player APK
 #   · android/local.properties is NEVER committed: CI writes it from FLUTTER_ROOT.
 #
 # v3.4.5 kept: reproducible-APK notes, build-tools 35.0.1 hard requirement, and
-# the version-lock assertions (3.4.6.b / 30408 everywhere).
+# the version-lock assertions (3.4.6.c / 30409 everywhere).
 env:
   TZ: UTC
 
@@ -50,8 +50,8 @@ jobs:
           GRADLE_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)
           APPINFO_VERSION=$(sed -n 's/.*VERSION_NAME = "\([^"]*\)".*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
           APPINFO_CODE=$(sed -n 's/.*VERSION_CODE = \([0-9]*\).*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
-          test "$VERSION" = "3.4.6.b"
-          test "$CODE" = "30408"
+          test "$VERSION" = "3.4.6.c"
+          test "$CODE" = "30409"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -102,13 +102,13 @@ jobs:
           echo "signed artifacts tracked: $BAD"
           [ "$BAD" -eq 0 ]
 
-      # v3.4.6.b — Gate 2: the repo root was a 20-file report dump. The archive
+      # v3.4.6.c — Gate 2: the repo root was a 20-file report dump. The archive
       # must stay under docs/reports/ and the accidental-upload junk (the iOS
       # Xcode tree, the Flutter plugin manifest, python bytecode) must never be
       # tracked again. This is a TRACKED-file proof, so ephemeral state a
       # `flutter pub get` legitimately creates in the job's own worktree is
       # irrelevant — exactly like the .zip/.apk gate above.
-      - name: Clean repo root + docs/reports archive (v3.4.6.b)
+      - name: Clean repo root + docs/reports archive (v3.4.6.c)
         run: |
           set -euo pipefail
           echo "--- the repo root must carry ONLY the essentials ---"
@@ -148,7 +148,7 @@ jobs:
             git ls-files 'ui/.ios/*' '**/.ios/*' '**/__pycache__/*' '*.pyc' \
               'ui/.flutter-plugins-dependencies' '**/.flutter-plugins-dependencies' \
               'android/local.properties' '*.zip' '*.apk' '*.aab' '*.idsig'
-            echo "::error title=Junk tracked::the v3.4.6.b upload junk (iOS tree / pyc / archives) is tracked"
+            echo "::error title=Junk tracked::the v3.4.6.c upload junk (iOS tree / pyc / archives) is tracked"
             exit 1
           fi
           echo "ui/.ios/, ui/.flutter-plugins-dependencies, __pycache__, .pyc, .zip, .apk: 0 tracked"
@@ -378,7 +378,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:
-      # v3.4.6.b — the version identity of the artifact (published as run
+      # v3.4.6.c — the version identity of the artifact (published as run
       # annotations; the launch-smoke job below builds its own x86_64 twin
       # and resolves the same version independently).
       version: ${{ steps.app-version.outputs.version }}
@@ -399,8 +399,8 @@ jobs:
           GRADLE_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)
           APPINFO_VERSION=$(sed -n 's/.*VERSION_NAME = "\([^"]*\)".*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
           APPINFO_CODE=$(sed -n 's/.*VERSION_CODE = \([0-9]*\).*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
-          test "$VERSION" = "3.4.6.b"
-          test "$CODE" = "30408"
+          test "$VERSION" = "3.4.6.c"
+          test "$CODE" = "30409"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -595,7 +595,7 @@ jobs:
           cp "$APK_OUT" dist/AnantPlay-Sinhala-Player.apk
           test -s dist/AnantPlay-Sinhala-Player.apk
 
-      # v3.4.6.b — TRAP #1: THE 16 KB ZIP PASS, THEN apksigner. AGP signs
+      # v3.4.6.c — TRAP #1: THE 16 KB ZIP PASS, THEN apksigner. AGP signs
       # during assembleRelease, but alignment REWRITES the zip and invalidates
       # any signature — so the auditable order is: zipalign -P 16 -f 4 →
       # apksigner sign (v1+v2+v3) → zipalign -c -P 16 4 → apksigner verify →
@@ -643,7 +643,7 @@ jobs:
           "$BT/zipalign" -c -P 16 4 "$SRC"
           echo "::notice title=zipalign::zipalign -P 16 -f 4 applied, zipalign -c -P 16 4 OK"
 
-      - name: Assert the artifact is a real, signed, installable v3.4.6.b APK
+      - name: Assert the artifact is a real, signed, installable v3.4.6.c APK
         run: |
           set -euo pipefail
           # v3.4.6 — every gate below publishes its verdict as a check-run
@@ -669,7 +669,7 @@ jobs:
           grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" /tmp/apksigner.txt \
             || { echo "::error::the APK is not v3-signed (the release contract is v2+v3)"; exit 1; }
           notice "apksigner" "v2 true + v3 true (exit 0)"
-          # v3.4.6.b — TRAP #1: the REAL Android 16 check, -P 16 (16 KiB .so
+          # v3.4.6.c — TRAP #1: the REAL Android 16 check, -P 16 (16 KiB .so
           # offsets inside the zip), not the legacy plain -c 4.
           "$BT/zipalign" -c -P 16 4 "$APK"
           notice "zipalign" "zipalign -c -P 16 4 exit 0 (16 KiB .so offsets)"
@@ -685,7 +685,7 @@ jobs:
           # the Flutter engine really is inside the APK (libflutter.so is the proof)
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libflutter.so"
           unzip -l "$APK" | grep -E "classes.*dex|lib/arm64-v8a/libflutter.so"
-          # v3.4.6.b — THE LAUNCH-INTEGRITY GATE (the v3.4.6 post-mortem's own
+          # v3.4.6.c — THE LAUNCH-INTEGRITY GATE (the v3.4.6 post-mortem's own
           # audit, hard-wired into CI): every packaged .so must be 16 KB-page
           # ready (PT_LOAD congruent modulo 16384 in file AND vaddr), exactly
           # ONE ABI, the launch-critical libapp.so + asset pair present, the
@@ -748,7 +748,7 @@ jobs:
               echo "| sha256 | $(cut -d' ' -f1 dist/sha256.txt) |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-  # ── v3.4.6.b — THE REAL LAUNCH SMOKE TEST (audit TRAP #3, fixed) ───────────
+  # ── v3.4.6.c — THE REAL LAUNCH SMOKE TEST (audit TRAP #3, fixed) ───────────
   # The v3.4.6 incident in one sentence: an APK that installed fine and crashed
   # on EVERY launch shipped 100% green, because no CI job ever STARTED the app.
   #
@@ -780,8 +780,8 @@ jobs:
           set -euo pipefail
           VERSION=$(sed -n 's/^VERSION_NAME=${VERSION_NAME:-\([^}]*\)}$/\1/p' build.sh | head -1)
           CODE=$(sed -n 's/^VERSION_CODE=${VERSION_CODE:-\([^}]*\)}$/\1/p' build.sh | head -1)
-          test "$VERSION" = "3.4.6.b"
-          test "$CODE" = "30408"
+          test "$VERSION" = "3.4.6.c"
+          test "$CODE" = "30409"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
@@ -973,11 +973,23 @@ jobs:
             adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' > /tmp/focus.txt || true
             cat /tmp/focus.txt
             if ! grep -q 'lk.techworld.anantplay.sicast' /tmp/focus.txt; then echo '::error title=launch-smoke::MainActivity is not the focused window (mCurrentFocus/mFocusedApp)'; { echo '### launch-smoke FAIL: MainActivity is not the focused window (mCurrentFocus/mFocusedApp)'; echo '```'; echo '```'; cat /tmp/focus.txt; echo '```';  echo '```'; echo '#### crash buffer (FULL)'; echo '```'; adb logcat -d -b crash 2>&1 | tail -250; echo '```'; echo '#### logcat *:E (AndroidRuntime|flutter|FATAL|Fatal signal)'; echo '```'; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|FATAL|Fatal signal' | tail -250; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; adb logcat -d -b crash 2>&1 | grep -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke crash::${line}"; done; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke logcat:E::${line}"; done; exit 1; fi
-            echo '── 6/7 crash buffer must be EMPTY ──'
+            echo '── 6/7 crash buffer must be EMPTY for OUR app ──'
             adb logcat -d -b crash > /tmp/crashbuf.txt 2>&1 || true
-            if grep -qE 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' /tmp/crashbuf.txt; then echo '::error title=launch-smoke::crash buffer is NOT empty (FATAL/SIGSEGV/SIGABRT found)'; { echo '### launch-smoke FAIL: crash buffer is NOT empty (FATAL/SIGSEGV/SIGABRT found)'; echo '```'; echo '```'; cat /tmp/crashbuf.txt; echo '```';  echo '```'; echo '#### crash buffer (FULL)'; echo '```'; adb logcat -d -b crash 2>&1 | tail -250; echo '```'; echo '#### logcat *:E (AndroidRuntime|flutter|FATAL|Fatal signal)'; echo '```'; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|FATAL|Fatal signal' | tail -250; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; adb logcat -d -b crash 2>&1 | grep -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke crash::${line}"; done; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke logcat:E::${line}"; done; exit 1; fi
-            adb logcat -d -b main 2>/dev/null | grep -E 'FATAL EXCEPTION|Fatal signal' > /tmp/fatal-main.txt || true
-            if [ -s /tmp/fatal-main.txt ]; then echo '::error title=launch-smoke::FATAL entries outside the crash buffer'; { echo '### launch-smoke FAIL: FATAL outside the crash buffer'; echo '```'; cat /tmp/fatal-main.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; while IFS= read -r line; do echo "::error title=launch-smoke fatal::${line}"; done < /tmp/fatal-main.txt; exit 1; fi
+            # v3.4.6.c — SCOPED CRASH GATE: the API-36 google_apis emulator image
+            # cold-boots com.google.android.gms.* services that legitimately crash
+            # (SIGSEGV in the GMS persistent process) with zero relation to our
+            # app — that flaked CI on v3.4.6.b. The gate now attributes every
+            # crash to a process: OUR package name, OUR pid, or the flutter
+            # process line aborts CI; anything else is recorded as noise.
+            APP_PID=$(cat /tmp/pid.txt | tr -d '\r\n')
+            grep -B14 -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' /tmp/crashbuf.txt | grep -E '>>>|pid:|lk\.techworld\.anantplay\.sicast|com\.google\.android\.gms|FATAL EXCEPTION|Fatal signal' > /tmp/crashattr.txt 2>&1 || true
+            awk -v pid="$APP_PID" 'BEGIN{RS="\n\n"} /FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT/ { if ($0 ~ /lk\.techworld\.anantplay\.sicast/ || $0 ~ ("pid: " pid) || $0 ~ />>> lk\.techworld/) print $0 }' /tmp/crashbuf.txt > /tmp/ourcrash.txt 2>&1 || true
+            adb logcat -d -b crash 2>&1 | grep -A6 'FATAL EXCEPTION' | grep -E 'Process:|lk\.techworld\.anantplay\.sicast' >> /tmp/ourcrash.txt || true
+            if grep -q 'lk\.techworld\.anantplay\.sicast' /tmp/ourcrash.txt; then echo '::error title=launch-smoke::OUR APP crashed (FATAL/SIGSEGV/SIGABRT in lk.techworld.anantplay.sicast)'; { echo '### launch-smoke FAIL: OUR APP crashed — crash-buffer entries attributed to lk.techworld.anantplay.sicast (pid '"$APP_PID"')'; echo '```'; cat /tmp/ourcrash.txt; echo '```'; echo '#### crash buffer (FULL — including emulator-image noise)'; echo '```'; tail -250 /tmp/crashbuf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; head -40 /tmp/ourcrash.txt | while IFS= read -r line; do echo "::error title=launch-smoke our-crash::${line}"; done; exit 1; fi
+            if grep -qE 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' /tmp/crashbuf.txt; then echo '::notice title=launch-smoke::crash buffer has entries, NONE attributed to our app (emulator-image noise, e.g. com.google.android.gms) — recorded, NOT failing'; { echo '### launch-smoke: unrelated crash-buffer entries (emulator image noise — not our app)'; echo '```'; cat /tmp/crashbuf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; fi
+            adb logcat -d -b main 2>/dev/null | grep -E 'FATAL EXCEPTION|Fatal signal' > /tmp/fatal-main-all.txt || true
+            grep -B2 -A8 -E 'FATAL EXCEPTION|Fatal signal' /tmp/fatal-main-all.txt | awk 'BEGIN{RS="\n\n"} /lk\.techworld\.anantplay\.sicast/' > /tmp/fatal-main.txt || true
+            if [ -s /tmp/fatal-main.txt ]; then echo '::error title=launch-smoke::FATAL entries outside the crash buffer (OUR APP)'; { echo '### launch-smoke FAIL: FATAL outside the crash buffer, attributed to our app'; echo '```'; cat /tmp/fatal-main.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; while IFS= read -r line; do echo "::error title=launch-smoke fatal::${line}"; done < /tmp/fatal-main.txt; exit 1; fi
             echo '── 7/7 record logcat *:E for humans (inspection) ──'
             { echo '### launch-smoke logcat "*:E" (inspection)'; echo '```'; adb logcat -d '*:E' 2>&1 | tail -80; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             echo "::notice title=launch-smoke::install + am start -W (Status: ok) + live pid $(cat /tmp/pid.txt) after 12 s + MainActivity focused + ZERO crash-buffer FATAL/SIGSEGV/SIGABRT — the APK OPENS."

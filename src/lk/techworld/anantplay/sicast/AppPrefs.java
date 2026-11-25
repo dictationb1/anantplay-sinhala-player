@@ -89,6 +89,16 @@ public final class AppPrefs {
     public static final String K_ONBOARDING_DONE = "onboardingDone";
     public static final String K_ONBOARDING_STAGE = "onboardingStage";
     /**
+     * v3.4.6.c — THE ONBOARDING VERSION INT. v3.4.6.a persisted
+     * onboardingDone=true with no stamp, so the v3.4.6.b BOOL gate silently
+     * skipped every upgrader's new 6-slide wizard (real-phone complaint #4).
+     * The shell shows the wizard while the stamped version is &lt; 2:
+     * 0 = never run, 1 = a legacy v3.4.6.a finish, 2 = the current wizard.
+     * Like DONE/STAGE it is DEVICE STATE (never backed up) — a restore onto
+     * a fresh device must re-run the guide.
+     */
+    public static final String K_ONBOARDING_VERSION = "onboardingVersion";
+    /**
      * v3.4.6.b — the Sources & Index Helper's saved URL (onboarding Slide 6).
      *
      * <p>The official AnantPlay app (me.champdev.weblock) exposes NO exported
@@ -182,7 +192,7 @@ public final class AppPrefs {
      * They are the documented exception to "every pref is backed up".
      */
     public static final List<String> DEVICE_STATE_KEYS = Arrays.asList(
-        K_ONBOARDING_DONE, K_ONBOARDING_STAGE);
+        K_ONBOARDING_DONE, K_ONBOARDING_STAGE, K_ONBOARDING_VERSION);
 
     public static final List<String> BACKUP_KEYS = Arrays.asList(
         K_THEME_MODE, K_DYNAMIC_COLOR, K_ACCENT, K_ACCENT_HEX, K_UI_LANG, K_DENSITY, K_CARD_RADIUS,
@@ -655,10 +665,31 @@ public final class AppPrefs {
         p.edit().putInt(K_ONBOARDING_STAGE, stage < 0 ? 0 : (stage > 5 ? 5 : stage)).apply();
     }
 
-    /** "Run setup wizard": forget completion so the wizard opens again from stage 1. */
+    /** "Run setup wizard": forget completion so the wizard opens again from stage 1.
+     *  v3.4.6.c — ALSO drops the version stamp: the shell's version gate
+     *  (not the done flag alone) decides whether the wizard is owed. */
     public static void resetOnboarding(SharedPreferences p) {
         if (p == null) return;
-        p.edit().putBoolean(K_ONBOARDING_DONE, false).putInt(K_ONBOARDING_STAGE, 0).apply();
+        p.edit().putBoolean(K_ONBOARDING_DONE, false)
+                .putInt(K_ONBOARDING_STAGE, 0)
+                .putInt(K_ONBOARDING_VERSION, 0).apply();
+    }
+
+    /** v3.4.6.c — the stamped onboarding version (0/1 legacy, 2 = current wizard seen). */
+    public static int onboardingVersion(SharedPreferences p) {
+        if (p == null) return 0;
+        // A legacy install that already finished has NO stamp: treat done → 1,
+        // so the shell shows the CURRENT wizard exactly once more (the
+        // v3.4.6.b bool gate skipped them — complaint #4's root cause).
+        if (!p.contains(K_ONBOARDING_VERSION)) {
+            return p.getBoolean(K_ONBOARDING_DONE, false) ? 1 : 0;
+        }
+        return p.getInt(K_ONBOARDING_VERSION, 0);
+    }
+
+    public static void setOnboardingVersion(SharedPreferences p, int version) {
+        if (p == null) return;
+        p.edit().putInt(K_ONBOARDING_VERSION, version).apply();
     }
     /** v3.3.1 — the Card-corner-radius preference, normalized (sharp|rounded|apple-pill). */
     public static String cardRadius(SharedPreferences p) {
