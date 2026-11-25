@@ -186,6 +186,11 @@ public final class AppPrefs {
     /** How much light the dimmer removes: 10..70 percent. */
     public static final String K_MIDNIGHT_DIM_PCT = "midnightDimPct";  // 10..70
 
+    // v3.4.6.g — the Home tip banner's dismissal (persisted by the Got-it
+    // tap; the banner offers Watch Tour beside it). Rides Backup & Restore so
+    // a restore keeps the user's choice.
+    public static final String K_HOME_TIP_DISMISSED = "homeTipDismissed";  // bool
+
     /** Every key SettingsBackup carries (ordered — the export JSON is stable). */
     /**
      * v3.4.3 — keys that must NEVER travel in a backup (device/permission state).
@@ -217,7 +222,10 @@ public final class AppPrefs {
         // v3.4.2 - the Midnight Night Dimmer rides the same lossless backup
         K_MIDNIGHT_DIMMER, K_MIDNIGHT_DIM_PCT,
         // v3.4.6.b - the Sources & Index Helper's saved URL travels with it
-        K_INDEX_URL);
+        K_INDEX_URL,
+        // v3.4.6.g - the Home Got-it banner's dismissal rides the same lossless
+        // backup (registry 82: every key is auto-audited by DeepProbe G1)
+        K_HOME_TIP_DISMISSED);
 
     // ── the normalizers (pure — Mornye's normalizeXxx pattern) ─────────────────
 
@@ -618,6 +626,9 @@ public final class AppPrefs {
                 case K_ACCENT_GLOW: case K_SUB_SHADOW: case K_READER_DARK:
                 case K_FAVICONS: case K_SHOW_BLOCK_COUNT: case K_MIDNIGHT_DIMMER:
                 case K_GLASS_OUTLINES: case K_ICON_GLASS:
+                // v3.4.6.g — the Home Got-it dismissal is a plain boolean that
+                // must round-trip Backup & Restore (never fall to default:null).
+                case K_HOME_TIP_DISMISSED:
                     return raw instanceof Boolean ? raw
                         : Boolean.parseBoolean(String.valueOf(raw)) ? Boolean.TRUE : Boolean.FALSE;
                 case K_MIDNIGHT_DIM_PCT:

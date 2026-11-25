@@ -32,6 +32,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:dynamic_color/dynamic_color.dart';
 
 import 'package:anantplay_ui/mornye_ui/theme/mornye_theme.dart';
 import 'package:anantplay_ui/mornye_ui/theme/app_tokens.dart';
@@ -119,10 +120,28 @@ class AnantPlayApp extends StatelessWidget {
   }
 }
 
+/// v3.4.6.g — THE HONEST MATERIAL YOU AVAILABILITY FLAG. True when the OS
+/// provided a REAL wallpaper-extracted ColorScheme (Android 12–16). When the
+/// toggle is ON but this is false, Settings shows the honest caption below
+/// and the app keeps the Mornye palette — the transformation is NEVER faked
+/// with a hardcoded purple again (the v3.4.6.f `0xFF6750A4` lie is dead).
+const String kWallpaperUnavailableCaption =
+    'System wallpaper colors unavailable on this device';
+
+final ValueNotifier<bool> wallpaperSchemeAvailable = ValueNotifier<bool>(false);
+
 /// v3.4.6.f — the live Mornye theme bridge. Every appearance key the Studio
 /// writes flows through [AppStateNotifier] into this widget; because it reads
 /// [AppState.of] during build, Flutter rebuilds + repaints the entire app the
 /// instant a preference changes (no restart, no setState in 40 screens).
+///
+/// v3.4.6.g — REAL MATERIAL YOU: wrapped in the genuine `DynamicColorBuilder`
+/// from the dynamic_color package. With the toggle ON and a REAL OS scheme,
+/// the FULL wallpaper ColorScheme transforms the entire app (primary and
+/// containers, secondary/tertiary, every surface tier, outlines, AMOLED
+/// #000000 lanes) — an unmistakable full-app transformation. With the toggle
+/// OFF, or when the OS returns null (caption shown), the app reverts cleanly
+/// to Mornye's Cupertino/custom-accent palette.
 class _ThemedApp extends StatelessWidget {
   const _ThemedApp();
 
@@ -133,6 +152,20 @@ class _ThemedApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return DynamicColorBuilder(
+      builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+        // v3.4.6.g — publish the honest availability to Settings (never a
+        // fake PASS: no scheme from the OS means the caption, not a fake paint).
+        wallpaperSchemeAvailable.value =
+            lightDynamic != null || darkDynamic != null;
+        return buildThemed(
+          context, lightDynamic, darkDynamic);
+      },
+    );
+  }
+
+  Widget buildThemed(
+      BuildContext context, ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
     final s = AppState.of(context).settings;
     final String modeId = s.themeMode;
     final bool amoled = modeId == 'amoled';
@@ -142,15 +175,21 @@ class _ThemedApp extends StatelessWidget {
     // The platform dispatcher keeps system-brightness in sync with the
     // rendering binding; MaterialApp resolves ThemeMode.system itself.
     PlatformDispatcher.instance.platformBrightness;
-    // Presets 0–6 map 1:1 onto MornyeAccent. A valid custom #RRGGBB or the
-    // Material You seed overrides the seed roles on the derived ColorScheme.
+    // Presets 0–6 map 1:1 onto MornyeAccent. A valid custom #RRGGBB overrides
+    // the seed roles on the derived ColorScheme. v3.4.6.g — Material You wins
+    // ONLY when the OS handed us a REAL wallpaper scheme; otherwise the custom
+    // hex / preset lane applies and the hardcoded-purple fake is gone forever.
     final int accentIndex = s.accent.clamp(0, _accentColors.length - 1);
     final MornyeAccent accent = MornyeAccent.values[accentIndex];
     final String hex = s.accentHex.trim();
     final int? custom = hex.length == 6 ? int.tryParse('FF$hex', radix: 16) : null;
-    final Color? override = custom != null
-        ? Color(custom)
-        : (s.dynamicColor ? const Color(0xFF6750A4) : null);
+    final bool useWallpaper =
+        s.dynamicColor && (lightDynamic != null || darkDynamic != null);
+    final Color? override = useWallpaper
+        ? null
+        : (custom != null ? Color(custom) : null);
+    final ColorScheme? lightWall = useWallpaper ? lightDynamic : null;
+    final ColorScheme? darkWall = useWallpaper ? darkDynamic : null;
 
     // 0.10–0.95 is the Studio's published glass range; "flat" force-blurs off.
     final double clarity =
@@ -161,11 +200,11 @@ class _ThemedApp extends StatelessWidget {
 
     final ThemeData light = _themeFor(
       s, Brightness.light, accent, override, clarity, outlines,
-      amoled: false,
+      amoled: false, wallpaper: lightWall,
     );
     final ThemeData dark = _themeFor(
       s, Brightness.dark, accent, override, clarity, outlines,
-      amoled: amoled,
+      amoled: amoled, wallpaper: darkWall,
     );
     return MaterialApp(
       title: 'AnantPlay Player',
@@ -185,6 +224,7 @@ class _ThemedApp extends StatelessWidget {
     double clarity,
     bool outlines, {
     required bool amoled,
+    ColorScheme? wallpaper,
   }) {
     final String? font = switch (s.s(SettingsMirror.kUiFont, '')) {
       '' => null,
@@ -206,6 +246,37 @@ class _ThemedApp extends StatelessWidget {
             : Colors.black,
         secondary: override,
         onSecondary: Colors.white,
+      );
+    }
+    // v3.4.6.g — THE FULL WALLPAPER TRANSFORMATION: the OS's real scheme takes
+    // over EVERY role — primary/secondary/tertiary + their containers, every
+    // surface tier, onSurfaceVariant, outlines. Cards, sliders, switches, the
+    // nav pill and text all derive from these in Material 3, so toggling the
+    // switch produces an UNMISTAKABLE full-app Material You repaint.
+    if (wallpaper != null) {
+      scheme = scheme.copyWith(
+        primary: wallpaper.primary,
+        onPrimary: wallpaper.onPrimary,
+        primaryContainer: wallpaper.primaryContainer,
+        onPrimaryContainer: wallpaper.onPrimaryContainer,
+        secondary: wallpaper.secondary,
+        onSecondary: wallpaper.onSecondary,
+        secondaryContainer: wallpaper.secondaryContainer,
+        onSecondaryContainer: wallpaper.onSecondaryContainer,
+        tertiary: wallpaper.tertiary,
+        onTertiary: wallpaper.onTertiary,
+        tertiaryContainer: wallpaper.tertiaryContainer,
+        onTertiaryContainer: wallpaper.onTertiaryContainer,
+        surface: wallpaper.surface,
+        onSurface: wallpaper.onSurface,
+        surfaceContainerLowest: wallpaper.surfaceContainerLowest,
+        surfaceContainerLow: wallpaper.surfaceContainerLow,
+        surfaceContainer: wallpaper.surfaceContainer,
+        surfaceContainerHigh: wallpaper.surfaceContainerHigh,
+        surfaceContainerHighest: wallpaper.surfaceContainerHighest,
+        onSurfaceVariant: wallpaper.onSurfaceVariant,
+        outline: wallpaper.outline,
+        outlineVariant: wallpaper.outlineVariant,
       );
     }
     if (amoled && brightness == Brightness.dark) {

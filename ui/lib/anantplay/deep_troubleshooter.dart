@@ -1,24 +1,31 @@
-// AnantPlay Sinhala Player v3.4.6.f — THE HONEST TWO-LAYER DEEP TROUBLESHOOTER.
+// AnantPlay Sinhala Player v3.4.6.g — THE HONEST TWO-LAYER DEEP TROUBLESHOOTER.
 //
-// Layer 2 (native, DeepProbe.java): 56 live probes across the 6 domains
+// Layer 2 (native, DeepProbe.java): 64 live probes across the 7 domains
 // (A Auto-Updater Law · B Home & Cast · C Settings & Customizations ·
-// D Browser · E Cinema Player & Subtitles · F Permissions & Privacy) —
-// including the v3.4.6.f honesty rebuild: the worker probe FAILS on any
-// non-200 HTTP code (the v3.4.6.e "HTTP 0 → offline retention ✓" fake
-// PASS), a REAL subtitle SRT → parse → ZWJ → SubtitleStore end-to-end
-// probe, and the Uncaught-crash gate (a captured Java/Dart PlatformException
-// is a FAIL with the exact class + line).
+// D Browser · E Cinema Player & Subtitles · F Permissions & Privacy ·
+// G the v3.4.6.g real-phone fix contracts) — including the honesty rebuild:
+// the worker probe FAILS on any non-200 HTTP code (the v3.4.6.e "HTTP 0 →
+// offline retention ✓" fake PASS), a REAL subtitle SRT → parse → ZWJ →
+// SubtitleStore end-to-end probe, and the Uncaught-crash gate (a captured
+// Java/Dart PlatformException is a FAIL with the exact class + line).
 //
-// Layer 1 (THIS FILE, Dart): the LIVE Flutter UI & channel audits the
-// v3.4.6.e run never had — executed INSIDE Dart against the live AppState
-// (InheritedNotifier) and the live AnantPlayBridge singleton hubs: the
-// rebuild trigger, the bridge-hub health (zero "No active stream to cancel"),
-// the Stop/Start receiver round-trip through Dart, the settings
-// persistence round-trip, the ForceUpdateScreen isNewer guard (v3.4.6.f →
-// v3.4.6.f MUST be false — LAW #1 in Dart), the Google search-engine
-// contract, the PlayerScreen compact subtitle bounds, and the history
-// read-back. The verdict merges BOTH layers and every FAIL ✗ is printed at
-// the very top of the composed report — nothing is ever hidden.
+// Layer 1 (THIS FILE, Dart): the LIVE Flutter UI & channel audits —
+// executed INSIDE Dart against the live AppState (InheritedNotifier) and the
+// live AnantPlayBridge singleton hubs: the rebuild trigger, the bridge-hub
+// health (zero "No active stream to cancel"), the Stop/Start receiver
+// round-trip through Dart, the settings persistence round-trip, the
+// ForceUpdateScreen isNewer guard (v3.4.6.g → v3.4.6.g MUST be false — LAW #1
+// in Dart), the Google search-engine contract, the PlayerScreen compact
+// subtitle bounds, and the history read-back.
+//
+// v3.4.6.g — THE DOMAIN/ID COLLISION FIX (Trap #2): the native layer grew
+// from 56 (A–F) to 64 probes (A–G, G1–G8 = ids 57–64). The Dart layer USED to
+// also be Domain G ids 57–64, so the merged verdict, the live feed and the
+// clipboard report carried DUPLICATE ids 57–64 and two different "Domain G"
+// cards overwriting each other. The Dart layer is now **Domain H, ids 65–72**
+// — the merged run is 100% unique sequential ids 1..72 with zero duplicates.
+// The verdict merges BOTH layers and every FAIL ✗ is printed at the very top
+// of the composed report — nothing is ever hidden.
 import 'dart:async';
 import 'dart:convert' show jsonDecode;
 
@@ -48,14 +55,14 @@ class DeepOutcome {
       );
 
   final int id;
-  final String domain; // A|B|C|D|E|F|G
+  final String domain; // A|B|C|D|E|F|G (native) | H (the live Dart layer)
   final String name;
   final bool pass;
   final double ms;
   final String detail;
 }
 
-/// The seven domains, their titles, and the grouping helpers.
+/// The eight domains, their titles, and the grouping helpers.
 class DeepDomain {
   const DeepDomain(this.code, this.title);
 
@@ -69,8 +76,13 @@ class DeepDomain {
     DeepDomain('D', 'Browser'),
     DeepDomain('E', 'Cinema Player & Subtitles'),
     DeepDomain('F', 'Permissions & Privacy'),
-    // v3.4.6.f — THE LIVE DART LAYER (Layer 1 of the honest audit).
-    DeepDomain('G', 'Live Flutter UI (Dart)'),
+    // v3.4.6.g — the NATIVE Domain G (the eight real-phone fix-contract
+    // probes, ids 57–64). This title must match the native engine's G domain
+    // so the merged card groups the native G outcomes correctly.
+    DeepDomain('G', 'Real-Phone Fix Contracts'),
+    // v3.4.6.g — THE LIVE DART LAYER (Layer 1 of the honest audit), renumbered
+    // to Domain H (ids 65–72) so it can NEVER collide with native G (57–64).
+    DeepDomain('H', 'Live Flutter UI (Dart)'),
   ];
 
   static String titleOf(String code) {
@@ -99,7 +111,7 @@ List<DeepOutcome> decodeDeepOutcomes(Object? raw) {
   return raw.whereType<Map>().map(DeepOutcome.fromMap).toList(growable: false);
 }
 
-// ── v3.4.6.f — LAYER 1: THE LIVE DART AUDITS (domain G) ────────────────────
+// ── v3.4.6.g — LAYER 1: THE LIVE DART AUDITS (Domain H, ids 65–72) ──────────
 
 /// The Layer-1 auditor: everything runs INSIDE Dart, against the LIVE
 /// AppState notifier and the LIVE AnantPlayBridge hubs — never against
@@ -113,17 +125,32 @@ class DartLayerAuditor {
   /// the audit lands as an honest FAIL instead of hanging the verdict.
   static const _auditTimeout = Duration(seconds: 3);
 
-  /// Runs the 8 live Dart audits (ids 57–64, domain 'G').
-  static Future<List<DeepOutcome>> run(AppStateNotifier scope) async {
+  /// The first Dart-layer id. Native owns 1..64 (A–G); the Dart layer owns
+  /// 65..72 (H) — the merged run is unique sequential ids 1..72.
+  static const int firstId = 65;
+
+  /// Runs the 8 live Dart audits (ids 65–72, domain 'H').
+  ///
+  /// [onStart] fires the instant an audit begins and [onDone] the instant it
+  /// lands, so the Help tab's live step-by-step feed streams the Dart layer
+  /// too (▶ Checking #65 … → ✓ #65 PASS) — the feed covers all 72 probes, not
+  /// just the native 64.
+  static Future<List<DeepOutcome>> run(
+    AppStateNotifier scope, {
+    void Function(int id, String name)? onStart,
+    void Function(DeepOutcome outcome)? onDone,
+  }) async {
     final out = <DeepOutcome>[];
-    int id = 57;
+    int id = firstId;
     Future<void> add(String name, Future<DeepOutcome> Function() body) async {
+      final myId = id;
+      onStart?.call(myId, name);
       final t0 = DateTime.now();
       DeepOutcome o;
       try {
         o = await body().timeout(_auditTimeout, onTimeout: () => DeepOutcome(
               id: 0,
-              domain: 'G',
+              domain: 'H',
               name: '',
               pass: false,
               ms: 0,
@@ -132,8 +159,8 @@ class DartLayerAuditor {
             ));
       } catch (e) {
         o = DeepOutcome(
-          id: id,
-          domain: 'G',
+          id: myId,
+          domain: 'H',
           name: name,
           pass: false,
           ms: 0,
@@ -141,14 +168,16 @@ class DartLayerAuditor {
         );
       }
       final ms = DateTime.now().difference(t0).inMilliseconds;
-      out.add(DeepOutcome(
-        id: o.id == 0 ? id : o.id,
-        domain: 'G',
+      final landed = DeepOutcome(
+        id: o.id == 0 ? myId : o.id,
+        domain: 'H',
         name: name,
         pass: o.pass,
         ms: ms.toDouble(),
         detail: o.detail,
-      ));
+      );
+      out.add(landed);
+      onDone?.call(landed);
       id++;
     }
 
@@ -163,7 +192,7 @@ class DartLayerAuditor {
     return out;
   }
 
-  /// G1 — the LIVE rebuild trigger: a test theme toggle through the REAL
+  /// H1 — the LIVE rebuild trigger: a test theme toggle through the REAL
   /// persistence path must fire notifyListeners (the InheritedNotifier's
   /// dependents rebuild) — and the original value is RESTORED.
   static Future<DeepOutcome> _auditRebuild(AppStateNotifier scope) async {
@@ -181,7 +210,7 @@ class DartLayerAuditor {
       final restored = scope.settings.s(SettingsMirror.kThemeMode, original) == original;
       return DeepOutcome(
         id: 0,
-        domain: 'G',
+        domain: 'H',
         name: '',
         pass: rebuilt && restored,
         ms: 0,
@@ -195,7 +224,7 @@ class DartLayerAuditor {
     }
   }
 
-  /// G2 — the bridge hub health: every EventChannel has AT MOST ONE native
+  /// H2 — the bridge hub health: every EventChannel has AT MOST ONE native
   /// listen and ZERO stream errors — the structural proof that the
   /// `No active stream to cancel` PlatformException is dead.
   static Future<DeepOutcome> _auditHubs() async {
@@ -205,7 +234,7 @@ class DartLayerAuditor {
         '${s.nativeListens} listen(s), ${s.streamErrors} error(s)').join(' · ');
     return DeepOutcome(
       id: 0,
-      domain: 'G',
+      domain: 'H',
       name: '',
       pass: bad.isEmpty,
       ms: 0,
@@ -215,7 +244,7 @@ class DartLayerAuditor {
     );
   }
 
-  /// G3 — the receiver round-trip THROUGH DART: stop → up == false →
+  /// H3 — the receiver round-trip THROUGH DART: stop → up == false →
   /// start → up == true, ending in the original state. The exact flow of
   /// the real Home "Stop Receiver" button, live.
   static Future<DeepOutcome> _auditReceiver() async {
@@ -241,7 +270,7 @@ class DartLayerAuditor {
     final restored = after.up == before.up;
     return DeepOutcome(
       id: 0,
-      domain: 'G',
+      domain: 'H',
       name: '',
       pass: stopLegOk && startLegOk && restored,
       ms: 0,
@@ -250,7 +279,7 @@ class DartLayerAuditor {
     );
   }
 
-  /// G4 — the settings persistence round-trip through the live channel.
+  /// H4 — the settings persistence round-trip through the live channel.
   static Future<DeepOutcome> _auditSettings() async {
     const key = 'deepProbe.dart.roundTrip';
     await AnantPlay.instance.putBool(key, true);
@@ -259,7 +288,7 @@ class DartLayerAuditor {
     final readFalse = await AnantPlay.instance.getBool(key, def: true);
     return DeepOutcome(
       id: 0,
-      domain: 'G',
+      domain: 'H',
       name: '',
       pass: readTrue == true && readFalse == false,
       ms: 0,
@@ -268,8 +297,8 @@ class DartLayerAuditor {
     );
   }
 
-  /// G5 — LAW #1 in Dart, LIVE: the app's OWN version identity may never
-  /// gate on itself (the v3.4.6.f → v3.4.6.f self-lock), while a genuinely
+  /// H5 — LAW #1 in Dart, LIVE: the app's OWN version identity may never
+  /// gate on itself (the v3.4.6.g → v3.4.6.g self-lock), while a genuinely
   /// newer release must.
   static Future<DeepOutcome> _auditGateGuard() async {
     final info = await AnantPlay.instance.appInfo();
@@ -279,7 +308,7 @@ class DartLayerAuditor {
     final lane = isNewerVersion('3.4.6.g', '3.4.6.f') && isNewerVersion('3.4.7', '3.4.6.z');
     return DeepOutcome(
       id: 0,
-      domain: 'G',
+      domain: 'H',
       name: '',
       pass: !selfLock && newer && lane,
       ms: 0,
@@ -288,7 +317,7 @@ class DartLayerAuditor {
     );
   }
 
-  /// G6 — the Google search-engine contract, live through the settings
+  /// H6 — the Google search-engine contract, live through the settings
   /// mirror (the omnibar's engine preference round-trips and Google is the
   /// default engine whose URL the native builder emits).
   static Future<DeepOutcome> _auditSearchEngine() async {
@@ -302,7 +331,7 @@ class DartLayerAuditor {
     final fourEngines = ['google', 'ddg', 'startpage', 'brave'].contains(readBack);
     return DeepOutcome(
       id: 0,
-      domain: 'G',
+      domain: 'H',
       name: '',
       pass: readBack == 'google' && fourEngines,
       ms: 0,
@@ -311,7 +340,7 @@ class DartLayerAuditor {
     );
   }
 
-  /// G7 — the compact cinema subtitle bounds, read from the SHIPPED
+  /// H7 — the compact cinema subtitle bounds, read from the SHIPPED
   /// constants the PlayerScreen actually paints with (14/15sp base, 82%
   /// width cap, 10–28sp clamp, 1.25 line height).
   static Future<DeepOutcome> _auditSubtitleBounds() async {
@@ -325,7 +354,7 @@ class DartLayerAuditor {
         && min == 10 && max == 28 && height == 1.25;
     return DeepOutcome(
       id: 0,
-      domain: 'G',
+      domain: 'H',
       name: '',
       pass: ok,
       ms: 0,
@@ -335,23 +364,33 @@ class DartLayerAuditor {
     );
   }
 
-  /// G8 — the history read-back round-trip (the live WatchHistory surface).
+  /// H8 — the history read-back round-trip (the live WatchHistory surface).
+  /// HONEST: the channel must answer AND every returned row must be a
+  /// structurally valid history item (a non-empty url + a sane position).
+  /// A channel that throws or times out is a FAIL (caught by [run]); a
+  /// channel that answers garbage rows is a FAIL here — never a blind PASS.
   static Future<DeepOutcome> _auditHistory() async {
     final items = await AnantPlay.instance.history();
+    final bad = items.where((it) => it.url.trim().isEmpty || it.pos < 0).toList();
+    final ok = bad.isEmpty;
     return DeepOutcome(
       id: 0,
-      domain: 'G',
+      domain: 'H',
       name: '',
-      pass: true,
+      pass: ok,
       ms: 0,
-      detail: '${items.length} row(s) readable through the live channel ✓',
+      detail: ok
+          ? '${items.length} row(s) readable through the live channel ✓ '
+              '(every row carries a valid url + position)'
+          : 'FAIL — ${bad.length}/${items.length} history row(s) malformed '
+              '(empty url or negative position)',
     );
   }
 }
 
 /// Composes the FINAL honest report: the merged verdict + EVERY FAIL ✗ at
 /// the very top (nothing hidden), then the native report body, then the
-/// Dart-layer ledger.
+/// Dart-layer ledger (Domain H, ids 65–72).
 String composeHonestReport(
     String nativeReport, List<DeepOutcome> nativeOutcomes, List<DeepOutcome> dartOutcomes) {
   final all = [...nativeOutcomes, ...dartOutcomes];
@@ -369,7 +408,7 @@ String composeHonestReport(
   sb.writeln(nativeReport);
   if (dartOutcomes.isNotEmpty) {
     sb.writeln();
-    sb.writeln('== Domain G — Live Flutter UI (Dart layer, executed in Dart '
+    sb.writeln('== Domain H — Live Flutter UI (Dart layer, executed in Dart '
         'against the live AppState & AnantPlayBridge) ==');
     for (final o in dartOutcomes) {
       sb.writeln('${o.pass ? 'PASS' : 'FAIL ✗'} ${o.id}. ${o.name} — '

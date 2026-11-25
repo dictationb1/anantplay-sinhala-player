@@ -109,6 +109,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 ShellRootState.of(context)
                     .pushPlayer(PlayRequest(url: url, title: title, headers: headers));
               },
+              onTranslate: () {
+                // v3.4.6.g — the NewZone Translator Automation lane: the
+                // dock opens tools.newzone.top in the same native view —
+                // grab or translate subtitles in 1–2 taps.
+                AnantPlay.instance.openNativeWeb('https://tools.newzone.top');
+              },
             ),
           ),
         ],
@@ -117,20 +123,23 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 }
 
-/// The floating dock: shows the newest sniffed stream with a 1-tap Play, and
-/// the shield badge (blocked ad/tracker count) — Mornye glass over the page.
+/// The floating dock: shows the newest sniffed stream with a 1-tap Play, the
+/// NewZone Auto-Translate helper pill, and the shield badge (blocked
+/// ad/tracker count) — Mornye glass over the page.
 class _CaptureDock extends StatelessWidget {
   const _CaptureDock({
     required this.hits,
     required this.open,
     required this.onToggle,
     required this.onPlay,
+    required this.onTranslate,
   });
 
   final List<Map<dynamic, dynamic>> hits;
   final bool open;
   final VoidCallback onToggle;
   final void Function(String url, String title, String headers) onPlay;
+  final VoidCallback onTranslate;
 
   @override
   Widget build(BuildContext context) {
@@ -189,15 +198,38 @@ class _CaptureDock extends StatelessWidget {
                       ),
               ),
               if (newest != null)
-                FilledButton.tonalIcon(
-                  icon: const Icon(mi.Icons.play_arrow_rounded, size: 18),
-                  label: const Text('Play'),
-                  onPressed: () => onPlay(
-                    (newest['url'] ?? '') as String,
-                    (newest['title'] ?? '') as String,
-                    (newest['headers'] ?? '') as String,
+                // v3.4.6.g — THE GLOWING 1-TAP PILL: `Play in Cinema` with a
+                // live accent glow (the exact stream, Referer + Cookie + UA
+                // captured by StreamSniffer, opens the Mornye Cinema Player).
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: [
+                      BoxShadow(
+                        color: scheme.primary.withValues(alpha: 0.45),
+                        blurRadius: 18,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  child: FilledButton.tonalIcon(
+                    icon: const Icon(mi.Icons.play_arrow_rounded, size: 18),
+                    label: const Text('Play in Cinema'),
+                    onPressed: () => onPlay(
+                      (newest['url'] ?? '') as String,
+                      (newest['title'] ?? '') as String,
+                      (newest['headers'] ?? '') as String,
+                    ),
                   ),
                 ),
+              // v3.4.6.g — the NewZone Auto-Translate helper: grab or translate
+              // Sinhala subtitles in 1–2 taps without leaving the page.
+              IconButton(
+                tooltip: 'Auto-Translate / grab Sinhala subs (NewZone)',
+                icon: Icon(mi.Icons.translate_rounded,
+                    size: 20, color: scheme.primary),
+                onPressed: onTranslate,
+              ),
               const SizedBox(width: 6),
               Icon(
                 open

@@ -109,10 +109,45 @@ public class MainActivity extends FlutterActivity {
     static void shellRoute(android.content.Context c, String type, String url,
                            String title, String headers, boolean test, long startMs) {
         MainActivity a = instance;
-        if (a == null) {
-            // The engine is not up (process cold start with a cast intent):
-            // remember the launch intent; MainActivity.onCreate forwards it
-            // after configureFlutterEngine (see pendingShellRoute).
+        if (a != null && a.shellResumed) {
+            // The shell is ON SCREEN: the in-app fast path — push the route
+            // blob straight down the EventChannel, no launch needed.
+            a.pushShellRoute(type, url, title, headers, test, startMs);
+            return;
+        }
+        // v3.4.6.g — THE BAL-ALLOWED LAUNCH (the cast auto-open fix): the old
+        // cold/backgrounded path was a bare startActivity() from the service's
+        // worker thread, which Android 14–16 silently DROPS (the 3/3 "player
+        // did not open despite the overlay grant" timeline — the launch never
+        // happened, so no bridge session ever opened). The launch now rides a
+        // PendingIntent carrying MODE_BACKGROUND_ACTIVITY_START_ALLOWED via
+        // ActivityOptions.makeBasic() (API 34+; harmless basic options below),
+        // with the FULL flag set — NEW_TASK | SINGLE_TOP | CLEAR_TOP |
+        // REORDER_TO_FRONT — so a live-but-backgrounded shell gets onNewIntent
+        // (never a recreate), and a cold process gets onCreate. The payload
+        // rides the intent extras; forwardLaunchRoute delivers it.
+        try {
+            android.content.Intent i = new android.content.Intent(c, MainActivity.class)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                            | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    .putExtra("shellRouteType", type)
+                    .putExtra("url", url)
+                    .putExtra("title", title == null ? "" : title)
+                    .putExtra("headersJson", headers == null ? "" : headers)
+                    .putExtra("test", test)
+                    .putExtra("startMs", startMs);
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+                    c, 0x6C67, i,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                            | android.app.PendingIntent.FLAG_IMMUTABLE,
+                    balAllowedOptions());
+            pi.send();
+            Diag.i("shell", "BAL-allowed shell launch sent (" + type + ")");
+        } catch (Throwable t) {
+            Diag.w("shell", "bal launch: " + t);
+            // last resort: the legacy direct start (pre-14 behavior)
             try {
                 android.content.Intent i = new android.content.Intent(c, MainActivity.class)
                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -123,12 +158,62 @@ public class MainActivity extends FlutterActivity {
                         .putExtra("test", test)
                         .putExtra("startMs", startMs);
                 c.startActivity(i);
-            } catch (Throwable t) {
-                Diag.w("shell", "cold route: " + t);
+            } catch (Throwable t2) {
+                Diag.w("shell", "cold route: " + t2);
             }
-            return;
         }
-        a.pushShellRoute(type, url, title, headers, test, startMs);
+    }
+
+    /**
+     * v3.4.6.g — THE BACKGROUND-ACTIVITY-START ALLOWED OPTIONS: on Android 14–16
+     * (API 34+) a PendingIntent may explicitly opt into a background activity
+     * start; below 34 the basic bundle is a no-op. This is the exact contract
+     * the cast auto-open probe asserts.
+     */
+    static android.os.Bundle balAllowedOptions() {
+        try {
+            android.app.ActivityOptions opts = android.app.ActivityOptions.makeBasic();
+            if (android.os.Build.VERSION.SDK_INT >= 34) {
+                opts.setPendingIntentBackgroundActivityStartMode(
+                        android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED);
+            }
+            return opts.toBundle();
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** True while the shell activity is RESUMED (the in-app fast path gate). */
+    private boolean shellResumed;
+
+    /**
+     * v3.4.6.g — bring the shell forward from ANY state through the BAL-ALLOWED
+     * lane (ReceiverService's takeover + any native caller).
+     */
+    static void shellLaunchBal(android.content.Context c, String why) {
+        MainActivity a = instance;
+        if (a != null && a.shellResumed) return;   // already on screen
+        try {
+            android.content.Intent i = new android.content.Intent(c, MainActivity.class)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                            | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+                    c, 0x6C68, i,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                            | android.app.PendingIntent.FLAG_IMMUTABLE,
+                    balAllowedOptions());
+            pi.send();
+            Diag.i("shell", "BAL-allowed shell launch (" + why + ")");
+        } catch (Throwable t) {
+            try {
+                c.startActivity(new android.content.Intent(c, MainActivity.class)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Throwable t2) {
+                Diag.w("shell", "bal launch (" + why + "): " + t2);
+            }
+        }
     }
 
     private void pushShellRoute(String type, String url, String title,
@@ -565,6 +650,14 @@ public class MainActivity extends FlutterActivity {
         // v3.4.6.c — the Browser tab's hardened native WebBrowserView.
         registerBrowserPlatformView(engine);
 
+        // v3.4.6.g — THE ZERO-GPU-COPY VIDEO SURFACE: the player's viewport is a
+        // native android.view.SurfaceView hosted as the anantplay/video_surface
+        // PlatformView. exoPlayer.setVideoSurfaceView() hands the decoded YUV
+        // frames straight to Android's Hardware Composer — zero Impeller GPU
+        // copy per frame (the severe-overheat fix for 5–6 hour marathon
+        // playback); the SurfaceProducer texture stays as the fallback lane.
+        registerVideoSurfacePlatformView(engine);
+
         // THE immediate on-launch auto-updater (the v3.2.0 contract, unchanged):
         // direct Tier-1/Tier-2 check with live progress into the glass banner.
         SelfUpdater.setUiListener(new SelfUpdater.UiListener() {
@@ -674,6 +767,7 @@ public class MainActivity extends FlutterActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        shellResumed = true;   // v3.4.6.g — the in-app route fast path gate
         pushCastStatus();          // the auto-open overlay re-check reads this live
         // v3.4.6.b — the onboarding resume contract: a fresh status blob ALSO
         // carries the live permission/install bits (overlay, notifications,
@@ -724,6 +818,7 @@ public class MainActivity extends FlutterActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        shellResumed = false;  // v3.4.6.g — casts while backgrounded ride the BAL lane
         // The overlay watcher keeps polling while paused (it is the one thing
         // that MUST run off-screen); everything else quiets down here.
     }
@@ -1316,6 +1411,54 @@ public class MainActivity extends FlutterActivity {
 
     // ── anantplay/settings ───────────────────────────────────────────────────
 
+    /**
+     * v3.4.6.g — THE ZERO-GPU-COPY VIDEO SURFACE PlatformView: a pure
+     * android.view.SurfaceView whose holder is handed to the live bridge
+     * session via exoPlayer.setVideoSurfaceView(). Decoded frames go from
+     * MediaCodec through the Surface's BufferQueue straight to the Hardware
+     * Composer and the display panel — Flutter/Impeller never composits the
+     * video (no per-frame GPU copy at 60–120 Hz). That is the ~60–70% GPU
+     * power cut that keeps a 5–6 hour marathon movie session cool; the
+     * SurfaceProducer texture remains the automatic fallback lane when no
+     * session is live or the platform view is not hosted.
+     */
+    private void registerVideoSurfacePlatformView(FlutterEngine engine) {
+        engine.getPlatformViewsController()
+                .getRegistry()
+                .registerViewFactory("anantplay/video_surface",
+                        new io.flutter.plugin.platform.PlatformViewFactory(
+                                io.flutter.plugin.common.StandardMessageCodec.INSTANCE) {
+                            @Override
+                            public io.flutter.plugin.platform.PlatformView create(
+                                    android.content.Context context, int viewId, Object args) {
+                                final android.view.SurfaceView sv = new android.view.SurfaceView(context);
+                                // v3.4.6.g — THE Z-ORDER CONTRACT (Trap #3): keep the
+                                // video surface BELOW the Flutter window so the HWC
+                                // composites it UNDER the glass HUD bars, the subtitle
+                                // overlay and any modal bottom sheet — never on top of
+                                // them. setZOrderMediaOverlay(false) is the default but
+                                // is stated explicitly: the SurfaceView must never punch
+                                // above the Flutter UI. Hybrid composition (the Dart
+                                // PlatformViewLink + initExpensiveAndroidView lane) hosts
+                                // it in the real view hierarchy so this holds.
+                                sv.setZOrderMediaOverlay(false);
+                                // attach on the main looper the moment the view
+                                // exists; the bridge re-attaches on every open.
+                                main.post(() -> {
+                                    Media3TextureBridge b = playerBridge;
+                                    if (b != null) b.attachSurfaceView(sv);
+                                });
+                                return new io.flutter.plugin.platform.PlatformView() {
+                                    @Override public View getView() { return sv; }
+                                    @Override public void dispose() {
+                                        Media3TextureBridge b = playerBridge;
+                                        if (b != null) main.post(() -> b.detachSurfaceView(sv));
+                                    }
+                                };
+                            }
+                        });
+    }
+
     private void onSettingsCall(MethodCall call, MethodChannel.Result result) {
         String m = call.method;
         try {
@@ -1644,17 +1787,43 @@ public class MainActivity extends FlutterActivity {
                     try {
                         DeepProbe.Listener progress = new DeepProbe.Listener() {
                             int done = 0;
+                            @Override public void onProbeStart(int id, String domain, String name) {
+                                // v3.4.6.g — THE LIVE STEP-BY-STEP FEED: the
+                                // start frame lets the Help tab render
+                                // "▶ Checking #34 Security hardening flags…"
+                                // the instant a probe begins — the user watches
+                                // every feature being verified live, not just
+                                // the counter.
+                                Map<String, Object> frame = new LinkedHashMap<>();
+                                frame.put("t", "deepStart");
+                                frame.put("id", id);
+                                frame.put("domain", domain);
+                                frame.put("name", name);
+                                main.post(() -> {
+                                    EventChannel.EventSink s = troubleSink;
+                                    // v3.4.6.g — send the MAP, not a JSON string:
+                                    // the Dart deepStartEvents() filter routes Maps
+                                    // (StandardMessageCodec encodes LinkedHashMap
+                                    // natively). The old MiniJson.write(frame) string
+                                    // was dropped by `e is Map` → the live feed was
+                                    // dead on the real phone (Trap #2).
+                                    if (s != null) s.success(frame);
+                                });
+                            }
                             @Override public void onProbeDone(DeepProbe.Outcome o) {
                                 done++;
                                 Map<String, Object> frame = new LinkedHashMap<>();
-                                frame.put("t", "deep");
-                                frame.put("done", done);
-                                frame.put("total", 56);
-                                frame.put("outcome", deepOutcomeMap(o));
-                                main.post(() -> {
-                                    EventChannel.EventSink s = troubleSink;
-                                    if (s != null) s.success(MiniJson.write(frame));
-                                });
+                            frame.put("t", "deep");
+                            frame.put("done", done);
+                            frame.put("total", 64);
+                            frame.put("outcome", deepOutcomeMap(o));
+                            main.post(() -> {
+                                EventChannel.EventSink s = troubleSink;
+                                // v3.4.6.g — the MAP lane (see onProbeStart): the
+                                // Dart deepProgressEvents() filter routes Maps, so
+                                // the live counter + ✓/✗ feed work on the real phone.
+                                if (s != null) s.success(frame);
+                            });
                             }
                         };
                         List<DeepProbe.Outcome> outcomes = DeepProbe.runAll(deepHooks(), progress);
@@ -1794,10 +1963,59 @@ public class MainActivity extends FlutterActivity {
     }
 
     /**
-     * v3.4.6.e — the Android DeepProbe.Hooks implementation: every live fact
-     * the 56 probes read, against the REAL subsystems (prefs, receiver,
-     * channels, browser, history). All main-thread-safe or self-contained.
+     * v3.4.6.g — THE MAIN-THREAD WebView READ (FAIL #34/#35's fix): the hardening
+     * facts are read from the REAL WebSettings of the live WebBrowserView — but
+     * ONLY on the UI looper. A background probe thread blocks behind a
+     * CountDownLatch(1) for at most 3 s; any exception inside the read is caught
+     * and reported with its EXACT class + message (never a bare RuntimeException
+     * out of the probe, never a 1 ms threw:RuntimeException).
      */
+    private boolean[] liveHardeningOnMain() {
+        // v3.4.6.g — THE MAIN-THREAD FAST-PATH (Trap #4, probes 34/35): if we
+        // are ALREADY on the main looper, read directly. Posting to main and
+        // then awaiting a CountDownLatch FROM the main thread would deadlock
+        // (the posted runnable can never run while main blocks in await) and
+        // time out into a spurious RuntimeException on real Android 16. The
+        // probes run on the deep-probe worker, but any main-thread caller is
+        // now safe too — zero deadlock, zero RuntimeException.
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            return WebBrowserView.liveHardeningState();
+        }
+        final boolean[][] answer = new boolean[1][];
+        final String[] failure = new String[1];
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        try {
+            main.post(() -> {
+                try {
+                    answer[0] = WebBrowserView.liveHardeningState();
+                } catch (Throwable t) {
+                    failure[0] = t.getClass().getName()
+                            + (t.getMessage() == null ? "" : ": " + t.getMessage());
+                } finally {
+                    done.countDown();
+                }
+            });
+        } catch (Throwable postFail) {
+            failure[0] = "main-post refused: " + postFail.getClass().getSimpleName();
+            done.countDown();
+        }
+        try {
+            if (!done.await(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                throw new IllegalStateException(
+                        "WebView hardening read did not answer within 3 s (main thread busy)");
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        if (failure[0] != null) {
+            throw new IllegalStateException("WebView hardening read failed: " + failure[0]);
+        }
+        if (answer[0] == null) {
+            throw new IllegalStateException("WebView hardening read returned nothing");
+        }
+        return answer[0];
+    }
+
     private DeepProbe.Hooks deepHooks() {
         final android.content.Context ctx = this;
         final SharedPreferences p = prefs;
@@ -1838,6 +2056,9 @@ public class MainActivity extends FlutterActivity {
                 for (int i = 0; i < 20 && !ReceiverService.isUp(); i++) {
                     try { Thread.sleep(100); } catch (InterruptedException ignored) { }
                 }
+                // v3.4.6.g — "up" is not yet "serving": wait for the published
+                // port too, so B1/B3/B4 read a receiver that can answer HTTP.
+                awaitPort();
                 return ReceiverService.isUp();
             }
             @Override public boolean stopReceiver() {
@@ -1852,8 +2073,29 @@ public class MainActivity extends FlutterActivity {
                 ReceiverService.setUserStop(ctx, veto);
             }
             @Override public int receiverPort() { return ReceiverService.port(); }
+            /**
+             * v3.4.6.g — THE PORT-PUBLICATION RACE (found by live Android 36 CI).
+             * ReceiverService.isUp() flips the moment {@code running = this} is
+             * assigned, but port() stays -1 until the HTTP server object exists.
+             * armReceiver() returns on isUp(), so a probe that read port()
+             * immediately could see -1 and bail out with HTTP 0 — a FALSE
+             * "DLNA/mDNS down" verdict on a slow emulator (probes 9 + 10).
+             * Wait, bounded, for the real port; a receiver that never binds
+             * still returns -1 and the probe still FAILS honestly.
+             */
+            private int awaitPort() {
+                for (int i = 0; i < 30; i++) {
+                    int p = ReceiverService.port();
+                    if (p > 0) return p;
+                    try { Thread.sleep(100); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return ReceiverService.port();
+                    }
+                }
+                return ReceiverService.port();
+            }
             @Override public int receiverInfoHttp() {
-                int port = ReceiverService.port();
+                int port = awaitPort();
                 if (port <= 0) return 0;
                 // The receiver is started asynchronously: isUp() flips before
                 // the server socket accepts. Give the freshly armed service a
@@ -1877,7 +2119,7 @@ public class MainActivity extends FlutterActivity {
                 } catch (Throwable t) { return 0; }
             }
             @Override public int[] dlnaDescHttp() {
-                int port = ReceiverService.port();
+                int port = awaitPort();   // the same bounded port-readiness wait
                 if (port <= 0) return new int[]{0, 0};
                 for (int attempt = 0; attempt < 12; attempt++) {
                     int[] r = dlnaOnce(port);
@@ -1942,7 +2184,14 @@ public class MainActivity extends FlutterActivity {
                 return AnantPlayInstaller.canRequestPackageInstalls(ctx);
             }
             @Override public int workerHealthHttp() {
-                String base = p.getString(AppPrefs.K_WORKER_URL, BridgeApi.DEFAULT_WORKER_URL);
+                // v3.4.6.g — FAIL #47's 8 ms HTTP 0 root fix: the OLD code read
+                // the raw pref — a stored empty/junk "workerUrl" made
+                // base + "/health" a RELATIVE URL, and new URL("/health")
+                // throws MalformedURLException in ~1 ms (catch → 0). The probe
+                // now resolves through AppPrefs.workerUrl()'s normalizer, the
+                // SAME accessor the subtitle pipeline uses — an empty or
+                // non-https stored value falls back to the default worker.
+                String base = AppPrefs.workerUrl(p);
                 try {
                     // v3.4.6.f — 5 s connect / 6 s read (the honest-run cap:
                     // every network probe capped so the WHOLE troubleshoot
@@ -1960,7 +2209,8 @@ public class MainActivity extends FlutterActivity {
                 // second half): /api/resolve?title=The+Odyssey, same 5 s/6 s
                 // caps, honestly reported (0 = unreachable → the probe
                 // FAILS, never a fake PASS).
-                String base = p.getString(AppPrefs.K_WORKER_URL, BridgeApi.DEFAULT_WORKER_URL);
+                // v3.4.6.g — same normalizer fix as workerHealthHttp.
+                String base = AppPrefs.workerUrl(p);
                 try {
                     java.net.HttpURLConnection c = (java.net.HttpURLConnection)
                         new java.net.URL(base + "/api/resolve?title=The+Odyssey").openConnection();
@@ -2005,8 +2255,15 @@ public class MainActivity extends FlutterActivity {
                 return NOT_IMPLEMENTED_METHODS.size();
             }
             @Override public boolean[] browserHardening() {
-                // Real WebSettings + BridgeGuard facts, never hardcoded PASS.
-                return WebBrowserView.liveHardeningState();
+                // v3.4.6.g — FAIL #34/#35's 1–2 ms RuntimeException fix: the old
+                // code called WebBrowserView.liveHardeningState() DIRECTLY on
+                // DeepProbe's background thread, and touching WebView/WebSettings
+                // off the UI looper throws RuntimeException on real Android 16.
+                // The read now dispatches cleanly onto the main handler behind a
+                // CountDownLatch(1) with a 3 s timeout — an exception anywhere is
+                // caught and reported with its exact class + message, never a
+                // bare RuntimeException out of the probe.
+                return liveHardeningOnMain();
             }
             @Override public boolean headlessBrowser() {
                 // The same constant the PlatformView factory uses to construct

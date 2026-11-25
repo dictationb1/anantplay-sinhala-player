@@ -10,7 +10,7 @@ import 'bridge.dart';
 
 /// The installed identity used in the "Up to date" reply. Kept as a literal
 /// ONLY for this user-facing label; the updater's gate itself reads appInfo.
-const String kVisibleVersion = 'v3.4.6.f';
+const String kVisibleVersion = 'v3.4.6.g';
 
 void _say(BuildContext context, String message) {
   if (!context.mounted) return;

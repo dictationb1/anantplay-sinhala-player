@@ -56,8 +56,8 @@ jobs:
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.f"
-          test "$CODE" = "30412"
+          test "$VERSION" = "3.4.6.g"
+          test "$CODE" = "30413"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -322,7 +322,7 @@ jobs:
             while IFS= read -r line; do
               HAD_ISSUE=1
               echo "::error::${line}"
-            done < <(grep -E "error •|warning •" /tmp/analyze.log || true)
+            done < <(grep -E "(error|warning|info) [•·-]" /tmp/analyze.log || true)
             if [ "$HAD_ISSUE" -eq 0 ]; then
               # analyzer crashed or only info-level lines tripped the exit code
               tail -30 /tmp/analyze.log | while IFS= read -r line; do
@@ -411,8 +411,8 @@ jobs:
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.f"
-          test "$CODE" = "30412"
+          test "$VERSION" = "3.4.6.g"
+          test "$CODE" = "30413"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -794,7 +794,7 @@ jobs:
   #    flutter:E lines published to $GITHUB_STEP_SUMMARY and ::error::
   #    check-run annotations on any failure.
   launch-smoke:
-    name: Android 36 KVM Emulator Launch & Live 54-Feature Deep Probe Smoke Test
+    name: Android 36 KVM Emulator Launch & Live 64-Feature Deep Probe Smoke Test
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -812,8 +812,8 @@ jobs:
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.f"
-          test "$CODE" = "30412"
+          test "$VERSION" = "3.4.6.g"
+          test "$CODE" = "30413"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
@@ -964,7 +964,7 @@ jobs:
           test -w /dev/kvm || { echo "::error::/dev/kvm is still not writable — KVM unavailable"; exit 1; }
           echo "::notice title=kvm::/dev/kvm writable — hardware acceleration ON"
 
-      - name: Boot the KVM x86_64 Android 16 emulator, launch, run ALL 54 live deep probes, assert fail=0
+      - name: Boot the KVM x86_64 Android 16 emulator, launch, run ALL 64 live deep probes, assert fail=0
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SMOKE_APK: dist/smoke-x86_64.apk
@@ -995,12 +995,12 @@ jobs:
             # button, a broken compact-subtitle contract or a silently disabled
             # updater all passed it. Step 5 now launches the app with
             # `--ez ci_run_deep_probe true`, which makes MainActivity run the REAL
-            # 54-probe DeepProbe matrix inside this running Android 16 (API 36)
+            # 64-probe DeepProbe matrix inside this running Android 16 (API 36)
             # emulator — real SharedPreferences, a real foreground service, a real
             # PackageManager, a real ClipboardManager — and publish one
             # `AnantPlayCI: PROBE …` line per feature plus the parsed
             # `DEEP_PROBE_SUMMARY`. Steps 6/7 parse those lines and HARD-ASSERT
-            # total >= 54, fail == 0, clipboard_copied == true, privacy_clean == true.
+            # total >= 64, fail == 0, clipboard_copied == true, privacy_clean == true.
             echo '── 1/9 clear logcat ──'
             adb logcat -c || true
             echo '── 2/9 install the x86_64 release twin ──'
@@ -1013,7 +1013,7 @@ jobs:
             adb shell pidof lk.techworld.anantplay.sicast | tr -d '\r' > /tmp/pid.txt || true
             if ! grep -q '[0-9]' /tmp/pid.txt; then echo '::error title=launch-smoke::process died within 12 s of launch (pidof empty)'; { echo '### launch-smoke FAIL: process died within 12 s of launch (pidof empty)'; echo '```';  echo '```'; echo '#### crash buffer (FULL)'; echo '```'; adb logcat -d -b crash 2>&1 | tail -250; echo '```'; echo '#### logcat *:E (AndroidRuntime|flutter|FATAL|Fatal signal)'; echo '```'; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter|FATAL|Fatal signal' | tail -250; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; adb logcat -d -b crash 2>&1 | grep -E 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke crash::${line}"; done; adb logcat -d '*:E' 2>&1 | grep -E 'AndroidRuntime|flutter' | head -40 | while IFS= read -r line; do echo "::error title=launch-smoke logcat:E::${line}"; done; exit 1; fi
             echo "launch-smoke: process alive (pid $(cat /tmp/pid.txt)) 12 s after launch"
-            echo '── 5/9 THE LIVE 54-FEATURE SELF-TEST: launch with --ez ci_run_deep_probe true ──'
+            echo '── 5/9 THE LIVE 64-FEATURE SELF-TEST: launch with --ez ci_run_deep_probe true ──'
             adb shell am start -W -n lk.techworld.anantplay.sicast/.MainActivity --ez ci_run_deep_probe true | tee /tmp/amprobe.txt
             if ! grep -q 'Status: ok' /tmp/amprobe.txt; then echo '::error title=deep-probe::am start -W --ez ci_run_deep_probe true did not report Status: ok'; { echo '### deep-probe FAIL: the self-test launch did not open'; echo '```'; cat /tmp/amprobe.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
             adb logcat -c || true
@@ -1032,9 +1032,9 @@ jobs:
             tr -d '\r' < /tmp/deepprobe.txt | grep 'AnantPlayCI' > /tmp/deeplines.txt 2>/dev/null || : > /tmp/deeplines.txt
             echo "AnantPlayCI lines captured: $(wc -l < /tmp/deeplines.txt)"
             echo '── 7/9 print EVERY live on-emulator probe outcome into the job summary ──'
-            { echo '### Android 36 KVM emulator — LIVE 54-feature deep probe (real Android OS)'; echo ''; echo '| # | verdict | probe | ms | detail |'; echo '| --- | --- | --- | --- | --- |'; sed -n 's/.*PROBE \([0-9]*\) \(.*\) -> \(PASS\|FAIL\) (\([0-9]*\) ms) \(.*\)/| \1 | \3 | \2 | \4 | \5 |/p' /tmp/deeplines.txt; echo ''; echo '```'; grep -E 'DEEP_PROBE_SUMMARY|DEEP_PROBE_DOMAINS|DEEP_PROBE_DONE|CLIPBOARD_WRITE_FAILED|REPORT_BUILD_FAILED' /tmp/deeplines.txt || echo '(no summary line captured)'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            { echo '### Android 36 KVM emulator — LIVE 64-feature deep probe (real Android OS)'; echo ''; echo '| # | verdict | probe | ms | detail |'; echo '| --- | --- | --- | --- | --- |'; sed -n 's/.*PROBE \([0-9]*\) \(.*\) -> \(PASS\|FAIL\) (\([0-9]*\) ms) \(.*\)/| \1 | \3 | \2 | \4 | \5 |/p' /tmp/deeplines.txt; echo ''; echo '```'; grep -E 'DEEP_PROBE_SUMMARY|DEEP_PROBE_DOMAINS|DEEP_PROBE_DONE|CLIPBOARD_WRITE_FAILED|REPORT_BUILD_FAILED' /tmp/deeplines.txt || echo '(no summary line captured)'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             echo '── 8/9 validate the summary line (every line is its own shell) ──'
-            if ! grep -q 'DEEP_PROBE_SUMMARY' /tmp/deeplines.txt; then echo '::error title=deep-probe::DEEP_PROBE_SUMMARY never appeared in AnantPlayCI logcat within 45 s — the in-app 54-probe self-test did not run'; { echo '### deep-probe FAIL: no DEEP_PROBE_SUMMARY'; echo '```'; tail -80 /tmp/deeplines.txt; echo '```'; echo '#### crash buffer'; echo '```'; adb logcat -d -b crash 2>&1 | tail -120; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
+            if ! grep -q 'DEEP_PROBE_SUMMARY' /tmp/deeplines.txt; then echo '::error title=deep-probe::DEEP_PROBE_SUMMARY never appeared in AnantPlayCI logcat within 45 s — the in-app 64-probe self-test did not run'; { echo '### deep-probe FAIL: no DEEP_PROBE_SUMMARY'; echo '```'; tail -80 /tmp/deeplines.txt; echo '```'; echo '#### crash buffer'; echo '```'; adb logcat -d -b crash 2>&1 | tail -120; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
             tr -d '\r' < /tmp/deeplines.txt | grep 'DEEP_PROBE_SUMMARY' | tail -1 > /tmp/summary.txt
             cat /tmp/summary.txt
             # v3.4.6.f — token-boundary parses: a bare `fail=` grep would also
@@ -1050,8 +1050,8 @@ jobs:
             { echo ''; echo "**parsed:** pass=$(cat /tmp/npass.txt) app_fail=$(cat /tmp/nfail.txt) env_fail=$(cat /tmp/nenvfail.txt) total=$(cat /tmp/ntotal.txt) · per-probe lines=$(cat /tmp/nlines.txt)"; } >> "$GITHUB_STEP_SUMMARY"
             if ! grep -Eq '^[0-9]+$' /tmp/npass.txt || ! grep -Eq '^[0-9]+$' /tmp/nfail.txt || ! grep -Eq '^[0-9]+$' /tmp/nenvfail.txt || ! grep -Eq '^[0-9]+$' /tmp/ntotal.txt; then echo "::error title=deep-probe::the summary line did not parse (pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) env_fail=$(cat /tmp/nenvfail.txt) total=$(cat /tmp/ntotal.txt)) from: $(cat /tmp/summary.txt)"; exit 1; fi
             if [ "$(cat /tmp/nenvfail.txt)" -gt 0 ]; then echo "::notice title=deep-probe env_fail::$(cat /tmp/nenvfail.txt) external Worker probe(s) unreachable on this CI emulator — the app report still shows FAIL ✗ honestly, but this is an optional environment outage, NOT an app/code failure (fail must stay 0)"; fi
-            if [ "$(cat /tmp/ntotal.txt)" -lt 54 ]; then echo "::error title=deep-probe::total=$(cat /tmp/ntotal.txt) but the matrix must execute at least 54 probes"; tail -40 /tmp/deeplines.txt >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
-            if [ "$(cat /tmp/nlines.txt)" -lt 54 ]; then echo "::error title=deep-probe::only $(cat /tmp/nlines.txt) per-probe lines were published (expected >= 54)"; exit 1; fi
+            if [ "$(cat /tmp/ntotal.txt)" -lt 64 ]; then echo "::error title=deep-probe::total=$(cat /tmp/ntotal.txt) but the matrix must execute at least 64 probes"; tail -40 /tmp/deeplines.txt >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
+            if [ "$(cat /tmp/nlines.txt)" -lt 64 ]; then echo "::error title=deep-probe::only $(cat /tmp/nlines.txt) per-probe lines were published (expected >= 64)"; exit 1; fi
             sed -n 's/.*\(PROBE [0-9][0-9]* .* -> FAIL .*\)/\1/p' /tmp/deeplines.txt > /tmp/fails.txt || true
             if [ "$(cat /tmp/nfail.txt)" -ne 0 ]; then echo "::error title=deep-probe::$(cat /tmp/nfail.txt) LIVE probe(s) FAILED on the Android 36 emulator (pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) total=$(cat /tmp/ntotal.txt))"; fi
             head -40 /tmp/fails.txt | while IFS= read -r line; do echo "::error title=live probe FAIL::${line}"; done
@@ -1059,17 +1059,41 @@ jobs:
             if [ "$(cat /tmp/nfail.txt)" -ne 0 ]; then exit 1; fi
             if ! grep -q 'clipboard_copied=true' /tmp/summary.txt; then echo '::error title=deep-probe::the privacy-safe report was NOT auto-copied to the real Android clipboard'; exit 1; fi
             if ! grep -q 'privacy_clean=true' /tmp/summary.txt; then echo '::error title=deep-probe::PRIVACY REGRESSION — the auto-copied report is not scrubber-clean'; exit 1; fi
-            echo "::notice title=deep-probe::LIVE 54-feature audit PASSED on Android 36 — pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) total=$(cat /tmp/ntotal.txt) · clipboard_copied=true · privacy_clean=true · $(cat /tmp/nlines.txt) probe lines."
+            # v3.4.6.g — EXPLICIT per-probe hard gates (Trap #5): probes 34/35
+            # (browser hardening on the main looper, 0 RuntimeException) and 56
+            # (the uncaught-crash gate) MUST each report PASS on real Android 36.
+            for p in 34 35 56; do if ! grep -Eq "PROBE $p .* -> PASS" /tmp/deeplines.txt; then echo "::error title=deep-probe::probe $p did not PASS on the Android 36 emulator (required: 34/35 browser hardening + 56 crash gate)"; grep -E "PROBE $p " /tmp/deeplines.txt >> "$GITHUB_STEP_SUMMARY"; exit 1; fi; done
+            # v3.4.6.g — probe 2 must finish FAST (the 20,607 ms stall fix): the
+            # 6 s hard wall-clock deadline caps it; >= 15000 ms is a regression.
+            sed -n 's/.*PROBE 2 .* -> PASS (\([0-9]*\) ms).*/\1/p' /tmp/deeplines.txt | head -1 > /tmp/p2ms.txt || true
+            if grep -Eq '^[0-9]+$' /tmp/p2ms.txt && [ "$(cat /tmp/p2ms.txt)" -ge 15000 ]; then echo "::error title=deep-probe::probe 2 took $(cat /tmp/p2ms.txt) ms — the 20,607 ms stall regression is back (must stay under the 6 s hard deadline)"; exit 1; fi
+            echo "::notice title=deep-probe::LIVE 64-feature audit PASSED on Android 36 — pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) total=$(cat /tmp/ntotal.txt) · clipboard_copied=true · privacy_clean=true · $(cat /tmp/nlines.txt) probe lines · probes 34/35/56 PASS · probe 2 fast."
             echo '── 9/9 crash attribution + logcat *:E (inspection) ──'
             adb shell pidof lk.techworld.anantplay.sicast | tr -d '\r' > /tmp/pid.txt || true
             adb logcat -d -b crash > /tmp/crashbuf.txt 2>&1 || true
             awk -v pid="$(cat /tmp/pid.txt | tr -d '\r\n')" 'BEGIN{RS="\n\n"} /FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT/ { if ($0 ~ /lk\.techworld\.anantplay\.sicast/ || $0 ~ ("pid: " pid) || $0 ~ />>> lk\.techworld/) print $0 }' /tmp/crashbuf.txt > /tmp/ourcrash.txt 2>&1 || true
             adb logcat -d -b crash 2>&1 | grep -A6 'FATAL EXCEPTION' | grep -E 'Process:|lk\.techworld\.anantplay\.sicast' >> /tmp/ourcrash.txt || true
-            if grep -q 'lk\.techworld\.anantplay\.sicast' /tmp/ourcrash.txt; then echo '::error title=deep-probe::OUR APP crashed (FATAL/SIGSEGV/SIGABRT in lk.techworld.anantplay.sicast)'; { echo '### deep-probe FAIL: OUR APP crashed during the 54-probe self-test'; echo '```'; cat /tmp/ourcrash.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; head -40 /tmp/ourcrash.txt | while IFS= read -r line; do echo "::error title=deep-probe our-crash::${line}"; done; exit 1; fi
+            if grep -q 'lk\.techworld\.anantplay\.sicast' /tmp/ourcrash.txt; then echo '::error title=deep-probe::OUR APP crashed (FATAL/SIGSEGV/SIGABRT in lk.techworld.anantplay.sicast)'; { echo '### deep-probe FAIL: OUR APP crashed during the 64-probe self-test'; echo '```'; cat /tmp/ourcrash.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; head -40 /tmp/ourcrash.txt | while IFS= read -r line; do echo "::error title=deep-probe our-crash::${line}"; done; exit 1; fi
             if grep -qE 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' /tmp/crashbuf.txt; then echo '::notice title=deep-probe::crash buffer has entries, NONE attributed to our app (emulator-image noise, e.g. com.google.android.gms) — recorded, NOT failing'; { echo '### deep-probe: unrelated crash-buffer entries (emulator image noise — not our app)'; echo '```'; tail -120 /tmp/crashbuf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; fi
             { echo '### deep-probe logcat "AnantPlayCI:I" (full capture)'; echo '```'; cat /tmp/deeplines.txt; echo '```'; echo '### logcat "*:E" (inspection)'; echo '```'; adb logcat -d '*:E' 2>&1 | tail -60; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             # v3.4.6.f — ZERO `No active stream to cancel` (the v3.4.6.e
             # EventChannel cancellation storm must never return).
             adb logcat -d 2>&1 | grep -F 'No active stream to cancel' > /tmp/cancelstorm.txt || true
             if grep -q . /tmp/cancelstorm.txt; then echo '::error title=deep-probe::EventChannel cancel storm detected (No active stream to cancel)'; head -20 /tmp/cancelstorm.txt >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
-            echo "::notice title=deep-probe::LIVE 54-feature audit PASSED on Android 36 — $(cat /tmp/summary.txt) · 0 crashes attributed to our app · 0 No active stream to cancel · MainActivity focused (pid $(cat /tmp/pid.txt | tr -d '\r\n'))."
+            # v3.4.6.g — BONUS REAL PLAYBACK SMOKE (Trap #5): open the Test Player
+            # (the anantplay/video_surface SurfaceView PlatformView + the
+            # Media3TextureBridge ExoPlayer session) through the real shell route
+            # on Android 36 and prove it opens CLEANLY — alive + 0 app crashes.
+            # The contract is the crash gate, not decoded frames: even if the
+            # public test stream is slow/offline the surface must open without
+            # crashing (the SurfaceView hybrid-composition + main-thread fix).
+            echo '── 9b/9 BONUS REAL PLAYBACK SMOKE: Test Player (SurfaceView + Media3TextureBridge) on Android 36 ──'
+            adb logcat -c -b crash || true
+            adb shell am start -W -n lk.techworld.anantplay.sicast/.MainActivity --ez test true | tee /tmp/amplayer.txt
+            sleep 8
+            adb shell pidof lk.techworld.anantplay.sicast | tr -d '\r' > /tmp/playerpid.txt || true
+            if ! grep -q '[0-9]' /tmp/playerpid.txt; then echo '::error title=playback-smoke::the Test Player launch killed the app (pidof empty)'; { echo '### playback-smoke FAIL: process died opening the Test Player'; echo '```'; adb logcat -d -b crash 2>&1 | tail -120; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
+            adb logcat -d -b crash > /tmp/playercrash.txt 2>&1 || true
+            if grep -q 'lk\.techworld\.anantplay\.sicast' /tmp/playercrash.txt; then echo '::error title=playback-smoke::the Test Player / SurfaceView CRASHED on Android 36'; { echo '### playback-smoke FAIL: Test Player crash'; echo '```'; cat /tmp/playercrash.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
+            echo "::notice title=playback-smoke::Test Player (anantplay/video_surface SurfaceView + Media3TextureBridge) opened cleanly on Android 36 — alive (pid $(cat /tmp/playerpid.txt | tr -d '\r\n')), 0 app crashes."
+            echo "::notice title=deep-probe::LIVE 64-feature audit PASSED on Android 36 — $(cat /tmp/summary.txt) · 0 crashes attributed to our app · 0 No active stream to cancel · MainActivity focused (pid $(cat /tmp/pid.txt | tr -d '\r\n'))."

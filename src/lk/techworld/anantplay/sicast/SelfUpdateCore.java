@@ -450,4 +450,75 @@ final class SelfUpdateCore {
             c.disconnect();
         }
     }
+
+    // ══ v3.4.6.g — THE HARD WALL-CLOCK DEADLINE ═════════════════════════════
+    // The real phone's probe 2 (docs/latest.json) STALLED 20,607 ms despite
+    // 5 s/6 s connect/read caps. Those timeouts do NOT cover DNS resolution
+    // or multi-address (IPv6-first) connect attempts — the socket layer can
+    // burn three times the budget before either timer even starts. Every
+    // probe-time network leg now runs on a single-shot executor behind an
+    // ABSOLUTE deadline; a miss interrupts the socket thread and answers
+    // null, so a probe can never outlive its budget.
+    // v3.4.6.g — THE THREAD-CLEANUP FIX (Trap #4): the old shape submitted to a
+    // SHARED static single-thread pool that was NEVER shut down. A socket read
+    // that ignores Thread.interrupt() could keep that one worker occupied, so
+    // the NEXT probe's task queued behind it and burned its whole 6 s budget
+    // without even starting — and the pool thread leaked for the process life.
+    // Each call now gets a FRESH single-shot executor that is ALWAYS
+    // shutdownNow()'d in finally: the worker is interrupted and reclaimed, no
+    // thread leaks, and no cross-call queue blocking. Probes 1/2 stay <= 6 s.
+    private static String runWithDeadline(java.util.concurrent.Callable<String> task,
+                                          long deadlineMs, String url) {
+        java.util.concurrent.ExecutorService ex =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "probe-deadline");
+                t.setDaemon(true);
+                return t;
+            });
+        try {
+            java.util.concurrent.Future<String> f = ex.submit(task);
+            try {
+                return f.get(deadlineMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.TimeoutException te) {
+                f.cancel(true);   // interrupt the in-flight socket read
+                Diag.w("selfupd", "deadline " + deadlineMs + " ms hit on " + hostOf(url));
+                return null;
+            } catch (java.util.concurrent.ExecutionException ee) {
+                Throwable cause = ee.getCause() != null ? ee.getCause() : ee;
+                throw cause instanceof RuntimeException
+                    ? (RuntimeException) cause : new RuntimeException(cause);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        } finally {
+            // ALWAYS reclaim the single-shot worker — interrupt any blocked
+            // socket I/O so the thread dies even if the connection ignores the
+            // Future.cancel. This is the leak-proof contract the probe relies on.
+            ex.shutdownNow();
+        }
+    }
+
+    /** The hard-deadline GET: returns the body, or null when the wall clock ran out. */
+    static String httpGetDeadline(String url, int connectMs, int readMs, long deadlineMs) {
+        return runWithDeadline(() -> httpGet(url, connectMs, readMs), deadlineMs, url);
+    }
+
+    /** The hard-deadline tier-1 redirect resolve (null on a deadline miss). */
+    static String resolveTagDeadline(String url, int connectMs, int readMs, long deadlineMs) {
+        return runWithDeadline(() -> resolveLatestTagByRedirect(url, connectMs, readMs), deadlineMs, url);
+    }
+
+    /** "https://host/x" → "host" (log-safe: no path, no query). */
+    private static String hostOf(String url) {
+        try {
+            String u = url == null ? "" : url;
+            int s = u.indexOf("//");
+            if (s < 0) return "?";
+            int e = u.indexOf('/', s + 2);
+            return e < 0 ? u.substring(s + 2) : u.substring(s + 2, e);
+        } catch (Throwable t) {
+            return "?";
+        }
+    }
 }

@@ -37,7 +37,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.4.6.c — no leading v)'
         required: true
-        default: '3.4.6.f'
+        default: '3.4.6.g'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -118,13 +118,16 @@ jobs:
             # B. WIDE LANE — 3.4.7 and every future release, letters included.
             CODE=$((MAJOR * 1000000 + MINOR * 10000 + PATCH * 100 + LETTER))
           fi
-          # ── the global monotonic guarantee: never below the live 3.4.6.e ────
-          # 3.4.6.e itself is 30411 (this release); everything after it must be
+          # ── the global monotonic guarantee: never below the live 3.4.6.f ────
+          # 3.4.6.f itself is 30412 (this release); everything after it must be
           # strictly higher, so no shipped build can ever be "updated" downward.
+          # v3.4.6.g: the previous live tier .f (30412) joins the pinned ladder.
           if [ "$V" = "3.4.6.e" ]; then
             [ "$CODE" -eq 30411 ] || { echo "::error::3.4.6.e must derive exactly 30411 (got $CODE)"; exit 1; }
+          elif [ "$V" = "3.4.6.f" ]; then
+            [ "$CODE" -eq 30412 ] || { echo "::error::3.4.6.f must derive exactly 30412 (got $CODE)"; exit 1; }
           else
-            [ "$CODE" -gt 30410 ] || { echo "::error::derived versionCode $CODE for '$V' is not above the live 3.4.6.d (30410)"; exit 1; }
+            [ "$CODE" -gt 30412 ] || { echo "::error::derived versionCode $CODE for '$V' is not above the live 3.4.6.f (30412)"; exit 1; }
           fi
           # the wide lane reserves 100 slots per numeric version; a patch or minor
           # of 100+ would spill into the next lane, so it is refused loudly.

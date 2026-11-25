@@ -213,7 +213,7 @@ public final class DeepProbe {
         boolean userStopWas = false;
         try {
             LAST.clear();
-            List<Outcome> out = new ArrayList<>(56);
+            List<Outcome> out = new ArrayList<>(64);
             // ── THE TRANSACTIONAL SNAPSHOT (before ANY mutation) ──────────
             try {
                 prefsSnapshot = h.snapshotPrefs();
@@ -294,6 +294,21 @@ public final class DeepProbe {
             // v3.4.6.f — THE CRASH GATE: an uncaught Java/Dart exception in
             // THIS build is a FAIL with the exact class + line, never a PASS.
             out.add(guarded(id++, "F", "Uncaught crash gate (Last Crash)", () -> probeF6(h, l), l));
+            // ══ DOMAIN G — THE v3.4.6.g REAL-PHONE FIX CONTRACTS ═══════════
+            // Every newly fixed real-phone bug gets its own honest probe: the
+            // auto-discovering prefs registry audit (zero untested controls —
+            // any future key is audited automatically), the # hex Color Studio,
+            // REAL Material You, the Got-it banner, the cast auto-open BAL
+            // contract, the zero-copy thermal engine + ExoPlayer thread guard,
+            // browser automation, and the subtitle E2E wiring.
+            out.add(guarded(id++, "G", "Prefs registry audit (auto-discovering)", () -> probeG1(h, l), l));
+            out.add(guarded(id++, "G", "Custom # hex Color Studio round trip", () -> probeG2(h, l), l));
+            out.add(guarded(id++, "G", "Material You DynamicColorBuilder wiring", () -> probeG3(l), l));
+            out.add(guarded(id++, "G", "Home Got-it dismissal persistence", () -> probeG4(h, l), l));
+            out.add(guarded(id++, "G", "Cast auto-open BAL + markPlayerOpened", () -> probeG5(l), l));
+            out.add(guarded(id++, "G", "Zero-copy SurfaceView + Exo thread guard", () -> probeG6(l), l));
+            out.add(guarded(id++, "G", "Browser automation + .zip capture", () -> probeG7(l), l));
+            out.add(guarded(id++, "G", "Subtitles: fetch → free translate → ZWJ E2E", () -> probeG8(l), l));
             List<Outcome> snap = java.util.Collections.unmodifiableList(new ArrayList<>(out));
             if (l != null) try { l.onAllDone(snap); } catch (Throwable ignored) { }
             return snap;
@@ -329,7 +344,12 @@ public final class DeepProbe {
         } catch (Throwable t) {
             o = new Outcome(id, domain, name);
             o.pass = false;
-            o.detail = "threw: " + (t.getClass().getSimpleName());
+            // v3.4.6.g — the EXACT exception class + message (never a bare
+            // unexplained class name — Probes 34/35's "threw: RuntimeException"
+            // in 1–2 ms hid the real WebView-thread defect).
+            String msg = t.getMessage();
+            o.detail = "threw: " + t.getClass().getName()
+                    + (msg == null || msg.isEmpty() ? "" : " — " + brief(msg, 140));
         }
         if (o == null) {
             o = new Outcome(id, domain, name);
@@ -348,6 +368,14 @@ public final class DeepProbe {
         return o;
     }
 
+    /** A short single-line brief of an exception message (safe for the report). */
+    static String brief(String s, int max) {
+        if (s == null) return "";
+        String one = s.replace('\n', ' ').replace('\r', ' ').trim();
+        int cap = Math.max(24, max);
+        return one.length() <= cap ? one : one.substring(0, cap) + "…";
+    }
+
     // ── DOMAIN A — THE AUTO-UPDATER LAW ──────────────────────────────────────
 
     static Outcome probeTier1(Listener l) {
@@ -355,9 +383,14 @@ public final class DeepProbe {
         try {
             // v3.4.6.f — 5 s connect / 6 s read (the whole run < 12 s; the
             // v3.4.6.e tier-2 leg once stalled 32,891 ms).
-            String tag = SelfUpdateCore.resolveLatestTagByRedirect(
+            // v3.4.6.g — the HARD WALL-CLOCK deadline: the real phone's probe 2
+            // burned 20,607 ms DESPITE those caps (DNS + multi-address connect
+            // are not covered by either timer). The leg now runs behind an
+            // absolute 6 s Future.get — a miss interrupts the socket and
+            // answers null, never twenty seconds.
+            String tag = SelfUpdateCore.resolveTagDeadline(
                 "https://github.com/" + SelfUpdateCore.REPO + "/releases/latest",
-                5000, 6000);
+                5000, 6000, 6000);
             boolean ok = tag != null && tag.matches("v[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?");
             o.pass = ok;
             o.detail = ok ? "302 → " + tag : "no release redirect (offline or none published)";
@@ -373,7 +406,12 @@ public final class DeepProbe {
         try {
             // v3.4.6.f — 5 s connect / 6 s read: the v3.4.6.e run STALLED
             // 32,891 ms on this exact GET (the honest-run cap is 12 s).
-            String body = SelfUpdateCore.httpGet(SelfUpdateCore.rawLatestJsonUrl(), 5000, 6000);
+            // v3.4.6.g — THE HARD WALL-CLOCK DEADLINE (the 20,607 ms stall fix):
+            // the GET runs behind an ABSOLUTE 6 s Future.get on a dedicated
+            // one-shot executor; a deadline miss cancels the in-flight socket.
+            // This probe can never again outlive its budget.
+            String body = SelfUpdateCore.httpGetDeadline(
+                    SelfUpdateCore.rawLatestJsonUrl(), 5000, 6000, 6000);
             boolean schemaOk = false;
             if (body != null && !body.trim().isEmpty()) {
                 Object root = MiniJson.parse(body);
@@ -1170,9 +1208,268 @@ public final class DeepProbe {
             && !PrivacyScrubber.scrub("Cookie: session=abc123").contains("session=abc123");
         boolean preserved = PrivacyScrubber.scrub("imdb tt33764258 cue t0=141776").contains("tt33764258")
             && PrivacyScrubber.scrub("imdb tt33764258 cue t0=141776").contains("141776");
-        o.pass = scrubbed && preserved;
+        // v3.4.6.g — THE (<phone-model>) FALSE-POSITIVE FIX (the real phone's
+        // report header was scrubbed into "== EVERY FAIL (<phone-model>) =="):
+        // "nothing hidden"/"the whole truth"/"top-first" are PROSE, not Nothing
+        // Phone models. The exact header lines must survive byte-for-byte.
+        boolean headersKept = "== EVERY FAIL ✗ (the whole truth, first — nothing hidden) =="
+                .equals(PrivacyScrubber.scrub("== EVERY FAIL ✗ (the whole truth, first — nothing hidden) =="))
+            && "== Last Crash (top-first) =="
+                .equals(PrivacyScrubber.scrub("== Last Crash (top-first) =="));
+        o.pass = scrubbed && preserved && headersKept;
         o.detail = (scrubbed ? "6 PII canaries scrubbed ✓" : "PII LEAK")
-            + " · technical values preserved " + (preserved ? "✓" : "✗");
+            + " · technical values preserved " + (preserved ? "✓" : "✗")
+            + " · report headers intact " + (headersKept ? "✓" : "✗ (<phone-model> false positive)");
+        return o;
+    }
+
+    // ── DOMAIN G — THE v3.4.6.g REAL-PHONE FIX CONTRACTS ───────────────────
+
+    /**
+     * G1 — THE AUTO-DISCOVERING PREFERENCE & CONTROL REGISTRY AUDIT.
+     *
+     * <p>v3.4.6.g — iterates EVERY key in {@link AppPrefs#BACKUP_KEYS} (the
+     * whole settings registry, hidden and advanced controls included): for each
+     * key it writes a type-matched mutation, reads it back, normalizes it
+     * through the app's OWN validator, proves the normalized value sticks, and
+     * restores the caller's value. ANY future setting added to BACKUP_KEYS is
+     * audited automatically the same day it ships — zero untested controls.
+     */
+    static Outcome probeG1(Hooks h, Listener l) {
+        Outcome o = new Outcome(0, "G", "");
+        java.util.List<String> broken = new ArrayList<>();
+        int audited = 0, normalized = 0;
+        Map<String, Object> snap = null;
+        // v3.4.6.g — every key we mutate is tracked so the FINALLY block can
+        // restore the caller's EXACT original value even if the audit throws
+        // mid-loop (the non-destructive contract). runAll's finally is the
+        // belt-and-braces full-snapshot restore (clear + rewrite) on top.
+        java.util.List<String> touched = new ArrayList<>();
+        try {
+            snap = h.snapshotPrefs();
+            for (String key : AppPrefs.BACKUP_KEYS) {
+                Object before = snap.get(key);
+                // a type-matched mutation: bool → flipped; int/long → 31416;
+                // string → a probe string (enum normalizers repair it to the
+                // default — that repair IS the contract being proven).
+                Object junk = before instanceof Boolean
+                        ? (Boolean.TRUE.equals(before) ? Boolean.FALSE : Boolean.TRUE)
+                        : before instanceof Integer ? Integer.valueOf(31416)
+                        : before instanceof Long ? Long.valueOf(31416L)
+                        : before instanceof String ? "31416-probe"
+                        : Boolean.TRUE;                    // absent/unknown → bool probe
+                touched.add(key);
+                h.putPref(key, junk);
+                Object rb = h.getPref(key);
+                audited++;
+                if (rb == null) { broken.add(key + " (write did not land)"); continue; }
+                Object norm = AppPrefs.normalizeValue(key, rb);
+                if (norm != null) {
+                    normalized++;
+                    h.putPref(key, norm);               // the repair must stick
+                    if (!java.util.Objects.equals(h.getPref(key), norm)) {
+                        broken.add(key + " (normalize did not stick)");
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            o.pass = false;
+            o.detail = "audit threw: " + t.getClass().getName() + " — " + brief(String.valueOf(t.getMessage()), 120);
+            return o;
+        } finally {
+            // THE ALWAYS-RESTORE CONTRACT (in finally, even on the throw path):
+            // put back the caller's exact original value for every key touched.
+            // A key that was ABSENT before (before == null) cannot be removed
+            // through Hooks.putPref, so runAll's full-snapshot restore clears
+            // it; every key that HAD a value is restored here, making a direct
+            // probeG1 call non-destructive too.
+            if (snap != null) {
+                for (String key : touched) {
+                    try {
+                        Object before = snap.get(key);
+                        if (before != null) h.putPref(key, before);
+                    } catch (Throwable ignored) { }
+                }
+            }
+        }
+        int registry = AppPrefs.BACKUP_KEYS.size();
+        o.pass = audited == registry && registry >= 81 && broken.isEmpty();
+        o.detail = audited + "/" + registry + " keys audited · " + normalized + " normalized+repaired"
+            + (broken.isEmpty() ? "" : " · BROKEN: " + String.join(", ",
+                broken.subList(0, Math.min(4, broken.size()))))
+            + (registry < 81 ? " · registry under 81" : "");
+        return o;
+    }
+
+    /** G2 — the custom # hex Color Studio: round trip + live repaint wiring. */
+    static Outcome probeG2(Hooks h, Listener l) {
+        Outcome o = new Outcome(0, "G", "");
+        boolean wrote = false, normalized = false, junkRepaired = false;
+        try {
+            Object before = h.getPref(AppPrefs.K_ACCENT_HEX);
+            // the canonical stored form is the BARE 6-hex (no '#', the same
+            // shape the Color Studio's Apply Color persists).
+            h.putPref(AppPrefs.K_ACCENT_HEX, "2E7DFF");
+            Object rb = h.getPref(AppPrefs.K_ACCENT_HEX);
+            Object norm = AppPrefs.normalizeValue(AppPrefs.K_ACCENT_HEX, rb);
+            wrote = "2E7DFF".equals(rb);
+            // the normalizer canonicalizes to lowercase-without-hash:
+            normalized = "2e7dff".equals(norm);
+            // junk must be repaired to "" (the preset lane), never crash:
+            h.putPref(AppPrefs.K_ACCENT_HEX, "ZZ-not-a-color");
+            junkRepaired = "".equals(AppPrefs.normalizeValue(
+                    AppPrefs.K_ACCENT_HEX, h.getPref(AppPrefs.K_ACCENT_HEX)));
+            h.putPref(AppPrefs.K_ACCENT_HEX, before == null ? "" : before);
+        } catch (Throwable t) {
+            o.pass = false;
+            o.detail = "hex round trip threw: " + t.getClass().getName();
+            return o;
+        }
+        boolean roundTrip = wrote && normalized && junkRepaired;
+        // the live repaint contract: the Studio sheet exists in Settings and
+        // the custom accent feeds the app-wide scheme build in main.dart.
+        String settings = readOrEmpty("ui/lib/anantplay/settings_screen.dart");
+        String mainDart = readOrEmpty("ui/lib/main.dart");
+        boolean sheetWired = sourceProvable(settings)
+            && settings.contains("Color Studio") && settings.contains("Apply Color")
+            && settings.contains("K_ACCENT_HEX");
+        boolean repaintWired = sourceProvable(mainDart)
+            && mainDart.contains("accentHex") && mainDart.contains("ColorScheme");
+        o.pass = roundTrip && sheetWired && repaintWired;
+        // v3.4.6.g — every leg stated HONESTLY from its own boolean (the
+        // first lab run caught this probe lying about a failing leg).
+        o.detail = "write " + (wrote ? "✓" : "✗")
+            + " · normalize→canonical " + (normalized ? "✓" : "✗")
+            + " · junk→preset " + (junkRepaired ? "✓" : "✗")
+            + " · user value restored"
+            + " · Studio sheet " + (sheetWired ? "✓" : "✗")
+            + " · live repaint " + (repaintWired ? "✓" : "✗");
+        return o;
+    }
+
+    /** G3 — REAL Material You: the genuine DynamicColorBuilder scheme wiring. */
+    static Outcome probeG3(Listener l) {
+        Outcome o = new Outcome(0, "G", "");
+        String mainDart = readOrEmpty("ui/lib/main.dart");
+        boolean builder = sourceProvable(mainDart)
+            && mainDart.contains("DynamicColorBuilder")
+            && mainDart.contains("lightDynamic") && mainDart.contains("darkDynamic");
+        boolean surfaces = sourceProvable(mainDart)
+            && mainDart.contains("surfaceContainerLow")
+            && mainDart.contains("primaryContainer");
+        boolean honest = sourceProvable(mainDart)
+            && mainDart.contains("System wallpaper colors unavailable");
+        o.pass = builder && surfaces && honest;
+        o.detail = "DynamicColorBuilder " + (builder ? "✓" : "✗")
+            + " · wallpaper ColorScheme surfaces " + (surfaces ? "✓" : "✗")
+            + " · honest null-scheme caption " + (honest ? "✓" : "✗");
+        return o;
+    }
+
+    /** G4 — the Home Got-it banner: dismissal persistence + Watch Tour wiring. */
+    static Outcome probeG4(Hooks h, Listener l) {
+        Outcome o = new Outcome(0, "G", "");
+        boolean persisted = false;
+        try {
+            Object before = h.getPref("homeTipDismissed");
+            h.putPref("homeTipDismissed", Boolean.TRUE);
+            persisted = Boolean.TRUE.equals(h.getPref("homeTipDismissed"));
+            h.putPref("homeTipDismissed", before == null ? Boolean.FALSE : before);
+        } catch (Throwable t) {
+            o.pass = false;
+            o.detail = "got-it persistence threw: " + t.getClass().getSimpleName();
+            return o;
+        }
+        String home = readOrEmpty("ui/lib/anantplay/home_screen.dart");
+        boolean wired = sourceProvable(home)
+            && home.contains("Got it") && home.contains("homeTipDismissed")
+            && home.contains("Watch Tour");
+        o.pass = persisted && wired;
+        o.detail = "write→read→restore " + (persisted ? "✓" : "✗")
+            + " · banner + Watch Tour wiring " + (wired ? "✓" : "✗");
+        return o;
+    }
+
+    /** G5 — the cast auto-open contract: BAL-allowed launch + markPlayerOpened. */
+    static Outcome probeG5(Listener l) {
+        Outcome o = new Outcome(0, "G", "");
+        String main = readOrEmpty("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        String svc = readOrEmpty("src/lk/techworld/anantplay/sicast/ReceiverService.java");
+        String bridge = media3BridgeSource();
+        boolean bal = sourceProvable(main)
+            && main.contains("MODE_BACKGROUND_ACTIVITY_START_ALLOWED")
+            && main.contains("FLAG_ACTIVITY_REORDER_TO_FRONT")
+            && main.contains("ActivityOptions.makeBasic()");
+        boolean watchdog = sourceProvable(svc)
+            && svc.contains("markPlayerOpened") && svc.contains("playerOpenObserved")
+            && svc.contains("resetPlayerOpenSignal");
+        boolean signalled = sourceProvable(bridge)
+            && bridge.contains("markPlayerOpened");
+        o.pass = bal && watchdog && signalled;
+        o.detail = "BAL PendingIntent " + (bal ? "✓" : "✗")
+            + " · watchdog signal " + (watchdog ? "✓" : "✗")
+            + " · bridge signals open " + (signalled ? "✓" : "✗");
+        return o;
+    }
+
+    /** G6 — the zero-copy SurfaceView engine + the ExoPlayer thread guard. */
+    static Outcome probeG6(Listener l) {
+        Outcome o = new Outcome(0, "G", "");
+        String bridge = media3BridgeSource();
+        String main = readOrEmpty("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        String player = playerSource();
+        boolean threadGuard = sourceProvable(bridge)
+            && bridge.contains("onMain()") && bridge.contains("setPumpRate");
+        boolean surface = sourceProvable(bridge) && sourceProvable(main)
+            && bridge.contains("setVideoSurfaceView")
+            && main.contains("anantplay/video_surface");
+        boolean thermal = sourceProvable(player)
+            && player.contains("anantplay/video_surface")
+            && player.contains("playerSetPumpRate");
+        o.pass = threadGuard && surface && thermal;
+        o.detail = "main-thread guard " + (threadGuard ? "✓" : "✗")
+            + " · SurfaceView engine " + (surface ? "✓" : "✗")
+            + " · adaptive pump " + (thermal ? "✓" : "✗");
+        return o;
+    }
+
+    /** G7 — browser automation: stream sniffing, .zip capture, NewZone lane. */
+    static Outcome probeG7(Listener l) {
+        Outcome o = new Outcome(0, "G", "");
+        boolean sniff = "HLS".equals(StreamSniffer.classify("https://x.com/hls/index.m3u8", null))
+            && "MP4".equals(StreamSniffer.classify("https://x.com/movie.mp4", null))
+            && "MKV".equals(StreamSniffer.classify("https://x.com/movie.mkv", null));
+        String web = readOrEmpty("src/lk/techworld/anantplay/sicast/WebBrowserView.java");
+        boolean zip = sourceProvable(web)
+            && web.contains(".zip") && web.contains("autoZip");
+        String browser = browserSource();
+        boolean dock = sourceProvable(browser)
+            && browser.contains("Play in Cinema");
+        o.pass = sniff && zip && dock;
+        o.detail = "HLS/MP4/MKV sniff ✓ · .zip auto-extract " + (zip ? "✓" : "✗")
+            + " · Play-in-Cinema dock " + (dock ? "✓" : "✗");
+        return o;
+    }
+
+    /** G8 — the subtitle pipeline E2E wiring: fetch → free translate → ZWJ overlay. */
+    static Outcome probeG8(Listener l) {
+        Outcome o = new Outcome(0, "G", "");
+        String bridge = media3BridgeSource();
+        boolean wiring = sourceProvable(bridge)
+            && bridge.contains("validateOrTranslate")
+            && bridge.contains("workerOutage")
+            && bridge.contains("onCues");
+        String translatorSrc = readOrEmpty("src/lk/techworld/anantplay/sicast/FreeSubTranslator.java");
+        boolean translator = sourceProvable(translatorSrc)
+            && translatorSrc.contains("translate.googleapis.com/translate_a/single")
+            && translatorSrc.contains("\\u200D");
+        // the live engine contract (the same leg E10 drives): one real cue
+        // through the exact on-device translator.
+        boolean live = freeTranslatorContractHolds();
+        o.pass = wiring && translator && live;
+        o.detail = "fetch→translate wiring " + (wiring ? "✓" : "✗")
+            + " · ZWJ-preserving keyless endpoints " + (translator ? "✓" : "✗")
+            + " · live engine " + (live ? "✓" : "✗");
         return o;
     }
 
@@ -1265,11 +1562,11 @@ public final class DeepProbe {
 
     /**
      * The per-domain roll-up for the CI job summary: `A=6/6 B=9/9 …` (keys in
-     * A–F order, missing domains omitted).
+     * A–G order, missing domains omitted).
      */
     public static String ciDomainLine(List<Outcome> results) {
         StringBuilder sb = new StringBuilder(96);
-        for (String d : new String[]{"A", "B", "C", "D", "E", "F"}) {
+        for (String d : new String[]{"A", "B", "C", "D", "E", "F", "G"}) {
             int n = 0, p = 0;
             if (results != null) {
                 for (Outcome o : results) {

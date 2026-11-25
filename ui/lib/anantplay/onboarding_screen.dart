@@ -691,6 +691,11 @@ class _SlideShell extends StatelessWidget {
 // frame 0 on every bump, so tapping the visual ALWAYS does something visible.
 
 /// Slide 1 — the app emblem breathing on a teal/cyan aura (tap = replay pulse).
+/// v3.4.6.g — SLIDE 1's INTERACTIVE ANIMATED VALUE STORY. The exact app
+/// pitch in three visual beats, animated: (1) Pick movie in AnantPlay,
+/// (2) Auto Sinhala Subtitles — the ZWJ conjunct ශ්‍රී intact, (3) the cool
+/// zero-heat Cinema Player. Tapping the hero replays from beat 1; tapping a
+/// step chip replays from that beat (clickable step-by-step replay).
 class _WelcomeHero extends StatefulWidget {
   const _WelcomeHero({required this.onReplay, this.replay = 0});
   final VoidCallback onReplay;
@@ -701,38 +706,72 @@ class _WelcomeHero extends StatefulWidget {
 }
 
 class _WelcomeHeroState extends State<_WelcomeHero>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _breath = AnimationController(
+    with TickerProviderStateMixin {
+  /// The story controller: 5.4 s for three beats (1.8 s each).
+  late final AnimationController _story = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 5400),
+  );
+
+  /// The ambient aura loop around the active card.
+  late final AnimationController _aura = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 2600),
   );
 
+  static const List<String> _beatTitles = <String>[
+    '1. Pick movie in AnantPlay',
+    '2. Auto Sinhala Subtitles',
+    '3. Cool Cinema Player',
+  ];
+  static const List<String> _beatSubs = <String>[
+    'ඔබේ චිත්‍රපටිය AnantPlay තුළ තෝරන්න',
+    'සිංහල උපසිරැසි ස්වයංක්‍රීයවම',
+    'උණුසුම් නැති සිනමා වේදිකාව',
+  ];
+
+  int get _beat => (_story.value * 3).floor().clamp(0, 2);
+
+  void _playFrom(double v) {
+    final live = !MediaQuery.disableAnimationsOf(context);
+    if (live) {
+      _story.forward(from: v);
+    } else {
+      // Reduced motion: hold the beat's end frame (still the full story).
+      _story.value = (v + 0.999).clamp(0.0, 1.0) <= 1.0 ? (v + 0.98).clamp(0.0, 1.0) : 1.0;
+    }
+  }
+
   @override
   void didUpdateWidget(_WelcomeHero old) {
     super.didUpdateWidget(old);
-    // Tap-the-hero = restart the demo from frame 0 (visible every time).
-    if (widget.replay != old.replay) _breath.forward(from: 0);
+    // Tap-the-hero = restart the demo from beat 1 (visible every time).
+    if (widget.replay != old.replay) _playFrom(0);
   }
 
   @override
   void dispose() {
-    _breath.dispose();
+    _story.dispose();
+    _aura.dispose();
     super.dispose();
   }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // The Mornye looping contract: ambient-motion-aware heroes. Reduced
-    // motion (or a test harness with disableAnimations) freezes the loop
-    // cleanly at its current frame; the spring timer never even starts.
+    // The Mornye looping contract: ambient-motion-aware. Reduced motion
+    // freezes the story at its final beat; the aura loop parks.
     final live = !MediaQuery.disableAnimationsOf(context);
-    if (live && !_breath.isAnimating) {
-      _breath.repeat(reverse: true);
-    } else if (!live && _breath.isAnimating) {
-      _breath.stop();
+    if (live) {
+      if (!_story.isAnimating && _story.value >= 1.0) _story.value = 1.0;
+      if (!_story.isAnimating && _story.value == 0.0) _story.forward();
+      if (!_aura.isAnimating) _aura.repeat(reverse: true);
+    } else {
+      if (_story.isAnimating) _story.stop();
+      if (_aura.isAnimating) _aura.stop();
+      if (_story.value == 0.0) _story.value = 1.0;
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -740,51 +779,126 @@ class _WelcomeHeroState extends State<_WelcomeHero>
       onTap: widget.onReplay,
       child: SizedBox(
         width: 210,
-        height: 210,
+        height: 238,
         child: AnimatedBuilder(
-          animation: _breath,
+          animation: Listenable.merge([_story, _aura]),
           builder: (context, _) {
-            final t = _breath.value;
-            final scale = 1.0 + 0.045 * Curves.easeInOut.transform(t);
-            final aura = 0.55 + 0.30 * t;
-            return Stack(
-              alignment: Alignment.center,
+            final beat = _beat;
+            // local progress inside the active beat (0..1)
+            final p = (_story.value * 3 - beat).clamp(0.0, 1.0);
+            final glow = 0.55 + 0.30 * _aura.value;
+            return Column(
               children: [
-                // the ambient teal/cyan Mornye aura
-                Container(
-                  width: 205,
-                  height: 205,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        Color.fromRGBO(62, 142, 143, aura),
-                        Color.fromRGBO(127, 205, 208, aura * 0.55),
-                        const Color(0x000F2E30),
-                      ],
-                      stops: const [0.05, 0.45, 1.0],
-                    ),
+                SizedBox(
+                  width: 210,
+                  height: 158,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // the ambient Mornye aura (teal → green → cool blue per beat)
+                      Container(
+                        width: 205,
+                        height: 205,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              Color.fromRGBO(62, 142, 143, glow),
+                              beat == 2
+                                  ? Color.fromRGBO(100, 210, 255, glow * 0.6)
+                                  : Color.fromRGBO(127, 205, 208, glow * 0.55),
+                              const Color(0x000F2E30),
+                            ],
+                            stops: const [0.05, 0.45, 1.0],
+                          ),
+                        ),
+                      ),
+                      // THE BEAT SCENE — a 132×104 mini stage.
+                      Container(
+                        width: 132,
+                        height: 104,
+                        decoration: BoxDecoration(
+                          color: const Color(0x1F1E4E4F),
+                          borderRadius: BorderRadius.circular(26),
+                          border: Border.all(color: const Color(0x663E8E8F)),
+                          boxShadow: const [
+                            BoxShadow(
+                                color: Color(0x553E8E8F),
+                                blurRadius: 24,
+                                spreadRadius: 2),
+                          ],
+                        ),
+                        child: _beatScene(beat, p),
+                      ),
+                    ],
                   ),
                 ),
-                Transform.scale(
-                  scale: scale,
-                  child: Container(
-                    width: 128,
-                    height: 128,
-                    decoration: BoxDecoration(
-                      color: const Color(0x1F1E4E4F),
-                      borderRadius: BorderRadius.circular(38),
-                      border: Border.all(color: const Color(0x663E8E8F)),
-                      boxShadow: const [
-                        BoxShadow(
-                            color: Color(0x553E8E8F),
-                            blurRadius: 24,
-                            spreadRadius: 2),
-                      ],
-                    ),
-                    child: const Icon(mi.Icons.cast_for_education_rounded,
-                        size: 62, color: Color(0xFF7FCDD0)),
-                  ),
+                const SizedBox(height: 7),
+                // ── the clickable step-by-step replay chips (1 · 2 · 3) ──
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var i = 0; i < 3; i++)
+                      Padding(
+                        padding: EdgeInsets.only(left: i == 0 ? 0 : 7),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _playFrom(i / 3),
+                          child: Container(
+                            width: 34,
+                            height: 26,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: i == beat
+                                  ? const Color(0x337FCDD0)
+                                  : const Color(0x141E4E4F),
+                              borderRadius: BorderRadius.circular(13),
+                              border: Border.all(
+                                color: i == beat
+                                    ? const Color(0xCC7FCDD0)
+                                    : const Color(0x443E8E8F),
+                              ),
+                            ),
+                            child: Text(
+                              '${i + 1}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: i == beat
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
+                                color: i == beat
+                                    ? const Color(0xFFEFFCFB)
+                                    : const Color(0xB3D6E9E9),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                // the ACTIVE beat's full title + its Sinhala line. Both are
+                // single-line (ellipsized on hostile metrics — the fixed 238
+                // hero box must never overflow on any font fallback).
+                Text(
+                  _beatTitles[beat],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFEFFCFB),
+                      height: 1.2),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _beatSubs[beat],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 10.5, color: Color(0xCCD6E9E9), height: 1.2),
                 ),
               ],
             );
@@ -793,8 +907,193 @@ class _WelcomeHeroState extends State<_WelcomeHero>
       ),
     );
   }
-}
 
+  /// One beat's mini scene (132×104 stage, Mornye glass).
+  Widget _beatScene(int beat, double p) {
+    switch (beat) {
+      case 0:
+        // BEAT 1 — Pick movie in AnantPlay: a movie list; the first row
+        // highlights and the cast pill flies in from the top-right.
+        final ease = Curves.easeOutCubic.transform(p);
+        return Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _mockRow(highlight: p > 0.25, leading: mi.Icons.movie_rounded),
+                  const SizedBox(height: 6),
+                  _mockRow(highlight: false, leading: mi.Icons.live_tv_rounded),
+                ],
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 10 - 46 * (1 - ease),
+              child: Opacity(
+                opacity: ease.clamp(0.0, 1.0),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xCC123B3C),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xCC7FCDD0)),
+                  ),
+                  child: const Icon(mi.Icons.cast_rounded,
+                      size: 14, color: Color(0xFF7FCDD0)),
+                ),
+              ),
+            ),
+          ],
+        );
+      case 1:
+        // BEAT 2 — Auto Sinhala Subtitles: the mini player with the live
+        // Sinhala cue pill (the ZWJ conjunct ශ්‍රී verbatim) sliding up.
+        final slide = 14 * (1 - Curves.easeOutCubic.transform(p));
+        return Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+              child: Column(
+                children: [
+                  Container(
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: const Color(0x33101826),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(mi.Icons.smart_display_rounded,
+                        size: 22, color: Color(0xCC64D2FF)),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 10,
+              right: 10,
+              bottom: 10 + slide,
+              child: Opacity(
+                opacity: p.clamp(0.0, 1.0),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xD90E1626),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0x9964D2FF)),
+                  ),
+                  child: const Text(
+                    'ශ්‍රී ලංකා · සිංහල උපසිරැසි සූදානම්',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 8.5,
+                        color: Color(0xFFDFF3FF),
+                        fontFamily: 'Noto Sans Sinhala'),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      default:
+        // BEAT 3 — Cool Cinema Player: the mini player wearing the cool
+        // zero-heat badge; the thermometer settles into the blue.
+        final settle = Curves.easeOutBack.transform(p);
+        return Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+              child: Container(
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0x33101826),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(mi.Icons.play_circle_rounded,
+                        size: 22,
+                        color: Color.fromRGBO(
+                            100, 210, 255, (0.4 + 0.6 * settle).clamp(0.0, 1.0))),
+                    const SizedBox(width: 8),
+                    Icon(mi.Icons.ac_unit_rounded,
+                        size: 16,
+                        color: Color.fromRGBO(
+                            124, 227, 139, (0.3 + 0.7 * settle).clamp(0.0, 1.0))),
+                  ],
+                ),
+              ),
+            ),
+            Positioned(
+              left: 10,
+              right: 10,
+              bottom: 10,
+              child: Opacity(
+                opacity: p.clamp(0.0, 1.0),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xD90E1626),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0x997CE38B)),
+                  ),
+                  child: const Text(
+                    '5–6 පැයක් · උණුසුමක් නැති · marathon-cool',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 8, color: Color(0xFFE4FFE9)),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+    }
+  }
+
+  Widget _mockRow({required bool highlight, required IconData leading}) {
+    return Container(
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: highlight ? const Color(0x2E7FCDD0) : const Color(0x141E4E4F),
+        borderRadius: BorderRadius.circular(8),
+        border: highlight
+            ? Border.all(color: const Color(0x997FCDD0))
+            : Border.all(color: const Color(0x333E8E8F)),
+      ),
+      child: Row(
+        children: [
+          Icon(leading,
+              size: 13, color: const Color(0xFFBFE9EA)),
+          const SizedBox(width: 7),
+          Container(
+            width: 44,
+            height: 5,
+            decoration: BoxDecoration(
+              color: const Color(0x66D6E9E9),
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+          const Spacer(),
+          Container(
+            width: 16,
+            height: 16,
+            decoration: const BoxDecoration(
+              color: Color(0x26D6E9E9),
+              shape: BoxShape.circle,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 /// Slide 2 — the live install state: a glowing green badge when installed, an
 /// animated download/demo (arrow bobbing into a tray with the live percent)
 /// while downloading. v3.4.6.d: the hero shows the exact installed version
