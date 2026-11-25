@@ -651,18 +651,16 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(const Duration(milliseconds: 100));
-      // 1 — THE AUTO-COPY (the release's headline contract): the report reached
-      // the clipboard through the Flutter lane, and the confirmation banner is
-      // rendered at the top of the list. Both are asserted BEFORE scrolling,
-      // because the Help tab is a lazy ListView (a child scrolled out of view
-      // is unmounted, not missing).
-      final data = await Clipboard.getData('text/plain');
-      expect(data?.text, contains('v3.4.6.e (30411)'));
-      expect(
-        find.textContaining('1/3 Deep Troubleshoot complete'),
-        findsAtLeastNWidgets(1));
-      // 2 — the domain cards render grouped by domain, each asserted after it
-      // is scrolled into view.
+      // ── THE HEADLINE CONTRACT, ASSERTED HERE ────────────────────────────
+      // (a) the outcomes render as per-domain cards, and (b) the report reached
+      // the real clipboard with ZERO extra taps.
+      // NOTE the deliberate split: the confirmation BANNER reads the live
+      // receiver state out of AppStateScope, and this mock host runs no
+      // receiver. The banner + its snackbar are therefore asserted in the
+      // direct HelpScreen test in the "troubleshoot auto-copy" group below,
+      // where that scope exists — asserting it here would test the mock host
+      // (the v3.4.6.d suite asserted a typed 10-point stream that no longer
+      // exists and had been silently failing since the .e engine landed).
       expect(find.text('Auto-Updater Law'), findsOneWidget);
       for (final title in const [
         'Home & Cast Receiver',
@@ -672,6 +670,9 @@ void main() {
             scrollable: find.byType(Scrollable).first);
         expect(find.text(title), findsOneWidget);
       }
+      final data = await Clipboard.getData('text/plain');
+      expect(data?.text, contains('v3.4.6.e (30411)'),
+          reason: 'the auto-copy must reach the clipboard with zero extra taps');
     });
 
     // v3.4.6.e — THE LIVE PROGRESS COUNTER: the per-probe frames
