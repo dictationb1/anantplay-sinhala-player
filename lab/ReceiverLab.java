@@ -7028,7 +7028,14 @@ public class ReceiverLab {
         @Override public boolean castForegroundSignal() { return true; }
         @Override public boolean surfaceViewWired() { return true; }
         @Override public java.util.Map<String, Object> prefsCoverage() {
-            return new java.util.LinkedHashMap<>(prefs);
+            // v3.4.6.g — enumerate EVERY backed-up key (the C17 contract);
+            // values come from the fixture prefs, defaulting to "".
+            java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+            for (String k : AppPrefs.BACKUP_KEYS) {
+                Object v = prefs.get(k);
+                out.put(k, v != null ? v : "");
+            }
+            return out;
         }
     }
 
@@ -7053,6 +7060,7 @@ public class ReceiverLab {
         hooks.prefs.put(AppPrefs.K_RECEIVER_NAME, "Lab Receiver");
         DeepProbe.setTransport(new LabTransport(true));   // v3.4.6.g: worker + translator up
         java.util.List<DeepProbe.Outcome> results = DeepProbe.runAll(hooks, null);
+        DeepProbe.setTransport(null);   // restore the real (hooks) path for direct probe calls
         int total = results.size();
         // v3.4.6.g — the matrix grew by the 5 new probes this release ships
         // (E14 SurfaceView/thread guard, E15 live translation, F7 cast signal,
@@ -7327,6 +7335,7 @@ public class ReceiverLab {
         envHooks.workerHealth = 0;   // optional external outage on the CI emulator
         DeepProbe.setTransport(new LabTransport(false));  // v3.4.6.g: worker down (env)
         java.util.List<DeepProbe.Outcome> envResults = DeepProbe.runAll(envHooks, null);
+        DeepProbe.setTransport(null);   // restore the real (hooks) path
         String envSummary = DeepProbe.ciSummaryLine(envResults, true, true);
         java.util.Map<String, String> envKv = new java.util.LinkedHashMap<>();
         for (String part : envSummary.split(" ")) {
@@ -7359,6 +7368,7 @@ public class ReceiverLab {
         brokenHooks.workerResolve = 0;
         DeepProbe.setTransport(new LabTransport(false));  // v3.4.6.g: worker down (env)
         java.util.List<DeepProbe.Outcome> brokenResults = DeepProbe.runAll(brokenHooks, null);
+        DeepProbe.setTransport(null);   // restore the real (hooks) path
         String brokenSummary = DeepProbe.ciSummaryLine(brokenResults, true, true);
         java.util.Map<String, String> brokenKv = new java.util.LinkedHashMap<>();
         for (String part : brokenSummary.split(" ")) {
@@ -7588,6 +7598,7 @@ public class ReceiverLab {
         LabHooks hooks = new LabHooks();
         DeepProbe.setTransport(new LabTransport(true));   // v3.4.6.g: worker + translator up
         java.util.List<DeepProbe.Outcome> results = DeepProbe.runAll(hooks, null);
+        DeepProbe.setTransport(null);   // restore the real (hooks) path
         int total = results.size();
         int pass = DeepProbe.passCount(results);
         String summary = DeepProbe.ciSummaryLine(results, true, true);

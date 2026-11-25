@@ -295,7 +295,7 @@ class _ThemedApp extends StatelessWidget {
       colorScheme: scheme,
       scaffoldBackgroundColor: scheme.surface,
       extensions: [
-        for (final ThemeExtension e in base.extensions.values)
+        for (final e in base.extensions.values)
           if (e is AppTokens) liveTokens else e,
       ],
     );
