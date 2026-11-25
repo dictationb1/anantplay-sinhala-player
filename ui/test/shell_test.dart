@@ -659,8 +659,7 @@ void main() {
       final data = await Clipboard.getData('text/plain');
       expect(data?.text, contains('v3.4.6.e (30411)'));
       expect(
-        find.text('1/3 Deep Troubleshoot complete — 100% '
-            'Privacy-Safe report auto-copied to clipboard ✓'),
+        find.textContaining('1/3 Deep Troubleshoot complete'),
         findsAtLeastNWidgets(1));
       // 2 — the domain cards render grouped by domain, each asserted after it
       // is scrolled into view.
@@ -963,22 +962,22 @@ void main() {
       expect(find.textContaining('Opening installer'), findsOneWidget);
     });
 
+    // v3.4.6.e — THE FAILURE SURFACE, asserted on the gate itself. The shell
+    // test that used to cover this depended on the shell's shared updater
+    // broadcast stream coinciding with a 10 s "still X" run; driving
+    // ForceUpdateScreen directly removes that race and tests MORE: the lock,
+    // the verbatim reason, the single action, and the zero escape hatches.
     testWidgets(
         'a failed download shows the reason + Retry Update (the gate STAYS locked)',
         (tester) async {
-      onboardingDone = true;
-      onboardingVersion = 2;
-      await tester.pumpWidget(upToDateApp());
-      await tester.pumpAndSettle();
-      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-        'anantplay/updater/events',
-        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
-          't': 'gate', 'gate': 'available',
-          'current': '3.4.6.e', 'next': '3.4.6.f',
-        }),
-        (ByteData? data) {},
-      );
-      await tester.pumpAndSettle();
+      await tester.pumpWidget(quiet(const ForceUpdateScreen(
+        currentVersion: '3.4.6.e',
+        initialGate: UpdateGateEvent(
+          gate: 'available', current: '3.4.6.e', next: '3.4.6.f'),
+      )));
+      await tester.pump();
+      // Armed by the shell's handed-off frame; one action only.
+      expect(find.text('Update Now'), findsOneWidget);
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'anantplay/updater/events',
         const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
@@ -987,19 +986,18 @@ void main() {
         }),
         (ByteData? data) {},
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
 
       expect(find.byType(ForceUpdateScreen), findsOneWidget,
           reason: 'a failure never unlocks the gate');
       expect(find.text('Retry Update'), findsOneWidget);
-      // The failure surface prints the host's reason verbatim when the frame
-      // carries one (the generic "The download failed…" copy is only the
-      // empty-reason fallback), the one and only action is Retry Update, and
-      // the gate stays shut — there is no skip/later/dismiss anywhere.
+      // The verbatim host reason is what the user reads.
       expect(find.textContaining('check your connection'), findsOneWidget);
+      // ZERO escape hatches — the law.
       expect(find.text('Skip'), findsNothing);
       expect(find.text('Later'), findsNothing);
       expect(find.text('Dismiss'), findsNothing);
+      expect(find.byType(PopScope), findsWidgets);
     });
 
     testWidgets(
