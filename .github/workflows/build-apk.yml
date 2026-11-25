@@ -1037,14 +1037,17 @@ jobs:
             if ! grep -q 'DEEP_PROBE_SUMMARY' /tmp/deeplines.txt; then echo '::error title=deep-probe::DEEP_PROBE_SUMMARY never appeared in AnantPlayCI logcat within 45 s — the in-app 54-probe self-test did not run'; { echo '### deep-probe FAIL: no DEEP_PROBE_SUMMARY'; echo '```'; tail -80 /tmp/deeplines.txt; echo '```'; echo '#### crash buffer'; echo '```'; adb logcat -d -b crash 2>&1 | tail -120; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
             tr -d '\r' < /tmp/deeplines.txt | grep 'DEEP_PROBE_SUMMARY' | tail -1 > /tmp/summary.txt
             cat /tmp/summary.txt
-            NPASS=$(awk '{for(i=1;i<=NF;i++) if ($i ~ /^pass=/) {split($i,a,"="); v=a[2]+0} } END{printf "%d", v}' /tmp/summary.txt)
-            NFAIL=$(awk '{for(i=1;i<=NF;i++) if ($i ~ /^fail=/) {split($i,a,"="); v=a[2]+0} } END{printf "%d", v}' /tmp/summary.txt)
-            NTOTAL=$(awk '{for(i=1;i<=NF;i++) if ($i ~ /^total=/) {split($i,a,"="); v=a[2]+0} } END{printf "%d", v}' /tmp/summary.txt)
+            NPASS=$(sed -n 's/.* pass=\([0-9][0-9]*\).*/\1/p' /tmp/summary.txt | tail -1)
+            NFAIL=$(sed -n 's/.* fail=\([0-9][0-9]*\).*/\1/p' /tmp/summary.txt | tail -1)
+            NTOTAL=$(sed -n 's/.* total=\([0-9][0-9]*\).*/\1/p' /tmp/summary.txt | tail -1)
             echo "::notice title=deep-probe parse::pass=$NPASS fail=$NFAIL total=$NTOTAL (from: $(cat /tmp/summary.txt))"
             echo "parsed: pass=$NPASS fail=$NFAIL total=$NTOTAL"
             probe_lines=$(grep -c 'PROBE [0-9]' /tmp/deeplines.txt || true)
             echo "per-probe lines published: $probe_lines"
             { echo ''; echo "**parsed:** pass=$NPASS fail=$NFAIL total=$NTOTAL · per-probe lines=$probe_lines"; } >> "$GITHUB_STEP_SUMMARY"
+            case "$NPASS" in ''|*[!0-9]*) echo "::error title=deep-probe::could not parse pass= from: $(cat /tmp/summary.txt)"; exit 1 ;; esac
+            case "$NFAIL" in ''|*[!0-9]*) echo "::error title=deep-probe::could not parse fail= from: $(cat /tmp/summary.txt)"; exit 1 ;; esac
+            case "$NTOTAL" in ''|*[!0-9]*) echo "::error title=deep-probe::could not parse total= from: $(cat /tmp/summary.txt)"; exit 1 ;; esac
             if [ "$NTOTAL" -lt 54 ]; then echo "::error title=deep-probe::total=$NTOTAL but the matrix must execute at least 54 probes"; tail -40 /tmp/deeplines.txt >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
             if [ "$probe_lines" -lt 54 ]; then echo "::error title=deep-probe::only $probe_lines per-probe lines were published (expected >= 54)"; exit 1; fi
             sed -n 's/.*\(PROBE [0-9][0-9]* .* -> FAIL .*\)/\1/p' /tmp/deeplines.txt > /tmp/fails.txt || true
@@ -1065,4 +1068,4 @@ jobs:
             if grep -q 'lk\.techworld\.anantplay\.sicast' /tmp/ourcrash.txt; then echo '::error title=deep-probe::OUR APP crashed (FATAL/SIGSEGV/SIGABRT in lk.techworld.anantplay.sicast)'; { echo '### deep-probe FAIL: OUR APP crashed during the 54-probe self-test'; echo '```'; cat /tmp/ourcrash.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; head -40 /tmp/ourcrash.txt | while IFS= read -r line; do echo "::error title=deep-probe our-crash::${line}"; done; exit 1; fi
             if grep -qE 'FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT' /tmp/crashbuf.txt; then echo '::notice title=deep-probe::crash buffer has entries, NONE attributed to our app (emulator-image noise, e.g. com.google.android.gms) — recorded, NOT failing'; { echo '### deep-probe: unrelated crash-buffer entries (emulator image noise — not our app)'; echo '```'; tail -120 /tmp/crashbuf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; fi
             { echo '### deep-probe logcat "AnantPlayCI:I" (full capture)'; echo '```'; cat /tmp/deeplines.txt; echo '```'; echo '### logcat "*:E" (inspection)'; echo '```'; adb logcat -d '*:E' 2>&1 | tail -60; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-            echo "::notice title=deep-probe::LIVE 54-feature audit PASSED on Android 36 — pass=$PASS fail=$FAIL total=$TOTAL · clipboard_copied=true · privacy_clean=true · 0 app crashes · MainActivity focused (pid $APP_PID)."
+            echo "::notice title=deep-probe::LIVE 54-feature audit PASSED on Android 36 — pass=$NPASS fail=$NFAIL total=$NTOTAL · clipboard_copied=true · privacy_clean=true · 0 crashes attributed to our app · MainActivity focused (pid $APP_PID)."
