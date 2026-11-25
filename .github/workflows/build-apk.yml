@@ -989,7 +989,7 @@ jobs:
           test -w /dev/kvm || { echo "::error::/dev/kvm is still not writable — KVM unavailable"; exit 1; }
           echo "::notice title=kvm::/dev/kvm writable — hardware acceleration ON"
 
-      - name: Boot the KVM x86_64 Android 16 emulator, launch, run ALL 54 live deep probes, assert fail=0
+      - name: Boot the KVM x86_64 Android 16 emulator, launch, run ALL 64 live deep probes, assert fail=0
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SMOKE_APK: dist/smoke-x86_64.apk
