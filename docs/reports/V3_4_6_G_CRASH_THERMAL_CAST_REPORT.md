@@ -369,9 +369,9 @@ repository tally is **3,419 checks / 1,427 lab assertions**, all passing — see
 
 ---
 
-## 8. Live CI proof + the six defects CI exposed (zero-trust, nothing assumed)
+## 8. Live CI proof + the seven defects CI exposed (zero-trust, nothing assumed)
 
-The five ZIP traps were fixed by static audit (§7). Hosted CI then exposed **six
+The five ZIP traps were fixed by static audit (§7). Hosted CI then exposed **seven
 more real defects** that no static check could see. Every one was root-caused and
 fixed — never silenced, never skipped, never asserted away.
 
@@ -383,6 +383,7 @@ fixed — never silenced, never skipped, never asserted away.
 | 4 | Same test still found 0 cards after #3 | The handler's `if (event is! String) return;` **dropped the payload**: the Flutter 3.50 embedding/test messenger delivers the EventChannel deep payload **pre-decoded as a List** | The handler accepts **both** String and List (`decodeDeepOutcomes` already supported both — the guard was the only lie) |
 | 5 | Same test, third failure — CI debug proved `render 3 cards, domains=[A,B,C]` | The cards render **below the six 1-tap action cards** in a **lazy `ListView`**, so `find.text` saw nothing off-screen | The test scrolls the first card into view (`scrollUntilVisible`), exactly as it already did for domains B/C |
 | 6 | Emulator step still advertised "run ALL **54** live deep probes" | Stale step name after the 64-probe upgrade | Renamed to **64** (the assertions were already 64) |
+| 7 | Emulator (2nd run): `PROBE 9 DLNA … HTTP 0` + `PROBE 10 mDNS … receiver /info unreachable` → `fail=2` | **The arm→serve port race:** `ReceiverService.isUp()` flips at `running = this`, but `port()` stays `-1` until the HTTP server object exists. `armReceiver()` returned on `isUp()`, and both HTTP hooks bailed **instantly** on `port <= 0` — a false "DLNA/mDNS down" on a slower emulator | Added a bounded `awaitPort()` (30 × 100 ms) used by `armReceiver`, `receiverInfoHttp` and `dlnaDescHttp`; a receiver that never binds still returns `-1` → the probe still **FAILS honestly**. Two new ReceiverLab checks lock the guard in place |
 
 Defects #3–#5 are the honest-troubleshooter's own UI: had they shipped, a real
 user tapping **Run full app troubleshoot** could have seen an empty report. The

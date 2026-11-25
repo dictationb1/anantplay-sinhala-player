@@ -7509,5 +7509,21 @@ public class ReceiverLab {
             wk.contains("fail=0") && wk.contains("total >= 64"), "");
         check("v346e ci: the emulator job publishes every probe into the step summary",
             wk.contains("AnantPlayCI: PROBE"));
+        // v3.4.6.g — THE PORT-PUBLICATION RACE (live Android 36 CI found probes
+        // 9 + 10 reporting a FALSE "DLNA/mDNS down": isUp() flips at
+        // `running = this`, but port() stays -1 until the HTTP server exists,
+        // and both HTTP hooks used to bail out instantly on port <= 0). The
+        // hooks must wait, bounded, for the published port — never fake a pass.
+        String ma = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        check("v346g deep: the receiver hooks wait for the published port (awaitPort)",
+            ma.contains("private int awaitPort()")
+            && ma.contains("int port = awaitPort();")
+            && ma.contains("int port = awaitPort();   // the same bounded port-readiness wait"),
+            "the arm→serve race guard is missing from the deep-probe hooks");
+        check("v346g deep: awaitPort is bounded and never fabricates a port",
+            ma.contains("for (int i = 0; i < 30; i++)")
+            && ma.contains("if (p > 0) return p;")
+            && ma.contains("return ReceiverService.port();"),
+            "awaitPort must poll a bounded window and return the REAL port (or -1)");
     }
 }

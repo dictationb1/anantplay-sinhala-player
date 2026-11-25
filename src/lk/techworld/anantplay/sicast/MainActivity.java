@@ -2056,6 +2056,9 @@ public class MainActivity extends FlutterActivity {
                 for (int i = 0; i < 20 && !ReceiverService.isUp(); i++) {
                     try { Thread.sleep(100); } catch (InterruptedException ignored) { }
                 }
+                // v3.4.6.g — "up" is not yet "serving": wait for the published
+                // port too, so B1/B3/B4 read a receiver that can answer HTTP.
+                awaitPort();
                 return ReceiverService.isUp();
             }
             @Override public boolean stopReceiver() {
@@ -2070,8 +2073,29 @@ public class MainActivity extends FlutterActivity {
                 ReceiverService.setUserStop(ctx, veto);
             }
             @Override public int receiverPort() { return ReceiverService.port(); }
+            /**
+             * v3.4.6.g — THE PORT-PUBLICATION RACE (found by live Android 36 CI).
+             * ReceiverService.isUp() flips the moment {@code running = this} is
+             * assigned, but port() stays -1 until the HTTP server object exists.
+             * armReceiver() returns on isUp(), so a probe that read port()
+             * immediately could see -1 and bail out with HTTP 0 — a FALSE
+             * "DLNA/mDNS down" verdict on a slow emulator (probes 9 + 10).
+             * Wait, bounded, for the real port; a receiver that never binds
+             * still returns -1 and the probe still FAILS honestly.
+             */
+            private int awaitPort() {
+                for (int i = 0; i < 30; i++) {
+                    int p = ReceiverService.port();
+                    if (p > 0) return p;
+                    try { Thread.sleep(100); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return ReceiverService.port();
+                    }
+                }
+                return ReceiverService.port();
+            }
             @Override public int receiverInfoHttp() {
-                int port = ReceiverService.port();
+                int port = awaitPort();
                 if (port <= 0) return 0;
                 // The receiver is started asynchronously: isUp() flips before
                 // the server socket accepts. Give the freshly armed service a
@@ -2095,7 +2119,7 @@ public class MainActivity extends FlutterActivity {
                 } catch (Throwable t) { return 0; }
             }
             @Override public int[] dlnaDescHttp() {
-                int port = ReceiverService.port();
+                int port = awaitPort();   // the same bounded port-readiness wait
                 if (port <= 0) return new int[]{0, 0};
                 for (int attempt = 0; attempt < 12; attempt++) {
                     int[] r = dlnaOnce(port);
