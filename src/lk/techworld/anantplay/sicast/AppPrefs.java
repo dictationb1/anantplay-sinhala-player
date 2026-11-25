@@ -50,7 +50,7 @@ public final class AppPrefs {
     public static final String K_REGISTER = "registerOverride";      // null|spoken|formal
     public static final String K_AUTO_FETCH = "autoFetch";           // bool
     public static final String K_CINEMA_POLISH = "cinemaPolish";     // bool
-    public static final String K_FONT_SP = "fontSp";                 // 14..40
+    public static final String K_FONT_SP = "fontSp";                 // v3.4.6.e: 10..28 (14 default)
     public static final String K_FONT_FAMILY = "fontFamily";         // v3.2.0: noto|system|serif
     public static final String K_SUB_COLOR = "subColor";             // 0..5 (6 presets)
     public static final String K_SUB_BG = "subBgStyle";              // pill|outline|box|shadow
@@ -309,9 +309,13 @@ public final class AppPrefs {
 
     public static int normalizeGlassClarity(int value) { return clampTo(value, 10, 95); }
 
-    /** v3.3.0 — the subtitle size range the Cinema Player promises: 12..36 sp
-     *  (was 14..40; the 22 sp default is what made v3.2.0's subtitles "oversized"). */
-    public static int normalizeFontSp(int v) { return clampTo(v, 12, 36); }
+    /**
+     * v3.4.6.e — THE COMPACT CINEMA RANGE: 10..36 was the v3.3.0 promise; the
+     * real-device "subtitles cover the movie" complaint is answered with the
+     * 10–28sp slider (14sp portrait / 15sp landscape default) — a compact,
+     * crisp, never-viewport-filling subtitle even at the ceiling.
+     */
+    public static int normalizeFontSp(int v) { return clampTo(v, 10, 28); }
 
     public static int normalizeSubColor(int v) { return clampTo(v, 0, ThemeEngine.SUB_COLORS.length - 1); }
 
@@ -706,15 +710,16 @@ public final class AppPrefs {
     public static boolean compact(SharedPreferences p) { return DENSITY_COMPACT.equals(normalizeDensity(p.getString(K_DENSITY, DENSITY_COMFORTABLE))); }
     public static boolean showWebTab(SharedPreferences p) { return p.getBoolean(K_SHOW_WEB_TAB, true); }
     public static boolean showQuickActions(SharedPreferences p) { return p.getBoolean(K_SHOW_QUICK_ACTIONS, true); }
-    /** v3.3.0 — the cinema default: 18 sp portrait (was 22) / 20 sp landscape. */
-    /** v3.4.2 — 16 sp is the clean compact cinema default (18 in landscape via fontSpFor). */
-    public static int fontSp(SharedPreferences p) { return normalizeFontSp(p.getInt(K_FONT_SP, 16)); }
+    /** v3.4.6.e — the compact cinema default: 14 sp portrait / 15 sp landscape
+     *  (fontSpFor's +1 in landscape), inside the 10..28 clamp so a user's 28
+     *  never overflows the video window (82% maxWidth + 3 lines in the HUD). */
+    public static int fontSp(SharedPreferences p) { return normalizeFontSp(p.getInt(K_FONT_SP, 14)); }
 
-    /** The size actually rendered: +2 sp in landscape (cinema default 18 → 20), still
-     *  clamped to the 12..36 range so a user's 36 never overflows. */
+    /** The size actually rendered: +1 sp in landscape (the cinema default 14 →
+     *  15), still clamped to the 10..28 compact range. */
     public static int fontSpFor(SharedPreferences p, boolean landscape) {
         int base = fontSp(p);
-        return normalizeFontSp(landscape ? base + 2 : base);
+        return normalizeFontSp(landscape ? base + 1 : base);
     }
     public static String fontFamily(SharedPreferences p) { return normalizeFontFamily(p.getString(K_FONT_FAMILY, FONT_NOTO)); }
     public static int subColor(SharedPreferences p) { return normalizeSubColor(p.getInt(K_SUB_COLOR, 0)); }
@@ -730,7 +735,9 @@ public final class AppPrefs {
     public static String subBg(SharedPreferences p) { return normalizeSubBg(p.getString(K_SUB_BG, BG_PILL)); }
     public static int subBgOpacity(SharedPreferences p) { return normalizeSubBgOpacity(p.getInt(K_SUB_BG_OPACITY, 55)); }
     public static boolean subBold(SharedPreferences p) { return p.getBoolean(K_SUB_BOLD, true); }
-    public static int subBottomPct(SharedPreferences p) { return normalizeSubBottomPct(p.getInt(K_SUB_BOTTOM_PCT, 10)); }
+    /** v3.4.6.e — the compact cinema anchor: 6% portrait / 4% landscape is the
+     *  HUD default; the stored preference (2..35) still wins when set. */
+    public static int subBottomPct(SharedPreferences p) { return normalizeSubBottomPct(p.getInt(K_SUB_BOTTOM_PCT, 6)); }
     public static int subLineSpacing(SharedPreferences p) { return normalizeSubLineSpacing(p.getInt(K_SUB_LINE_SPACING, 120)); }
     public static String subEngine(SharedPreferences p) { return normalizeSubEngine(p.getString(K_SUB_ENGINE, ENGINE_HUMAN_PA_FREE)); }
     public static boolean autoTranslateNonSi(SharedPreferences p) { return p.getBoolean(K_AUTO_TRANSLATE_NON_SI, true); }

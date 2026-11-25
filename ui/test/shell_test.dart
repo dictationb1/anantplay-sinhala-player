@@ -436,6 +436,70 @@ void main() {
       expect(find.text('Start Receiver'), findsOneWidget);
     });
 
+    // v3.4.6.e — THE STOP RECEIVER FIX: tapping Stop Receiver on Home fires
+    // the anantplay/cast 'stop' invokeMethod (the v3.4.6.d defect: the stop
+    // lane raced its own 400 ms status push and looked dead).
+    testWidgets('Stop Receiver fires the real stop through the bridge',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      final stops = <MethodCall>[];
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
+        switch (call.method) {
+          case 'stop':
+            stops.add(call);
+            return <String, Object>{'up': false};
+          case 'arm':
+            return true;
+          case 'overlayGranted':
+          case 'notifGranted':
+          case 'officialInstalled':
+            return false;
+          case 'officialVersion':
+            return '';
+          case 'onboardingStatus':
+            return <String, Object>{
+              't': 'onboardingStatus',
+              'overlay': false, 'notif': false, 'battery': false,
+              'installs': false, 'official': false,
+            };
+          case 'finishOnboarding':
+            onboardingDone = true;
+            onboardingVersion = 2;
+            return true;
+          case 'resetOnboarding':
+            onboardingDone = false;
+            onboardingVersion = 0;
+            return true;
+          default:
+            // The live status read: the receiver IS running for this test.
+            return <String, Object>{
+              'up': true, 'port': 8765, 'discoverable': false, 'mdns': false,
+            };
+        }
+      });
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+      // The receiver is up → the hero card offers Stop.
+      await tester.ensureVisible(find.text('Stop Receiver'));
+      await tester.pumpAndSettle();
+      // The live up-state the hero renders before the tap (the card the user
+      // sees when the receiver is genuinely running).
+      expect(find.text('Active · Ready for Cast'), findsOneWidget);
+      await tester.tap(find.text('Stop Receiver'), warnIfMissed: false);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      // THE REGRESSION GUARD: the tap must reach the native stop lane exactly
+      // once. In v3.4.6.d the handler raced its own status push and the button
+      // looked dead; the fix is requestStop()'s synchronous `up:false` reply,
+      // which the widget discards — so what a widget test can and must prove is
+      // that the tap is wired to the channel at all (the native half is proven
+      // by the lab's v346eStopReceiverContractChecks and by the live Android 36
+      // emulator probe B2, "Stop Receiver live execution").
+      expect(stops, hasLength(1),
+          reason: 'tapping Stop Receiver must reach the native stop lane');
+    });
+
     testWidgets('the AnantPlay tile (not installed) opens the in-app installer sheet',
         (tester) async {
       onboardingDone = true;
@@ -459,9 +523,9 @@ void main() {
       expect(find.text('Glass clarity'), findsOneWidget);
       expect(find.text('Live preview'), findsOneWidget);
       await tester.scrollUntilVisible(
-          find.text('AnantPlay Sinhala Player v3.4.6.d (30410)'), 240,
+          find.text('AnantPlay Sinhala Player v3.4.6.e (30411)'), 240,
           scrollable: find.byType(Scrollable).first);
-      expect(find.text('AnantPlay Sinhala Player v3.4.6.d (30410)'), findsOneWidget);
+      expect(find.text('AnantPlay Sinhala Player v3.4.6.e (30411)'), findsOneWidget);
       expect(find.text('ADVANCED'), findsOneWidget);
     });
 
@@ -521,17 +585,206 @@ void main() {
       expect(find.text('Run setup wizard'), findsOneWidget);
     });
 
-    testWidgets('Copy puts the report on the clipboard', (tester) async {
+    testWidgets('Copy puts the deep report on the clipboard', (tester) async {
+      // The deep report arrives through anantplay/troubleshoot.deepReport.
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/troubleshoot'), (call) async {
+        if (call.method == 'deepReport') {
+          return 'AnantPlay Sinhala Player v3.4.6.e (30411) — Deep Troubleshoot Report';
+        }
+        if (call.method == 'lastDeepResults') return '[]';
+        if (call.method == 'runDeepProbe') return true;
+        return '[]';
+      });
       await tester.pumpWidget(quiet(const HelpScreen()));
       await tester.pump();
       await tester.tap(find.text('Copy Again'), warnIfMissed: false);
       await tester.pump();
       final data = await Clipboard.getData('text/plain');
-      expect(data?.text, contains('v3.4.6.d (30410)'));
+      expect(data?.text, contains('v3.4.6.e (30411)'));
+    });
+
+    // v3.4.6.e — THE DEEP TROUBLESHOOT CONTRACT: the run fires runDeepProbe,
+    // the outcomes stream renders the domain cards, and the completion
+    // auto-copies the privacy-safe report to the clipboard.
+    testWidgets('Run full app troubleshoot fires the 54-probe deep run', (tester) async {
+      var deepRuns = 0;
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/troubleshoot'), (call) async {
+        if (call.method == 'runDeepProbe') deepRuns++;
+        if (call.method == 'deepReport') {
+          return 'AnantPlay Sinhala Player v3.4.6.e (30411) — Deep Troubleshoot Report';
+        }
+        if (call.method == 'lastDeepResults') return '[]';
+        return '[]';
+      });
+      await tester.pumpWidget(quiet(const HelpScreen()));
+      await tester.pump();
+      await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
+      await tester.pump();
+      expect(deepRuns, 1);
+    });
+
+    testWidgets('the deep outcomes render as domain cards + auto-copy fires',
+        (tester) async {
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/troubleshoot'), (call) async {
+        if (call.method == 'deepReport') {
+          return 'AnantPlay Sinhala Player v3.4.6.e (30411) — Deep Troubleshoot Report';
+        }
+        if (call.method == 'lastDeepResults') return '[]';
+        return '[]';
+      });
+      await tester.pumpWidget(quiet(const HelpScreen()));
+      await tester.pump();
+      // v3.4.6.e — the host delivers the deep results as a JSON STRING on
+      // anantplay/troubleshoot/events (deepProbeJson), after the per-probe
+      // progress frames: the raw router decodes it into the domain cards.
+      const deepJson = '[{"id":1,"domain":"A","name":"Tier-1 redirect",'
+          '"pass":true,"ms":120,"detail":"302 resolved"},'
+          '{"id":8,"domain":"B","name":"Stop Receiver live execution",'
+          '"pass":true,"ms":40,"detail":"stop -> running == false"},'
+          '{"id":24,"domain":"C","name":"Subtitle Studio compact bounds",'
+          '"pass":true,"ms":5,"detail":"slider 10-28"}]';
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/troubleshoot/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(deepJson),
+        (ByteData? data) {},
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      // ── THE HEADLINE CONTRACT, ASSERTED HERE ────────────────────────────
+      // (a) the outcomes render as per-domain cards, and (b) the report reached
+      // the real clipboard with ZERO extra taps.
+      // NOTE the deliberate split: the confirmation BANNER reads the live
+      // receiver state out of AppStateScope, and this mock host runs no
+      // receiver. The banner + its snackbar are therefore asserted in the
+      // direct HelpScreen test in the "troubleshoot auto-copy" group below,
+      // where that scope exists — asserting it here would test the mock host
+      // (the v3.4.6.d suite asserted a typed 10-point stream that no longer
+      // exists and had been silently failing since the .e engine landed).
+      expect(find.text('Auto-Updater Law'), findsOneWidget);
+      for (final title in const [
+        'Home & Cast Receiver',
+        'Settings & Customizations',
+      ]) {
+        await tester.scrollUntilVisible(find.text(title), 200,
+            scrollable: find.byType(Scrollable).first);
+        expect(find.text(title), findsOneWidget);
+      }
+      final data = await Clipboard.getData('text/plain');
+      expect(data?.text, contains('v3.4.6.e (30411)'),
+          reason: 'the auto-copy must reach the clipboard with zero extra taps');
+    });
+
+    // v3.4.6.e — THE LIVE PROGRESS COUNTER: the per-probe frames
+    // ({t:'deep', done:n, total:54, outcome:{…}}) render
+    // "Running 54 deep feature probes… n/54" while the run is in flight.
+    testWidgets('the live deep progress frames update the run counter',
+        (tester) async {
+      var deepRuns = 0;
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/troubleshoot'), (call) async {
+        if (call.method == 'runDeepProbe') {
+          deepRuns++;
+          return true;
+        }
+        if (call.method == 'deepReport') {
+          return 'AnantPlay Sinhala Player v3.4.6.e (30411) — Deep Troubleshoot Report';
+        }
+        if (call.method == 'lastDeepResults') return '[]';
+        return '[]';
+      });
+      await tester.pumpWidget(quiet(const HelpScreen()));
+      await tester.pump();
+      await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
+      await tester.pump();
+      // The run title shows with the counter at 0/54.
+      expect(find.text('Running 54 deep feature probes… 0/54'), findsOneWidget);
+      // Three live frames arrive: 1, 7, 32 of 54.
+      for (final done in [1, 7, 32]) {
+        await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+          'anantplay/troubleshoot/events',
+          const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+            't': 'deep',
+            'done': done,
+            'total': 54,
+            'outcome': <String, Object>{
+              'id': done, 'domain': 'A', 'name': 'probe $done',
+              'pass': true, 'ms': 5, 'detail': 'ok',
+            },
+          }),
+          (ByteData? data) {},
+        );
+        await tester.pump();
+      }
+      expect(find.text('Running 54 deep feature probes… 32/54'), findsOneWidget);
+      // The run itself fired exactly once.
+      expect(deepRuns, 1);
     });
   });
 
   group('PlayerScreen (the Mornye cinema HUD)', () {
+    // v3.4.6.e — THE COMPACT SUBTITLE CONTRACT: the rendered subtitle is
+    // bottom-anchored, width-capped at 82% of the viewport, at most 3 lines,
+    // with a tight 1.25 line height and the compact 10-28sp clamp — the
+    // oversized-subtitle field complaint, asserted on the LIVE widget tree.
+    //
+    // The cue arrives exactly the way the native bridge sends it: one
+    // anantplay/player/events frame carrying activeCueSi. The test drives that
+    // frame itself rather than assuming a host-side demo cue exists, so the
+    // assertion can never silently pass on an empty string.
+    testWidgets('the subtitle pill obeys the compact cinema contract (82% / 3 lines / 1.25)',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Test Player'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Test Player'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.byType(PlayerScreen), findsOneWidget);
+
+      // The Sinhala cue: the ZWJ conjunct in ක්‍රියාත්මකයි is carried verbatim.
+      const cue = 'ක්‍රියාත්මකයි — ශ්‍රී ලංකාවේ චිත්‍රපටිය';
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/player/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          'positionMs': 1000,
+          'durationMs': 600000,
+          'bufferedMs': 2000,
+          'playing': true,
+          'buffering': false,
+          'videoWidth': 1280,
+          'videoHeight': 720,
+          'activeCueSi': cue,
+          'subtitleState': 'ready · 906 cues',
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pump();
+
+      final pill = find.text(cue);
+      expect(pill, findsOneWidget, reason: 'the active Sinhala cue must render');
+      final textWidget = tester.widget<Text>(pill);
+      // The compact cinema typography.
+      expect(textWidget.maxLines, 3);
+      expect(textWidget.softWrap ?? true, isTrue);
+      expect(textWidget.style?.height, 1.25);
+      // The compact 10-28sp clamp (the default is 14 portrait / 15 landscape).
+      final size = textWidget.style!.fontSize!;
+      expect(size, greaterThanOrEqualTo(10.0));
+      expect(size, lessThanOrEqualTo(28.0));
+      // The 82% viewport width cap on the pill's ConstrainedBox.
+      final constrained = tester.widgetList<ConstrainedBox>(
+          find.ancestor(of: pill, matching: find.byType(ConstrainedBox)));
+      final width = MediaQuery.sizeOf(tester.element(pill)).width;
+      expect(
+        constrained.any((c) =>
+            (c.constraints.maxWidth - width * 0.82).abs() < 0.5),
+        isTrue,
+        reason: 'the subtitle pill must be capped at 82% of the viewport',
+      );
+    });
+
     testWidgets('the 5-icon dock + all sheet headers render (HUD contract)', (tester) async {
       onboardingDone = true;
       onboardingVersion = 2;
@@ -621,8 +874,8 @@ void main() {
         const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
           't': 'gate',
           'gate': 'available',
-          'current': '3.4.6.d',
-          'next': '3.4.6.e',
+          'current': '3.4.6.e',
+          'next': '3.4.6.f',
         }),
         (ByteData? data) {},
       );
@@ -637,7 +890,7 @@ void main() {
       expect(find.text('Dismiss'), findsNothing);
       expect(find.text('Later'), findsNothing);
       // The version badge + the one and only action.
-      expect(find.text('v3.4.6.d  →  v3.4.6.e'), findsOneWidget);
+      expect(find.text('v3.4.6.e  →  v3.4.6.f'), findsOneWidget);
       expect(find.text('Update required'), findsOneWidget);
       expect(find.text('Update Now'), findsOneWidget);
     });
@@ -663,7 +916,7 @@ void main() {
         'anantplay/updater/events',
         const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
           't': 'gate', 'gate': 'available',
-          'current': '3.4.6.d', 'next': '3.4.6.e',
+          'current': '3.4.6.e', 'next': '3.4.6.f',
         }),
         (ByteData? data) {},
       );
@@ -710,22 +963,22 @@ void main() {
       expect(find.textContaining('Opening installer'), findsOneWidget);
     });
 
+    // v3.4.6.e — THE FAILURE SURFACE, asserted on the gate itself. The shell
+    // test that used to cover this depended on the shell's shared updater
+    // broadcast stream coinciding with a 10 s "still X" run; driving
+    // ForceUpdateScreen directly removes that race and tests MORE: the lock,
+    // the verbatim reason, the single action, and the zero escape hatches.
     testWidgets(
         'a failed download shows the reason + Retry Update (the gate STAYS locked)',
         (tester) async {
-      onboardingDone = true;
-      onboardingVersion = 2;
-      await tester.pumpWidget(upToDateApp());
-      await tester.pumpAndSettle();
-      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-        'anantplay/updater/events',
-        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
-          't': 'gate', 'gate': 'available',
-          'current': '3.4.6.d', 'next': '3.4.6.e',
-        }),
-        (ByteData? data) {},
-      );
-      await tester.pumpAndSettle();
+      await tester.pumpWidget(quiet(const ForceUpdateScreen(
+        currentVersion: '3.4.6.e',
+        initialGate: UpdateGateEvent(
+          gate: 'available', current: '3.4.6.e', next: '3.4.6.f'),
+      )));
+      await tester.pump();
+      // Armed by the shell's handed-off frame; one action only.
+      expect(find.text('Update Now'), findsOneWidget);
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'anantplay/updater/events',
         const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
@@ -734,12 +987,18 @@ void main() {
         }),
         (ByteData? data) {},
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
 
       expect(find.byType(ForceUpdateScreen), findsOneWidget,
           reason: 'a failure never unlocks the gate');
       expect(find.text('Retry Update'), findsOneWidget);
+      // The verbatim host reason is what the user reads.
       expect(find.textContaining('check your connection'), findsOneWidget);
+      // ZERO escape hatches — the law.
+      expect(find.text('Skip'), findsNothing);
+      expect(find.text('Later'), findsNothing);
+      expect(find.text('Dismiss'), findsNothing);
+      expect(find.byType(PopScope), findsWidgets);
     });
 
     testWidgets(
@@ -753,7 +1012,7 @@ void main() {
         'anantplay/updater/events',
         const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
           't': 'gate', 'gate': 'available',
-          'current': '3.4.6.d', 'next': '3.4.6.e',
+          'current': '3.4.6.e', 'next': '3.4.6.f',
         }),
         (ByteData? data) {},
       );
@@ -870,12 +1129,27 @@ void main() {
     });
   });
 
-  // ══ v3.4.6.d — THE 1-TAP AUTO-COPY TROUBLESHOOT ═══════════════════════════
+  // ══ v3.4.6.e — THE 1-TAP AUTO-COPY TROUBLESHOOT (54-probe deep run) ════════
+  //
+  // v3.4.6.d asserted a 10-point frame decoded by the typed probeResults()
+  // stream. v3.4.6.e replaced that engine: the anantplay/troubleshoot channel
+  // now carries per-probe progress maps AND the final 54-outcome JSON STRING,
+  // which the Help tab routes through rawTroubleEvents() (the typed stream
+  // would have swallowed the string — the wiring bug this release fixed).
+  // The portable contract (all of its platform plumbing is mocked in this
+  // suite) is asserted here end-to-end: live counter → 54 outcomes → one
+  // silent clipboard write → the confirmation banner. Copy Again / Share are
+  // asserted in their own group above.
   group('troubleshoot auto-copy (1-tap, zero extra taps)', () {
     testWidgets(
-        'the moment 10 probes land, the report is on the clipboard + the pill shows',
+        'the moment the 54 probes land, the report is on the clipboard + the banner shows',
         (tester) async {
       mock.setMockMethodCallHandler(const MethodChannel('anantplay/troubleshoot'), (call) async {
+        if (call.method == 'deepReport') {
+          return 'AnantPlay Sinhala Player v3.4.6.e (30411) — 54/54 PASS\n'
+              '== Domain A — Auto-Updater Law ==\nPASS 1. Tier-1 302';
+        }
+        if (call.method == 'lastDeepResults') return '[]';
         return '[]';
       });
       await tester.pumpWidget(quiet(const HelpScreen()));
@@ -884,28 +1158,51 @@ void main() {
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
       await tester.pump();
 
-      // The 10-probe result frame lands on the troubleshoot EventChannel.
-      final outcomes = <Object>[
-        for (var i = 1; i <= 10; i++)
-          <String, Object>{'id': i, 'name': 'probe $i', 'pass': true, 'ms': 12.0, 'detail': 'ok'},
-      ];
+      // Three live progress frames drive the "Running 54 deep feature probes…".
+      for (final done in [1, 27, 54]) {
+        await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+          'anantplay/troubleshoot/events',
+          const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+            't': 'deep', 'done': done, 'total': 54,
+            'outcome': <String, Object>{
+              'id': done, 'domain': 'A', 'name': 'probe $done',
+              'pass': true, 'ms': 5, 'detail': 'ok',
+            },
+          }),
+          (ByteData? data) {},
+        );
+        await tester.pump();
+      }
+      expect(find.text('Running 54 deep feature probes… 54/54'), findsOneWidget);
+
+      // The final full-run payload (a JSON string, exactly as the host sends it).
+      final buf = StringBuffer('[');
+      for (var i = 1; i <= 54; i++) {
+        if (i > 1) buf.write(',');
+        final domain = i <= 6 ? 'A' : (i <= 15 ? 'B' : (i <= 31 ? 'C' : (i <= 37 ? 'D' : (i <= 49 ? 'E' : 'F'))));
+        buf.write('{"id":$i,"domain":"$domain","name":"probe $i",'
+            '"pass":true,"ms":12,"detail":"ok"}');
+      }
+      buf.write(']');
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'anantplay/troubleshoot/events',
-        const StandardMethodCodec().encodeSuccessEnvelope(outcomes),
+        const StandardMethodCodec().encodeSuccessEnvelope(buf.toString()),
         (ByteData? data) {},
       );
       await tester.pump();
       await tester.pump();
 
-      // THE AUTO-COPY CONTRACT: zero extra tap and the report is on the
-      // clipboard with the 10/10 confirmation pill.
+      // THE AUTO-COPY CONTRACT: zero extra tap, the report is on the clipboard.
       final data = await Clipboard.getData('text/plain');
-      expect(data?.text, contains('10/10 PASS'));
-      expect(data?.text, contains('v3.4.6.d (30410)'));
-      expect(find.textContaining('10/10 Troubleshoot complete'), findsOneWidget);
-      // Copy Again + Share stay available below.
-      expect(find.text('Copy Again'), findsOneWidget);
-      expect(find.text('Share report'), findsOneWidget);
+      expect(data?.text, contains('v3.4.6.e (30411)'));
+      expect(data?.text, contains('54/54 PASS'));
+      // The banner confirms it, and the run is no longer "running".
+      expect(
+        find.text('54/54 Deep Troubleshoot complete — 100% '
+            'Privacy-Safe report auto-copied to clipboard ✓'),
+        findsAtLeastNWidgets(1),
+      );
+      expect(find.textContaining('Running 54 deep feature probes'), findsNothing);
     });
   });
 

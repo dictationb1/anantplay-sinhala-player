@@ -39,6 +39,39 @@ def smokeAbi = project.hasProperty("smokeAbi") ? project.property("smokeAbi").to
 def keepAbi = smokeAbi != null ? smokeAbi : "arm64-v8a"
 def dropAbis = ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"].findAll { it != keepAbi }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// v3.4.6.e — THE SOURCE ATLAS (the live 54-probe fix's packaging half).
+//
+// WHY: the probe engine mixes LIVE checks with SOURCE-CONTRACT checks — the
+// ones asserting the shipped wiring literally (PopScope(canPop:false), the
+// compact subtitle constants, the tracks/language/orientation channel
+// handlers, the browser PlatformView, the manifest's zero-AccessibilityService
+// rule). Those readers open the source FILES. In a checkout that works; inside
+// the installed APK the cwd is the data dir, where no source exists — so on the
+// hosted Android 36 emulator exactly those probes reported "not provable" and
+// FAILED (A6, B9, C9, E4, E5, E7, E8, E11, E12, F4). The probes were right; the
+// PACKAGING was incomplete.
+//
+// THE FIX: ship the exact sources that produced this APK inside it, under
+// assets/src-atlas/, so MainActivity.attachSourceAtlas() can unpack them once
+// into noBackupFilesDir and point DeepProbe at them. Deterministic input set,
+// zero network, ~2.0 MB of text (the APK stays far under the 50 MiB cap).
+// ═════════════════════════════════════════════════════════════════════════════
+def atlasTrees = ["ui/lib", "src", "AndroidManifest.xml"]
+def atlasOutDir = new File(project.layout.buildDirectory.get().asFile, "generated/sourceAtlas")
+def repoRootForAtlas = project.rootProject.projectDir.parentFile
+
+def buildSourceAtlas = tasks.register("buildSourceAtlas", Sync) {
+    description = "Copies the shipped sources into assets/src-atlas for the deep source-contract probes."
+    group = "build"
+    into atlasOutDir
+    atlasTrees.each { rel ->
+        def node = new File(repoRootForAtlas, rel)
+        // a FILE source keeps its own name; a DIRECTORY source keeps its tree
+        from(node) { into node.isDirectory() ? "src-atlas/" + rel : "src-atlas" }
+    }
+}
+
 android {
     namespace = "lk.techworld.anantplay.sicast"
     compileSdk = 36
@@ -47,8 +80,8 @@ android {
         applicationId = "lk.techworld.anantplay.sicast"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30410
-        versionName = "3.4.6.d"
+        versionCode = 30411
+        versionName = "3.4.6.e"
         multiDexEnabled = true
 
         // v3.4.6 — the CI contract is ONE arm64 artifact below 50 MiB. The Flutter
@@ -80,7 +113,9 @@ android {
             manifest.srcFile new File(repoRoot, "AndroidManifest.xml")
             java.srcDirs = [new File(repoRoot, "src")]
             res.srcDirs = [new File(repoRoot, "res")]
-            assets.srcDirs = [new File(repoRoot, "assets")]
+            // v3.4.6.e — the fonts PLUS the generated source atlas
+            // (assets/src-atlas/…, built by buildSourceAtlas above).
+            assets.srcDirs = [new File(repoRoot, "assets"), atlasOutDir]
         }
     }
 
@@ -241,3 +276,14 @@ flutter {
     source = new File(project.rootProject.projectDir.parentFile, "ui").absolutePath
     target = "lib/main.dart"
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v3.4.6.e — THE SOURCE ATLAS (the live-probe fix) is declared ABOVE, next to
+// the source sets it feeds — see `atlasOutDir` / the `buildSourceAtlas` task.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v3.4.6.e — the atlas must be on disk before ANY asset is merged/dexed. Set
+// here (outside the android {} block) so `preBuild` resolves as the task.
+// ═════════════════════════════════════════════════════════════════════════════
+preBuild.dependsOn(buildSourceAtlas)

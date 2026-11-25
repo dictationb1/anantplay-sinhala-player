@@ -50,7 +50,22 @@ INVOKE_RE = re.compile(
 
 # The Java-side dispatch surfaces: switch cases + .equals(...) string tests.
 CASE_RE = re.compile(r'case\s+"([^"]+)"\s*:')
-EQUALS_RE = re.compile(r'"([^"]+)"\s*\.equals\s*\(\s*(?:call\.method|m|call\.action)\s*\)')
+# v3.4.6.e — NAME COLLISIONS ACROSS CHANNELS: this auditor harvests every
+# `case "…"` label from BOTH Java files into ONE global set, so a channel that
+# reuses a name another channel already declares as a case label disappears
+# from the harvest and the live Dart->Java surface looks dead. Three real
+# channel methods are in exactly that position:
+#   · `restart`         — Dart restarts the RECEIVER (anantplay/cast); Java's
+#                         `case "restart"` is the WEBVIEW's hard reload;
+#   · `status`          — Dart reads the cast status (anantplay/cast); Java's
+#                         `case "status"` is the SUBTITLE pipeline's;
+#   · `copyToClipboard` — Dart copies the deep report (anantplay/cast); Java's
+#                         `case "copyToClipboard"` is on anantplay/settings.
+# All three ARE handled in Java — as an exact `"<name>".equals(m)` test — so a
+# literal-only suffix form is counted too. It stays EXACT (a quoted literal
+# compared against the call's own method name), not a fuzzy match.
+EQUALS_RE = re.compile(
+    r'"([^"]+)"\s*\.equals\s*\(\s*(?:call\.method|call\.action|m|method|action|name)\s*\)')
 
 
 def collect_dart_invocations() -> dict[str, list[str]]:

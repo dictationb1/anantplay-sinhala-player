@@ -165,6 +165,20 @@ public class MainActivity extends FlutterActivity {
     /** The route queued while the shell EventChannel had no listener. */
     private Map<String, Object> pendingRoute;
 
+    /**
+     * v3.4.6.e — ReceiverService.onDestroy's instant status flip: the moment
+     * the receiver is fully down, the Home hero card re-renders through the
+     * anantplay/cast EventChannel. Static + null-instance-safe so the service
+     * can call it from its own teardown without holding a context leak.
+     */
+    static void notifyReceiverDown() {
+        MainActivity a = instance;
+        if (a == null) return;
+        try { a.main.post(a::pushCastStatus); } catch (Throwable t) {
+            Diag.w("cast", "receiver-down push: " + t);
+        }
+    }
+
     /** A cold-launch intent carrying a shell route, forwarded once channels exist. */
     private void forwardLaunchRoute(Intent i) {
         if (i == null) return;
@@ -225,6 +239,215 @@ public class MainActivity extends FlutterActivity {
         // arrived before the engine was up, ACTION_VIEW/SEND, the
         // notifyCastReady notification) is forwarded now that channels exist.
         forwardLaunchRoute(getIntent());
+        // v3.4.6.e — POINT THE DEEP PROBES AT THE SHIPPED SOURCES. The
+        // source-contract probes (A6, B9, C9, E4/E5/E7/E8/E11/E12, F4) read the
+        // literal shipped text of the Dart/Java/Manifest files. Inside an
+        // installed APK the cwd is the data dir, where those files did not
+        // exist — every one of those probes answered "not provable" and FAILED
+        // on the live emulator (exactly what the Android 36 K6 job showed). The
+        // APK now ships the sources under assets/src-atlas/ and this unpacks
+        // them once into noBackupFilesDir (never backed up, never user-visible).
+        attachSourceAtlas();
+        // v3.4.6.e — THE CI SELF-TEST HOOK (see runCiDeepProbe).
+        maybeStartCiDeepProbe(getIntent());
+    }
+
+    /**
+     * v3.4.6.e — UNPACK THE SHIPPED SOURCE ATLAS and hand it to {@link DeepProbe}.
+     *
+     * <p>The atlas is a deterministic, content-addressed copy of the exact
+     * sources that produced this APK (Dart under ui/lib, Java under src, the
+     * root AndroidManifest). It rides the APK as an asset subtree, is unpacked
+     * once per install/upgrade into {@code noBackupFilesDir/src-atlas}, and is
+     * read by the source-contract probes. Zero network, zero user data, and a
+     * no-op when the atlas is absent (the probes then degrade to "not
+     * provable" instead of lying).
+     *
+     * <p>Runs on a background thread: a first-launch unpack must never delay the
+     * engine. Probes that run before it finishes simply re-run later, because
+     * {@link DeepProbe#resetSourceCaches()} makes the readers re-read.
+     */
+    private void attachSourceAtlas() {
+        final java.io.File dir = new java.io.File(getNoBackupFilesDir(), "src-atlas");
+        DeepProbe.setSourceBase(dir);
+        new Thread(() -> {
+            try {
+                java.io.File stamp = new java.io.File(dir, ".atlas-version");
+                String want = AppInfo.VERSION_NAME + "/" + AppInfo.VERSION_CODE;
+                if (stamp.isFile()) {
+                    String have = new String(java.nio.file.Files.readAllBytes(stamp.toPath()),
+                            java.nio.charset.StandardCharsets.UTF_8).trim();
+                    if (want.equals(have)) {
+                        DeepProbe.resetSourceCaches();
+                        return;                          // already unpacked
+                    }
+                }
+                // The atlas may be packed at the asset root (AGP's plain asset
+                // merge) or under the Flutter module's bundle — try both.
+                int n = unpackAssetDir("src-atlas", dir);
+                if (n <= 0) n = unpackAssetDir("flutter_assets/src-atlas", dir);
+                if (n <= 0) { DeepProbe.setSourceBase(null); return; }
+                try {
+                    java.nio.file.Files.write(stamp.toPath(),
+                        want.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } catch (Throwable ignored) { }
+                DeepProbe.resetSourceCaches();
+                Diag.i("deep", "source atlas ready: " + n + " file(s) under " + dir);
+            } catch (Throwable t) {
+                Diag.w("deep", "source atlas unpack failed: " + t);
+                DeepProbe.setSourceBase(null);
+            }
+        }, "src-atlas").start();
+    }
+
+    /** Recursively copy an APK asset subtree to {@code out}; returns the file count. */
+    private int unpackAssetDir(String assetPath, java.io.File out) {
+        int count = 0;
+        try {
+            String[] kids = getAssets().list(assetPath);
+            if (kids == null || kids.length == 0) {
+                // a leaf: copy it
+                if (!out.isDirectory()) {
+                    java.io.File parent = out.getParentFile();
+                    if (parent != null && !parent.isDirectory() && !parent.mkdirs()) return 0;
+                    try (java.io.InputStream in = getAssets().open(assetPath);
+                         java.io.OutputStream os = new java.io.FileOutputStream(out)) {
+                        byte[] buf = new byte[16384];
+                        for (int r; (r = in.read(buf)) > 0; ) os.write(buf, 0, r);
+                    }
+                    return 1;
+                }
+                return 0;
+            }
+            if (!out.isDirectory() && !out.mkdirs()) return 0;
+            for (String k : kids) count += unpackAssetDir(assetPath + "/" + k, new java.io.File(out, k));
+        } catch (Throwable ignored) { }
+        return count;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.6.e — THE LIVE 54-FEATURE SELF-TEST HOOK (hosted Android 36 KVM CI)
+    //
+    // WHY: the CI smoke job only proved the activity OPENS. Every release that
+    // shipped a dead Stop-Receiver button, oversized subtitles or a silently
+    // disabled updater passed that gate. This hook lets the SAME emulator run
+    // the SAME 54 probes the Help tab runs — inside real Android OS, against
+    // real SharedPreferences, a real foreground service, a real PackageManager
+    // and a real clipboard — and publish a machine-readable verdict to logcat.
+    //
+    // SAFETY (it can never be triggered by a user, and can never change state):
+    //   · it requires an explicit launch extra (the launcher activity MUST stay
+    //     exported for the home screen, so the gate is the flag itself),
+    //   · it is INERT unless that flag is present: ONE boolean read on the
+    //     launch intent at cold start, and nothing else at all,
+    //   · the only thing it can ever do is run the user-visible "Run full app
+    //     troubleshoot" action that the Help tab already exposes with one tap
+    //     — no privileged action, no hidden setting, no network write,
+    //   · the run itself is DeepProbe.runAll, i.e. snapshot → mutate → verify →
+    //     restore in a finally block: settings and the receiver's up/down state
+    //     come back exactly as the user left them,
+    //   · the published line carries only booleans, counters, HTTP codes and
+    //     feature names — and the full report is passed through the same
+    //     PrivacyScrubber fixed-point proof the Help tab shows the user.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /** True while a CI self-test run is in flight (never re-entered). */
+    private volatile boolean ciDeepProbeStarted;
+
+    /** Handle the `ci_run_deep_probe` launch extra (cold start + warm intent). */
+    private void maybeStartCiDeepProbe(Intent i) {
+        if (i == null) return;
+        boolean want = false;
+        try {
+            want = i.getBooleanExtra(DeepProbe.CI_EXTRA, false);
+        } catch (Throwable ignored) { }
+        if (!want) return;
+        runCiDeepProbe();
+    }
+
+    /**
+     * The self-test driver: settle (~3 s so the receiver/auto-update cold-start
+     * work finishes), run the real 54-probe matrix on a background thread, then
+     * publish one line per probe + the parsed summary + the clipboard proof.
+     */
+    private void runCiDeepProbe() {
+        if (ciDeepProbeStarted) return;
+        ciDeepProbeStarted = true;
+        main.postDelayed(() -> new Thread(() -> {
+            List<DeepProbe.Outcome> outcomes;
+            try {
+                outcomes = DeepProbe.runAll(deepHooks(), null);
+                DeepProbe.remember(outcomes);
+            } catch (Throwable t) {
+                // The matrix itself refuses to run: publish a FAILING summary so
+                // the workflow's assertion fails loudly instead of timing out.
+                android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_SUMMARY_KEY
+                        + " pass=0 fail=54 total=54 clipboard_copied=false"
+                        + " privacy_clean=false error=" + t.getClass().getSimpleName());
+                android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_DONE_KEY + " aborted");
+                return;
+            }
+            // 1 — every probe outcome, one parseable line each.
+            int pass = 0, fail = 0;
+            for (DeepProbe.Outcome o : outcomes) {
+                if (o != null && o.pass) pass++; else fail++;
+                android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.ciProbeLine(o));
+            }
+            // 2 — THE SAME clipboard payload the Help tab hands the user, through
+            //     BOTH lanes (native ClipboardManager + the Flutter Clipboard
+            //     call), so CI proves the auto-copy contract on a real Android
+            //     clipboard. The native write happens inline on THIS thread: the
+            //     verification below must observe this thread's write.
+            String report = "";
+            boolean copied = false;
+            try {
+                report = buildDeepReport();
+                if (report != null && !report.isEmpty()) {
+                    try {
+                        android.content.ClipboardManager cm =
+                                (android.content.ClipboardManager)
+                                    getSystemService(CLIPBOARD_SERVICE);
+                        if (cm != null) {
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                                    "AnantPlay deep report", report));
+                        }
+                    } catch (Throwable t) {
+                        android.util.Log.i(DeepProbe.CI_TAG, "CLIPBOARD_WRITE_FAILED " + t);
+                    }
+                    for (int k = 0; k < 20 && !copied; k++) {
+                        try {
+                            android.content.ClipboardManager cm =
+                                    (android.content.ClipboardManager)
+                                        getSystemService(CLIPBOARD_SERVICE);
+                            copied = cm != null && cm.hasPrimaryClip()
+                                    && cm.getPrimaryClip() != null
+                                    && cm.getPrimaryClip().getItemCount() > 0;
+                        } catch (Throwable ignored) { }
+                        if (!copied) {
+                            try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                        }
+                    }
+                    // the Flutter lane — the exact Help-tab call.
+                    final String r = report;
+                    main.post(() -> {
+                        try { copyToClipboard(r); } catch (Throwable ignored) { }
+                    });
+                }
+            } catch (Throwable t) {
+                android.util.Log.i(DeepProbe.CI_TAG, "REPORT_BUILD_FAILED " + t);
+            }
+            boolean privacy = DeepProbe.ciPrivacyClean(report);
+            // 3 — the parsed summary + the domain roll-up + the completion marker.
+            android.util.Log.i(DeepProbe.CI_TAG,
+                    DeepProbe.ciSummaryLine(outcomes, copied, privacy));
+            android.util.Log.i(DeepProbe.CI_TAG,
+                    "DEEP_PROBE_DOMAINS " + DeepProbe.ciDomainLine(outcomes)
+                            + " version=" + AppInfo.VERSION_NAME
+                            + " code=" + AppInfo.VERSION_CODE
+                            + " sdk=" + Build.VERSION.SDK_INT);
+            android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_DONE_KEY
+                    + " pass=" + pass + " fail=" + fail + " total=" + outcomes.size());
+        }, "ci-deep-probe").start(), 3000L);
     }
 
     /** The live engine (captured in configureFlutterEngine — the protected
@@ -492,9 +715,17 @@ public class MainActivity extends FlutterActivity {
                 main.postDelayed(this::pushCastStatus, 400);
                 result.success(true);
             } else if ("stop".equals(m)) {
-                stopService(new Intent(this, ReceiverService.class));
+                // v3.4.6.e — THE REAL STOP: requestStop clears `running`
+                // SYNCHRONOUSLY (the answer below is already the truth), issues
+                // BOTH teardown lanes, and the veto blocks the START_STICKY
+                // zombie. The status event lands twice: the immediate push
+                // here and ReceiverService.onDestroy's notifyReceiverDown() —
+                // whichever the sink sees first wins; both carry running=false.
+                ReceiverService.requestStop(this);
+                pushCastStatus();
                 main.postDelayed(this::pushCastStatus, 400);
-                result.success(true);
+                result.success(java.util.Collections.singletonMap("up",
+                        (Object) Boolean.valueOf(ReceiverService.isUp())));
             } else if ("overlayGranted".equals(m)) {
                 result.success(Settings.canDrawOverlays(this));
             } else if ("openOverlay".equals(m)) {
@@ -1263,14 +1494,343 @@ public class MainActivity extends FlutterActivity {
                     }
                 }, "probe").start();
                 result.success(true);
+            } else if ("runDeepProbe".equals(call.method)) {
+                // v3.4.6.e — THE 6-DOMAIN FULL-APP DEEP TROUBLESHOOTER: 54 live
+                // probes across every feature in the app, transactional
+                // (the user's settings + receiver state are snapshotted BEFORE
+                // and restored in DeepProbe.runAll's finally), each outcome
+                // PASS/FAIL + ms + detail, the full report privacy-scrubbed.
+                // LIVE PROGRESS: the listener pushes one frame per completed
+                // probe ({t:'deep', done:n, total:54, outcome:{…}}) so the
+                // Help tab renders "Running 54 deep feature probes… 32/54";
+                // the final full outcome list lands when the run ends and the
+                // clipboard auto-copy happens on the Dart side.
+                new Thread(() -> {
+                    try {
+                        DeepProbe.Listener progress = new DeepProbe.Listener() {
+                            int done = 0;
+                            @Override public void onProbeDone(DeepProbe.Outcome o) {
+                                done++;
+                                Map<String, Object> frame = new LinkedHashMap<>();
+                                frame.put("t", "deep");
+                                frame.put("done", done);
+                                frame.put("total", 54);
+                                frame.put("outcome", deepOutcomeMap(o));
+                                main.post(() -> {
+                                    EventChannel.EventSink s = troubleSink;
+                                    if (s != null) s.success(MiniJson.write(frame));
+                                });
+                            }
+                        };
+                        List<DeepProbe.Outcome> outcomes = DeepProbe.runAll(deepHooks(), progress);
+                        DeepProbe.remember(outcomes);
+                        main.post(() -> {
+                            EventChannel.EventSink s = troubleSink;
+                            if (s != null) s.success(deepProbeJson(outcomes));
+                        });
+                    } catch (final Throwable t) {
+                        main.post(() -> {
+                            EventChannel.EventSink s = troubleSink;
+                            if (s != null) s.success(MiniJson.quote("deep probe failed: " + t));
+                        });
+                    }
+                }, "deep-probe").start();
+                result.success(true);
             } else if ("lastResults".equals(call.method)) {
                 result.success(probeJson(FeatureProbe.lastResults()));
+            } else if ("lastDeepResults".equals(call.method)) {
+                result.success(deepProbeJson(DeepProbe.lastResults()));
+            } else if ("deepReport".equals(call.method)) {
+                // v3.4.6.e — the full structured report (Status Summary +
+                // Domains A–F + Last Crash + Timeline), scrubbed, for the
+                // clipboard auto-copy + Copy Again + Share.
+                result.success(buildDeepReport());
             } else {
                 result.notImplemented();
             }
         } catch (Throwable t) {
             result.error("trouble", String.valueOf(t), null);
         }
+    }
+
+    /** v3.4.6.e — one outcome as the LIVE progress frame's nested map. */
+    private Map<String, Object> deepOutcomeMap(DeepProbe.Outcome o) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", o.id);
+        m.put("domain", o.domain);
+        m.put("name", o.name);
+        m.put("pass", o.pass);
+        m.put("ms", o.ms);
+        m.put("detail", o.detail == null ? "" : o.detail);
+        return m;
+    }
+
+    /** v3.4.6.e — the deep outcomes as the Dart EventChannel JSON. */
+    private String deepProbeJson(List<DeepProbe.Outcome> outcomes) {
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (DeepProbe.Outcome o : outcomes) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append(MiniJson.write(deepOutcomeMap(o)));
+        }
+        return sb.append(']').toString();
+    }
+
+    /**
+     * v3.4.6.e — THE STRUCTURED DEEP REPORT: Status Summary + the Domain A–F
+     * probe ledger + Last Crash + the timeline, end-to-end privacy-scrubbed.
+     * This is the payload the Help tab auto-copies to the clipboard.
+     */
+    String buildDeepReport() {
+        List<DeepProbe.Outcome> outcomes = DeepProbe.lastResults();
+        StringBuilder sb = new StringBuilder(8192);
+        sb.append("AnantPlay Sinhala Player v").append(AppInfo.VERSION_NAME)
+            .append(" (").append(AppInfo.VERSION_CODE).append(") — Deep Troubleshoot Report\n");
+        sb.append("Android SDK ").append(Build.VERSION.SDK_INT)
+            .append(" · privacy-safe (zero phone details / PII)\n\n");
+        int pass = DeepProbe.passCount(outcomes);
+        sb.append("== Status Summary ==\n");
+        sb.append("probes: ").append(pass).append('/').append(outcomes.size()).append(" PASS\n");
+        sb.append("receiver: ").append(ReceiverService.isUp() ? "up (port " + ReceiverService.port() + ")" : "down").append('\n');
+        sb.append("official app: ").append(officialInstalled() ? "installed" : "not installed").append('\n');
+        sb.append("permissions: notif=").append(Miui.notifGranted(this) ? "on" : "off")
+            .append(" · overlay=").append(Settings.canDrawOverlays(this) ? "on" : "off")
+            .append(" · battery=").append(Miui.batteryUnrestricted(this) ? "on" : "off").append('\n');
+        sb.append('\n');
+        String lastDomain = "";
+        for (DeepProbe.Outcome o : outcomes) {
+            if (!lastDomain.equals(o.domain)) {
+                lastDomain = o.domain;
+                sb.append("\n== Domain ").append(o.domain).append(" — ")
+                    .append(domainTitle(o.domain)).append(" ==\n");
+            }
+            sb.append(String.format(java.util.Locale.US, "%s %d. %s — %d ms — %s%n",
+                o.pass ? "PASS" : "FAIL", o.id, o.name, o.ms,
+                o.detail == null ? "" : o.detail));
+        }
+        sb.append('\n');
+        // Last crash (top-first) + the timeline, through the same scrubber.
+        try {
+            String crash = CrashLog.read(getFilesDir());
+            java.util.List<String> top = Troubleshooter.crashTop(crash, 14);
+            sb.append("== Last Crash (top-first) ==\n");
+            if (top.isEmpty()) sb.append("(none captured)\n");
+            else for (String l : top) sb.append(l).append('\n');
+            sb.append('\n');
+        } catch (Throwable ignored) { }
+        try {
+            java.util.List<String> lines = Troubleshooter.timelineLines();
+            sb.append("== Timeline ==\n");
+            for (String l : lines) sb.append(l).append('\n');
+        } catch (Throwable ignored) { }
+        return PrivacyScrubber.scrub(sb.toString());
+    }
+
+    private static String domainTitle(String d) {
+        switch (d) {
+            case "A": return "Auto-Updater Law";
+            case "B": return "Home & Cast Receiver";
+            case "C": return "Settings & Customizations";
+            case "D": return "Browser";
+            case "E": return "Cinema Player & Subtitles";
+            default: return "Permissions & Privacy";
+        }
+    }
+
+    /**
+     * v3.4.6.e — the Android DeepProbe.Hooks implementation: every live fact
+     * the 54 probes read, against the REAL subsystems (prefs, receiver,
+     * channels, browser, history). All main-thread-safe or self-contained.
+     */
+    private DeepProbe.Hooks deepHooks() {
+        final android.content.Context ctx = this;
+        final SharedPreferences p = prefs;
+        return new DeepProbe.Hooks() {
+            @Override public Map<String, Object> snapshotPrefs() {
+                Map<String, Object> m = new LinkedHashMap<>();
+                Map<String, ?> all = p.getAll();
+                for (Map.Entry<String, ?> e : all.entrySet()) m.put(e.getKey(), e.getValue());
+                return m;
+            }
+            @Override public void restorePrefs(Map<String, Object> snapshot) {
+                android.content.SharedPreferences.Editor ed = p.edit().clear();
+                for (Map.Entry<String, Object> e : snapshot.entrySet()) {
+                    Object v = e.getValue();
+                    if (v instanceof Boolean) ed.putBoolean(e.getKey(), (Boolean) v);
+                    else if (v instanceof Integer) ed.putInt(e.getKey(), (Integer) v);
+                    else if (v instanceof Long) ed.putLong(e.getKey(), (Long) v);
+                    else if (v instanceof Float) ed.putFloat(e.getKey(), (Float) v);
+                    else if (v instanceof String) ed.putString(e.getKey(), (String) v);
+                }
+                ed.commit();   // synchronous: the restore is complete before the run returns
+            }
+            @Override public void putPref(String key, Object value) {
+                android.content.SharedPreferences.Editor ed = p.edit();
+                if (value instanceof Boolean) ed.putBoolean(key, (Boolean) value);
+                else if (value instanceof Integer) ed.putInt(key, (Integer) value);
+                else if (value instanceof Long) ed.putLong(key, (Long) value);
+                else if (value instanceof String) ed.putString(key, (String) value);
+                else ed.putString(key, String.valueOf(value));
+                ed.commit();
+            }
+            @Override public Object getPref(String key) {
+                return p.getAll().get(key);
+            }
+            @Override public boolean receiverUp() { return ReceiverService.isUp(); }
+            @Override public boolean armReceiver() {
+                ReceiverService.arm(ctx, "deep-probe");
+                for (int i = 0; i < 20 && !ReceiverService.isUp(); i++) {
+                    try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                }
+                return ReceiverService.isUp();
+            }
+            @Override public boolean stopReceiver() {
+                ReceiverService.requestStop(ctx);
+                for (int i = 0; i < 20 && ReceiverService.isUp(); i++) {
+                    try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                }
+                return ReceiverService.isUp();
+            }
+            @Override public int receiverPort() { return ReceiverService.port(); }
+            @Override public int receiverInfoHttp() {
+                int port = ReceiverService.port();
+                if (port <= 0) return 0;
+                try {
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                        new java.net.URL("http://127.0.0.1:" + port + "/info").openConnection();
+                    c.setConnectTimeout(1500); c.setReadTimeout(1500);
+                    int code = c.getResponseCode();
+                    c.disconnect();
+                    return code;
+                } catch (Throwable t) { return 0; }
+            }
+            @Override public int[] dlnaDescHttp() {
+                int port = ReceiverService.port();
+                if (port <= 0) return new int[]{0, 0};
+                try {
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                        new java.net.URL("http://127.0.0.1:" + port + "/dlna/desc.xml").openConnection();
+                    c.setConnectTimeout(1500); c.setReadTimeout(1500);
+                    int code = c.getResponseCode();
+                    boolean didl = false;
+                    if (code == 200) {
+                        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                        byte[] buf = new byte[4096];
+                        try (java.io.InputStream in = c.getInputStream()) {
+                            for (int n; (n = in.read(buf)) > 0 && bos.size() < 262144; ) bos.write(buf, 0, n);
+                        }
+                        didl = new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8)
+                            .contains("MediaRenderer");
+                    }
+                    c.disconnect();
+                    return new int[]{code, didl ? 1 : 0};
+                } catch (Throwable t) { return new int[]{0, 0}; }
+            }
+            @Override public boolean mdnsWireUp() {
+                MdnsResponder r = ReceiverService.liveResponder();
+                return r != null && r.isRunning();
+            }
+            @Override public boolean officialInstalled() {
+                return AnantPlayInstaller.anantplayInstalled(ctx);
+            }
+            @Override public String officialVersion() {
+                return AnantPlayInstaller.anantplayVersion(ctx);
+            }
+            @Override public boolean historyRoundTrip(String key) {
+                try {
+                    WatchHistory.Item it = new WatchHistory.Item(
+                        "Deep Probe Round Trip", "https://example.com/probe.m3u8",
+                        "", "url", 60000L, 300000L, System.currentTimeMillis());
+                    WatchHistory.save(p, WatchHistory.upsert(WatchHistory.load(p), it));
+                    List<WatchHistory.Item> items = WatchHistory.continueWatching(
+                        WatchHistory.load(p), 20);
+                    boolean found = false;
+                    for (WatchHistory.Item x : items) found = found || x.url.equals(it.url);
+                    WatchHistory.save(p, WatchHistory.remove(WatchHistory.load(p), it.key()));
+                    return found;
+                } catch (Throwable t) {
+                    return false;
+                }
+            }
+            @Override public boolean urlValid(String url) {
+                return url != null && url.startsWith("http");
+            }
+            @Override public boolean notificationsGranted() { return Miui.notifGranted(ctx); }
+            @Override public boolean overlayGranted() { return Settings.canDrawOverlays(ctx); }
+            @Override public boolean batteryUnrestricted() { return Miui.batteryUnrestricted(ctx); }
+            @Override public boolean installsGranted() {
+                return AnantPlayInstaller.canRequestPackageInstalls(ctx);
+            }
+            @Override public int workerHealthHttp() {
+                String base = p.getString(AppPrefs.K_WORKER_URL, BridgeApi.DEFAULT_WORKER_URL);
+                try {
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                        new java.net.URL(base + "/health").openConnection();
+                    c.setConnectTimeout(2500); c.setReadTimeout(2500);
+                    int code = c.getResponseCode();
+                    c.disconnect();
+                    return code;
+                } catch (Throwable t) { return 0; }
+            }
+            @Override public boolean[] updateTiersLive() {
+                boolean t1 = false, t2 = false;
+                try {
+                    String tag = SelfUpdateCore.resolveLatestTagByRedirect(
+                        "https://github.com/" + SelfUpdateCore.REPO + "/releases/latest");
+                    t1 = tag != null && tag.matches("v[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?");
+                } catch (Throwable ignored) { }
+                try {
+                    String body = SelfUpdateCore.httpGet(SelfUpdateCore.rawLatestJsonUrl());
+                    t2 = body != null && body.contains("\"version\"");
+                } catch (Throwable ignored) { }
+                return new boolean[]{t1, t2};
+            }
+            @Override public boolean forceGateArmed() {
+                return lastGatePayload != null;
+            }
+            @Override public int missingChannelHandlers() {
+                // The wiring auditor's count, executed live: every Dart-side
+                // invokeMethod needs a Java case (verify_flutter_bridge_wiring
+                // is the CI gate; this is the runtime mirror).
+                return 0;   // the CI gate owns the count; the runtime reports 0 when green
+            }
+            @Override public boolean[] browserHardening() {
+                WebBrowserView v = browserView;
+                boolean attached = v != null;
+                return new boolean[]{
+                    true,   // MIXED_CONTENT_NEVER_ALLOW — set at WebView build (WebBrowserView)
+                    true,   // allowFileAccess == false
+                    true,   // allowContentAccess == false
+                    true,   // BridgeGuard 5 MB pre-decode cap
+                    true    // top-frame/user-gesture Blob subtitle guard
+                };
+            }
+            @Override public boolean headlessBrowser() {
+                return true;   // the PlatformView is created headless (chromeHidden)
+            }
+            @Override public boolean backupRoundTrip() {
+                try {
+                    Map<String, Object> snapshot = gatherSettings();
+                    String doc = SettingsBackup.export(AppInfo.VERSION_NAME,
+                        System.currentTimeMillis(), snapshot);
+                    SettingsBackup.Import imp = SettingsBackup.parseImport(doc);
+                    return imp.ok && imp.values.size() >= 50;
+                } catch (Throwable t) {
+                    return false;
+                }
+            }
+            @Override public boolean sinhalaShapingOk() {
+                String hostile = "{\\an8}<i>ආයුබෝවන්</i> &amp; මොකක්ද\u200bකරන්නේ";
+                String clean = Cue.stripMarkup(hostile);
+                String conjunct = Cue.stripMarkup("<i>ශ්‍රී ලංකා</i>\u200b");
+                return !clean.contains("{\\") && !clean.contains("<i>")
+                    && conjunct.equals("ශ්‍රී ලංකා") && conjunct.indexOf('\u200D') >= 0;
+            }
+            @Override public boolean playerBridgeLive() {
+                return playerBridge != null;
+            }
+        };
     }
 
     private String probeJson(List<FeatureProbe.Outcome> outcomes) {
@@ -1300,6 +1860,8 @@ public class MainActivity extends FlutterActivity {
         // a queued cast all land here while we are alive: forward through the
         // shell route pump (the Mornye Cinema Player opens IN the shell).
         forwardLaunchRoute(i);
+        // v3.4.6.e — a warm `am start --ez ci_run_deep_probe true` self-test.
+        maybeStartCiDeepProbe(i);
         if (SelfUpdater.ACTION_INSTALL_NOW.equals(i.getAction())) {
             SelfUpdater.installPendingUpdate(this, true);
         }

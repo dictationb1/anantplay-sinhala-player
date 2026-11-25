@@ -1,10 +1,16 @@
-// AnantPlay Sinhala Player v3.4.6.c — the Help & Troubleshoot hub: 1-tap full
-// 10-probe run with LIVE results, 1-tap Copy privacy-safe report, 1-tap Share
-// report, 1-tap Check for update, and Re-run Setup Wizard.
-// v3.4.6.b — FULL MORNYE PARITY: the action cards reveal on the upstream
-// StaggeredListItem ladder (the exact upstream list-entry effect).
-// v3.4.6.c — reachable from the ALWAYS-VISIBLE bottom Help tab (was an
-// orphaned widget nothing rendered — real-phone complaint #1/#2).
+// AnantPlay Sinhala Player v3.4.6.e — the Help & Troubleshoot hub.
+//
+// THE 54-PROBE FULL-APP DEEP TROUBLESHOOTER: one tap runs the 6-domain
+// live audit (A Auto-Updater Law · B Home & Cast · C Settings &
+// Customizations · D Browser · E Cinema Player & Subtitles · F Permissions
+// & Privacy) with live progress ("Running 54 deep feature probes… 32/54"),
+// grouped collapsible PASS/FAIL cards per domain, and — the INSTANT the
+// final probe completes — the full privacy-safe report is copied to the
+// clipboard AUTOMATICALLY (native ClipboardManager + Flutter Clipboard)
+// with the green confirmation banner, plus Copy Again + Share buttons.
+//
+// The run is NON-DESTRUCTIVE: the native engine snapshots the user's
+// settings + receiver state first and restores them in a finally block.
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
@@ -14,6 +20,7 @@ import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
 
 import 'app_state.dart';
 import 'bridge.dart';
+import 'deep_troubleshooter.dart';
 
 class HelpScreen extends StatefulWidget {
   const HelpScreen({super.key});
@@ -23,52 +30,82 @@ class HelpScreen extends StatefulWidget {
 }
 
 class _HelpScreenState extends State<HelpScreen> {
-  List<ProbeOutcome> _results = const [];
+  List<DeepOutcome> _results = const [];
   bool _running = false;
   bool _ranOnce = false;
-  StreamSubscription<List<ProbeOutcome>>? _probeSub;
-  /// v3.4.6.d — the 20 s watchdog Timer, owned so dispose can cancel it (a
-  /// pending timer at teardown fails the widget-test invariants).
+  bool _copied = false;
+  String _report = '';
+  StreamSubscription<dynamic>? _probeSub;
+  StreamSubscription<Map<dynamic, dynamic>>? _progressSub;
+  /// v3.4.6.e — the LIVE progress counter (n of 54, while a run is in flight).
+  int _done = 0;
+  final Map<String, bool> _expanded = {};
+  /// v3.4.6.e — the watchdog Timer (owned; cancelled in dispose).
   Timer? _watchdog;
 
   @override
   void initState() {
     super.initState();
     _loadLast();
-    // v3.4.6.c — LIVE results: the probe stream pushes the 10 outcomes the
-    // moment the run ends (was: a blind "running…" label with no feedback).
-    _probeSub = AnantPlay.instance.probeResults().listen((outcomes) {
-      if (mounted && outcomes.isNotEmpty) {
-        setState(() {
-          _results = outcomes;
-          _running = false;
-          _ranOnce = true;
-        });
-        // v3.4.6.d — THE 1-TAP AUTO-COPY CONTRACT: the moment Probe 10
-        // finishes, the complete privacy-safe report is copied to the
-        // Android clipboard AUTOMATICALLY (zero extra tap) and the green
-        // confirmation pill shows. Copy Again + Share stay right below.
-        _autoCopyReport(outcomes);
-      }
+    // v3.4.6.e — THE DEEP EVENTS, RAW: the anantplay/troubleshoot channel
+    // carries the final full 54-outcome payload (a JSON string) AND the
+    // per-probe live progress frames. The typed probeResults() stream
+    // pre-decodes into the 10-point shape, so the deep payloads must be
+    // routed from HERE.
+    _probeSub = AnantPlay.instance.rawTroubleEvents().listen((event) {
+      if (event is! String) return;   // progress frames are Maps (below)
+      final outcomes = decodeDeepOutcomes(event);
+      if (!mounted || outcomes.isEmpty) return;
+      setState(() {
+        _results = outcomes;
+        _running = false;
+        _ranOnce = true;
+      });
+      _autoCopyReport(outcomes);
+    });
+    // v3.4.6.e — the LIVE COUNTER: "Running 54 deep feature probes… 32/54".
+    _progressSub = AnantPlay.instance.deepProgressEvents().listen((frame) {
+      if (!mounted || _running != true) return;
+      final done = (frame['done'] as num?)?.toInt() ?? 0;
+      if (done > 0) setState(() => _done = done);
     });
   }
 
-  /// v3.4.6.d — the automatic clipboard copy the moment all 10 probes land.
-  Future<void> _autoCopyReport(List<ProbeOutcome> outcomes) async {
+  /// v3.4.6.e — the AUTOMATIC clipboard copy the moment the final probe
+  /// lands: the full structured report (built on the Java side, scrubbed)
+  /// goes to the phone's clipboard through BOTH the native ClipboardManager
+  /// (anantplay/cast.copyToClipboard) AND Flutter's Clipboard.setData, then
+  /// the green confirmation banner shows.
+  Future<void> _autoCopyReport(List<DeepOutcome> outcomes) async {
+    // v3.4.6.e — a channel hiccup must never strand the run: if the report
+    // cannot be fetched the completion still lands (cards + counter reset),
+    // and the Copy Again row re-reads it on demand.
+    String report = '';
+    try {
+      report = await AnantPlay.instance.deepReport();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _report = report;
+      _copied = report.isNotEmpty;
+    });
+    if (report.isEmpty) return;
+    // 1 — Flutter's clipboard.
+    try {
+      await Clipboard.setData(ClipboardData(text: report));
+    } catch (_) {}
+    // 2 — the native ClipboardManager (the same lane Slide 6's Copy uses).
+    try {
+      await AnantPlay.instance.copyToClipboard(report);
+    } catch (_) {}
     final passed = outcomes.where((o) => o.pass).length;
-    final lines = outcomes
-        .map((o) =>
-            '${o.pass ? "PASS" : "FAIL"} #${o.id} ${o.name} (${o.ms.toInt()}ms)')
-        .join('\n');
-    final report =
-        'AnantPlay Sinhala Player v3.4.6.d (30410) — $passed/${outcomes.length} PASS\n$lines';
-    await Clipboard.setData(ClipboardData(text: report));
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
-            '$passed/${outcomes.length} Troubleshoot complete — Privacy-safe report auto-copied to clipboard ✓'),
+            '$passed/${outcomes.length} Deep Troubleshoot complete — 100% '
+            'Privacy-Safe report auto-copied to clipboard ✓'),
         backgroundColor: const Color(0xFF1E4634),
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 5),
       ));
     }
   }
@@ -76,23 +113,37 @@ class _HelpScreenState extends State<HelpScreen> {
   @override
   void dispose() {
     _probeSub?.cancel();
+    _progressSub?.cancel();
     _watchdog?.cancel();
     super.dispose();
   }
 
   Future<void> _loadLast() async {
-    final last = await AnantPlay.instance.lastProbeResults();
-    if (mounted && last.isNotEmpty) setState(() => _results = last);
+    try {
+      final last = await AnantPlay.instance.lastDeepResults();
+      if (mounted && last.isNotEmpty) {
+        setState(() => _results = last);
+      }
+    } catch (_) {}
   }
 
   Future<void> _run() async {
-    setState(() => _running = true);
-    await AnantPlay.instance.runProbe();
-    // The stream listener flips _running off; a 20 s watchdog covers a
-    // channel hiccup so the button can never stay stuck. The Timer is
-    // owned + cancelled in dispose (v3.4.6.d), never leaked at teardown.
+    setState(() {
+      _running = true;
+      _done = 0;   // the live counter restarts with the run
+    });
+    try {
+      await AnantPlay.instance.runDeepProbe();
+    } catch (_) {
+      // v3.4.6.e — the launch itself failed (host not ready / channel error):
+      // surface it immediately instead of spinning for the 90 s watchdog.
+      if (mounted) setState(() => _running = false);
+      return;
+    }
+    // The stream listener flips _running off; the watchdog covers a channel
+    // hiccup so the button can never stay stuck (owned + cancelled).
     _watchdog?.cancel();
-    _watchdog = Timer(const Duration(seconds: 20), () async {
+    _watchdog = Timer(const Duration(seconds: 90), () async {
       if (mounted && _running) {
         await _loadLast();
         setState(() => _running = false);
@@ -100,20 +151,17 @@ class _HelpScreenState extends State<HelpScreen> {
     });
   }
 
-  String get _report {
-    if (_results.isEmpty) {
-      return 'AnantPlay Sinhala Player v3.4.6.d (30410) — no probe run yet.';
-    }
-    final passed = _results.where((o) => o.pass).length;
-    final lines = _results
-        .map((o) =>
-            '${o.pass ? "PASS" : "FAIL"} #${o.id} ${o.name} (${o.ms.toInt()}ms)')
-        .join('\n');
-    return 'AnantPlay Sinhala Player v3.4.6.d (30410) — $passed/${_results.length} PASS\n$lines';
-  }
-
   Future<void> _copy() async {
-    await Clipboard.setData(ClipboardData(text: _report));
+    String report = _report;
+    if (report.isEmpty) {
+      try {
+        report = await AnantPlay.instance.deepReport();
+      } catch (_) {}
+    }
+    await Clipboard.setData(ClipboardData(text: report));
+    try {
+      await AnantPlay.instance.copyToClipboard(report);
+    } catch (_) {}
     if (mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Report copied')));
@@ -121,8 +169,14 @@ class _HelpScreenState extends State<HelpScreen> {
   }
 
   Future<void> _share() async {
-    // v3.4.6.c — 1-tap share through the system sheet (ACTION_SEND).
-    await AnantPlay.instance.shareText(_report);
+    String report = _report;
+    if (report.isEmpty) {
+      try {
+        report = await AnantPlay.instance.deepReport();
+      } catch (_) {}
+    }
+    if (report.isEmpty) return;
+    await AnantPlay.instance.shareText(report);
     if (mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Sharing the report…')));
@@ -144,40 +198,76 @@ class _HelpScreenState extends State<HelpScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
+          // v3.4.6.e — the AUTO-COPIED confirmation banner.
+          if (_copied && !_running && total > 0)
+            StaggeredListItem(
+              index: 0,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E4634).withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                        color: const Color(0xFF63D668).withValues(alpha: 0.6)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle_rounded,
+                          color: Color(0xFF63D668), size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '$passed/$total Deep Troubleshoot complete — 100% '
+                          'Privacy-Safe report auto-copied to clipboard ✓',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           StaggeredListItem(
-            index: 0,
+            index: _copied && !_running && total > 0 ? 1 : 0,
             child: _ActionCard(
               icon: Icons.health_and_safety_rounded,
               title: _running
-                  ? 'Running the 10-point probe…'
+                  ? 'Running 54 deep feature probes… $_done/54'
                   : _ranOnce || total > 0
                       ? 'Run full app troubleshoot again'
                       : 'Run full app troubleshoot',
-              subtitle:
-                  'Receiver · cast · subtitles · updater — all 10 probes, live results.',
+              subtitle: _running
+                  ? 'Live audit of every feature — settings are restored after.'
+                  : 'Every feature in the app · 54 probes · 6 domains · live results.',
               onTap: _running ? null : _run,
-            ),
-          ),
-          StaggeredListItem(
-            index: 1,
-            child: _ActionCard(
-              icon: Icons.copy_rounded,
-              title: 'Copy Again',
-              subtitle: 'Zero personal data — IMDb IDs and milliseconds only.',
-              onTap: () => _copy(),
             ),
           ),
           StaggeredListItem(
             index: 2,
             child: _ActionCard(
-              icon: Icons.ios_share_rounded,
-              title: 'Share report',
-              subtitle: 'Open the system share sheet with the full report.',
-              onTap: () => _share(),
+              icon: Icons.copy_rounded,
+              title: 'Copy Again',
+              subtitle: 'Zero personal data — IMDb IDs and milliseconds only.',
+              onTap: _copy,
             ),
           ),
           StaggeredListItem(
             index: 3,
+            child: _ActionCard(
+              icon: Icons.ios_share_rounded,
+              title: 'Share report',
+              subtitle: 'Open the system share sheet with the full report.',
+              onTap: _share,
+            ),
+          ),
+          StaggeredListItem(
+            index: 4,
             child: _ActionCard(
               icon: Icons.update_rounded,
               title: 'Check for update',
@@ -186,13 +276,11 @@ class _HelpScreenState extends State<HelpScreen> {
             ),
           ),
           StaggeredListItem(
-            index: 4,
+            index: 5,
             child: _ActionCard(
               icon: Icons.restart_alt_rounded,
               title: 'Run setup wizard',
               subtitle: 'Replay the 6-slide first-launch guide.',
-              // v3.4.6.c — the version-stamped re-arm (was: a raw putBool the
-              // upgraded shell's gate ignored — the wizard never reopened).
               onTap: () => AppState.of(context).scope.rerunOnboarding(),
             ),
           ),
@@ -209,8 +297,17 @@ class _HelpScreenState extends State<HelpScreen> {
                   fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
-            for (final o in _results)
-              _ProbeRow(outcome: o),
+            // v3.4.6.e — the grouped collapsible domain cards.
+            for (final d in DeepDomain.all)
+              if (_results.any((o) => o.domain == d.code))
+                _DomainCard(
+                  domain: d,
+                  outcomes:
+                      _results.where((o) => o.domain == d.code).toList(),
+                  expanded: _expanded[d.code] ?? true,
+                  onToggle: () => setState(() =>
+                      _expanded[d.code] = !(_expanded[d.code] ?? true)),
+                ),
           ],
         ],
       ),
@@ -289,39 +386,124 @@ class _ActionCard extends StatelessWidget {
   }
 }
 
-class _ProbeRow extends StatelessWidget {
-  const _ProbeRow({required this.outcome});
+/// One domain's collapsible card: header (code · title · n/n PASS) + the
+/// probe rows (PASS ✓ / FAIL ✗ + ms + the detail line).
+class _DomainCard extends StatelessWidget {
+  const _DomainCard({
+    required this.domain,
+    required this.outcomes,
+    required this.expanded,
+    required this.onToggle,
+  });
 
-  final ProbeOutcome outcome;
+  final DeepDomain domain;
+  final List<DeepOutcome> outcomes;
+  final bool expanded;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final passed = outcomes.where((o) => o.pass).length;
+    final allPass = passed == outcomes.length;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        children: [
-          Icon(
-            outcome.pass
-                ? Icons.check_circle_rounded
-                : Icons.cancel_rounded,
-            color: outcome.pass
-                ? const Color(0xFF63D668)
-                : scheme.error,
-            size: 17,
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: scheme.surfaceContainerHigh.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onToggle,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                  color: allPass
+                      ? const Color(0xFF63D668).withValues(alpha: 0.4)
+                      : scheme.outlineVariant.withValues(alpha: 0.4)),
+            ),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(domain.code,
+                        style: TextStyle(
+                            color: scheme.primary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(domain.title,
+                          style: TextStyle(
+                              color: scheme.onSurface,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                    Text('$passed/${outcomes.length}',
+                        style: TextStyle(
+                            color: allPass
+                                ? const Color(0xFF63D668)
+                                : scheme.tertiary,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(width: 6),
+                    Icon(
+                        expanded
+                            ? Icons.expand_less_rounded
+                            : Icons.expand_more_rounded,
+                        color: scheme.onSurfaceVariant,
+                        size: 20),
+                  ],
+                ),
+                if (expanded) ...[
+                  const SizedBox(height: 4),
+                  for (final o in outcomes)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            o.pass
+                                ? Icons.check_circle_rounded
+                                : Icons.cancel_rounded,
+                            color: o.pass
+                                ? const Color(0xFF63D668)
+                                : scheme.error,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('${o.id}. ${o.name}',
+                                    style: TextStyle(
+                                        color: scheme.onSurface,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w500)),
+                                if (o.detail.isNotEmpty)
+                                  Text(o.detail,
+                                      style: TextStyle(
+                                          color: scheme.onSurfaceVariant,
+                                          fontSize: 10.5)),
+                              ],
+                            ),
+                          ),
+                          Text('${o.ms.toInt()} ms',
+                              style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
+                                  fontSize: 10)),
+                        ],
+                      ),
+                    ),
+                ],
+              ],
+            ),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text('#${outcome.id} ${outcome.name}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: scheme.onSurface, fontSize: 13)),
-          ),
-          Text('${outcome.ms.toInt()} ms',
-              style: TextStyle(
-                  color: scheme.onSurfaceVariant, fontSize: 11)),
-        ],
+        ),
       ),
     );
   }

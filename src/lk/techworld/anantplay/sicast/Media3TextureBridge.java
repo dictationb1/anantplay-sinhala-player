@@ -241,9 +241,14 @@ final class Media3TextureBridge
                     break;
                 }
                 case "shift": {
+                    // v3.4.6.e — the sync offset is CUMULATIVE (each tap adds)
+                    // and the state line renders in seconds ("+0.25s"), the
+                    // exact readout the sheet shows under the four buttons.
                     Object d = call.argument("deltaMs");
                     cueShiftMs += d instanceof Number ? ((Number) d).longValue() : 0L;
-                    subState = "sync " + (cueShiftMs >= 0 ? "+" : "") + cueShiftMs + "ms";
+                    subState = cueShiftMs == 0
+                        ? "sync 0.00s"
+                        : "sync " + String.format(Locale.ROOT, "%+.2fs", cueShiftMs / 1000.0);
                     pushFrame();
                     result.success(true);
                     break;
@@ -252,7 +257,36 @@ final class Media3TextureBridge
                     result.success(subState);
                     break;
                 }
+                case "switchSubLanguage": {
+                    // v3.4.6.e — REAL subtitle language switching: persists the
+                    // language (K_DEFAULT_LANG) AND re-fetches/re-applies cues
+                    // for it on the LIVE session (Sinhala / English / Tamil …).
+                    // 'en' (or any non-'si') keeps the English cue text; 'si'
+                    // re-runs the full Sinhala ladder for the current title.
+                    String lang = call.argument("lang");
+                    switchSubLanguage(lang == null ? "si" : lang);
+                    result.success(true);
+                    break;
+                }
+                case "setOrientation": {
+                    // v3.4.6.e — REAL orientation control on the host activity:
+                    //   auto      → FULL_SENSOR (free rotation, the default),
+                    //   landscape → SENSOR_LANDSCAPE (both directions),
+                    //   portrait  → PORTRAIT.
+                    // The bridge forwards to the FlutterActivity through the host
+                    // reference; MainActivity restores UNSPECIFIED on dispose so
+                    // the SHELL's orientation policy is untouched after exit.
+                    String o = call.argument("mode");
+                    setOrientation(o == null ? "auto" : o);
+                    result.success(true);
+                    break;
+                }
                 case "dispose": {
+                    // v3.4.6.e — a clean player exit restores the shell's own
+                    // orientation policy (UNSPECIFIED = the system/user setting).
+                    try { host.setRequestedOrientation(
+                            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED); }
+                    catch (Throwable ignored) { }
                     disposeSession();
                     result.success(true);
                     break;
@@ -365,6 +399,21 @@ final class Media3TextureBridge
         player.prepare();
         if (startMs > 10000) player.seekTo(startMs);
         player.setPlayWhenReady(true);
+
+        // v3.4.6.e — apply the user's saved player-default orientation policy
+        // (auto | landscape | portrait) at session open: a landscape movie
+        // opens rotated, a portrait lock stays portrait, auto = FULL_SENSOR.
+        try {
+            String mode = AppPrefs.orientation(prefs);
+            int o = "landscape".equals(mode)
+                    ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    : "portrait".equals(mode)
+                        ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR;
+            host.setRequestedOrientation(o);
+        } catch (Throwable orientErr) {
+            Diag.w("player", "open orientation: " + orientErr);
+        }
 
         // 5 — the pipeline bookkeeping.
         if (testMode) {
@@ -589,6 +638,38 @@ final class Media3TextureBridge
         }
     }
 
+    /**
+     * v3.4.6.e — REAL orientation control on the FlutterActivity host.
+     * The setting also PERSISTS the player-default (AppPrefs.K_ORIENTATION)
+     * so the next session opens with the user's chosen rotation policy, and
+     * the answer echoes back through the frames stream's subtitle state for
+     * HUD feedback. Pure mode→constant mapping — never an exception.
+     */
+    private void setOrientation(String mode) {
+        int o;
+        String label;
+        if ("landscape".equals(mode)) {
+            o = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
+            label = "landscape locked";
+        } else if ("portrait".equals(mode)) {
+            o = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+            label = "portrait locked";
+        } else {
+            o = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR;
+            label = "auto-rotate";
+            mode = "auto";
+        }
+        try {
+            host.setRequestedOrientation(o);
+            prefs.edit().putString(AppPrefs.K_ORIENTATION, mode).apply();
+            subState = "orientation: " + label;
+            pushFrame();
+            Diag.i("player", "orientation " + mode + " → " + label);
+        } catch (Throwable t) {
+            Diag.w("player", "orientation: " + t);
+        }
+    }
+
     // ── the Sinhala subtitle pipeline ────────────────────────────────────────
 
     private void applyTestCues() {
@@ -606,6 +687,29 @@ final class Media3TextureBridge
             return;
         }
         findSubs(title, null, 0, 0);
+    }
+
+    /**
+     * v3.4.6.e — REAL subtitle language switching on the LIVE session.
+     * Persists the choice (K_DEFAULT_LANG — the pipeline's fetch language)
+     * and re-runs the pipeline for the current title: 'si' re-fetches the
+     * Sinhala ladder; 'en' (or any other code) re-fetches and renders the
+     * ENGLISH/foreign cue text (Cue.en) when the fetch is not Sinhala — the
+     * renderer prefers .si and falls back to .en per cue, so switching is a
+     * re-fetch + re-render, never a dead toggle.
+     */
+    private void switchSubLanguage(String lang) {
+        try {
+            prefs.edit().putString(AppPrefs.K_DEFAULT_LANG, lang).apply();
+        } catch (Throwable ignored) { }
+        String label = "si".equals(lang) ? "Sinhala" : lang.toUpperCase(Locale.ROOT);
+        subState = "switching subs → " + label;
+        pushFrame();
+        String t = (title == null || title.isEmpty()) ? url : title;
+        // A fetch in the NEW language: the generation counter invalidates any
+        // in-flight fetch and the fresh cues replace the old ones live.
+        findSubs(t, null, 0, 0);
+        Diag.i("subs", "language switch → " + lang);
     }
 
     private void findSubs(String t, final String imdb, int season, int episode) {
@@ -635,9 +739,16 @@ final class Media3TextureBridge
                     id = String.valueOf(r.get("imdb"));
                 }
                 // the worker job (up to 4 rounds: cold-token re-ensures)
+                // v3.4.6.e — the fetch language is the user's persisted
+                // default (K_DEFAULT_LANG — 'si' default), so the Language
+                // switch genuinely changes what the pipeline requests.
+                String langCode = prefs.getString(AppPrefs.K_DEFAULT_LANG, Langs.DEFAULT);
+                if (langCode == null || langCode.isEmpty() || !Langs.isKnown(langCode)) {
+                    langCode = Langs.DEFAULT;
+                }
                 for (int round = 0; round < 4 && myGen == subGen; round++) {
                     Map<String, Object> job = api.subtitles(type, id, season, episode, t,
-                            Langs.DEFAULT, null);
+                            langCode, null);
                     String status = String.valueOf(job.get("status"));
                     Map<String, Object> si = (Map<String, Object>) MiniJson.objGet(job, "si");
                     String token = si == null ? null : String.valueOf(si.get("token"));
