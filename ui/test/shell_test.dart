@@ -612,10 +612,15 @@ void main() {
       expect(find.byType(SettingsScreen), findsOneWidget);
       expect(shellTheme(tester).brightness, Brightness.dark);
 
+      await tester.scrollUntilVisible(find.text('Light'), 240,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Light'));
       await tester.tap(find.text('Light'), warnIfMissed: false);
       await tester.pump(); // NO settle: the very next frame must repaint
       expect(shellTheme(tester).brightness, Brightness.light);
 
+      await tester.ensureVisible(find.text('AMOLED'));
       await tester.tap(find.text('AMOLED'), warnIfMissed: false);
       await tester.pump();
       expect(shellTheme(tester).brightness, Brightness.dark);
@@ -629,6 +634,9 @@ void main() {
       await tester.pumpWidget(upToDateApp());
       await tester.pumpAndSettle();
       await tester.tap(find.text('Settings').first, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Glass clarity'), 240,
+          scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();
       final before = shellTheme(tester).extension<MornyeTheme>()!.glassClarity;
       expect(before, closeTo(0.75, 0.01));
