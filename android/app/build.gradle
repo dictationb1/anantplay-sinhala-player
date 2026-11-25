@@ -241,3 +241,48 @@ flutter {
     source = new File(project.rootProject.projectDir.parentFile, "ui").absolutePath
     target = "lib/main.dart"
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v3.4.6.e — THE SOURCE ATLAS (the live-probe fix).
+//
+// WHY: the 54-probe engine mixes LIVE checks with SOURCE-CONTRACT checks — the
+// ones that assert the shipped wiring literally (PopScope(canPop:false), the
+// compact subtitle constants, the tracks/language/orientation channel handlers,
+// the browser PlatformView, the manifest's zero-AccessibilityService rule).
+// Those readers open the source FILES. In a checkout that works; inside the
+// installed APK the cwd is the data dir, where no source exists — so on the
+// hosted Android 36 emulator exactly those probes FAILED with "not provable"
+// (A6, B9, C9, E4, E5, E7, E8, E11, E12, F4). The probes were right; the
+// packaging was incomplete.
+//
+// THE FIX: ship the exact sources that produced this APK inside the APK, under
+// assets/src-atlas/, and have MainActivity.attachSourceAtlas() unpack them once
+// into noBackupFilesDir and point DeepProbe at them. Deterministic input set
+// (see ATLAS_TREES), zero network, ~2.4 MB of text.
+// ═════════════════════════════════════════════════════════════════════════════
+def atlasTrees = ["ui/lib", "src", "AndroidManifest.xml"]
+def atlasGenDir = layout.buildDirectory.dir("generated/src-atlas")
+def repoRootForAtlas = project.rootProject.projectDir.parentFile
+
+tasks.register("buildSourceAtlas", Sync) {
+    description = "Copies the shipped sources into assets/src-atlas for the deep source-contract probes."
+    group = "build"
+    into atlasGenDir
+    atlasTrees.each { rel ->
+        from(new File(repoRootForAtlas, rel)) { into rel }
+    }
+}
+
+// Every asset-merge task (there is one per variant, and the smoke job builds a
+// different ABI with the SAME config) must see the atlas first.
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+    dependsOn("buildSourceAtlas")
+}
+
+android {
+    sourceSets {
+        main {
+            assets.srcDirs += atlasGenDir
+        }
+    }
+}

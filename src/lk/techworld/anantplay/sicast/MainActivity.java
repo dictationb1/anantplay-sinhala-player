@@ -239,8 +239,87 @@ public class MainActivity extends FlutterActivity {
         // arrived before the engine was up, ACTION_VIEW/SEND, the
         // notifyCastReady notification) is forwarded now that channels exist.
         forwardLaunchRoute(getIntent());
+        // v3.4.6.e — POINT THE DEEP PROBES AT THE SHIPPED SOURCES. The
+        // source-contract probes (A6, B9, C9, E4/E5/E7/E8/E11/E12, F4) read the
+        // literal shipped text of the Dart/Java/Manifest files. Inside an
+        // installed APK the cwd is the data dir, where those files did not
+        // exist — every one of those probes answered "not provable" and FAILED
+        // on the live emulator (exactly what the Android 36 K6 job showed). The
+        // APK now ships the sources under assets/src-atlas/ and this unpacks
+        // them once into noBackupFilesDir (never backed up, never user-visible).
+        attachSourceAtlas();
         // v3.4.6.e — THE CI SELF-TEST HOOK (see runCiDeepProbe).
         maybeStartCiDeepProbe(getIntent());
+    }
+
+    /**
+     * v3.4.6.e — UNPACK THE SHIPPED SOURCE ATLAS and hand it to {@link DeepProbe}.
+     *
+     * <p>The atlas is a deterministic, content-addressed copy of the exact
+     * sources that produced this APK (Dart under ui/lib, Java under src, the
+     * root AndroidManifest). It rides the APK as an asset subtree, is unpacked
+     * once per install/upgrade into {@code noBackupFilesDir/src-atlas}, and is
+     * read by the source-contract probes. Zero network, zero user data, and a
+     * no-op when the atlas is absent (the probes then degrade to "not
+     * provable" instead of lying).
+     *
+     * <p>Runs on a background thread: a first-launch unpack must never delay the
+     * engine. Probes that run before it finishes simply re-run later, because
+     * {@link DeepProbe#resetSourceCaches()} makes the readers re-read.
+     */
+    private void attachSourceAtlas() {
+        final java.io.File dir = new java.io.File(getNoBackupFilesDir(), "src-atlas");
+        DeepProbe.setSourceBase(dir);
+        new Thread(() -> {
+            try {
+                java.io.File stamp = new java.io.File(dir, ".atlas-version");
+                String want = AppInfo.VERSION_NAME + "/" + AppInfo.VERSION_CODE;
+                if (stamp.isFile()) {
+                    String have = new String(java.nio.file.Files.readAllBytes(stamp.toPath()),
+                            java.nio.charset.StandardCharsets.UTF_8).trim();
+                    if (want.equals(have)) {
+                        DeepProbe.resetSourceCaches();
+                        return;                          // already unpacked
+                    }
+                }
+                int n = unpackAssetDir("src-atlas", dir);
+                if (n <= 0) { DeepProbe.setSourceBase(null); return; }
+                try {
+                    java.nio.file.Files.write(stamp.toPath(),
+                        want.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } catch (Throwable ignored) { }
+                DeepProbe.resetSourceCaches();
+                Diag.i("deep", "source atlas ready: " + n + " file(s) under " + dir);
+            } catch (Throwable t) {
+                Diag.w("deep", "source atlas unpack failed: " + t);
+                DeepProbe.setSourceBase(null);
+            }
+        }, "src-atlas").start();
+    }
+
+    /** Recursively copy an APK asset subtree to {@code out}; returns the file count. */
+    private int unpackAssetDir(String assetPath, java.io.File out) {
+        int count = 0;
+        try {
+            String[] kids = getAssets().list(assetPath);
+            if (kids == null || kids.length == 0) {
+                // a leaf: copy it
+                if (!out.isDirectory()) {
+                    java.io.File parent = out.getParentFile();
+                    if (parent != null && !parent.isDirectory() && !parent.mkdirs()) return 0;
+                    try (java.io.InputStream in = getAssets().open(assetPath);
+                         java.io.OutputStream os = new java.io.FileOutputStream(out)) {
+                        byte[] buf = new byte[16384];
+                        for (int r; (r = in.read(buf)) > 0; ) os.write(buf, 0, r);
+                    }
+                    return 1;
+                }
+                return 0;
+            }
+            if (!out.isDirectory() && !out.mkdirs()) return 0;
+            for (String k : kids) count += unpackAssetDir(assetPath + "/" + k, new java.io.File(out, k));
+        } catch (Throwable ignored) { }
+        return count;
     }
 
     // ═════════════════════════════════════════════════════════════════════════

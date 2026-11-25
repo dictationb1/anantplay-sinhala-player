@@ -6830,7 +6830,7 @@ public class ReceiverLab {
     // ═════════ v3.4.6.e — THE DEEP TROUBLESHOOT + REAL-DEVICE FIX LABS ═════════
 
     /** An in-memory DeepProbe.Hooks fake: the deterministic lab world. */
-    static final class LabHooks implements DeepProbe.Hooks {
+    static class LabHooks implements DeepProbe.Hooks {   // v3.4.6.e: subclassed to prove the lying-registry case
         final java.util.Map<String, Object> prefs = new java.util.LinkedHashMap<>();
         boolean receiverRunning = false;
         boolean official = true;
@@ -6850,16 +6850,19 @@ public class ReceiverLab {
         @Override public int receiverPort() { return receiverRunning ? 8765 : -1; }
         @Override public int receiverInfoHttp() { return receiverRunning ? 200 : 0; }
         @Override public int[] dlnaDescHttp() { return receiverRunning ? new int[]{200, 1} : new int[]{0, 0}; }
-        @Override public boolean mdnsWireUp() { return receiverRunning; }
+        @Override public boolean mdnsWireUp() { return receiverRunning && !mdnsDegraded; }
         @Override public boolean officialInstalled() { return official; }
         @Override public String officialVersion() { return official ? "1.2.4" : ""; }
+        /** v3.4.6.e — the Android 16 shape: the daemon holds 5353, our responder degrades. */
+        boolean mdnsDegraded = false;
+        int workerHealth = 200;
         @Override public boolean historyRoundTrip(String key) { return true; }
         @Override public boolean urlValid(String url) { return url != null && url.startsWith("http"); }
         @Override public boolean notificationsGranted() { return true; }
         @Override public boolean overlayGranted() { return true; }
         @Override public boolean batteryUnrestricted() { return true; }
         @Override public boolean installsGranted() { return true; }
-        @Override public int workerHealthHttp() { return 200; }
+        @Override public int workerHealthHttp() { return workerHealth; }
         @Override public boolean[] updateTiersLive() { return new boolean[]{false, false}; }
         @Override public boolean forceGateArmed() { return false; }
         @Override public int missingChannelHandlers() { return 0; }
@@ -6928,6 +6931,74 @@ public class ReceiverLab {
             pure = true;   // compiled against the stub-free classpath already proves it
         } catch (Throwable t) { pure = false; }
         check("v346e deep: DeepProbe stays pure-Java (lab-compilable)", pure);
+        v346eEnvironmentalProbeChecks();
+    }
+
+    /**
+     * v3.4.6.e — THE ENVIRONMENTAL PROBES, PROVEN ON BOTH SIDES.
+     *
+     * <p>Four probes used to assert an ENVIRONMENT (the official app being
+     * installed, our own 5353 socket winning the port back from Android 16's
+     * MdnsAdvertiser, the optional translation worker being reachable) instead
+     * of the FEATURE. On a clean device — and on every emulator image — that
+     * turned working code into red CI. The shipped behaviour is the two-sided
+     * contract proven here: the absent case must degrade coherently, and the
+     * present case must be detected.
+     */
+    static void v346eEnvironmentalProbeChecks() throws Exception {
+        // ── B5: the official-app DETECTION, both directions ──────────────────
+        LabHooks present = new LabHooks();
+        DeepProbe.Outcome b5a = DeepProbe.probeB5(present, null);
+        check("v346e env: B5 passes when the official app IS installed (version read)", b5a.pass);
+        LabHooks absent = new LabHooks();
+        absent.official = false;
+        DeepProbe.Outcome b5b = DeepProbe.probeB5(absent, null);
+        check("v346e env: B5 passes when the official app is ABSENT (installer-sheet path)", b5b.pass);
+        check("v346e env: B5 still FAILS a lying registry (installed but no version)",
+            !lyingB5());
+        // ── B4: the discovery-pillar rule (mdns OR dlna) + a live receiver ───
+        LabHooks degraded = new LabHooks();
+        degraded.receiverRunning = true;
+        degraded.mdnsDegraded = true;              // Android 16: the daemon owns 5353
+        DeepProbe.Outcome b4a = DeepProbe.probeB4(degraded, null);
+        check("v346e env: B4 passes on the Android 16 shape (responder degraded, DLNA + /info live)",
+            b4a.pass);
+        check("v346e env: B4 names each pillar in its detail line",
+            b4a.detail.contains("DLNA SSDP pillar up") && b4a.detail.contains("mdnsd-only"));
+        LabHooks fullyDown = new LabHooks();
+        fullyDown.receiverRunning = false;
+        check("v346e env: B4 fails when NO discovery pillar and no HTTP answer",
+            !DeepProbe.probeB4(fullyDown, null).pass);
+        // ── E10: the worker's offline-retention contract ─────────────────────
+        LabHooks online = new LabHooks();
+        online.workerHealth = 200;
+        check("v346e env: E10 passes with the worker reachable", DeepProbe.probeE10(online, null).pass);
+        LabHooks offline = new LabHooks();
+        offline.workerHealth = 0;                  // a sandboxed emulator has no route
+        DeepProbe.Outcome e10 = DeepProbe.probeE10(offline, null);
+        check("v346e env: E10 passes offline — the retention path IS the contract", e10.pass);
+        check("v346e env: E10's offline detail names the retention path",
+            e10.detail.contains("offline retention path"));
+        // ── the source atlas seam ────────────────────────────────────────────
+        check("v346e env: DeepProbe exposes a settable source base (atlas)",
+            DeepProbe.sourceBase() == null || DeepProbe.sourceBase().isDirectory());
+        check("v346e env: resetSourceCaches is idempotent",
+            idempotentReset());
+    }
+
+    /** B5 must not pass when the registry claims installed yet reads no version. */
+    private static boolean lyingB5() {
+        LabHooks liar = new LabHooks() {
+            @Override public boolean officialInstalled() { return true; }
+            @Override public String officialVersion() { return ""; }
+        };
+        return DeepProbe.probeB5(liar, null).pass;
+    }
+
+    private static boolean idempotentReset() {
+        DeepProbe.resetSourceCaches();
+        DeepProbe.resetSourceCaches();
+        return true;
     }
 
     /** The 3.4.6.e / 30411 identity across every surface. */

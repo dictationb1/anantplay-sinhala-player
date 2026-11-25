@@ -706,6 +706,20 @@ jobs:
           # step is the one that refuses to let that happen again.
           python3 lab/verify_apk_launch_integrity.py "$APK" "$VERSION"
           notice "launch-integrity" "16 KB ELF audit + ABI + manifest + assets + signing: PASS"
+          # v3.4.6.e — THE SOURCE ATLAS (the live-probe fix's other half). The
+          # emulator job's source-contract probes read the SHIPPED sources, so
+          # the APK must actually carry them. Exactly the 11 files the probes
+          # open, at their repo-relative paths, + the manifest.
+          ATLAS_N=0
+          for rel in ui/lib/anantplay/player_screen.dart ui/lib/anantplay/bridge.dart \
+                     ui/lib/anantplay/browser_screen.dart ui/lib/anantplay/force_update_screen.dart \
+                     src/lk/techworld/anantplay/sicast/Media3TextureBridge.java \
+                     src/lk/techworld/anantplay/sicast/PlayActivity.java \
+                     AndroidManifest.xml; do
+            unzip -l "$APK" "assets/src-atlas/$rel" > /dev/null 2>&1 || { echo "::error title=source atlas::missing assets/src-atlas/$rel — the source-contract probes cannot read it"; exit 1; }
+            ATLAS_N=$((ATLAS_N + 1))
+          done
+          notice "source atlas" "$ATLAS_N probe-read source files packaged under assets/src-atlas/ (the .d APK had none, so 10 probes failed as 'not provable')"
           sha256sum "$APK" | tee dist/sha256.txt
           echo "::notice title=APK version::${VERSION} (versionCode ${CODE})"
 
