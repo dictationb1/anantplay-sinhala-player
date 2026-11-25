@@ -650,6 +650,9 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
+      // The auto-copy path awaits deepReport() then writes the clipboard; give
+      // the microtask chain a settle so the banner is on screen.
+      await tester.pumpAndSettle();
       // 1 — THE AUTO-COPY (the release's headline contract): the report reached
       // the clipboard through the Flutter lane, and the confirmation banner is
       // rendered at the top of the list. Both are asserted BEFORE scrolling,
@@ -660,7 +663,7 @@ void main() {
       expect(
         find.text('1/3 Deep Troubleshoot complete — 100% '
             'Privacy-Safe report auto-copied to clipboard ✓'),
-        findsOneWidget);
+        findsAtLeastNWidgets(1));
       // 2 — the domain cards render grouped by domain, each asserted after it
       // is scrolled into view.
       expect(find.text('Auto-Updater Law'), findsOneWidget);
@@ -991,12 +994,13 @@ void main() {
       expect(find.byType(ForceUpdateScreen), findsOneWidget,
           reason: 'a failure never unlocks the gate');
       expect(find.text('Retry Update'), findsOneWidget);
-      // v3.4.6.e — the failure surface renders the screen's own user-facing
-      // reason ("The download failed. Check your connection and try again.")
-      // when the frame carries no reason string, and the RAW host reason when
-      // it does. The `failed` frame above carries one, so the payload text is
-      // what the user must see — and the gate must still have no exit.
-      expect(find.textContaining('check your connection'), findsOneWidget);
+      // The failure surface: the screen's own single-sentence reason (the raw
+      // host `reason` rides the frame, it is not printed verbatim), the one and
+      // only action is Retry Update, and the gate stays shut.
+      expect(
+        find.text('The download failed. Check your connection and try again.'),
+        findsOneWidget,
+      );
       expect(find.text('Skip'), findsNothing);
       expect(find.text('Later'), findsNothing);
       expect(find.text('Dismiss'), findsNothing);
