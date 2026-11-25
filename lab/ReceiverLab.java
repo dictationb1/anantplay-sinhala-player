@@ -5281,22 +5281,22 @@ public class ReceiverLab {
         check("v346d LAW: SelfUpdater VERSION_PATTERN is a–z (no a–e ceiling)",
             upd.contains("VERSION_PATTERN = \"[0-9]+\\\\.[0-9]+\\\\.[0-9]+(\\\\.[a-z])?\"")
                 && !upd.contains("(\\\\.[a-e])?"), "the pending-metadata gate must accept .f/.g/…/.z");
-        // count the EXACT source literal "(\\.[a-z])?" in the raw file (the same
+        // count the EXACT source literal "(\\\\.[a-z])?" in the raw file (the same
         // two-backslash text the shipped regex string carries), never a loose regex
         String coreRawA = readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdateCore.java");
         int azGates = 0;
-        for (int at = coreRawA.indexOf("(\\.[a-z])?"); at >= 0;
-             at = coreRawA.indexOf("(\\.[a-z])?", at + 1)) {
+        for (int at = coreRawA.indexOf("(\\\\.[a-z])?"); at >= 0;
+             at = coreRawA.indexOf("(\\\\.[a-z])?", at + 1)) {
             azGates++;
         }
         check("v346d LAW: SelfUpdateCore accepts a–z on all three resolver gates",
-            azGates >= 3 && !coreRawA.contains("(\\.[a-e])?"),
+            azGates >= 3 && !coreRawA.contains("(\\\\.[a-e])?"),
             "tier-1, tier-2 and usableRelease must all accept .z (found " + azGates + ")");
         check("v346d LAW: UpdateChecker.parse() maps the WHOLE alphabet (a→1 … z→26)",
             checker.contains("p.charAt(0) <= 'z'") && checker.contains("p.charAt(0) - 'a' + 1"),
             "3.4.6.z must parse to 26 — an 'e' ceiling would order .f as equal to 3.4.6");
         check("v346d LAW: the release workflow derives X.Y.Z[.a-z] (no a–d cap) and refuses a regress",
-            relYml.contains("(\\.[a-z])?") && !relYml.contains("(\\.[a-d])?")
+            relYml.contains("(\\\\.[a-z])?") && !relYml.contains("(\\.[a-d])?")
                 && relYml.contains("is not above the live 3.4.6.d (30410)")
                 && relYml.contains("LETTER=$((LETTER - 96))"),
             "the workflow must derive .e…​.z arithmetically, never from a stale case list");
