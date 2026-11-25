@@ -4447,7 +4447,7 @@ public class ReceiverLab {
             probe.contains("probePrefsCoverage") && probe.contains("AppPrefs.BACKUP_KEYS")
                 && probe.contains("restorePrefs(snapshot)"));
         check("v346g deep: the new SurfaceView / live-translation / cast / browser probes exist",
-            probe.contains("probeE14") && probe.contains("probeE15")
+            probe.contains("probeE14") && probe.contains("probeE15") && probe.contains("envFail")
                 && probe.contains("probeF7") && probe.contains("probeF8"));
         String mainDart = readRepoFile("ui/lib/main.dart");
         check("v346g ui: REAL DynamicColorBuilder Material You wraps _ThemedApp",

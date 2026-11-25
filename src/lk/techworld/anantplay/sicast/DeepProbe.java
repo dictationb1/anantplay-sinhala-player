@@ -1251,7 +1251,7 @@ public final class DeepProbe {
         String src = media3BridgeSource();
         boolean sourceGuard = sourceProvable(src)
             && src.contains("runOnPlayer") && src.contains("onPlayerThread")
-            && src.contains("wrong thread");
+            && src.contains("Player is accessed on the wrong thread");
         boolean sourceSurface = sourceProvable(src)
             && src.contains("setVideoSurfaceView") && src.contains("surfaceview");
         o.pass = guard && surface && sourceGuard && sourceSurface;
@@ -1288,13 +1288,31 @@ public final class DeepProbe {
                 sinhala = hasText && SubLangDetect.looksSinhala(c0);
                 joiners = c1 != null && (c1.indexOf('\u200D') >= 0 || c1.contains(zwjCanary));
             }
-            // honest either way: the engine's contract is "translate, else retain"
-            o.pass = landed && hasText && (sinhala || !r.complete);
-            o.detail = landed
-                ? (sinhala ? "English → Sinhala live ✓ · 2/2 cues · ZWJ " + (joiners ? "✓" : "kept by source ✓")
-                           : "engine retained the source verbatim (offline ✓, " + r.requests + " request(s))")
-                    + " · " + (r.complete ? "complete" : "partial")
-                : "FAIL — the free translator returned no cue list";
+            // v3.4.6.g — THE HONEST ENV SPLIT: no media-URL egress in the CI
+            // emulator means the keyless endpoints are simply unreachable there.
+            // The engine's documented contract on that path is verbatim
+            // retention (never an error, never a fake translation), so an
+            // unreachable endpoint is an ENV outage — reported FAIL ✗ on the
+            // phone, counted as env_fail in the CI summary. The APP's own
+            // contract (2 cues in → 2 cues out, text present, source joiners
+            // intact) is the real verdict, and a thrown engine is a FAIL.
+            String srtSrc = readOrEmpty("src/lk/techworld/anantplay/sicast/FreeSubTranslator.java");
+            boolean wired = sourceProvable(srtSrc)
+                && srtSrc.contains("maskJoiners") && srtSrc.contains("unmaskJoiners")
+                && srtSrc.contains("translate.googleapis.com");
+            boolean contract = landed && hasText && joiners && wired;
+            o.pass = contract && sinhala;
+            if (!o.pass && contract && !sinhala) o.envFail = true;   // external outage
+            o.detail = contract
+                ? (sinhala
+                    ? "English → Sinhala live ✓ · 2/2 cues · ZWJ ශ්‍රී preserved ✓ · complete " + r.complete
+                    : "FAIL — the keyless endpoints are unreachable on this network; the engine "
+                        + "retained the source verbatim (" + r.requests + " request(s)) — JOINERS "
+                        + (joiners ? "✓" : "✗") + " · wiring ✓")
+                : "FAIL — the free translator broke the cue contract ("
+                    + (landed ? "cues landed" : "no cue list")
+                    + " · text " + (hasText ? "✓" : "✗") + " · ZWJ " + (joiners ? "✓" : "✗")
+                    + " · wiring " + (wired ? "✓" : "✗") + ")";
             return o;
         } catch (Throwable t) {
             o.pass = false;
@@ -1339,16 +1357,14 @@ public final class DeepProbe {
         boolean mp4 = "MP4".equals(StreamSniffer.classify("https://cdn.example.com/c/movie.mp4", null));
         boolean mkv = "MKV".equals(StreamSniffer.classify("https://cdn.example.com/d/movie.mkv", null));
         boolean adBlocked = StreamSniffer.isAdOrTracker("https://doubleclick.net/ads.js");
-        // the .zip auto-extract leg (the shipped extractor, a real archive)
+        // the .zip auto-extract leg (the SHIPPED extractor, a real archive)
         boolean zipOk = false;
         try {
-            java.io.File base = new java.io.File(System.getProperty("java.io.tmpdir", "/tmp"),
-                "deep-probe-zip");
-            base.mkdirs();
             byte[] zip = miniZip("ep.srt",
                 "1\n00:00:01,000 --> 00:00:02,000\nHello\n");
             List<Cue> got = SrtLoader.load(zip, "subs.zip");
-            zipOk = got != null && !got.isEmpty();
+            zipOk = got != null && !got.isEmpty()
+                && Math.abs(got.get(0).t0 - 1000L) < 5;
         } catch (Throwable ignored) { }
         String browser = browserSource();
         boolean newzone = sourceProvable(browser) && browser.contains("newzone");
