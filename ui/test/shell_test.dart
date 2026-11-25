@@ -617,12 +617,12 @@ void main() {
       // the same call those cards make on a real device.
       final scope = AppState.of(tester.element(find.byType(SettingsScreen))).scope;
       await scope.putString('themeMode', 'light');
-      await tester.pump(); // NO settle: the very next frame must repaint
+      await tester.pumpAndSettle(); // live repaint, no cold restart
       expect(settingsPuts['themeMode'], 'light');
       expect(shellTheme(tester).brightness, Brightness.light);
 
       await scope.putString('themeMode', 'amoled');
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(shellTheme(tester).brightness, Brightness.dark);
       expect(shellTheme(tester).colorScheme.surface, Colors.black);
     });
@@ -658,7 +658,12 @@ void main() {
   group('v3.4.6.f GAP #4: the shared cast channel discriminator', () {
     testWidgets('castStatus ignores onboardingStatus / officialVersion frames',
         (tester) async {
-      await tester.pumpWidget(quiet(const SettingsScreen()));
+      // Do NOT mount AppStateScope here: it is the app's one other consumer
+      // of this cached single-subscription lane. This test owns the lane.
+      await tester.pumpWidget(MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: const MaterialApp(home: SizedBox.shrink()),
+      ));
       final received = <CastStatus>[];
       final sub = AnantPlay.instance.castStatus().listen(received.add);
       await Future<void>.delayed(Duration.zero);
