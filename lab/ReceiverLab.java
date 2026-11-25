@@ -1503,12 +1503,27 @@ public class ReceiverLab {
             }
             check("v346d upd: the full a→z sweep is strictly increasing (no gap, no ceiling)", sweep
                 && UpdateChecker.isNewer("3.4.7", "3.4.6.z"));
-            // the 4-segment shape is first-class in BOTH metadata gates
-            boolean shapeOk = SelfUpdater.validVersion("3.4.6.d") && SelfUpdater.validVersion("3.4.6.z")
-                && SelfUpdater.validVersion("3.4.6.f") && SelfUpdater.validVersion("3.4.6")
-                && !SelfUpdater.validVersion("3.4.6.dd") && !SelfUpdater.validVersion("3.4")
-                && !SelfUpdater.validVersion("3.4.6.1");
-            check("v346d upd: validVersion() accepts a–z and rejects junk (the pending-metadata gate)", shapeOk);
+            // the 4-segment shape is first-class in BOTH metadata gates.
+            // SelfUpdater is an Android class (not compiled into the lab), so its
+            // VERSION_PATTERN is extracted from the SHIPPED SOURCE and driven as a
+            // real regex here: the lab proves the exact pattern that will ship.
+            String updSource = new String(java.nio.file.Files.readAllBytes(
+                new java.io.File("src/lk/techworld/anantplay/sicast/SelfUpdater.java").toPath()),
+                StandardCharsets.UTF_8);
+            java.util.regex.Matcher pm = java.util.regex.Pattern
+                .compile("VERSION_PATTERN = \"([^\"]+)\"")
+                .matcher(updSource);
+            boolean shapeOk = false;
+            if (pm.find()) {
+                // the captured text is a JAVA SOURCE literal: unescape one level
+                // so "\\." (source) becomes "\." (the regex the JVM will run).
+                String vp = pm.group(1).replace("\\\\", "\\");
+                shapeOk = "3.4.6.d".matches(vp) && "3.4.6.z".matches(vp) && "3.4.6.f".matches(vp)
+                    && "3.4.6".matches(vp)
+                    && !"3.4.6.dd".matches(vp) && !"3.4".matches(vp) && !"3.4.6.1".matches(vp);
+            }
+            check("v346d upd: the shipped VERSION_PATTERN accepts a–z and rejects junk (pending gate)", shapeOk,
+                "SelfUpdater.VERSION_PATTERN must be the (\\.[a-z])? shape");
             int[] junk = UpdateChecker.parse("3.4.6.~#");   // never NumberFormatException
             check("v346a upd: parse() is junk-tolerant on the letter segment (no NumberFormatException)",
                 junk.length == 4 && junk[0] == 3 && junk[1] == 4 && junk[2] == 6 && junk[3] == 0);
