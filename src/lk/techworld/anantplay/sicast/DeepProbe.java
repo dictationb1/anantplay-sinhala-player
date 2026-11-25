@@ -1057,7 +1057,31 @@ public final class DeepProbe {
         if (AppPrefs.K_SEARCH_ENGINE.equals(k)) return "google";
         if (AppPrefs.K_BOTTOM_BAR_STYLE.equals(k)) return "glass";
         if (AppPrefs.K_SURFACE_STYLE.equals(k)) return "glass";
+        // v3.4.6.g — the int/long keys: normalizeValue does
+        // Integer.parseInt/Long.parseLong on String.valueOf(raw), so a Boolean
+        // sample ("true") is unparsable → null → "not normalizable". Return
+        // type-correct samples so EVERY backed-up key is exercised.
+        if (AppPrefs.K_FONT_SP.equals(k)) return Integer.valueOf(16);
+        if (AppPrefs.K_SUB_COLOR.equals(k)) return Integer.valueOf(0);
+        if (AppPrefs.K_SUB_BG_OPACITY.equals(k)) return Integer.valueOf(55);
+        if (AppPrefs.K_SUB_BOTTOM_PCT.equals(k)) return Integer.valueOf(10);
+        if (AppPrefs.K_SUB_LINE_SPACING.equals(k)) return Integer.valueOf(0);
+        if (AppPrefs.K_PLAY_SPEED.equals(k)) return Integer.valueOf(100);
+        if (AppPrefs.K_RECEIVER_PORT.equals(k)) return Integer.valueOf(8765);
+        if (AppPrefs.K_BORDER_ALPHA.equals(k)) return Integer.valueOf(0);
+        if (AppPrefs.K_GLASS_CLARITY.equals(k)) return Integer.valueOf(75);
+        if (AppPrefs.K_SPEEDDIAL_COLS.equals(k)) return Integer.valueOf(3);
+        if (AppPrefs.K_SUB_OUTLINE.equals(k)) return Integer.valueOf(0);
+        if (AppPrefs.K_VOLUME_BOOST.equals(k)) return Integer.valueOf(0);
+        if (AppPrefs.K_MIDNIGHT_DIM_PCT.equals(k)) return Integer.valueOf(0);
+        if (AppPrefs.K_SYNC_STEP_MS.equals(k)) return Long.valueOf(250L);
+        if (AppPrefs.K_SEEK_STEP_MS.equals(k)) return Long.valueOf(0L);
+        if (AppPrefs.K_HUD_HIDE_MS.equals(k)) return Long.valueOf(0L);
+        if (AppPrefs.K_SLEEP_TIMER_MS.equals(k)) return Long.valueOf(0L);
+        // the one strict String normalizer (null unless spoken/formal)
+        if (AppPrefs.K_REGISTER.equals(k)) return "spoken";
         return Boolean.TRUE;         // every other backed-up key is a boolean
+        // (the lenient String normalizers accept "true" and return a default)
     }
 
     private static Object safeGet(Hooks h, String k) {
