@@ -320,7 +320,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           style: TextStyle(
                             fontFamily: 'Noto Sans Sinhala',
                             fontSize: _subFontSp(s),
-                            height: 1.25,
+                            height: _subLineHeight(s),
                             color: _subColor(s),
                             fontWeight: s.b(SettingsMirror.kSubBold, false)
                                 ? FontWeight.w700
@@ -1002,7 +1002,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  for (final (label, delta) in const [
+                  for (final (_, delta) in const [
                     ('−1s', -1000),
                     ('−0.25s', -250),
                     ('+0.25s', 250),

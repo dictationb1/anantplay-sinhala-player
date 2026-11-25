@@ -762,8 +762,7 @@ void main() {
       final width = MediaQuery.sizeOf(tester.element(pill)).width;
       expect(
         constrained.any((c) =>
-            c.constraints.maxWidth != null &&
-            (c.constraints.maxWidth! - width * 0.82).abs() < 0.5),
+            (c.constraints.maxWidth - width * 0.82).abs() < 0.5),
         isTrue,
         reason: 'the subtitle pill must be capped at 82% of the viewport',
       );
