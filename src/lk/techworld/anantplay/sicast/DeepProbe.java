@@ -486,6 +486,10 @@ public final class DeepProbe {
         // The receiver may have been stopped by probe B2's live-stop proof —
         // re-arm first so the DLNA/MCast probes read a live receiver, then
         // let the finally-restore return the user's original state.
+        // GAP #3 — B2's stop persisted the user veto; the probe lane must
+        // clear it transiently before re-arming, exactly as runAll's snapshot
+        // does (the finally block restores the user's original veto).
+        try { h.restoreUserStopped(false); } catch (Throwable ignored) { }
         try { h.armReceiver(); } catch (Throwable ignored) { }
         int[] r = h.dlnaDescHttp();
         int code = r.length > 0 ? r[0] : 0;

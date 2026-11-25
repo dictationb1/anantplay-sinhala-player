@@ -7164,6 +7164,17 @@ public class ReceiverLab {
         check("v346f gap3: heal + apply-prefs can no longer clear the veto",
             svc.contains("self-heal skipped: standing user stop")
                 && svc.contains("if (!userStop) arm(this, \"apply-prefs\")"));
+        // The persisted veto must not strand the DLNA/mDNS re-arm after
+        // B2's live stop proof: the probe lane clears it transiently BEFORE
+        // the arm call, and runAll's finally block restores the real veto.
+        String deepSource = readRepoFile("src/lk/techworld/anantplay/sicast/DeepProbe.java");
+        String b3Source = deepSource.substring(
+            deepSource.indexOf("static Outcome probeB3"),
+            deepSource.indexOf("static Outcome probeB4"));
+        check("v346f gap3: the DLNA re-arm clears the persisted veto first",
+            b3Source.contains("restoreUserStopped(false)")
+                && b3Source.contains("armReceiver()")
+                && b3Source.indexOf("restoreUserStopped(false)") < b3Source.indexOf("armReceiver()"));
         check("v346f gap3: DeepProbe saves/restores the exact veto",
             src.apply("src/lk/techworld/anantplay/sicast/DeepProbe.java")
                 .contains("h.restoreUserStopped(userStopWas)"));
@@ -7195,8 +7206,25 @@ public class ReceiverLab {
             workflow.contains("env_fail=[0-9]+") && workflow.contains("::notice title=deep-probe env_fail")
                 && workflow.contains("No active stream to cancel"));
 
+        // A genuine app/code failure must NEVER be laundered into env_fail:
+        // break the receiver's own /info lane (not the optional worker) and
+        // assert that fail= rises while env_fail stays tied to the worker.
+        LabHooks brokenHooks = new LabHooks() {
+            @Override public int receiverInfoHttp() { return 0; }
+        };
+        brokenHooks.workerHealth = 0;   // keep the env_fail controlled
+        brokenHooks.workerResolve = 0;
+        java.util.List<DeepProbe.Outcome> brokenResults = DeepProbe.runAll(brokenHooks, null);
+        String brokenSummary = DeepProbe.ciSummaryLine(brokenResults, true, true);
+        java.util.Map<String, String> brokenKv = new java.util.LinkedHashMap<>();
+        for (String part : brokenSummary.split(" ")) {
+            int eq = part.indexOf('=');
+            if (eq > 0) brokenKv.put(part.substring(0, eq), part.substring(eq + 1));
+        }
+        int brokenFail = Integer.parseInt(brokenKv.get("fail"));
+        int brokenEnv = Integer.parseInt(brokenKv.get("env_fail"));
         check("v346f gap5: a REAL code failure stays in fail=",
-            DeepProbe.passCount(envResults) + DeepProbe.envFailureCount(envResults) < 56);
+            brokenFail > 0 && brokenEnv == 1, brokenSummary);
     }
 
     static void v346fVersionIdentityChecks() throws Exception {

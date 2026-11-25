@@ -177,3 +177,29 @@ now patched in this release branch with no change to those laws:
 
 `docs/latest.json` stays at the live `v3.4.6.e / 30411` on the PR branch; the
 release workflow is the only writer of the final `3.4.6.f / 30412` SHA-256.
+
+---
+
+## 8. Addendum — hosted-CI hardening (run 45654794027)
+
+The first hosted run exposed four non-release defects; all are fixed without
+changing any of the five patch contracts above:
+
+1. **`guarded()` dropped the `envFail` marker** when it stamped a missing probe
+   identity. It now stamps `id`/`domain`/`name` in place, preserving the honest
+   `pass=55 fail=0 env_fail=1` split while Probe 47 still prints `FAIL ✗`.
+2. **Dart analyzer** flagged a missing `SettingsMirror` import, an unused
+   `_ThemedApp` `key`, an unused local, an unsupported `tap(offset:)` and six
+   `use_build_context_synchronously` infos. All are fixed with explicit
+   `context.mounted` guards and a direct `Slider.onChanged` repaint test.
+3. **The lab's "real failure stays in `fail=`" check was vacuous** — it compared
+   counts instead of injecting a defect. It now breaks the receiver's own
+   `/info` lane and asserts `fail>0` with the worker outage still in `env_fail`.
+4. **The persisted user-stop veto stranded the deep-probe re-arm** after the
+   live Stop-Receiver probe: `probeB3` now clears the veto transiently *before*
+   re-arming, with the existing `finally` restore protecting the user's state.
+   This removes the false emulator failures on probes 9 and 10 without ever
+   mislabelling a genuine app failure as environmental.
+
+The APK build job is already green on the rerun with `30412 / 3.4.6.f`;
+the remaining three jobs are re-running against these fixes.

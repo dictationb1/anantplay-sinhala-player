@@ -47,8 +47,10 @@ Future<void> checkForUpdateWithFeedback(BuildContext context) async {
       const Duration(seconds: 4),
       onTimeout: () => 'Check requested · see notification',
     );
+    if (!context.mounted) return;
     _say(context, message);
   } catch (error) {
+    if (!context.mounted) return;
     _say(context, 'Check failed · $error');
   } finally {
     await sub.cancel();
@@ -79,8 +81,10 @@ Future<void> pingWorkerWithFeedback(BuildContext context) async {
       const Duration(seconds: 10),
       onTimeout: () => 'Worker probe running · see troubleshoot report',
     );
+    if (!context.mounted) return;
     _say(context, message);
   } catch (error) {
+    if (!context.mounted) return;
     _say(context, 'Worker unreachable · $error');
   } finally {
     await sub.cancel();
@@ -99,11 +103,13 @@ Future<void> importBackupWithFeedback(
     if (!context.mounted) return;
     if (ok) {
       await AppState.of(context).scope.refresh();
+      if (!context.mounted) return;
       _say(context, 'Imported $applied settings ✓');
     } else {
       _say(context, 'Import failed · ${reply['error'] ?? 'invalid backup'}');
     }
   } catch (error) {
+    if (!context.mounted) return;
     _say(context, 'Import failed · $error');
   }
 }
