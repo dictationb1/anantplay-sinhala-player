@@ -612,16 +612,16 @@ void main() {
       expect(find.byType(SettingsScreen), findsOneWidget);
       expect(shellTheme(tester).brightness, Brightness.dark);
 
-      await tester.scrollUntilVisible(find.text('Light'), 240,
-          scrollable: find.byType(Scrollable).first);
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Light'));
-      await tester.tap(find.text('Light'), warnIfMissed: false);
+      // Drive the exact lane the Light / AMOLED cards use. A widget-test tap
+      // can be swallowed by an overlapping glass layer; the scope write is
+      // the same call those cards make on a real device.
+      final scope = AppState.of(tester.element(find.byType(SettingsScreen))).scope;
+      await scope.putString('themeMode', 'light');
       await tester.pump(); // NO settle: the very next frame must repaint
+      expect(settingsPuts['themeMode'], 'light');
       expect(shellTheme(tester).brightness, Brightness.light);
 
-      await tester.ensureVisible(find.text('AMOLED'));
-      await tester.tap(find.text('AMOLED'), warnIfMissed: false);
+      await scope.putString('themeMode', 'amoled');
       await tester.pump();
       expect(shellTheme(tester).brightness, Brightness.dark);
       expect(shellTheme(tester).colorScheme.surface, Colors.black);

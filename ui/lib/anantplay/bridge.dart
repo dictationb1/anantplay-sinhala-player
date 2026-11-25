@@ -617,14 +617,19 @@ class AnantPlay {
             (e['t'] == 'castStatus' ||
                 (!e.containsKey('t') && e.containsKey('up'))))
         .map(CastStatus.fromMap)
-        .startWith(currentCastStatus());
+        .startWith(currentCastStatus())
+        // The cached stream is a SHARED lane: AppStateScope, Home and the
+        // troubleshooter all subscribe at once. A single-subscription stream
+        // threw "Stream has already been listened to" on the second consumer.
+        .asBroadcastStream();
   }
 
   /// The live updater event stream (glass banner's data source).
   Stream<UpdaterEvent> updaterEvents() {
     return _updaterStream ??= _ChannelHub.of(_updaterEventsName)
         .stream
-        .map((e) => UpdaterEvent.fromMap(e as Map));
+        .map((e) => UpdaterEvent.fromMap(e as Map))
+        .asBroadcastStream();
   }
 
   /// v3.4.6.d — the mandatory force-update gate stream (available → progress →
@@ -636,7 +641,8 @@ class AnantPlay {
         .stream
         .where((e) => e is Map && e['t'] == 'gate')
         .cast<Map<dynamic, dynamic>>()
-        .map(UpdateGateEvent.fromMap);
+        .map(UpdateGateEvent.fromMap)
+        .asBroadcastStream();
   }
 
   /// The probe-completion stream (10/10 outcomes, pushed when a run ends).
