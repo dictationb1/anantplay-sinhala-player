@@ -87,6 +87,22 @@ class AppStateNotifier extends ChangeNotifier {
     await refresh();
   }
 
+  /// v3.4.6.c — THE UPGRADER'S WIZARD GATE: the version int decides whether
+  /// the CURRENT 6-slide interactive wizard still owes the user a run. A
+  /// v3.4.6.a install persisted onboardingDone=true with NO version stamp
+  /// (version reads back as 1), so the v3.4.6.b bool gate silently skipped
+  /// them — real-phone complaint #4. `onboardingCurrent` is false while
+  /// version < 2, and completeOnboarding() stamps version 2 through the
+  /// dedicated native writer so the wizard shows EXACTLY once per upgrade.
+  bool get onboardingOwed => settings.onboardingVersion < 2;
+
+  /// v3.4.6.c — "Run Setup Guide" (Settings & Help): re-arm the wizard from
+  /// slide 1. The shell's gate flips because the version int drops below 2.
+  Future<void> rerunOnboarding() async {
+    await AnantPlay.instance.resetOnboarding();
+    await refresh();
+  }
+
   /// v3.4.6.b — THE UNBREAKABLE FINISH. Three guarantees the old path lacked:
   ///   1. The in-memory snapshot flips to onboardingDone = true SYNCHRONOUSLY
   ///      (a local overlay on the current settings map) and notifyListeners()
@@ -98,12 +114,15 @@ class AppStateNotifier extends ChangeNotifier {
   ///   3. The v3.4.6.b root cause is fixed at the source too: gatherSettings()
   ///      now returns onboardingDone/onboardingStage live, so even the
   ///      refreshed map the shell rebuilds from carries the flag.
+  /// v3.4.6.c — the finish ALSO stamps K_ONBOARDING_VERSION = 2 (the same
+  /// dedicated writer), so the upgrader's wizard never loops after Finish.
   void completeOnboarding() {
     // 1 — the synchronous local publish (the UI never waits on the channel).
     settings = SettingsMirror.fromJavaMap({
       ...settings.raw,
       SettingsMirror.kOnboardingDone: true,
       SettingsMirror.kOnboardingStage: 5,
+      SettingsMirror.kOnboardingVersion: 2,
     });
     notifyListeners();
     // 2 — the dedicated persistence path (fire-and-forget is fine: step 1

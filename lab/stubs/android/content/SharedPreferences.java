@@ -6,13 +6,17 @@ package android.content;
  * android.jar. Only the READ methods AppPrefs uses are declared.
  *
  * v3.4.2 — Editor/apply() added so WatchHistory's two persistence calls
- * (load/save) are exercised by the lab exactly as the app runs them. */
+ * (load/save) are exercised by the lab exactly as the app runs them.
+ *
+ * v3.4.6.c — contains() added for the onboarding v2 version-int gate
+ * (AppPrefs distinguishes "never stamped" from "stamped at version N"). */
 public interface SharedPreferences {
 
     String getString(String key, String def);
     int getInt(String key, int def);
     long getLong(String key, long def);
     boolean getBoolean(String key, boolean def);
+    boolean contains(String key);
 
     Editor edit();
 

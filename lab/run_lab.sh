@@ -161,7 +161,7 @@ python3 lab/verify_ui_completeness.py
 python3 lab/verify_gradle_host.py
 
 # ─────────────────────────────────────────────────────────────────────────────
-# v3.4.6.b — THE APK LAUNCH-INTEGRITY SELFTEST (seventh gating auditor)
+# v3.4.6.c — THE APK LAUNCH-INTEGRITY SELFTEST (seventh gating auditor)
 #
 # verify_apk_launch_integrity.py audits the BUILT APK in CI (wired into both
 # workflows). This local selftest proves the auditor still CATCHES the defect

@@ -80,6 +80,7 @@ class SettingsMirror {
   static const kBottomBarLabels = 'bottomBarLabels';
   static const kOnboardingDone = 'onboardingDone';
   static const kOnboardingStage = 'onboardingStage';
+  static const kOnboardingVersion = 'onboardingVersion';
   static const kQuickstartDone = 'quickstartDone';
   static const kShowWebTab = 'showWebTab';
   static const kShowQuickActions = 'showQuickActions';
@@ -102,6 +103,25 @@ class SettingsMirror {
   static const kIndexUrl = 'indexUrl';
   static const kContinueWatching = 'continueWatching';
 
+  // ── v3.4.6.c — the advanced customization keys (AppPrefs 1:1) ───────────
+
+  static const kDensity = 'layoutDensity';
+  static const kFontSpKey = 'fontSp';
+  static const kFontFamily = 'fontFamily';
+  static const kSubColor = 'subColor';
+  static const kSubBg = 'subBgStyle';
+  static const kSubBgOpacity = 'subBgOpacity';
+  static const kSubBold = 'subBold';
+  static const kSubBottomPct = 'subBottomPct';
+  static const kSubLineSpacing = 'subLineSpacing';
+  static const kSyncStepMs = 'subSyncStepMs';
+  static const kAspectMode = 'aspectMode';
+  static const kReceiverName = 'receiverName';
+  static const kReceiverPort = 'receiverPort';
+  static const kDlna = 'dlnaEnabled';
+  static const kMdns = 'mdnsEnabled';
+  static const kWorkerUrl = 'workerUrl';
+
   String get themeMode => s(kThemeMode, 'dark');
   bool get dynamicColor => b(kDynamicColor, false);
   int get accent => i(kAccent, 0);
@@ -111,6 +131,13 @@ class SettingsMirror {
   bool get iconGlass => b(kIconGlass, true);
   bool get onboardingDone => b(kOnboardingDone, false);
   int get onboardingStage => i(kOnboardingStage, 0);
+
+  /// v3.4.6.c — the onboarding VERSION int (the upgrader's gate):
+  /// 0 = fresh install, 1 = a legacy v3.4.6.a install that already finished
+  /// the OLD wizard (onboardingDone=true, no stamp), 2 = the current 6-slide
+  /// interactive wizard has been seen. `onboardingCurrent` = version >= 2.
+  int get onboardingVersion => i(kOnboardingVersion, onboardingDone ? 1 : 0);
+  bool get onboardingCurrent => onboardingVersion >= 2;
   bool get quickstartDone => b(kQuickstartDone, false);
   bool get showWebTab => b(kShowWebTab, true);
   bool get autoUpdate => b(kAutoUpdate, true);

@@ -122,6 +122,59 @@ public class PlayActivity extends Activity {
     /** /status — the never-blocking snapshot the player keeps fresh. */
     public static String statusSnapshot() { return snapshot; }
 
+    // ══ v3.4.6.c — THE BRIDGE SESSION MIRROR ═════════════════════════════════
+    // The Mornye Cinema Player (Media3TextureBridge) also owns /status while a
+    // session is live: ReceiverService answers the cast remote from this
+    // static snapshot even though PlayActivity itself is not on screen.
+    // adoptBridgeSession(title,url) claims it; (null,null) releases it.
+    private static volatile String bridgeTitle;
+    private static volatile long bridgePos;
+    private static volatile long bridgeDur;
+    private static volatile boolean bridgePlaying;
+
+    /** Claim the /status surface for the in-shell bridge player (null title = release). */
+    static void adoptBridgeSession(String title, String url) {
+        bridgeTitle = title;
+        bridgePos = 0;
+        bridgeDur = 0;
+        bridgePlaying = false;
+    }
+
+    /** The bridge's 4 Hz position refresh (called from its frame pump). */
+    static void bridgePosition(long pos, long dur, boolean playing) {
+        if (bridgeTitle == null) return;
+        bridgePos = pos;
+        bridgeDur = dur;
+        bridgePlaying = playing;
+        if (currentInstance == null) {
+            // No PlayActivity is alive — the bridge IS the player the cast
+            // remote talks to; publish its snapshot directly.
+            snapshot = ReceiverServer.statusJson(
+                    bridgeTitle, bridgePos, bridgeDur, bridgePlaying, false);
+        }
+    }
+
+    /** True while the in-shell bridge player holds a live session. */
+    static boolean bridgeSessionLive() { return bridgeTitle != null; }
+
+    /**
+     * v3.4.6.c — THE TRAMPOLINE. A cast /play, a DLNA SetAVTransportURI, an
+     * ACTION_VIEW/SEND share or a Test tap now routes INTO the Flutter
+     * shell's Mornye Cinema Player (PlayerScreen over Media3TextureBridge).
+     * The payload is handed to ShellRoot through the anantplay/shell/events
+     * EventChannel and the MainActivity task is brought forward — see
+     * MainActivity.shellRoute. PlayActivity's own engine remains the
+     * fallback ONLY for a failed bridge texture creation.
+     */
+    static void trampolineToShell(android.content.Context c, String url, String title,
+                                  String headersJson, boolean test) {
+        try {
+            MainActivity.shellRoute(c, "play", url, title, headersJson, test, 0L);
+        } catch (Throwable t) {
+            Diag.w("player", "trampoline: " + t);
+        }
+    }
+
     public static boolean canReadSharedMedia(Context c) {
         String p = Build.VERSION.SDK_INT >= 33 ? "android.permission.READ_MEDIA_VIDEO" : "android.permission.READ_EXTERNAL_STORAGE";
         return c.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED;

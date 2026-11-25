@@ -53,9 +53,9 @@ done
 # (v3.4.6: no silent platform fallback — the release always compiles against android-36)
 TARGET_SDK=36
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-3.4.6.b}
-VERSION_CODE=${VERSION_CODE:-30408}
-PREV_VERSION_CODE=${PREV_VERSION_CODE:-30407}   # v3.4.6 — the last released build (the crashed APK; 3.4.6.a fixes it)
+VERSION_NAME=${VERSION_NAME:-3.4.6.c}
+VERSION_CODE=${VERSION_CODE:-30409}
+PREV_VERSION_CODE=${PREV_VERSION_CODE:-30408}   # v3.4.6.b — the last released build
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }

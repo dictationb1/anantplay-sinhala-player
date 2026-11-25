@@ -1,9 +1,30 @@
-// AnantPlay Sinhala Player v3.4.6.b — the Mornye Liquid-Glass shell entry.
+// AnantPlay Sinhala Player v3.4.6.c — the Mornye Liquid-Glass shell entry.
 //
 // Hosts the vendored Mornye v5.4.0 engine (ui/lib/mornye_ui, LGPL-3.0-only)
-// and routes between the screens: onboarding (first launch), home, settings,
-// help — with the player + browser living in the native layer (PlayActivity's
-// Media3 engine + WebBrowserView), launched through the bridge.
+// and routes between the screens: onboarding (first launch OR a v3.4.6.a →
+// v3.4.6.c upgrade — see the onboarding-VERSION gate below), and the 4-tab
+// shell (Home · Browser · Settings · Help) with the ALWAYS-VISIBLE floating
+// Mornye Liquid-Glass bottom navigation bar (MornyeTabBar + the GLSL held
+// selection lens), edge-to-edge safe-area padded, zero hit-test gaps.
+//
+// v3.4.6.c — THE "FAKE UI" ROOT-CAUSE FIXES (all four, verified line-by-line
+// against the v3.4.6.b tree the real phone ran):
+//   1. v3.4.6.b's ShellRoot returned a BARE HomeScreen — no tab bar at all,
+//      so SettingsScreen/HelpScreen were orphaned widgets NOTHING rendered
+//      ("Customization and Settings are COMPLETELY MISSING"). This shell
+//      hosts all four tabs in one Stack with the MornyeTabBar on top.
+//   2. The onboarding gate read the plain onboardingDone BOOL, so anyone
+//      upgrading from v3.4.6.a (onboardingDone=true already persisted) NEVER
+//      saw the new 6-slide wizard. The gate is now the K_ONBOARDING_VERSION
+//      INT: v3.4.6.a persisted version 1, the 6-slide interactive wizard is
+//      version 2, and version < 2 shows the wizard ONCE (Skip + Finish both
+//      work, and Settings/Help keep a "Run setup guide" re-entry).
+//   3. The player/browser live HERE now: PlayerScreen renders Media3 video
+//      inside a real Flutter Texture (Media3TextureBridge), and BrowserScreen
+//      hosts the hardened WebBrowserView PlatformView — no PlayActivity hops.
+//   4. A cast / a DLNA SetAVTransportURI / a Test tap / a shared URL all
+//      pump through the SAME shell route (ShellRoot.pushPlayer) so the
+//      Mornye Cinema Player opens IN the shell.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,10 +33,16 @@ import 'package:material_ui/material_ui.dart';
 import 'package:anantplay_ui/mornye_ui/theme/mornye_theme.dart';
 import 'package:anantplay_ui/mornye_ui/models/theme_settings.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_preparation.dart';
+import 'package:anantplay_ui/mornye_ui/theme/mornye_icons.dart';
+import 'package:anantplay_ui/mornye_ui/widgets/mornye_chrome.dart';
 
 import 'anantplay/app_state.dart';
+import 'anantplay/help_screen.dart';
 import 'anantplay/home_screen.dart';
 import 'anantplay/onboarding_screen.dart';
+import 'anantplay/settings_screen.dart';
+import 'anantplay/browser_screen.dart';
+import 'anantplay/player_screen.dart';
 
 // ── v3.4.6.b — THE DART-SIDE CRASH REPORTER ─────────────────────────────────
 // The native layer exposes `anantplay/crashlog` (MainActivity.onCrashlogCall),
@@ -89,16 +116,170 @@ class AnantPlayApp extends StatelessWidget {
   }
 }
 
-/// The shell root: first-launch onboarding vs. the home shell.
-class ShellRoot extends StatelessWidget {
+/// One queued playback request (a cast, a sniffed stream, a shared URL —
+/// anything the native layer or another entry point asks the shell to play).
+class PlayRequest {
+  const PlayRequest({
+    required this.url,
+    this.title,
+    this.headers,
+    this.test = false,
+    this.resumeMs = 0,
+  });
+
+  final String url;
+  final String? title;
+  final String? headers;
+  final bool test;
+  final int resumeMs;
+}
+
+/// The shell root: first-launch (or upgrade) onboarding vs. the 4-tab shell.
+///
+/// v3.4.6.c — the tab bar is ALWAYS visible at the bottom (floating Mornye
+/// glass capsule, safe-area padded `bottom + 12`), and every screen renders
+/// inside the SAME Stack so switching tabs never rebuilds the world. The
+/// onboarding gate is the VERSION int (an upgrader from v3.4.6.a sees the
+/// 6-slide wizard exactly once), never the bare done-flag.
+class ShellRoot extends StatefulWidget {
   const ShellRoot({super.key});
+
+  @override
+  State<ShellRoot> createState() => ShellRootState();
+}
+
+/// Public state handle: the native-side route pumps (initial intent, casts)
+/// reach the shell through [ShellRootState.of].
+class ShellRootState extends State<ShellRoot> {
+  int _tab = 0;
+
+  /// The in-flight player session (pushed as a full-screen route ABOVE the
+  /// tab shell so the immersive HUD owns the whole display).
+  PlayRequest? _activePlay;
+
+  /// The URL the Browser tab should open first (an openWebTab handoff).
+  String? _pendingWebUrl;
+
+  static ShellRootState of(BuildContext context) =>
+      context.findAncestorStateOfType<ShellRootState>()!;
+
+  /// The four tabs, in bar order. `mornyeIconFor` remaps each glyph into the
+  /// Mornye set at paint time (the vendored engine's own icon contract).
+  static const _tabs = <(String, IconData)>[
+    ('Home', Icons.home_rounded),
+    ('Browser', Icons.public_rounded),
+    ('Settings', Icons.settings_rounded),
+    ('Help', Icons.shield_rounded),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    // The launch/upgrade onboarding gate: v3.4.6.a wrote onboardingDone=true
+    // with NO version stamp, so upgraders were silently skipped — the exact
+    // complaint #4. K_ONBOARDING_VERSION (default 1 for a legacy install,
+    // 0 for a fresh one) < 2 shows the 6-slide interactive wizard ONCE.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final state = AppState.of(context);
+      if (!state.settings.onboardingCurrent) {
+        state.scope.setOnboardingStage(0);
+      }
+    });
+  }
+
+  void selectTab(int index) {
+    // A tap on the CURRENT tab from anywhere (the Home Browser tile, the
+    // top-right Settings gear) lands here too.
+    setState(() => _tab = index.clamp(0, 3));
+  }
+
+  /// Switch to the Browser tab on a URL (the Home tile + openWebTab pumps).
+  void openBrowserTab([String url = '']) {
+    setState(() {
+      _pendingWebUrl = url.isEmpty ? null : url;
+      _tab = 1;
+    });
+  }
+
+  /// THE one player entry point: Test Player, Play URL, Continue Watching,
+  /// browser-captured streams, and native casts all route here — the Mornye
+  /// Cinema Player (PlayerScreen over Media3TextureBridge) opens IN the shell.
+  void pushPlayer(PlayRequest request) {
+    setState(() => _activePlay = request);
+  }
+
+  /// The player route popped (back / PiP-less exit): clear the session.
+  void popPlayer() {
+    if (_activePlay == null) return;
+    setState(() => _activePlay = null);
+    // History moved under the player session — refresh the Home list.
+    AppState.of(context).scope.refresh();
+  }
 
   @override
   Widget build(BuildContext context) {
     final state = AppState.of(context);
-    if (!state.settings.onboardingDone) {
+    if (!state.settings.onboardingCurrent) {
       return const OnboardingScreen();
     }
-    return const HomeScreen();
+    final scheme = Theme.of(context).colorScheme;
+    final bottomInset = MediaQuery.paddingOf(context).bottom + 12;
+
+    // The player session routes ABOVE the whole tab shell (immersive).
+    if (_activePlay != null) {
+      return PlayerScreen(
+        key: ValueKey<String>('player-${_activePlay!.url}'),
+        request: _activePlay!,
+        onExit: popPlayer,
+      );
+    }
+
+    // The four pages stay OFFSTAGE-alive (never disposed on a tab switch, so
+    // the browser keeps its page and the scroll positions survive).
+    final pages = [
+      const HomeScreen(),
+      BrowserScreen(initialUrl: _pendingWebUrl),
+      const SettingsScreen(),
+      const HelpScreen(),
+    ];
+    return Scaffold(
+      backgroundColor: scheme.surface,
+      body: Stack(
+        children: [
+          // The active page, padded above the floating bar.
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: bottomInset + 58),
+              child: IndexedStack(index: _tab, children: pages),
+            ),
+          ),
+          // ── THE ALWAYS-VISIBLE FLOATING MORNYE TAB BAR ────────────────────
+          // v3.4.6.c hit-test contract: Positioned INSIDE the Stack (never
+          // clipped, never overlapped), safe-area padded bottom + 12, and the
+          // MornyeSelectionPill inside MornyeTabBar forwards taps through
+          // its Listener (MornyeGlassPress stays OUT of the gesture arena —
+          // verified in mornye_glass_press.dart: it uses raw Listener
+          // callbacks, so a child InkWell/GestureDetector always wins).
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: bottomInset,
+            child: MornyeTabBar(
+              destinations: [
+                for (final (label, icon) in _tabs)
+                  NavigationDestination(
+                    icon: Icon(mornyeIconFor(icon)),
+                    label: label,
+                  ),
+              ],
+              selectedIndex: _tab,
+              onSelected: selectTab,
+              blurEnabled: true,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

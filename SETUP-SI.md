@@ -1,4 +1,4 @@
-# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.b) — versionCode 30408
+# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.c) — versionCode 30409
 
 > **v3.4.5 අලුත් දේ (Sinhala):**
 >

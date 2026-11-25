@@ -27,8 +27,8 @@ package lk.techworld.anantplay.sicast;
  *  script-ratio validation) + the Mornye/Apple-grade customization hub + the
  *  dedicated 10-point Troubleshooter. Strictly v3.x — never v4. */
 final class AppInfo {
-    static final String VERSION_NAME = "3.4.6.b";
-    static final int VERSION_CODE = 30408;
+    static final String VERSION_NAME = "3.4.6.c";
+    static final int VERSION_CODE = 30409;
     static final String NAME = "AnantPlay Sinhala Player";
     private AppInfo() { }
 }

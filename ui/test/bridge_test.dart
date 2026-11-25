@@ -89,8 +89,8 @@ void main() {
     expect(pending.version, '3.4.6.b');
   });
 
-  test('playUrl sends the open method with url/headers/title keys', () async {
-    await AnantPlay.instance.playUrl('https://x.example/y.mp4',
+  test('openPlayer sends the open method with url/headers/title keys', () async {
+    await AnantPlay.instance.openPlayer('https://x.example/y.mp4',
         headers: '{"Cookie":"a=b"}', title: 'Test');
     final call = calls.firstWhere((c) => c.method == 'open');
     expect(call.arguments,
@@ -151,5 +151,57 @@ void main() {
     expect(o.id, 3);
     expect(o.pass, isTrue);
     expect(o.ms, 120);
+  });
+
+  test('PlayerSession decodes the textureId + geometry map', () {
+    final s = PlayerSession.fromMap(<String, Object>{
+      'textureId': 7, 'videoWidth': 1920, 'videoHeight': 1080,
+    });
+    expect(s.textureId, 7);
+    expect(s.videoWidth, 1920);
+    expect(s.videoHeight, 1080);
+  });
+
+  test('PlayerFrame decodes the 4 Hz event shape with the Sinhala cue', () {
+    final f = PlayerFrame.fromMap(<String, Object>{
+      'positionMs': 42000, 'durationMs': 600000, 'bufferedMs': 90000,
+      'playing': true, 'buffering': false,
+      'videoWidth': 1280, 'videoHeight': 720,
+      'activeCueSi': 'ශ්‍රී ලංකාවේ සිනමාව', 'subtitleState': 'ready · 906 cues',
+    });
+    expect(f.positionMs, 42000);
+    expect(f.playing, isTrue);
+    expect(f.activeCueSi, contains('\u200d'));   // ZWJ preserved verbatim
+    expect(f.subtitleState, startsWith('ready'));
+  });
+
+  test('PlayerTrackGroup decodes the video quality ladder', () {
+    final groups = PlayerTrackGroup.decode(<Object>[
+      <String, Object>{
+        'type': 'video', 'selected': 0,
+        'tracks': <Object>[
+          <String, Object>{'index': 0, 'label': '1080p'},
+          <String, Object>{'index': 1, 'label': '720p'},
+        ],
+      },
+    ]);
+    expect(groups, hasLength(1));
+    expect(groups.first.type, 'video');
+    expect(groups.first.tracks.last.label, '720p');
+  });
+
+  test('SettingsMirror onboardingVersion: legacy done=true reads back as 1 (the upgrader gate)',
+      () {
+    final legacy = SettingsMirror.fromJavaMap(<String, Object>{
+      'onboardingDone': true,
+    });
+    expect(legacy.onboardingVersion, 1);
+    expect(legacy.onboardingCurrent, isFalse);
+    final fresh = SettingsMirror.fromJavaMap(<String, Object>{});
+    expect(fresh.onboardingVersion, 0);
+    final current = SettingsMirror.fromJavaMap(<String, Object>{
+      'onboardingDone': true, 'onboardingVersion': 2,
+    });
+    expect(current.onboardingCurrent, isTrue);
   });
 }
