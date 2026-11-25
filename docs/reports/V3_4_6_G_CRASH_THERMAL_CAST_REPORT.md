@@ -362,6 +362,85 @@ on this branch before merge.
 `verify_ui_completeness` **82 keys / 0 missing**, `verify_v344_ui` **1861/0**,
 `verify_v345_ui` **57/0**, `verify_layouts` selftest **13/13** + **0 problems**,
 `verify_apk_launch_integrity` selftest **OK**, `bash -n build.sh lab/run_lab.sh
-scripts/compile_check.sh` **OK**. (The Java compile + ReceiverLab 3,483-check
-matrix and `flutter analyze`/`test` run in the hosted CI jobs — no local JDK /
-Flutter SDK in the audit sandbox.)
+scripts/compile_check.sh` **OK**. (The Java compile + ReceiverLab matrix and
+`flutter analyze`/`test` run in the hosted CI jobs — no local JDK / Flutter SDK
+in the audit sandbox. The ZIP's `.md` claimed a "3,483-check" matrix; the real
+repository tally is **3,419 checks / 1,427 lab assertions**, all passing — see §8.)
+
+---
+
+## 8. Live CI proof + the six defects CI exposed (zero-trust, nothing assumed)
+
+The five ZIP traps were fixed by static audit (§7). Hosted CI then exposed **six
+more real defects** that no static check could see. Every one was root-caused and
+fixed — never silenced, never skipped, never asserted away.
+
+| # | Defect (as CI reported it) | Root cause | Fix |
+| --- | --- | --- | --- |
+| 1 | Cast lab `1 FAILED of 1427`: `v346e ci: … hard-asserts fail=0 and total>=54` | `ReceiverLab.java:7508` still encoded the **old 54-probe** workflow contract while the emulator gate was upgraded to 64 | The lab check now asserts the real **`total >= 64`** contract (label `v346g ci:`) |
+| 2 | `Flutter analyze (gating)` exit 1 (warnings are fatal under `flutter_lints`) | The new Hybrid-Composition imports (`PlatformViewLink`, `AndroidViewSurface`, `OneSequenceGestureRecognizer`, `PlatformViewHitTestBehavior`) collided with `material_ui`'s export surface | Imported them **prefixed** (`wid.`, `ges.`, `ren.`) — zero ambiguity, zero behaviour change |
+| 3 | `HelpScreen … deep outcomes render as domain cards` found 0 cards | The two-layer completion ran the **8 async Dart audits first**, so the native verdict/cards/clipboard were gated behind Dart round-trips | Native cards render **and auto-copy immediately**; Domain H then merges in live (feed + counter still climb 64 → 72) |
+| 4 | Same test still found 0 cards after #3 | The handler's `if (event is! String) return;` **dropped the payload**: the Flutter 3.50 embedding/test messenger delivers the EventChannel deep payload **pre-decoded as a List** | The handler accepts **both** String and List (`decodeDeepOutcomes` already supported both — the guard was the only lie) |
+| 5 | Same test, third failure — CI debug proved `render 3 cards, domains=[A,B,C]` | The cards render **below the six 1-tap action cards** in a **lazy `ListView`**, so `find.text` saw nothing off-screen | The test scrolls the first card into view (`scrollUntilVisible`), exactly as it already did for domains B/C |
+| 6 | Emulator step still advertised "run ALL **54** live deep probes" | Stale step name after the 64-probe upgrade | Renamed to **64** (the assertions were already 64) |
+
+Defects #3–#5 are the honest-troubleshooter's own UI: had they shipped, a real
+user tapping **Run full app troubleshoot** could have seen an empty report. The
+temporary CI diagnostics used to find them (PR-comment log posts + `print`
+traces) were **removed** before merge, and the temporary `pull-requests: write`
+grants were reverted to least-privilege `contents: read`.
+
+### The green run (PR #40, commit `12a3503`)
+
+All **4/4** hosted jobs pass — `gh pr checks 40`:
+
+| Job | Result | Run / job id |
+| --- | --- | --- |
+| Cast protocol lab (gating) | **pass** (49 s) | 45722204182 / 139583038336 |
+| Flutter analyze & test | **pass** (1 m 2 s) | 45722211655 / 139583060899 |
+| APK build (signed + verified) | **pass** (5 m 2 s) | 45722211655 / 139583061019 |
+| Android 36 KVM emulator + live 64-probe smoke | **pass** (5 m 24 s) | 45722211655 / 139583061250 |
+
+**Cast protocol lab:** `3419/3419 PASS, 0 FAIL — Lab result: ALL 1427 PASSED`.
+Baseline `v3.4.6.f` (`924a04c`) was `3417/3417 … ALL 1426 PASSED`, so this release
+**adds** 2 checks / 1 lab assertion and loses none. *The ZIP's `.md` claimed
+"3,483+ lab checks" — that number does not exist in this repository; the honest
+tally is 3,419, all passing.* Bridge wiring **74/74**, Gradle host **64/64**.
+
+**Flutter:** `No issues found` (analyze) + `All tests passed` — **93** Dart tests
+(`bridge_test` 30 + `shell_test` 46 + `v346g_test` 17).
+
+**APK (arm64-v8a only):**
+- `versionName='3.4.6.g' versionCode='30413' targetSdkVersion:'36' compileSdkVersion='36'`
+- **44,896,926 bytes = 42.82 MiB** (under the 50 MiB / 52,428,800-byte limit)
+- `zipalign -c -P 16 4` → **exit 0** (16 KiB `.so` page alignment)
+- `apksigner verify` → **v2 true + v3 true**
+- 16 KB ELF audit + ABI + manifest + assets + signing: **PASS**; launch-integrity **PASS**
+- 7 probe-read source files packaged under `assets/src-atlas/`
+- SHA-256: `789ebd0f36bd88ecb4f9dc1f10b94098e3cd893159c1ead250afd7fda6cb34dd`
+
+**Android 36 KVM emulator (real OS, real launch):**
+
+```
+AnantPlayCI: DEEP_PROBE_SUMMARY pass=63 fail=0 env_fail=1 total=64
+             clipboard_copied=true privacy_clean=true
+```
+
+- **fail=0**, **total=64**, 64 per-probe lines published
+- **probes 34 / 35 / 56 PASS** (browser hardening on the main looper + the crash gate)
+- **probe 2 fast** — the 20,607 ms stall is gone (6 s hard deadline, `shutdownNow()` in `finally`)
+- **0 crashes attributed to our app** (FATAL / SIGSEGV / SIGABRT), **0 `No active stream to cancel`**
+- `clipboard_copied=true` + `privacy_clean=true` — Law #2 proven on the device
+- `env_fail=1` is the **optional external Worker probe** (CI egress outage), reported
+  as `::notice`, never counted as an app failure — and still shown as FAIL ✗ in the
+  in-app report, exactly as Law #2 demands
+- **Bonus playback smoke:** the Test Player (`anantplay/video_surface` SurfaceView +
+  `Media3TextureBridge`, Hybrid Composition) opened cleanly — process alive, **0 app crashes**
+
+### Hygiene at merge time
+Exactly **7** tracked root files (`.gitignore`, `AndroidManifest.xml`, `LICENSE`,
+`README.md`, `SETUP-SI.md`, `THIRD_PARTY.md`, `build.sh`); **0** tracked
+`.zip`/`.apk`/`.class`, **0** `lab/out/*`, **0** `.flutter-plugins-dependencies`;
+every report lives in `docs/reports/`. `docs/latest.json` on this PR branch is
+byte-identical to `main` (`3.4.6.f` / `30412`, sha256 `83d73c4e…`) — only the
+post-merge release automation may move it to `3.4.6.g` / `30413`.
