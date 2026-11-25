@@ -139,9 +139,17 @@ public class App extends Application {
         // retry) — foreground service rules differ per entry point, so this is best
         // effort with the main activity as the reliable path. (Single-process app:
         // no WebView sandbox processes to skip, unlike AnantPlay's own App.)
+        // v3.4.6.e — a STANDING USER STOP survives the process restart: opening
+        // the app again must not silently re-arm what the user stopped on Home
+        // (the Home Start button — which clears the veto — is the one re-arm).
         try {
-            ReceiverService.arm(this, "app-start");
-            Troubleshooter.record("APP", "receiver arm requested (app-start)");
+            if (ReceiverService.userStopped()) {
+                Diag.i("app", "standing user stop — receiver stays off until Start is tapped");
+                Troubleshooter.record("APP", "receiver NOT auto-armed (standing user stop)");
+            } else {
+                ReceiverService.arm(this, "app-start");
+                Troubleshooter.record("APP", "receiver arm requested (app-start)");
+            }
         } catch (Throwable t) {
             Diag.w("app", "auto-arm: " + t);   // e.g. background FGS restrictions; MainActivity arms it
         }

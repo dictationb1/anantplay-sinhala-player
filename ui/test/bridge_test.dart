@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:anantplay_ui/anantplay/bridge.dart';
+import 'package:anantplay_ui/anantplay/deep_troubleshooter.dart';
 import 'package:anantplay_ui/anantplay/settings_mirror.dart';
 
 void main() {
@@ -203,5 +204,60 @@ void main() {
       'onboardingDone': true, 'onboardingVersion': 2,
     });
     expect(current.onboardingCurrent, isTrue);
+  });
+
+  // ══ v3.4.6.e — THE DEEP TROUBLESHOOT + PLAYER CONTROL CONTRACT ═══════════
+
+  test('playerSetOrientation sends the exact mode argument', () async {
+    await AnantPlay.instance.playerSetOrientation('landscape');
+    expect(calls.last.method, 'setOrientation');
+    expect(calls.last.arguments, <String, Object>{'mode': 'landscape'});
+  });
+
+  test('playerSwitchSubLanguage sends the exact lang argument', () async {
+    await AnantPlay.instance.playerSwitchSubLanguage('en');
+    expect(calls.last.method, 'switchSubLanguage');
+    expect(calls.last.arguments, <String, Object>{'lang': 'en'});
+  });
+
+  test('runDeepProbe / lastDeepResults / deepReport ride the troubleshoot channel',
+      () async {
+    await AnantPlay.instance.runDeepProbe();
+    expect(calls.last.method, 'runDeepProbe');
+    await AnantPlay.instance.lastDeepResults();
+    expect(calls.last.method, 'lastDeepResults');
+    final report = await AnantPlay.instance.deepReport();
+    expect(calls.last.method, 'deepReport');
+    expect(report, contains('AnantPlay Sinhala Player'));
+  });
+
+  test('decodeDeepOutcomes parses the domain-grouped outcome list', () {
+    final outcomes = decodeDeepOutcomes(<Object>[
+      <String, Object>{
+        'id': 1, 'domain': 'A', 'name': 'Tier-1 redirect',
+        'pass': true, 'ms': 120, 'detail': '302 resolved',
+      },
+      <String, Object>{
+        'id': 8, 'domain': 'B', 'name': 'Stop Receiver',
+        'pass': false, 'ms': 40, 'detail': 'running == true',
+      },
+    ]);
+    expect(outcomes, hasLength(2));
+    expect(outcomes.first.domain, 'A');
+    expect(outcomes.first.pass, isTrue);
+    expect(outcomes.last.domain, 'B');
+    expect(outcomes.last.pass, isFalse);
+    // The domain titles resolve.
+    expect(DeepDomain.titleOf('A'), 'Auto-Updater Law');
+    expect(DeepDomain.titleOf('E'), 'Cinema Player & Subtitles');
+  });
+
+  test('decodeDeepOutcomes parses a JSON string payload + rejects junk', () {
+    final outcomes = decodeDeepOutcomes(
+        '[{"id":1,"domain":"A","name":"x","pass":true,"ms":5,"detail":"d"}]');
+    expect(outcomes, hasLength(1));
+    expect(outcomes.first.name, 'x');
+    expect(decodeDeepOutcomes('deep probe failed: boom'), isEmpty);
+    expect(decodeDeepOutcomes(null), isEmpty);
   });
 }

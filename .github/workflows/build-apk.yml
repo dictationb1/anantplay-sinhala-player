@@ -11,7 +11,7 @@ name: Build Sinhala Player APK
 #   · android/local.properties is NEVER committed: CI writes it from FLUTTER_ROOT.
 #
 # v3.4.5 kept: reproducible-APK notes, build-tools 35.0.1 hard requirement, and
-# the version-lock assertions (3.4.6.d / 30410 everywhere).
+# the version-lock assertions (3.4.6.e / 30411 everywhere).
 env:
   TZ: UTC
 
@@ -50,14 +50,14 @@ jobs:
           GRADLE_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)
           APPINFO_VERSION=$(sed -n 's/.*VERSION_NAME = "\([^"]*\)".*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
           APPINFO_CODE=$(sed -n 's/.*VERSION_CODE = \([0-9]*\).*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
-          # v3.4.6.d — THE PERMANENT ALPHABETICAL LANE: X.Y.Z[.a-z], NO ceiling.
-          # The exact 3.4.6.d / 30410 lock is THIS release's identity; the shape
+          # v3.4.6.e — THE PERMANENT ALPHABETICAL LANE: X.Y.Z[.a-z], NO ceiling.
+          # The exact 3.4.6.e / 30411 lock is THIS release's identity; the shape
           # gate guarantees the pipeline itself can never reject a future
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.d"
-          test "$CODE" = "30410"
+          test "$VERSION" = "3.4.6.e"
+          test "$CODE" = "30411"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -405,14 +405,14 @@ jobs:
           GRADLE_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle | head -1)
           APPINFO_VERSION=$(sed -n 's/.*VERSION_NAME = "\([^"]*\)".*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
           APPINFO_CODE=$(sed -n 's/.*VERSION_CODE = \([0-9]*\).*/\1/p' src/lk/techworld/anantplay/sicast/AppInfo.java | head -1)
-          # v3.4.6.d — THE PERMANENT ALPHABETICAL LANE: X.Y.Z[.a-z], NO ceiling.
-          # The exact 3.4.6.d / 30410 lock is THIS release's identity; the shape
+          # v3.4.6.e — THE PERMANENT ALPHABETICAL LANE: X.Y.Z[.a-z], NO ceiling.
+          # The exact 3.4.6.e / 30411 lock is THIS release's identity; the shape
           # gate guarantees the pipeline itself can never reject a future
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.d"
-          test "$CODE" = "30410"
+          test "$VERSION" = "3.4.6.e"
+          test "$CODE" = "30411"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -792,14 +792,14 @@ jobs:
           set -euo pipefail
           VERSION=$(sed -n 's/^VERSION_NAME=${VERSION_NAME:-\([^}]*\)}$/\1/p' build.sh | head -1)
           CODE=$(sed -n 's/^VERSION_CODE=${VERSION_CODE:-\([^}]*\)}$/\1/p' build.sh | head -1)
-          # v3.4.6.d — THE PERMANENT ALPHABETICAL LANE: X.Y.Z[.a-z], NO ceiling.
-          # The exact 3.4.6.d / 30410 lock is THIS release's identity; the shape
+          # v3.4.6.e — THE PERMANENT ALPHABETICAL LANE: X.Y.Z[.a-z], NO ceiling.
+          # The exact 3.4.6.e / 30411 lock is THIS release's identity; the shape
           # gate guarantees the pipeline itself can never reject a future
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.d"
-          test "$CODE" = "30410"
+          test "$VERSION" = "3.4.6.e"
+          test "$CODE" = "30411"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 

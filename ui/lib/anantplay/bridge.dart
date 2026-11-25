@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'settings_mirror.dart';
+import 'deep_troubleshooter.dart';
 
 const MethodChannel _cast = MethodChannel('anantplay/cast');
 const MethodChannel _player = MethodChannel('anantplay/player');
@@ -374,6 +375,9 @@ class AnantPlay {
   Stream<UpdaterEvent>? _updaterStream;
   Stream<UpdateGateEvent>? _gateStream;
   Stream<List<ProbeOutcome>>? _probeStream;
+  // v3.4.6.e — the raw anantplay/troubleshoot frames (deep results + live
+  // progress), cached beside the typed legacy streams.
+  Stream<dynamic>? _rawTroubleStream;
   Stream<OnboardingStatus>? _onboardingStream;
   Stream<InstallEvent>? _installStream;
 
@@ -384,6 +388,7 @@ class AnantPlay {
     _updaterStream = null;
     _gateStream = null;
     _probeStream = null;
+    _rawTroubleStream = null;
     _onboardingStream = null;
     _installStream = null;
     _officialVersionStream = null;
@@ -421,6 +426,25 @@ class AnantPlay {
     return _probeStream ??= _troubleEvents
         .receiveBroadcastStream()
         .map((e) => _decodeOutcomes(e));
+  }
+
+  /// v3.4.6.e — THE DEEP-RESULT FRAMES, RAW: the anantplay/troubleshoot
+  /// events channel carries BOTH the 10-point legacy frames AND the deep
+  /// run's payloads — the final full outcome list (a JSON string) and the
+  /// per-probe progress frames ({t:'deep', done:n, total:54, outcome:{…}}).
+  /// The typed [probeResults] stream pre-decodes every event into the
+  /// 10-point ProbeOutcome shape, so the Help screen listens HERE and does
+  /// its own routing (deep JSON list → the domain cards; deep progress →
+  /// the live counter).
+  Stream<dynamic> rawTroubleEvents() {
+    return _rawTroubleStream ??= _troubleEvents.receiveBroadcastStream();
+  }
+
+  /// v3.4.6.e — the live deep-run progress frames only ({t:'deep', …}).
+  Stream<Map<dynamic, dynamic>> deepProgressEvents() {
+    return rawTroubleEvents()
+        .where((e) => e is Map && e['t'] == 'deep')
+        .cast<Map<dynamic, dynamic>>();
   }
 
   static List<ProbeOutcome> _decodeOutcomes(Object? event) {
@@ -609,6 +633,20 @@ class AnantPlay {
       _player.invokeMethod('selectTrack', {'type': type, 'index': index});
   Future<List<PlayerTrackGroup>> playerTracks() async =>
       PlayerTrackGroup.decode(await _player.invokeMethod('tracks'));
+
+  /// v3.4.6.e — REAL orientation control on the host activity: 'auto' =
+  /// FULL_SENSOR free rotation, 'landscape' / 'portrait' = real locks via
+  /// Activity.setRequestedOrientation; 'dispose' restores UNSPECIFIED.
+  Future<void> playerSetOrientation(String mode) =>
+      _player.invokeMethod('setOrientation', {'mode': mode});
+
+  /// v3.4.6.e — the subtitle LANGUAGE switch: re-fetches/re-applies the cue
+  /// pipeline for the selected language code ('si' | 'en' | …) on the live
+  /// session (the native side re-runs findSubs with the language). The
+  /// language ALSO persists as K_DEFAULT_LANG so future sessions match.
+  Future<void> playerSwitchSubLanguage(String lang) =>
+      _player.invokeMethod('switchSubLanguage', {'lang': lang});
+
   Future<void> playerDispose() => _player.invokeMethod('dispose');
 
   /// The player position EventChannel: {positionMs, durationMs, bufferedMs,
@@ -735,6 +773,22 @@ class AnantPlay {
     final raw = await _trouble.invokeMethod('lastResults');
     return _decodeOutcomes(raw);
   }
+
+  /// v3.4.6.e — THE 54-PROBE DEEP TROUBLESHOOTER: launches the 6-domain
+  /// full-app run (A Auto-Updater Law · B Home & Cast · C Settings &
+  /// Customizations · D Browser · E Cinema Player & Subtitles · F
+  /// Permissions & Privacy). The outcomes arrive on the troubleshoot events
+  /// stream; decodeDeepOutcomes (deep_troubleshooter.dart) parses them.
+  Future<void> runDeepProbe() => _trouble.invokeMethod('runDeepProbe');
+
+  /// The last completed deep run's outcomes (a fresh start answers []).
+  Future<List<DeepOutcome>> lastDeepResults() async =>
+      decodeDeepOutcomes(await _trouble.invokeMethod('lastDeepResults'));
+
+  /// The full structured privacy-safe report (Status Summary + Domains A–F +
+  /// Last Crash + Timeline) — the clipboard auto-copy payload.
+  Future<String> deepReport() async =>
+      await _trouble.invokeMethod('deepReport') as String;
 }
 
 extension<T> on Stream<T> {

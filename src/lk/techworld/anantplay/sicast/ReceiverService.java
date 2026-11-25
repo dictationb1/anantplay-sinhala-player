@@ -135,6 +135,9 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     /** Best-effort arm from any entry point (app start, boot, tile). */
     static void arm(Context c, String why) {
         Diag.i("service", "arm (" + why + ") from " + c.getClass().getSimpleName());
+        // v3.4.6.e — arming clears the user's stop veto (Start Receiver on
+        // Home is the one surface allowed to undo an explicit stop).
+        userStop = false;
         try {
             c.startForegroundService(new Intent(c, ReceiverService.class));
         } catch (Throwable t) {
@@ -150,9 +153,82 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         }
     }
 
+    /**
+     * v3.4.6.e — THE REAL STOP (the Home-tab "Stop Receiver" dead-button fix).
+     *
+     * <p>The v3.4.6.d path was `stopService(new Intent(...))` from MainActivity:
+     * an ASYNCHRONOUS ask that races the one 400 ms postDelayed status push —
+     * if the service teardown lands after that push, Flutter keeps rendering
+     * "Active · Ready for Cast" and the button looks dead. This entry is the
+     * deterministic contract the Home hero card needs:
+     *
+     * <ul>
+     *   <li><b>userStop = true</b> — the process-sticky restart gets a clean
+     *       veto: {@link #onStartCommand} and {@link #onTaskRemoved} refuse to
+     *       re-arm while it is set, and onCreate() aborts a resurrected start
+     *       (the START_STICKY zombie a HyperOS restart can deliver);</li>
+     *   <li><b>both lanes</b> — the explicit ACTION_STOP start (onStartCommand:
+     *       stopForeground(STOP_FOREGROUND_REMOVE) + stopSelf()) AND the plain
+     *       stopService() are issued together, so whichever one the vendor
+     *       build honors first wins and the other is a no-op;</li>
+     *   <li><b>running is cleared HERE</b> — port()/isUp() answer "down" the
+     *       moment this call returns, not whenever onDestroy happens to land.</li>
+     * </ul>
+     *
+     * <p>Re-arming (the Home Start button, {@link #arm}) clears the veto.
+     *
+     * @param c any context (the activity or the app)
+     * @return the ACTION_STOP intent that was issued (never null)
+     */
+    static android.content.Intent requestStop(Context c) {
+        Diag.i("service", "stop by user (requestStop)");
+        userStop = true;
+        try { Troubleshooter.record("APP", "receiver stop requested (user)"); } catch (Throwable ignored) { }
+        android.content.Intent stop = new Intent(c, ReceiverService.class).setAction(ACTION_STOP);
+        try { c.startService(stop); } catch (Throwable t) {
+            // A background start may be refused; the stopService lane below is
+            // still there, and running is already null (the honest state).
+            Diag.w("service", "ACTION_STOP start refused: " + t);
+        }
+        try { c.stopService(new Intent(c, ReceiverService.class)); } catch (Throwable ignored) { }
+        ReceiverService s = running;
+        if (s != null) {
+            // Synchronous local teardown so isUp()/port() answer "down" NOW.
+            try { s.stopNow(); } catch (Throwable ignored) { }
+        }
+        running = null;   // the honest state the moment the user asked
+        return stop;
+    }
+
+    /** v3.4.6.e — the in-object synchronous teardown (requestStop's core). */
+    private void stopNow() {
+        try {
+            if (Build.VERSION.SDK_INT >= 24) {
+                stopForeground(android.app.Service.STOP_FOREGROUND_REMOVE);
+            } else {
+                stopForeground(true);
+            }
+        } catch (Throwable ignored) { }
+        stopSelf();
+    }
+
+    /** v3.4.6.e — the user's explicit stop veto (cleared by every arm). */
+    private static volatile boolean userStop;
+
+    /** v3.4.6.e — the veto state (the lab and the troubleshooter read it). */
+    static boolean userStopped() { return userStop; }
+
     @Override
     public void onCreate() {
         super.onCreate();
+        if (userStop) {
+            // v3.4.6.e — the zombie veto: a START_STICKY resurrection after the
+            // user's explicit stop must NOT re-announce on the LAN. Tear down
+            // quietly; a future arm() clears the veto and re-arms for real.
+            Diag.w("service", "resurrected after a user stop — refusing to re-arm");
+            stopSelf();
+            return;
+        }
         running = this;
         // FIRST: satisfy the Android 12+/14+ foreground-service contract inside the 5 s
         // window. Nothing below may delay this — not port scanning, not mDNS.
@@ -267,6 +343,17 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         String a = intent == null ? null : intent.getAction();
         if (ACTION_STOP.equals(a)) {
             Diag.i("service", "stop by user");
+            // v3.4.6.e — REMOVE the foreground notification (the old bare
+            // stopSelf() left the persistent "ready for cast" notification
+            // alive after the receiver was down — the ghost a user reads as
+            // "the stop did nothing").
+            try {
+                if (Build.VERSION.SDK_INT >= 24) {
+                    stopForeground(android.app.Service.STOP_FOREGROUND_REMOVE);
+                } else {
+                    stopForeground(true);
+                }
+            } catch (Throwable ignored) { }
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -339,6 +426,11 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         try { stopForeground(true); } catch (Throwable ignored) { }   // no ghost notification
         Diag.i("service", "down");
         super.onDestroy();
+        // v3.4.6.e — THE INSTANT STATUS FLIP: the Home hero card re-renders the
+        // MOMENT the receiver is down (no 400 ms race with a postDelayed push).
+        // MainActivity.pushCastStatus is idempotent + null-sink-safe; a static
+        // forwarder keeps this file free of the activity reference.
+        try { MainActivity.notifyReceiverDown(); } catch (Throwable ignored) { }
     }
 
     @Override

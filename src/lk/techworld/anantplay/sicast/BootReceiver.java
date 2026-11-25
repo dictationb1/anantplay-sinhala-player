@@ -23,6 +23,13 @@ public class BootReceiver extends BroadcastReceiver {
             || "android.intent.action.HTC.QUICKBOOT_POWERON".equals(a);
         boolean updated = Intent.ACTION_MY_PACKAGE_REPLACED.equals(a);
         if (!boot && !updated) return;
+        // v3.4.6.e — a user's explicit Stop must SURVIVE a reboot's auto-arm
+        // (the phone re-boots, the receiver stays stopped until THEY start it).
+        // MY_PACKAGE_REPLACED always re-arms — an update is a fresh contract.
+        if (boot && ReceiverService.userStopped()) {
+            Diag.i("boot", "boot with a standing user stop — receiver stays off");
+            return;
+        }
         Diag.i("boot", (boot ? "boot completed" : "package replaced") + " — arming");
         ReceiverService.arm(c, boot ? "boot" : "update");
     }

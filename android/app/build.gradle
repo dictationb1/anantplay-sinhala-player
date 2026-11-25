@@ -47,8 +47,8 @@ android {
         applicationId = "lk.techworld.anantplay.sicast"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30410
-        versionName = "3.4.6.d"
+        versionCode = 30411
+        versionName = "3.4.6.e"
         multiDexEnabled = true
 
         // v3.4.6 — the CI contract is ONE arm64 artifact below 50 MiB. The Flutter

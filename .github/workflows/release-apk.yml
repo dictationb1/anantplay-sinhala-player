@@ -37,7 +37,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.4.6.c — no leading v)'
         required: true
-        default: '3.4.6.d'
+        default: '3.4.6.e'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -82,7 +82,7 @@ jobs:
           #
           #  A. LEGACY LANE (base ≤ 30406 — the already-shipped 3.4.0..3.4.6
           #     numerics and their a–z emergency letters): CODE = BASE + LETTER,
-          #     so 3.4.6.c=30409, 3.4.6.d=30410 (the permanent strict lock),
+          #     so 3.4.6.c=30409, 3.4.6.d=30410, 3.4.6.e=30411 (the permanent strict lock),
           #     3.4.6.e=30411 … 3.4.6.z=30432. These exact codes must never move:
           #     they are burned into shipped APKs and users' update paths.
           #
@@ -98,7 +98,7 @@ jobs:
           #     This is why the lane is multiplicative: a +1 letter step and a
           #     +1 patch step can never collide again (the 30407 = 3.4.6.a trap
           #     that originally forced "+9" hacks and a .d ceiling).
-          #     ≥ 30410 on entry, so the ladder never regresses past the live
+          #     ≥ 30411 on entry, so the ladder never regresses past the live
           #     3.4.6.d build, and the ceiling is Android's own 2.1e9.
           echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' || { echo "::error::version '$V' is not X.Y.Z[.a-z]"; exit 1; }
           MAJOR=$(echo "$V" | cut -d. -f1); MINOR=$(echo "$V" | cut -d. -f2); PATCH=$(echo "$V" | cut -d. -f3)
@@ -118,11 +118,11 @@ jobs:
             # B. WIDE LANE — 3.4.7 and every future release, letters included.
             CODE=$((MAJOR * 1000000 + MINOR * 10000 + PATCH * 100 + LETTER))
           fi
-          # ── the global monotonic guarantee: never below the live 3.4.6.d ────
-          # 3.4.6.d itself is 30410 (this release); everything after it must be
+          # ── the global monotonic guarantee: never below the live 3.4.6.e ────
+          # 3.4.6.e itself is 30411 (this release); everything after it must be
           # strictly higher, so no shipped build can ever be "updated" downward.
-          if [ "$V" = "3.4.6.d" ]; then
-            [ "$CODE" -eq 30410 ] || { echo "::error::3.4.6.d must derive exactly 30410 (got $CODE)"; exit 1; }
+          if [ "$V" = "3.4.6.e" ]; then
+            [ "$CODE" -eq 30411 ] || { echo "::error::3.4.6.e must derive exactly 30411 (got $CODE)"; exit 1; }
           else
             [ "$CODE" -gt 30410 ] || { echo "::error::derived versionCode $CODE for '$V' is not above the live 3.4.6.d (30410)"; exit 1; }
           fi

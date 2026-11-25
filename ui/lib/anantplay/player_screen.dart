@@ -287,6 +287,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
 
             // ── the bottom-anchored Sinhala subtitle ─────────────────────────
+            // v3.4.6.e — THE COMPACT CINEMA CONTRACT: crisp, readable, and
+            // NEVER covering the movie. maxWidth 82% of the viewport, up to 3
+            // wrapped lines at a tight 1.25 height, compact pill padding, and
+            // anchored near the bottom (4% landscape / 6% portrait default).
+            // The Sinhala ZWJ/ZWNJ shaping (ශ්‍රී) is preserved verbatim —
+            // the text is never re-encoded, only styled.
             if (!_hudVisible || hasVideo)
               Positioned(
                 left: 16,
@@ -294,21 +300,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 bottom: _subBottom(s),
                 child: IgnorePointer(
                   child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 6),
-                      decoration: _subDecoration(s),
-                      child: Text(
-                        _frame.activeCueSi,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontFamily: 'Noto Sans Sinhala',
-                          fontSize: _subFontSp(s).clamp(12.0, 36.0),
-                          height: _subLineHeight(s),
-                          color: _subColor(s),
-                          fontWeight: s.b(SettingsMirror.kSubBold, false)
-                              ? FontWeight.w700
-                              : FontWeight.w500,
+                    child: ConstrainedBox(
+                      // 82% of the video viewport — the pill can never grow to
+                      // full-screen width even at the 28sp slider ceiling.
+                      constraints: BoxConstraints(
+                        maxWidth:
+                            MediaQuery.sizeOf(context).width * 0.82,
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: _subDecoration(s),
+                        child: Text(
+                          _frame.activeCueSi,
+                          textAlign: TextAlign.center,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          softWrap: true,
+                          style: TextStyle(
+                            fontFamily: 'Noto Sans Sinhala',
+                            fontSize: _subFontSp(s),
+                            height: 1.25,
+                            color: _subColor(s),
+                            fontWeight: s.b(SettingsMirror.kSubBold, false)
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
                         ),
                       ),
                     ),
@@ -671,23 +688,38 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   // ── subtitle styling (live from the Subtitle Studio settings) ──────────────
+  //
+  // v3.4.6.e — THE COMPACT CINEMA DEFAULTS (the oversized-subtitle fix):
+  //   · size: 14sp portrait / 15sp landscape (was a flat 16), user range
+  //     10–28sp clamped HARD so even the largest setting never fills the
+  //     viewport (a 28sp 3-line cue still occupies under a third of the
+  //     height, and maxWidth 82% caps the width);
+  //   · anchor: 4% landscape / 6% portrait from the bottom (was 5%/8%);
+  //   · line height: a tight 1.25 (was spacing+0.35 ≈ 1.55).
 
   double _subBottom(SettingsMirror s) {
     final pct =
-        s.i(SettingsMirror.kSubBottomPct, 8).clamp(2, 35) / 100.0;
+        s.i(SettingsMirror.kSubBottomPct, 6).clamp(2, 35) / 100.0;
     final portrait =
         MediaQuery.sizeOf(context).height > MediaQuery.sizeOf(context).width;
-    // 8% portrait / 5% landscape default, from the studio setting.
-    final base = portrait ? 0.08 : 0.05;
+    // 6% portrait / 4% landscape default, from the studio setting.
+    final base = portrait ? 0.06 : 0.04;
     return MediaQuery.sizeOf(context).height * (pct > 0 ? pct : base);
   }
 
   double _subFontSp(SettingsMirror s) {
-    return s.i(SettingsMirror.kFontSpKey, 16).toDouble();
+    final portrait =
+        MediaQuery.sizeOf(context).height > MediaQuery.sizeOf(context).width;
+    final base = s.i(SettingsMirror.kFontSpKey, portrait ? 14 : 15);
+    // The compact cinema clamp: the user's slider runs 10–28sp and even the
+    // ceiling can never dominate the video window.
+    return base.toDouble().clamp(10.0, 28.0);
   }
 
   double _subLineHeight(SettingsMirror s) {
-    return (s.i(SettingsMirror.kSubLineSpacing, 100)).clamp(100, 150) / 100.0 + 0.35;
+    // v3.4.6.e — fixed tight 1.25 for the compact cinema line (the studio's
+    // line-spacing preference still drives the SHEET preview, not the movie).
+    return 1.25;
   }
 
   Color _subColor(SettingsMirror s) {
@@ -725,6 +757,47 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   // ── controls ───────────────────────────────────────────────────────────────
 
+  /// v3.4.6.e — the subtitle ENGINE rotation order (AppPrefs' 4-lane
+  /// whitelist): human-pa-free → human-free → free → worker-only → repeat.
+  String _nextSubEngine(SettingsMirror s) {
+    const order = [
+      'human-pa-free',
+      'human-free',
+      'free',
+      'worker',
+    ];
+    final current = s.s('subEngine', order.first);
+    final idx = order.indexOf(current);
+    return order[(idx < 0 ? 0 : idx + 1) % order.length];
+  }
+
+  /// v3.4.6.e — NewZone Translator handoff: the current title's NewZone
+  /// search URL, opened in the Browser tab (a real navigation, not a dead
+  /// row). tools.newzone.top is the speed-dial's subtitle-group engine.
+  void _openNewZoneTranslator() {
+    final q = (widget.request.title ?? '').isEmpty
+        ? widget.request.url
+        : (widget.request.title ?? '');
+    final url = 'https://tools.newzone.top/search?q=${Uri.encodeComponent(q)}';
+    ShellRootState.of(context).openBrowserTab(url);
+  }
+
+  /// v3.4.6.e — Audio → SRT: the receiver's live /subs/current.srt route
+  /// (VLC/MX/mpv read it from the LAN), copied to the clipboard for pasting
+  /// into an external player's subtitle field.
+  Future<void> _copySubsUrl() async {
+    final status = await AnantPlay.instance.currentCastStatus();
+    final port = status.port > 0 ? status.port : 8765;
+    final url = 'http://127.0.0.1:$port/subs/current.srt';
+    await Clipboard.setData(ClipboardData(text: url));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('External subtitle URL copied: $url'),
+        duration: const Duration(seconds: 3),
+      ));
+    }
+  }
+
   void _showLockHint() {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Locked — tap the unlock button'),
@@ -732,11 +805,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _rotate() async {
-    final portrait = MediaQuery.sizeOf(context).height >
-        MediaQuery.sizeOf(context).width;
-    await SystemChrome.setPreferredOrientations(portrait
-        ? [DeviceOrientation.landscapeLeft]
-        : [DeviceOrientation.portraitUp]);
+    // v3.4.6.e — REAL orientation control: a 3-way sheet (Auto = FULL_SENSOR
+    // free rotation, Landscape lock, Portrait lock) through the native
+    // setRequestedOrientation bridge. Was a Flutter-only preferred-orientation
+    // flip that Android 16 could ignore (the dead Rotate complaint).
+    showAppBottomSheet<void>(
+      context: context,
+      title: 'Rotation',
+      subtitle: 'Real activity orientation control',
+      builder: (sheet) => Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (label, mode) in const [
+              ('Auto-rotate (sensor)', 'auto'),
+              ('Landscape lock', 'landscape'),
+              ('Portrait lock', 'portrait'),
+            ])
+              ListTile(
+                dense: true,
+                leading: Icon(
+                  mode == 'auto'
+                      ? mi.Icons.screen_rotation_rounded
+                      : mode == 'landscape'
+                          ? mi.Icons.stay_current_landscape_rounded
+                          : mi.Icons.stay_current_portrait_rounded,
+                  size: 22,
+                ),
+                title: Text(label),
+                onTap: () async {
+                  await AnantPlay.instance.playerSetOrientation(mode);
+                  if (sheet.mounted) Navigator.pop(sheet);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+    _armHudTimer();
   }
 
   Future<void> _enterPip() async {
@@ -793,10 +900,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // language chips — v3.4.6.d — REAL work: the tap persists the
-              // default subtitle language (K_DEFAULT_LANG through the settings
-              // bridge — the native pipeline fetches in that language next);
-              // was a dead `onTap: () {}` (the fake-button defect class).
+              // language chips — v3.4.6.e — REAL LIVE SWITCH: the tap persists
+              // the default subtitle language (K_DEFAULT_LANG) AND re-fetches
+              // / re-applies the cues for that language on the LIVE session
+              // through playerSwitchSubLanguage (was a dead pref-only write —
+              // the movie's cues never changed).
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -804,6 +912,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     for (final (lang, code) in const [
                       ('සිංහල', 'si'),
                       ('English', 'en'),
+                      ('தமிழ்', 'ta'),
                     ])
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
@@ -811,9 +920,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           label: lang,
                           selected: s.s(SettingsMirror.kDefaultLang, 'si') ==
                               code,
-                          onTap: () => AppState.of(sheet)
-                              .scope
-                              .putString(SettingsMirror.kDefaultLang, code),
+                          onTap: () {
+                            AppState.of(sheet)
+                                .scope
+                                .putString(SettingsMirror.kDefaultLang, code);
+                            AnantPlay.instance
+                                .playerSwitchSubLanguage(code);
+                          },
                         ),
                       ),
                   ],
@@ -877,59 +990,88 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              // the sync stepper (live, the video keeps playing)
+              // the sync stepper (live, the video keeps playing) — v3.4.6.e:
+              // the FOUR explicit steps (-1s / -0.25s / +0.25s / +1s) with the
+              // cumulative offset read out live ("+0.25s" — shiftSubtitles
+              // applies each tap cumulatively on the native cue lookup).
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Sync',
+                    style: const TextStyle(fontSize: 13.5)),
+              ),
+              const SizedBox(height: 6),
               Row(
                 children: [
-                  const Text('Sync',
-                      style: TextStyle(fontSize: 13.5)),
-                  const Spacer(),
-                  _SmallGlassButton(
-                    icon: mi.Icons.remove_rounded,
-                    onTap: () async {
-                      final step = s.i(SettingsMirror.kSyncStepMs, 250);
-                      await AnantPlay.instance.shiftSubtitles(-step);
-                      setSheet(() {});
-                    },
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14),
-                    child: FutureBuilder<String>(
-                      future: AnantPlay.instance.subtitleStatus(),
-                      builder: (context, snap) => Text(
-                        snap.data ?? '',
-                        style: const TextStyle(
-                            fontSize: 12.5,
-                            color: Colors.white70),
+                  for (final (label, delta) in const [
+                    ('−1s', -1000),
+                    ('−0.25s', -250),
+                    ('+0.25s', 250),
+                    ('+1s', 1000),
+                  ])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _SmallGlassButton(
+                        icon: delta < 0
+                            ? mi.Icons.remove_rounded
+                            : mi.Icons.add_rounded,
+                        onTap: () async {
+                          await AnantPlay.instance.shiftSubtitles(delta);
+                          setSheet(() {});
+                        },
                       ),
                     ),
-                  ),
-                  _SmallGlassButton(
-                    icon: mi.Icons.add_rounded,
-                    onTap: () async {
-                      final step = s.i(SettingsMirror.kSyncStepMs, 250);
-                      await AnantPlay.instance.shiftSubtitles(step);
-                      setSheet(() {});
-                    },
+                  const Spacer(),
+                  FutureBuilder<String>(
+                    future: AnantPlay.instance.subtitleStatus(),
+                    builder: (context, snap) => Text(
+                      snap.data ?? '',
+                      style: const TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.white70),
+                    ),
                   ),
                 ],
               ),
+              // the step labels under the four buttons
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    for (final (label, _) in const [
+                      ('−1s', 0),
+                      ('−0.25s', 0),
+                      ('+0.25s', 0),
+                      ('+1s', 0),
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 26),
+                        child: Text(label,
+                            style: const TextStyle(
+                                fontSize: 10.5,
+                                color: Colors.white60)),
+                      ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 10),
               // the live style studio (the preview IS the player above)
+              // v3.4.6.e — the compact range: 10–28sp (was 12–36 — the
+              // oversized-subtitle fix; the clamped ceiling can never fill
+              // the viewport at 3 lines and 82% width).
               _SliderLine(
                 title: 'Size',
-                value: (_subFontSp(s) - 12) / 24,
+                value: (_subFontSp(s) - 10) / 18,
                 label: '${_subFontSp(s).round()}sp',
                 onChanged: (v) => AppState.of(sheet)
                     .scope
                     .putInt(SettingsMirror.kFontSpKey,
-                        (12 + v * 24).round().clamp(12, 36)),
+                        (10 + v * 18).round().clamp(10, 28)),
               ),
               _SliderLine(
                 title: 'Position',
-                value: (s.i(SettingsMirror.kSubBottomPct, 8) - 2) / 33,
+                value: (s.i(SettingsMirror.kSubBottomPct, 6) - 2) / 33,
                 label:
-                    '${s.i(SettingsMirror.kSubBottomPct, 8)}%',
+                    '${s.i(SettingsMirror.kSubBottomPct, 6)}%',
                 onChanged: (v) => AppState.of(sheet)
                     .scope
                     .putInt(SettingsMirror.kSubBottomPct,
@@ -939,26 +1081,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  icon: const Icon(mi.Icons.expand_more_rounded,
-                      size: 18),
+                  icon: const Icon(mi.Icons.expand_more_rounded, size: 18),
                   label: const Text('More tools'),
                   onPressed: () {
-                    // Retry / Provider / Register / Free translate —
-                    // each maps 1:1 onto the native pipeline.
+                    // Retry / Provider / Register / Free translate / NewZone /
+                    // Audio→SRT — each maps 1:1 onto the native pipeline.
                     showAppBottomSheet<void>(
                       context: sheet,
                       title: 'More subtitle tools',
                       builder: (more) => Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                            8, 4, 8, 20),
+                        padding: const EdgeInsets.fromLTRB(8, 4, 8, 20),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             for (final entry in const [
                               ('Retry search', 'retry'),
+                              ('Change provider', 'provider'),
                               ('Free translate now', 'free'),
                               ('Spoken register', 'spoken'),
                               ('Formal register', 'formal'),
+                              ('NewZone translator', 'newzone'),
+                              ('Audio → SRT (external players)', 'audiosrt'),
                             ])
                               ListTile(
                                 dense: true,
@@ -971,6 +1114,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       AnantPlay.instance.findSubtitles(
                                           widget.request.title ??
                                               widget.request.url);
+                                    case 'provider':
+                                      // v3.4.6.e — REAL provider rotation: the
+                                      // subtitle ENGINE priority cycles
+                                      // human-pa-free → human-free → free →
+                                      // worker-only, persisted (K_SUB_ENGINE),
+                                      // then the pipeline re-runs in the new
+                                      // lane (was: nothing — a dead row).
+                                      AppState.of(more).scope.putString(
+                                          'subEngine', _nextSubEngine(s));
                                     case 'free':
                                       // v3.4.6.d — REAL work: re-fetch the
                                       // current title's subtitles through the
@@ -987,6 +1139,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     case 'formal':
                                       AppState.of(more).scope.putString(
                                           'registerOverride', 'formal');
+                                    case 'newzone':
+                                      // v3.4.6.e — NewZone Translator: the
+                                      // speed-dial's subtitle-group search
+                                      // engine, opened on the current title in
+                                      // the Browser tab (real handoff, not a
+                                      // dead row).
+                                      _openNewZoneTranslator();
+                                    case 'audiosrt':
+                                      // v3.4.6.e — Audio → SRT: the live
+                                      // Sinhala cue track exported to the
+                                      // receiver's /subs/current.srt route any
+                                      // EXTERNAL player (VLC/MX/mpv) can read
+                                      // — the URL is copied for pasting.
+                                      _copySubsUrl();
                                   }
                                   Navigator.pop(more);
                                 },
