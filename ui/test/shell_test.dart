@@ -991,7 +991,15 @@ void main() {
       expect(find.byType(ForceUpdateScreen), findsOneWidget,
           reason: 'a failure never unlocks the gate');
       expect(find.text('Retry Update'), findsOneWidget);
+      // v3.4.6.e — the failure surface renders the screen's own user-facing
+      // reason ("The download failed. Check your connection and try again.")
+      // when the frame carries no reason string, and the RAW host reason when
+      // it does. The `failed` frame above carries one, so the payload text is
+      // what the user must see — and the gate must still have no exit.
       expect(find.textContaining('check your connection'), findsOneWidget);
+      expect(find.text('Skip'), findsNothing);
+      expect(find.text('Later'), findsNothing);
+      expect(find.text('Dismiss'), findsNothing);
     });
 
     testWidgets(
@@ -1122,12 +1130,27 @@ void main() {
     });
   });
 
-  // ══ v3.4.6.d — THE 1-TAP AUTO-COPY TROUBLESHOOT ═══════════════════════════
+  // ══ v3.4.6.e — THE 1-TAP AUTO-COPY TROUBLESHOOT (54-probe deep run) ════════
+  //
+  // v3.4.6.d asserted a 10-point frame decoded by the typed probeResults()
+  // stream. v3.4.6.e replaced that engine: the anantplay/troubleshoot channel
+  // now carries per-probe progress maps AND the final 54-outcome JSON STRING,
+  // which the Help tab routes through rawTroubleEvents() (the typed stream
+  // would have swallowed the string — the wiring bug this release fixed).
+  // The portable contract (all of its platform plumbing is mocked in this
+  // suite) is asserted here end-to-end: live counter → 54 outcomes → one
+  // silent clipboard write → the confirmation banner. Copy Again / Share are
+  // asserted in their own group above.
   group('troubleshoot auto-copy (1-tap, zero extra taps)', () {
     testWidgets(
-        'the moment 10 probes land, the report is on the clipboard + the pill shows',
+        'the moment the 54 probes land, the report is on the clipboard + the banner shows',
         (tester) async {
       mock.setMockMethodCallHandler(const MethodChannel('anantplay/troubleshoot'), (call) async {
+        if (call.method == 'deepReport') {
+          return 'AnantPlay Sinhala Player v3.4.6.e (30411) — 54/54 PASS\n'
+              '== Domain A — Auto-Updater Law ==\nPASS 1. Tier-1 302';
+        }
+        if (call.method == 'lastDeepResults') return '[]';
         return '[]';
       });
       await tester.pumpWidget(quiet(const HelpScreen()));
@@ -1136,28 +1159,51 @@ void main() {
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
       await tester.pump();
 
-      // The 10-probe result frame lands on the troubleshoot EventChannel.
-      final outcomes = <Object>[
-        for (var i = 1; i <= 10; i++)
-          <String, Object>{'id': i, 'name': 'probe $i', 'pass': true, 'ms': 12.0, 'detail': 'ok'},
-      ];
+      // Three live progress frames drive the "Running 54 deep feature probes…".
+      for (final done in [1, 27, 54]) {
+        await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+          'anantplay/troubleshoot/events',
+          const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+            't': 'deep', 'done': done, 'total': 54,
+            'outcome': <String, Object>{
+              'id': done, 'domain': 'A', 'name': 'probe $done',
+              'pass': true, 'ms': 5, 'detail': 'ok',
+            },
+          }),
+          (ByteData? data) {},
+        );
+        await tester.pump();
+      }
+      expect(find.text('Running 54 deep feature probes… 54/54'), findsOneWidget);
+
+      // The final full-run payload (a JSON string, exactly as the host sends it).
+      final buf = StringBuffer('[');
+      for (var i = 1; i <= 54; i++) {
+        if (i > 1) buf.write(',');
+        final domain = i <= 6 ? 'A' : (i <= 15 ? 'B' : (i <= 31 ? 'C' : (i <= 37 ? 'D' : (i <= 49 ? 'E' : 'F'))));
+        buf.write('{"id":$i,"domain":"$domain","name":"probe $i",'
+            '"pass":true,"ms":12,"detail":"ok"}');
+      }
+      buf.write(']');
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'anantplay/troubleshoot/events',
-        const StandardMethodCodec().encodeSuccessEnvelope(outcomes),
+        const StandardMethodCodec().encodeSuccessEnvelope(buf.toString()),
         (ByteData? data) {},
       );
       await tester.pump();
       await tester.pump();
 
-      // THE AUTO-COPY CONTRACT: zero extra tap and the report is on the
-      // clipboard with the 10/10 confirmation pill.
+      // THE AUTO-COPY CONTRACT: zero extra tap, the report is on the clipboard.
       final data = await Clipboard.getData('text/plain');
-      expect(data?.text, contains('10/10 PASS'));
-      expect(data?.text, contains('v3.4.6.d (30410)'));
-      expect(find.textContaining('10/10 Troubleshoot complete'), findsOneWidget);
-      // Copy Again + Share stay available below.
-      expect(find.text('Copy Again'), findsOneWidget);
-      expect(find.text('Share report'), findsOneWidget);
+      expect(data?.text, contains('v3.4.6.e (30411)'));
+      expect(data?.text, contains('54/54 PASS'));
+      // The banner confirms it, and the run is no longer "running".
+      expect(
+        find.text('54/54 Deep Troubleshoot complete — 100% '
+            'Privacy-Safe report auto-copied to clipboard ✓'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Running 54 deep feature probes'), findsNothing);
     });
   });
 

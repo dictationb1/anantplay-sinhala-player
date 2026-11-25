@@ -198,25 +198,10 @@ class _HelpScreenState extends State<HelpScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          StaggeredListItem(
-            index: 0,
-            child: _ActionCard(
-              icon: Icons.health_and_safety_rounded,
-              title: _running
-                  ? 'Running 54 deep feature probes… $_done/54'
-                  : _ranOnce || total > 0
-                      ? 'Run full app troubleshoot again'
-                      : 'Run full app troubleshoot',
-              subtitle: _running
-                  ? 'Live audit of every feature — settings are restored after.'
-                  : 'Every feature in the app · 54 probes · 6 domains · live results.',
-              onTap: _running ? null : _run,
-            ),
-          ),
           // v3.4.6.e — the AUTO-COPIED confirmation banner.
           if (_copied && !_running && total > 0)
             StaggeredListItem(
-              index: 1,
+              index: 0,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: Container(
@@ -248,6 +233,21 @@ class _HelpScreenState extends State<HelpScreen> {
                 ),
               ),
             ),
+          StaggeredListItem(
+            index: _copied && !_running && total > 0 ? 1 : 0,
+            child: _ActionCard(
+              icon: Icons.health_and_safety_rounded,
+              title: _running
+                  ? 'Running 54 deep feature probes… $_done/54'
+                  : _ranOnce || total > 0
+                      ? 'Run full app troubleshoot again'
+                      : 'Run full app troubleshoot',
+              subtitle: _running
+                  ? 'Live audit of every feature — settings are restored after.'
+                  : 'Every feature in the app · 54 probes · 6 domains · live results.',
+              onTap: _running ? null : _run,
+            ),
+          ),
           StaggeredListItem(
             index: 2,
             child: _ActionCard(

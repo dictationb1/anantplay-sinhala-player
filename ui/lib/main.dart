@@ -268,7 +268,14 @@ class ShellRootState extends State<ShellRoot> {
     if (_forceUpdateLock) {
       return ForceUpdateScreen(
         key: const ValueKey('force-update-gate'),
-        currentVersion: '3.4.6.d',
+        // v3.4.6.e — the installed version the gate's badge shows. This was a
+        // hardcoded '3.4.6.d' (v3.4.6.d's own identity) that the .e release
+        // left behind: every user would have been told they run .d while the
+        // package says .e. It is read from the gate frame the host resolved
+        // (AppInfo.VERSION_NAME on the native side) and never from a literal.
+        currentVersion: _lastGate?.current.isNotEmpty == true
+            ? _lastGate!.current
+            : '3.4.6.e',
         initialGate: _lastGate,
       );
     }
