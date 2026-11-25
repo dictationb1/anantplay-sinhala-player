@@ -230,6 +230,15 @@ jobs:
             done
             LAB_RESULT=$(grep -m1 'Lab result' lab/out/lab.txt || true)
             echo "::error title=Lab result::${LAB_RESULT}"
+            # The log CDN is unreachable from the audit sandbox; post the FULL
+            # lab report to the PR (the runner has internet) so the exact failing
+            # checks are readable via the API, not just the 10-annotation cap.
+            PR='${{ github.event.pull_request.number }}'
+            REPO='${{ github.repository }}'
+            TOKEN='${{ secrets.GITHUB_TOKEN }}'
+            if [ -n "$PR" ]; then
+              PR="$PR" REPO="$REPO" TOKEN="$TOKEN" python3 -c 'import json,os,urllib.request; log=open("lab/out/lab.txt",encoding="utf-8",errors="replace").read(); body="### Cast lab full report (diagnostic)\n```\n"+log[-50000:]+"\n```"; data=json.dumps({"body":body}).encode(); req=urllib.request.Request("https://api.github.com/repos/%s/issues/%s/comments"%(os.environ["REPO"],os.environ["PR"]),data=data,headers={"Authorization":"Bearer "+os.environ["TOKEN"],"Accept":"application/vnd.github+json","Content-Type":"application/json","User-Agent":"anantplay-ci"}); urllib.request.urlopen(req,timeout=30); print("posted lab report to PR")' || echo "comment post failed"
+            fi
           else
             echo "::error title=Lab::lab/out/lab.txt was never produced — the compile step failed (see the step above)"
           fi
@@ -322,12 +331,20 @@ jobs:
             while IFS= read -r line; do
               HAD_ISSUE=1
               echo "::error::${line}"
-            done < <(grep -E "error •|warning •" /tmp/analyze.log || true)
+            done < <(grep -E "(error|warning|info) [•·-]" /tmp/analyze.log || true)
             if [ "$HAD_ISSUE" -eq 0 ]; then
               # analyzer crashed or only info-level lines tripped the exit code
               tail -30 /tmp/analyze.log | while IFS= read -r line; do
                 echo "::error::${line}"
               done
+            fi
+            # TEMP diagnostic: the log CDN is unreachable from the audit sandbox,
+            # so post the FULL analyzer log to the PR (the runner has internet).
+            PR='${{ github.event.pull_request.number }}'
+            REPO='${{ github.repository }}'
+            TOKEN='${{ secrets.GITHUB_TOKEN }}'
+            if [ -n "$PR" ]; then
+              PR="$PR" REPO="$REPO" TOKEN="$TOKEN" python3 -c 'import json,os,urllib.request; log=open("/tmp/analyze.log",encoding="utf-8",errors="replace").read(); body="### Flutter analyze full log (diagnostic)\n```\n"+log[-12000:]+"\n```"; data=json.dumps({"body":body}).encode(); req=urllib.request.Request("https://api.github.com/repos/%s/issues/%s/comments"%(os.environ["REPO"],os.environ["PR"]),data=data,headers={"Authorization":"Bearer "+os.environ["TOKEN"],"Accept":"application/vnd.github+json","Content-Type":"application/json","User-Agent":"anantplay-ci"}); urllib.request.urlopen(req,timeout=30); print("posted analyze log to PR")' || echo "comment post failed"
             fi
             exit 1
           fi

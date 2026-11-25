@@ -18,10 +18,10 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb, Factory;
-import 'package:flutter/gestures.dart' show OneSequenceGestureRecognizer;
-import 'package:flutter/rendering.dart' show PlatformViewHitTestBehavior;
+import 'package:flutter/gestures.dart' as ges show OneSequenceGestureRecognizer;
+import 'package:flutter/rendering.dart' as ren show PlatformViewHitTestBehavior;
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart' show PlatformViewLink, AndroidViewSurface;
+import 'package:flutter/widgets.dart' as wid show PlatformViewLink, AndroidViewSurface;
 import 'package:material_ui/material_ui.dart' hide Icons;
 import 'package:material_ui/material_ui.dart' as mi show Icons;
 
@@ -289,16 +289,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// Flutter HUD bars / subtitle overlay / modal sheets. If creation fails,
   /// latch the SurfaceProducer Texture fallback (never a black screen).
   Widget _nativeVideoSurface() {
-    return PlatformViewLink(
+    return wid.PlatformViewLink(
       viewType: 'anantplay/video_surface',
       surfaceFactory: (context, controller) {
-        return AndroidViewSurface(
+        return wid.AndroidViewSurface(
           controller: controller as AndroidViewController,
           // Empty recognizers + translucent hit test: taps fall through to the
           // PlayerScreen GestureDetector (HUD toggle / double-tap seek) instead
           // of being swallowed by the platform view.
-          gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
-          hitTestBehavior: PlatformViewHitTestBehavior.translucent,
+          gestureRecognizers: const <Factory<ges.OneSequenceGestureRecognizer>>{},
+          hitTestBehavior: ren.PlatformViewHitTestBehavior.translucent,
         );
       },
       onCreatePlatformView: (params) {

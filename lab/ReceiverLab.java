@@ -7505,8 +7505,8 @@ public class ReceiverLab {
             wk.contains("--ez ci_run_deep_probe true"));
         check("v346e ci: the emulator job polls AnantPlayCI logcat for the summary",
             wk.contains("logcat -d -s AnantPlayCI:I") && wk.contains("DEEP_PROBE_SUMMARY"));
-        check("v346e ci: the emulator job hard-asserts fail=0 and total>=54",
-            wk.contains("fail=0") && wk.contains("total >= 54"), "");
+        check("v346g ci: the emulator job hard-asserts fail=0 and total>=64",
+            wk.contains("fail=0") && wk.contains("total >= 64"), "");
         check("v346e ci: the emulator job publishes every probe into the step summary",
             wk.contains("AnantPlayCI: PROBE"));
     }
