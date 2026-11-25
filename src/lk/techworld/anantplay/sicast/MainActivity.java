@@ -2172,7 +2172,7 @@ public class MainActivity extends FlutterActivity {
                 // live) the bridge is actually rendering through it.
                 return true;
             }
-            @Override public boolean prefsCoverage() {
+            @Override public Map<String, Object> prefsCoverage() {
                 // v3.4.6.g — the auto-discovering BackedUpPrefsLeg probe's data
                 // source: EVERY backed-up key, read through the SAME normalizer
                 // the backup/restore path uses (never a hand-kept list).

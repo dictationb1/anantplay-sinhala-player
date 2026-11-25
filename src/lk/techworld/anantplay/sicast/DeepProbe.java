@@ -96,6 +96,27 @@ public final class DeepProbe {
      */
     static final int TOTAL_HINT = 68;
 
+    /**
+     * v3.4.6.g — THE ONE EXTERNAL-TRANSPORT SEAM.
+     *
+     * Probes 47 (E10) and E15 are the only probes that leave the device. The
+     * Android host leaves this null (real HttpURLConnection), the cast-protocol
+     * lab installs a fake so a 40-second offline lab never waits on real
+     * sockets, and the CI emulator keeps the real one (no egress there → an
+     * honest FAIL ✗ / env_fail, exactly as the workflow expects).
+     */
+    interface Transport {
+        /** True when the worker answers HTTP 200 on /health AND /api/resolve. */
+        boolean workerLive();
+        /** Run the free translator's live contract; true when it holds. */
+        boolean translateLive();
+    }
+
+    private static volatile Transport transport;
+
+    /** The lab seam: null restores the real network behavior. */
+    static void setTransport(Transport t) { transport = t; }
+
     public interface Hooks {
         // ── the transactional snapshot/restore core ─────────────────────────
         /** A copy of EVERY relevant preference, key → value (Objects). */
@@ -892,6 +913,17 @@ public final class DeepProbe {
      */
     static Outcome probeE15(Listener l) {
         Outcome o = new Outcome(0, "E", "");
+        Transport seam = transport;
+        if (seam != null) {
+            boolean ok = false;
+            try { ok = seam.translateLive(); } catch (Throwable ignored) { }
+            o.pass = ok;
+            o.envFail = !ok;
+            o.detail = ok
+                ? "English → Sinhala live ✓ · 2/2 cues · ZWJ ශ්‍රී preserved ✓ (lab transport)"
+                : "FAIL — the keyless endpoints are unreachable; the engine retains the source verbatim";
+            return o;
+        }
         try {
             final String zwjCanary = "\u0DC1\u0DCA\u200D\u0DBB\u0DD3";   // ශ්‍රී
             List<Cue> test = new ArrayList<>();
@@ -1188,6 +1220,21 @@ public final class DeepProbe {
         Outcome o = new Outcome(0, "E", "");
         int health = h.workerHealthHttp();
         int resolve = h.workerResolveHttp();
+        // v3.4.6.g — the seam only short-circuits when a lab transport is set;
+        // the shipped Android path always reads the REAL socket codes.
+        Transport t = transport;
+        if (t != null) {
+            boolean live = t.workerLive();
+            boolean free = t.translateLive();
+            o.pass = live && free;
+            o.envFail = !live && free;
+            o.detail = live
+                ? "worker /health 200 ✓ · /api/resolve 200 ✓ · free translator ✓ (lab transport)"
+                : "FAIL — Worker unreachable (HTTP " + health + " / HTTP " + resolve
+                    + "): subtitles fall back to the local translator"
+                    + " · free translator " + (free ? "✓" : "✗");
+            return o;
+        }
         // The free translator contract, executed live: translate one real
         // cue through the exact engine (a live translation OR the documented
         // offline retention — reported HONESTLY either way below).

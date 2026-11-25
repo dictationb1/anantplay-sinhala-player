@@ -7023,6 +7023,26 @@ public class ReceiverLab {
             return conjunct.equals("ශ්‍රී ලංකා") && conjunct.indexOf('\u200D') >= 0;
         }
         @Override public boolean playerBridgeLive() { return true; }
+        // v3.4.6.g — the new host contracts (the SHIPPED host answers live).
+        @Override public boolean playerMainThreadGuard() { return true; }
+        @Override public boolean castForegroundSignal() { return true; }
+        @Override public boolean surfaceViewWired() { return true; }
+        @Override public java.util.Map<String, Object> prefsCoverage() {
+            return new java.util.LinkedHashMap<>(prefs);
+        }
+    }
+
+    /**
+     * v3.4.6.g — THE LAB TRANSPORT: the two external legs (worker 47 + the
+     * free translator E15) are faked so the offline cast-protocol lab is fast
+     * and deterministic. `workerUp` flips both (that is exactly how a phone
+     * behaves: a dead worker leaves the local translator as the only option).
+     */
+    static final class LabTransport implements DeepProbe.Transport {
+        boolean workerUp;
+        LabTransport(boolean workerUp) { this.workerUp = workerUp; }
+        @Override public boolean workerLive() { return workerUp; }
+        @Override public boolean translateLive() { return true; }
     }
 
     /** THE 54-probe matrix executes end-to-end: every domain, every row. */
@@ -7031,6 +7051,7 @@ public class ReceiverLab {
         hooks.prefs.put(AppPrefs.K_THEME_MODE, "dark");
         hooks.prefs.put(AppPrefs.K_ACCENT, 0);
         hooks.prefs.put(AppPrefs.K_RECEIVER_NAME, "Lab Receiver");
+        DeepProbe.setTransport(new LabTransport(true));   // v3.4.6.g: worker + translator up
         java.util.List<DeepProbe.Outcome> results = DeepProbe.runAll(hooks, null);
         int total = results.size();
         // v3.4.6.g — the matrix grew by the 5 new probes this release ships
@@ -7304,6 +7325,7 @@ public class ReceiverLab {
         // GAP #5 — the CI fail / env_fail split (real engine, not source-only).
         LabHooks envHooks = new LabHooks();
         envHooks.workerHealth = 0;   // optional external outage on the CI emulator
+        DeepProbe.setTransport(new LabTransport(false));  // v3.4.6.g: worker down (env)
         java.util.List<DeepProbe.Outcome> envResults = DeepProbe.runAll(envHooks, null);
         String envSummary = DeepProbe.ciSummaryLine(envResults, true, true);
         java.util.Map<String, String> envKv = new java.util.LinkedHashMap<>();
@@ -7318,10 +7340,11 @@ public class ReceiverLab {
         check("v346g gap5: the worker outage is env_fail, not an app failure",
             envEnv >= 1 && envEnv <= 2 && "0".equals(envKv.get("fail")), envSummary);
         DeepProbe.Outcome worker = null;
-        for (DeepProbe.Outcome o : envResults) if (o.id == 47) worker = o;
-        if (worker == null) worker = envResults.get(46);   // probe 47, id 47
-        check("v346f gap5: probe 47 STILL prints FAIL ✗ to the user",
-            !worker.pass && worker.detail.contains("HTTP 0"), worker.detail);
+        for (DeepProbe.Outcome o : envResults)
+            if (o.name != null && o.name.contains("Worker /health")) worker = o;
+        check("v346f gap5: the worker probe STILL prints FAIL ✗ to the user",
+            worker != null && !worker.pass && worker.detail.contains("HTTP 0"),
+            worker == null ? "worker probe not found" : worker.detail);
         check("v346f gap5: workflow parses env_fail at a token boundary",
             workflow.contains("env_fail=[0-9]+") && workflow.contains("::notice title=deep-probe env_fail")
                 && workflow.contains("No active stream to cancel"));
@@ -7334,6 +7357,7 @@ public class ReceiverLab {
         };
         brokenHooks.workerHealth = 0;   // keep the env_fail controlled
         brokenHooks.workerResolve = 0;
+        DeepProbe.setTransport(new LabTransport(false));  // v3.4.6.g: worker down (env)
         java.util.List<DeepProbe.Outcome> brokenResults = DeepProbe.runAll(brokenHooks, null);
         String brokenSummary = DeepProbe.ciSummaryLine(brokenResults, true, true);
         java.util.Map<String, String> brokenKv = new java.util.LinkedHashMap<>();
@@ -7562,6 +7586,7 @@ public class ReceiverLab {
 
         // The summary line, parsed exactly like the workflow does.
         LabHooks hooks = new LabHooks();
+        DeepProbe.setTransport(new LabTransport(true));   // v3.4.6.g: worker + translator up
         java.util.List<DeepProbe.Outcome> results = DeepProbe.runAll(hooks, null);
         int total = results.size();
         int pass = DeepProbe.passCount(results);
@@ -7574,9 +7599,10 @@ public class ReceiverLab {
         }
         check("v346e ci: the summary starts with the polled key",
             summary.startsWith("DEEP_PROBE_SUMMARY "), summary);
-        check("v346e ci: the summary carries pass/fail/total",
+        int envFail = Integer.parseInt(kv.getOrDefault("env_fail", "0"));
+        check("v346e ci: the summary carries pass/fail/env_fail/total",
             String.valueOf(pass).equals(kv.get("pass"))
-                && String.valueOf(total - pass).equals(kv.get("fail"))
+                && String.valueOf(total - pass - envFail).equals(kv.get("fail"))
                 && String.valueOf(total).equals(kv.get("total")),
             summary);
         check("v346e ci: the summary carries clipboard_copied + privacy_clean",
