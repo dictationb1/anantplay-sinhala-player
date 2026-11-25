@@ -5280,7 +5280,8 @@ public class ReceiverLab {
         // ── 1. NO CEILING ANYWHERE: a–z only, and the old caps are gone ────────
         check("v346d LAW: SelfUpdater VERSION_PATTERN is a–z (no a–e ceiling)",
             upd.contains("VERSION_PATTERN = \"[0-9]+\\\\.[0-9]+\\\\.[0-9]+(\\\\.[a-z])?\"")
-                && !upd.contains("(\\\\.[a-e])?"), "the pending-metadata gate must accept .f/.g/…/.z");
+                && !upd.contains("[a-e]") && !upd.contains("[a-d]"),
+            "the pending-metadata gate must accept .f/.g/…/.z and carry no letter cap");
         // count the EXACT source literal "(\\\\.[a-z])?" in the raw file (the same
         // two-backslash text the shipped regex string carries), never a loose regex
         String coreRawA = readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdateCore.java");
@@ -5295,11 +5296,21 @@ public class ReceiverLab {
         check("v346d LAW: UpdateChecker.parse() maps the WHOLE alphabet (a→1 … z→26)",
             checker.contains("p.charAt(0) <= 'z'") && checker.contains("p.charAt(0) - 'a' + 1"),
             "3.4.6.z must parse to 26 — an 'e' ceiling would order .f as equal to 3.4.6");
-        check("v346d LAW: the release workflow derives X.Y.Z[.a-z] (no a–d cap) and refuses a regress",
-            relYml.contains("(\\\\.[a-z])?") && !relYml.contains("(\\.[a-d])?")
-                && relYml.contains("is not above the live 3.4.6.d (30410)")
-                && relYml.contains("LETTER=$((LETTER - 96))"),
-            "the workflow must derive .e…​.z arithmetically, never from a stale case list");
+        // Backslash-free anchors on purpose: the workflow is a YAML/shell file,
+        // so hand-written Java escapes for its regex text are a needless trap.
+        // The bracket classes below are unambiguous.
+        check("v346d LAW: the release workflow accepts [.a-z] and has no [.a-d] cap",
+            relYml.contains("[a-z])?$'") && !relYml.contains("[a-d])?$'"),
+            "the version shape gate must be X.Y.Z[.a-z] — an a–d cap is a ceiling");
+        check("v346d LAW: the workflow derives the letter arithmetically (never a stale case list)",
+            relYml.contains("LETTER=$((LETTER - 96))")
+                && !relYml.contains("d) LETTER=4")
+                && !relYml.contains("esac"),
+            ".e … .z must derive from the letter codepoint, not a hand-written case list");
+        check("v346d LAW: the workflow refuses any versionCode regress below the live build",
+            relYml.contains("is not above the live 3.4.6.d (30410)")
+                && relYml.contains("3.4.6.d must derive exactly 30410"),
+            "no derived code may sit at or below 30410 (except 3.4.6.d itself)");
         check("v346d LAW: build-apk.yml carries the 3.4.6.d / 30410 lock (the shipping identity)",
             buildYml.contains("test \"$VERSION\" = \"3.4.6.d\"") && buildYml.contains("test \"$CODE\" = \"30410\""));
         check("v346d LAW: the lab itself proves the whole alphabet by execution (no ceiling in the lab)",
