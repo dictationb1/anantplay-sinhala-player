@@ -2287,6 +2287,22 @@ public class ReceiverLab {
     static String readRepoFile(String path) throws Exception {
         return new String(java.nio.file.Files.readAllBytes(new java.io.File(path).toPath()), StandardCharsets.UTF_8);
     }
+
+    /**
+     * v3.4.6.e — read one scalar out of a flat JSON object. Deliberately tiny:
+     * the lab must not gain a JSON dependency, and the values it reads are all
+     * top-level string/number literals. Returns the RAW text (quotes stripped),
+     * or null when absent.
+     */
+    static String jsonScalar(String json, String key) {
+        if (json == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+            .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*(\"[^\"]*\"|[0-9]+)")
+            .matcher(json);
+        if (!m.find()) return null;
+        String v = m.group(1);
+        return v.startsWith("\"") ? v.substring(1, v.length() - 1) : v;
+    }
     // ════════════════════════════════════════════════════════════════════════
     // v3.1 — Bug 1: the LocalNet same-host matrix + the live DLNA E2E
     // (the 2026-11-22 16:36 "GET /dlna/desc.xml -> refused-nonlocal" proof)
@@ -7018,10 +7034,33 @@ public class ReceiverLab {
         String pubspec = readRepoFile("ui/pubspec.yaml");
         check("v346e id: ui/pubspec.yaml is 3.4.6+30411 (pure integer build)",
             pubspec.contains("version: 3.4.6+30411"));
-        // docs/latest.json stays at the LIVE v3.4.6.d (the updater's target).
+        // docs/latest.json — THE TWO-LEG CONTRACT, WITHOUT A HARDCODED VERSION.
+        // On a release branch it still points at the PREVIOUS live release (the
+        // post-merge release job is the only writer). On main, after that job
+        // ran, it points at THIS release. A hardcoded "must be 3.4.6.d" check
+        // asserted the branch state forever and went red the moment the release
+        // landed — the assertion, not the file, was wrong. The real invariants:
+        //   · it never claims a version NEWER than the app (no hand-edited bump),
+        //   · when it claims THIS version it must carry THIS versionCode and a
+        //     64-hex SHA-256 (the byte-identical artifact proof),
+        //   · when it is the previous release it must be strictly older.
         String latest = readRepoFile("docs/latest.json");
-        check("v346e id: docs/latest.json stays at the live 3.4.6.d (30410)",
-            latest.contains("\"version\":\"3.4.6.d\"") && latest.contains("\"code\":30410"));
+        String liveV = jsonScalar(latest, "version");
+        String liveC = jsonScalar(latest, "code");
+        String liveSha = jsonScalar(latest, "sha256");
+        boolean hex64 = liveSha != null && liveSha.matches("[0-9a-f]{64}");
+        boolean sameRelease = AppInfo.VERSION_NAME.equals(liveV);
+        boolean prevRelease = liveV != null && UpdateChecker.isNewer(AppInfo.VERSION_NAME, liveV);
+        check("v346e id: docs/latest.json is either this release or the previous one (never ahead)",
+            sameRelease || prevRelease, "version=" + liveV);
+        check("v346e id: docs/latest.json carries a 64-hex SHA-256", hex64, "sha=" + liveSha);
+        check("v346e id: docs/latest.json code matches its own version",
+            sameRelease ? String.valueOf(AppInfo.VERSION_CODE).equals(liveC)
+                        : (prevRelease && liveC != null && liveC.matches("[0-9]+")),
+            "version=" + liveV + " code=" + liveC);
+        check("v346e id: docs/latest.json apkUrl derives from its own version",
+            latest.contains("/releases/download/v" + liveV + "/AnantPlay-Sinhala-Player-v" + liveV + ".apk"),
+            "url does not derive from " + liveV);
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         check("v346e id: the release workflow defaults to 3.4.6.e and derives 30411",
             relYml.contains("default: '3.4.6.e'")
