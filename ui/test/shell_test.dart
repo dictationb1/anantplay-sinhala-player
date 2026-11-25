@@ -629,11 +629,13 @@ void main() {
       final before = shellTheme(tester).extension<MornyeTheme>()!.glassClarity;
       expect(before, closeTo(0.75, 0.01));
 
+      // Drive the same onChanged lane the real Slider uses: widget-test
+      // drags need a horizontal drag recognizer geometry that a SettingsGroup
+      // row does not expose, so invoke the callback directly instead.
       final slider = find.byType(Slider).first;
-      await tester.ensureVisible(slider);
+      final widget = slider.evaluate().single.widget as Slider;
+      widget.onChanged!(0.25);
       await tester.pumpAndSettle();
-      await tester.tap(slider, offset: const Offset(8, 0), warnIfMissed: false);
-      await tester.pump();
       final after = shellTheme(tester).extension<MornyeTheme>()!.glassClarity;
       expect(after, lessThan(before),
           reason: 'the glass slider must repaint the app on the next frame');

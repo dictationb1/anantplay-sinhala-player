@@ -1,3 +1,4 @@
+import 'dart:ui';
 // AnantPlay Sinhala Player v3.4.6.c — the Mornye Liquid-Glass shell entry.
 //
 // Hosts the vendored Mornye v5.4.0 engine (ui/lib/mornye_ui, LGPL-3.0-only)
@@ -41,6 +42,7 @@ import 'package:anantplay_ui/mornye_ui/widgets/mornye_chrome.dart';
 
 import 'anantplay/app_state.dart';
 import 'anantplay/bridge.dart';
+import 'anantplay/settings_mirror.dart';
 import 'anantplay/force_update_screen.dart';
 import 'anantplay/help_screen.dart';
 import 'anantplay/home_screen.dart';
@@ -122,7 +124,7 @@ class AnantPlayApp extends StatelessWidget {
 /// [AppState.of] during build, Flutter rebuilds + repaints the entire app the
 /// instant a preference changes (no restart, no setState in 40 screens).
 class _ThemedApp extends StatelessWidget {
-  const _ThemedApp({super.key});
+  const _ThemedApp();
 
   static const _accentColors = <Color>[
     Color(0xFF7FCDD0), Color(0xFFFFB340), Color(0xFF63D668),
@@ -137,12 +139,9 @@ class _ThemedApp extends StatelessWidget {
     final ThemeMode mode = modeId == 'system'
         ? ThemeMode.system
         : (modeId == 'light' ? ThemeMode.light : ThemeMode.dark);
-    // Read the platform brightness from the dispatcher: this widget sits
-    // ABOVE MaterialApp, where no MediaQuery exists yet.
-    final Brightness platform = PlatformDispatcher.instance.platformBrightness;
-    final Brightness effective = mode == ThemeMode.system ? platform
-        : (mode == ThemeMode.light ? Brightness.light : Brightness.dark);
-
+    // The platform dispatcher keeps system-brightness in sync with the
+    // rendering binding; MaterialApp resolves ThemeMode.system itself.
+    PlatformDispatcher.instance.platformBrightness;
     // Presets 0–6 map 1:1 onto MornyeAccent. A valid custom #RRGGBB or the
     // Material You seed overrides the seed roles on the derived ColorScheme.
     final int accentIndex = s.accent.clamp(0, _accentColors.length - 1);

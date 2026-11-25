@@ -67,9 +67,9 @@ public final class DeepProbe {
 
     /** One probe's outcome (immutable after finish). */
     public static final class Outcome {
-        public final int id;          // 1..56
-        public final String domain;   // A|B|C|D|E|F
-        public final String name;     // the feature's short name
+        public int id;                // 1..56 — guarded() may stamp a missing identity
+        public String domain;         // A|B|C|D|E|F
+        public String name;           // the feature's short name
         public boolean pass;
         public long ms;               // the probe's wall-clock latency
         public String detail = "";    // the fact line (PII-free by construction)
@@ -339,11 +339,9 @@ public final class DeepProbe {
         o.ms = System.currentTimeMillis() - t0;
         if (o.id <= 0) {
             // Keep the computed verdict; only stamp the missing identity.
-            Outcome fixed = new Outcome(id, domain, name);
-            fixed.pass = o.pass;
-            fixed.ms = o.ms;
-            fixed.detail = o.detail;
-            o = fixed;
+            o.id = id;
+            if (o.domain == null || o.domain.isEmpty()) o.domain = domain;
+            if (o.name == null || o.name.isEmpty()) o.name = name;
         }
         LAST.add(o);
         if (l != null) try { l.onProbeDone(o); } catch (Throwable ignored) { }
