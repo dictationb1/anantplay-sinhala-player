@@ -1,10 +1,31 @@
-// AnantPlay Sinhala Player v3.4.6 — the Dart side of the 8-channel bridge.
+// AnantPlay Sinhala Player v3.4.6.f — the Dart side of the 8-channel bridge.
 //
 // Every call maps 1:1 onto the Java host (MainActivity.configureFlutterEngine):
 //   anantplay/cast, /player, /subs, /browser, /settings, /history, /updater,
-//   /troubleshoot (+ the two EventChannels: cast status, updater progress).
+//   /troubleshoot (+ the five EventChannels: cast status, updater progress,
+//   player frames, troubleshoot events, shell routes).
 // The streaming/subtitle workhorse stays 100% native (PlayActivity); this
 // surface is the Mornye shell's window onto it.
+//
+// ── v3.4.6.f — THE SINGLETON BROADCAST HUB (the `No active stream to cancel`
+// killer) ────────────────────────────────────────────────────────────────────
+// v3.4.6.e called EventChannel(...).receiveBroadcastStream() SEPARATELY for
+// every feature stream — FOUR parallel products on 'anantplay/cast/events'
+// alone (cast status, officialVersion, onboardingStatus, install events) and
+// TWO on 'anantplay/updater/events' (updater banner + the force-update gate).
+// Each extra product REPLACED the binary messenger's message handler for that
+// channel name when its first listener attached, so whichever stream listened
+// LAST silently stole every event (the Home receiver card went dead), and a
+// stale product's cancel landed on a native channel with no active stream —
+// the exact `PlatformException(error, No active stream to cancel, null, null)`
+// the v3.4.6.e CrashLog captured, forwarded by the Dart crash reporter.
+//
+// THE LAW: one channel name = ONE `_ChannelHub` = ONE lazy native
+// subscription for the whole process lifetime, feeding ONE broadcast
+// StreamController that unlimited Dart consumers subscribe to. The native
+// side sees at most one onListen and ZERO cancels; every widget gets every
+// event; `hubStats()` counts the listens/cancels/errors for the honest
+// troubleshooter (Layer 1, bridge probe).
 import 'dart:async';
 import 'dart:convert';
 
@@ -23,9 +44,153 @@ const MethodChannel _history = MethodChannel('anantplay/history');
 const MethodChannel _updater = MethodChannel('anantplay/updater');
 const MethodChannel _trouble = MethodChannel('anantplay/troubleshoot');
 
-const EventChannel _castEvents = EventChannel('anantplay/cast/events');
-const EventChannel _updaterEvents = EventChannel('anantplay/updater/events');
-const EventChannel _troubleEvents = EventChannel('anantplay/troubleshoot/events');
+// ── v3.4.6.f — THE SINGLETON BROADCAST HUB ─────────────────────────────────
+
+/// One EventChannel name → ONE native subscription → ONE broadcast stream,
+/// for the entire app lifetime (never canceled, never duplicated).
+class _ChannelHub {
+  _ChannelHub._(this.name);
+
+  static final Map<String, _ChannelHub> _hubs = <String, _ChannelHub>{};
+
+  /// The one hub for a channel name (created on first use).
+  static _ChannelHub of(String name) =>
+      _hubs.putIfAbsent(name, () => _ChannelHub._(name));
+
+  /// Test seam: dispose every hub so a fresh scope can start clean.
+  @visibleForTesting
+  static void resetAll() {
+    for (final h in _hubs.values.toList(growable: false)) {
+      h._dispose();
+    }
+    _hubs.clear();
+  }
+
+  final String name;
+  StreamController<dynamic>? _controller;
+  StreamSubscription<dynamic>? _nativeSub;
+  bool _started = false;
+
+  // v3.4.6.f — the honest audit counters (Layer 1 bridge probe reads these).
+  int nativeListens = 0;
+  int nativeCancels = 0;
+  int streamErrors = 0;
+
+  /// The broadcast stream every consumer subscribes to. The FIRST subscriber
+  /// starts the ONE native listen; later subscribers attach to the same
+  /// controller; the last unsubscribe leaves the native stream alive (at most
+  /// one onListen per channel for the app lifetime — zero cancel storms).
+  Stream<dynamic> get stream {
+    final c = _controller ??=
+        StreamController<dynamic>.broadcast(onListen: _startNative);
+    return c.stream;
+  }
+
+  void _startNative() {
+    if (_started) return;
+    _started = true;
+    nativeListens++;
+    _nativeSub = EventChannel(name).receiveBroadcastStream().listen(
+          (dynamic event) => _controller?.add(event),
+          onError: (Object error) {
+            // Counted, NEVER an uncaught zone error (the v3.4.6.e crash was
+            // exactly an unhandled PlatformException here).
+            streamErrors++;
+            debugPrint('bridge hub $name stream error ($streamErrors): $error');
+          },
+          cancelOnError: false,
+        );
+  }
+
+  void _dispose() {
+    _started = false;
+    final sub = _nativeSub;
+    _nativeSub = null;
+    // A dispose (test reset only) is the single legitimate cancel path.
+    unawaited(sub?.cancel().then((_) {}, onError: (Object _) {}));
+    nativeCancels++;
+    unawaited(_controller?.close());
+    _controller = null;
+  }
+}
+
+/// v3.4.6.f — the honest hub health snapshot (Layer 1 of the deep
+/// troubleshooter): the native listen count per channel and any error that
+/// ever crossed a hub (a healthy bridge answers `listens <= 1, errors == 0`).
+class BridgeHubStats {
+  const BridgeHubStats({
+    required this.channel,
+    required this.nativeListens,
+    required this.nativeCancels,
+    required this.streamErrors,
+  });
+
+  final String channel;
+  final int nativeListens;
+  final int nativeCancels;
+  final int streamErrors;
+
+  @override
+  String toString() =>
+      '$channel listens=$nativeListens cancels=$nativeCancels errors=$streamErrors';
+}
+
+/// v3.4.6.f — the installed build identity (the REAL one, from the native
+/// side; never a hardcoded literal again).
+class AppBuildInfo {
+  const AppBuildInfo({required this.versionName, required this.versionCode});
+
+  final String versionName;
+  final int versionCode;
+
+  static AppBuildInfo fromMap(Object? map) {
+    final m = map is Map ? map : const <dynamic, dynamic>{};
+    return AppBuildInfo(
+      versionName: (m['versionName'] as String?) ?? '',
+      versionCode: (m['versionCode'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+/// v3.4.6.f — the DART MIRROR of UpdateChecker.isNewer (Java): strictly-newer
+/// four-segment comparison with the whole a–z alphabetical lane, so the Dart
+/// gate (ShellRoot + ForceUpdateScreen) enforces LAW #1 identically:
+/// 3.4.6 < 3.4.6.a < … < 3.4.6.e < 3.4.6.f < … < 3.4.6.z < 3.4.7.
+/// `v3.4.6.f → v3.4.6.f` answers FALSE — the self-lock is impossible here.
+bool isNewerVersion(String? candidate, String? current) {
+  final List<int> a = _parseVersion(candidate);
+  final List<int> b = _parseVersion(current);
+  for (int i = 0; i < 4; i++) {
+    if (a[i] != b[i]) return a[i] > b[i];
+  }
+  return false;
+}
+
+/// The 4-segment parse with the a→z lane (1..26), junk-tolerant.
+List<int> _parseVersion(String? v) {
+  final out = [0, 0, 0, 0];
+  if (v == null) return out;
+  final parts = v.split(RegExp(r'[.\-+]'));
+  for (var i = 0; i < 4 && i < parts.length; i++) {
+    final p = parts[i];
+    if (i == 3) {
+      if (p.length == 1) {
+        final c = p.toLowerCase();
+        if (c.codeUnitAt(0) >= 'a'.codeUnitAt(0) &&
+            c.codeUnitAt(0) <= 'z'.codeUnitAt(0)) {
+          out[3] = c.codeUnitAt(0) - 'a'.codeUnitAt(0) + 1;
+        }
+      }
+      continue;
+    }
+    final digits = p.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) continue;
+    out[i] = int.tryParse(digits) ?? 0;
+  }
+  return out;
+}
+
+// ── the typed event payloads (unchanged shapes) ─────────────────────────────
 
 /// The live receiver status (anantplay/cast).
 class CastStatus {
@@ -52,6 +217,17 @@ class CastStatus {
       mdns: map['mdns'] == true,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      other is CastStatus &&
+      other.up == up &&
+      other.port == port &&
+      other.discoverable == discoverable &&
+      other.mdns == mdns;
+
+  @override
+  int get hashCode => Object.hash(up, port, discoverable, mdns);
 }
 
 /// v3.4.6.b — one frame of the onboarding permission/install snapshot the
@@ -371,17 +547,27 @@ class AnantPlay {
   AnantPlay._();
   static final AnantPlay instance = AnantPlay._();
 
+  // v3.4.6.f — the FIVE channel names that carry events (one hub each).
+  static const _castEventsName = 'anantplay/cast/events';
+  static const _updaterEventsName = 'anantplay/updater/events';
+  static const _troubleEventsName = 'anantplay/troubleshoot/events';
+  static const _shellEventsName = 'anantplay/shell/events';
+  static const _playerEventsName = 'anantplay/player/events';
+
+  // The lazily-cached feature views over the five singleton hubs.
   Stream<CastStatus>? _castStream;
   Stream<UpdaterEvent>? _updaterStream;
   Stream<UpdateGateEvent>? _gateStream;
   Stream<List<ProbeOutcome>>? _probeStream;
-  // v3.4.6.e — the raw anantplay/troubleshoot frames (deep results + live
-  // progress), cached beside the typed legacy streams.
   Stream<dynamic>? _rawTroubleStream;
   Stream<OnboardingStatus>? _onboardingStream;
   Stream<InstallEvent>? _installStream;
+  Stream<OfficialVersionEvent>? _officialVersionStream;
+  Stream<Map<dynamic, dynamic>>? _shellRouteStream;
+  Stream<PlayerFrame>? _frameStream;
 
-  /// Test seam: drops the cached broadcast streams so a fresh scope can listen.
+  /// Test seam: dispose the hubs so a fresh scope can listen (the cached
+  /// feature streams re-attach lazily on their next request).
   @visibleForTesting
   void resetStreams() {
     _castStream = null;
@@ -392,20 +578,52 @@ class AnantPlay {
     _onboardingStream = null;
     _installStream = null;
     _officialVersionStream = null;
+    _shellRouteStream = null;
+    _frameStream = null;
+    _ChannelHub.resetAll();
   }
+
+  /// v3.4.6.f — the honest bridge health snapshot (one stats row per event
+  /// channel; a healthy bridge shows nativeListens ≤ 1 and streamErrors == 0
+  /// — the Layer 1 audit's bridge probe).
+  List<BridgeHubStats> hubStats() => [
+        _ChannelHub.of(_castEventsName),
+        _ChannelHub.of(_updaterEventsName),
+        _ChannelHub.of(_troubleEventsName),
+        _ChannelHub.of(_shellEventsName),
+        _ChannelHub.of(_playerEventsName),
+      ]
+          .map((h) => BridgeHubStats(
+                channel: h.name,
+                nativeListens: h.nativeListens,
+                nativeCancels: h.nativeCancels,
+                streamErrors: h.streamErrors,
+              ))
+          .toList(growable: false);
+
+  /// v3.4.6.f — the REAL installed identity (native AppInfo; the Dart side
+  /// must never hardcode a version literal again).
+  Future<AppBuildInfo> appInfo() async =>
+      AppBuildInfo.fromMap(await _updater.invokeMethod('appInfo'));
 
   /// The live receiver status stream (pushed on every change + resume).
   Stream<CastStatus> castStatus() {
-    return _castStream ??= _castEvents
-        .receiveBroadcastStream()
+    return _castStream ??= _ChannelHub.of(_castEventsName)
+        .stream
+        // v3.4.6.f — GAP #4: the cast channel is SHARED with onboardingStatus,
+        // officialVersion and installEvents. Without this discriminator every
+        // one of those frames decodes as `up:false` and kills the Home card.
+        .where((e) => e is Map &&
+            (e['t'] == 'castStatus' ||
+                (!e.containsKey('t') && e.containsKey('up'))))
         .map(CastStatus.fromMap)
         .startWith(currentCastStatus());
   }
 
   /// The live updater event stream (glass banner's data source).
   Stream<UpdaterEvent> updaterEvents() {
-    return _updaterStream ??= _updaterEvents
-        .receiveBroadcastStream()
+    return _updaterStream ??= _ChannelHub.of(_updaterEventsName)
+        .stream
         .map((e) => UpdaterEvent.fromMap(e as Map));
   }
 
@@ -414,8 +632,8 @@ class AnantPlay {
   /// shell locks the whole app behind ForceUpdateScreen the moment an
   /// `available` frame arrives with a strictly newer `next`.
   Stream<UpdateGateEvent> updateGateEvents() {
-    return _gateStream ??= _updaterEvents
-        .receiveBroadcastStream()
+    return _gateStream ??= _ChannelHub.of(_updaterEventsName)
+        .stream
         .where((e) => e is Map && e['t'] == 'gate')
         .cast<Map<dynamic, dynamic>>()
         .map(UpdateGateEvent.fromMap);
@@ -423,8 +641,8 @@ class AnantPlay {
 
   /// The probe-completion stream (10/10 outcomes, pushed when a run ends).
   Stream<List<ProbeOutcome>> probeResults() {
-    return _probeStream ??= _troubleEvents
-        .receiveBroadcastStream()
+    return _probeStream ??= _ChannelHub.of(_troubleEventsName)
+        .stream
         .map((e) => _decodeOutcomes(e));
   }
 
@@ -437,7 +655,7 @@ class AnantPlay {
   /// its own routing (deep JSON list → the domain cards; deep progress →
   /// the live counter).
   Stream<dynamic> rawTroubleEvents() {
-    return _rawTroubleStream ??= _troubleEvents.receiveBroadcastStream();
+    return _rawTroubleStream ??= _ChannelHub.of(_troubleEventsName).stream;
   }
 
   /// v3.4.6.e — the live deep-run progress frames only ({t:'deep', …}).
@@ -501,14 +719,13 @@ class AnantPlay {
 
   /// The officialVersion event stream ({t:'officialVersion', installed, version}).
   Stream<OfficialVersionEvent> officialVersionEvents() {
-    return _officialVersionStream ??= _castEvents
-        .receiveBroadcastStream()
+    return _officialVersionStream ??= _ChannelHub.of(_castEventsName)
+        .stream
         .where((e) => e is Map && e['t'] == 'officialVersion')
         .cast<Map<dynamic, dynamic>>()
         .map(OfficialVersionEvent.fromMap);
   }
 
-  Stream<OfficialVersionEvent>? _officialVersionStream;
 
   // ── v3.4.6.b — the unbreakable onboarding finish + in-app installer ─────────
 
@@ -530,16 +747,16 @@ class AnantPlay {
   /// The onboardingStatus stream: the host pushes a fresh frame on every
   /// resume, so auto-advance and every Enabled ✓ pill reflect live state.
   Stream<OnboardingStatus> onboardingStatusEvents() {
-    return _onboardingStream ??= _castEvents
-        .receiveBroadcastStream()
+    return _onboardingStream ??= _ChannelHub.of(_castEventsName)
+        .stream
         .map(OnboardingStatus.fromMap)
         .where((s) => s != OnboardingStatus.unknown);
   }
 
   /// Slide 2's installer stream (installProgress/installState frames).
   Stream<InstallEvent> installEvents() {
-    return _installStream ??= _castEvents
-        .receiveBroadcastStream()
+    return _installStream ??= _ChannelHub.of(_castEventsName)
+        .stream
         .map((e) => e is Map ? InstallEvent.fromMap(e) : null)
         .where((e) => e != null)
         .cast<InstallEvent>()
@@ -608,13 +825,12 @@ class AnantPlay {
   /// and renders the Mornye Player or switches to the Browser tab. The blob
   /// shape: {t: 'play'|'web', url, headers, title, test, startMs}.
   Stream<Map<dynamic, dynamic>> shellRoutes() {
-    return _shellRouteStream ??= EventChannel('anantplay/shell/events')
-        .receiveBroadcastStream()
+    return _shellRouteStream ??= _ChannelHub.of(_shellEventsName)
+        .stream
         .where((e) => e is Map)
         .map((e) => e as Map<dynamic, dynamic>);
   }
 
-  Stream<Map<dynamic, dynamic>>? _shellRouteStream;
 
   /// The live player status snapshot (the cast server's /status JSON).
   Future<String> playerState() async => await _player.invokeMethod('state');
@@ -652,12 +868,11 @@ class AnantPlay {
   /// The player position EventChannel: {positionMs, durationMs, bufferedMs,
   /// playing, buffering, videoWidth, videoHeight, activeCueSi, subtitleState}.
   Stream<PlayerFrame> playerFrames() {
-    return _frameStream ??= EventChannel('anantplay/player/events')
-        .receiveBroadcastStream()
+    return _frameStream ??= _ChannelHub.of(_playerEventsName)
+        .stream
         .map(PlayerFrame.fromMap);
   }
 
-  Stream<PlayerFrame>? _frameStream;
 
   // ── v3.4.6.c — the in-shell subtitle pipeline (the proven native engine) ──
 
@@ -735,6 +950,11 @@ class AnantPlay {
 
   Future<ImportPreview> importPreview(String json) async =>
       ImportPreview.fromMap(await _settings.invokeMethod('importPreview', {'json': json}));
+
+  /// v3.4.6.f — the REAL backup apply (SettingsBackup validates + applies and
+  /// returns the applied count + the fresh live snapshot).
+  Future<Map<dynamic, dynamic>> importBackup(String json) async =>
+      (await _settings.invokeMethod('importBackup', {'json': json})) as Map;
 
   Future<void> resetAll() => _settings.invokeMethod('resetAll');
 

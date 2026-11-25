@@ -133,6 +133,48 @@ public class WebBrowserView extends FrameLayout {
     /** True when embedded in the Flutter shell (all Java chrome omitted). */
     private boolean headless;
 
+    /** v3.4.6.f — the deep probe reads the ACTUAL construction policy. */
+    boolean isHeadless() { return headless; }
+
+    // v3.4.6.f — GAP #4: runtime hardening facts, captured from the REAL
+    // WebSettings after configuration and read by DeepProbe's browser hooks.
+    private static volatile boolean lastMixedNever =
+        android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW ==
+        android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW;
+    private static volatile boolean lastFileAccess = false;
+    private static volatile boolean lastContentAccess = false;
+    private static volatile boolean lastHeadless = true;
+
+    /** The real WebSettings state (never a hardcoded probe result). */
+    static boolean[] liveHardeningState() {
+        WebBrowserView v = androidAppView;
+        if (v != null && v.web != null) {
+            android.webkit.WebSettings s = v.web.getSettings();
+            lastMixedNever = s.getMixedContentMode() ==
+                android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW;
+            lastFileAccess = s.getAllowFileAccess();
+            lastContentAccess = s.getAllowContentAccess();
+        }
+        return new boolean[]{
+            lastMixedNever, !lastFileAccess, !lastContentAccess,
+            BridgeGuard.blobCapConfigured(), BridgeGuard.blobGuardConfigured(),
+        };
+    }
+
+    /** The actual headless policy of the Flutter PlatformView lane. */
+    static boolean platformViewHeadless() { return lastHeadless; }
+
+    private static volatile WebBrowserView androidAppView;
+
+    private void noteRuntimeState(android.webkit.WebSettings s) {
+        lastMixedNever = s.getMixedContentMode() ==
+            android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW;
+        lastFileAccess = s.getAllowFileAccess();
+        lastContentAccess = s.getAllowContentAccess();
+        lastHeadless = headless;
+        androidAppView = this;
+    }
+
     private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
     /**
@@ -309,6 +351,7 @@ public class WebBrowserView extends FrameLayout {
         if (Build.VERSION.SDK_INT >= 21) s.setMixedContentMode(mixedContentCompat
             ? WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             : WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        noteRuntimeState(s);   // v3.4.6.f — the deep probe reads these live facts
         // THE POPUP BLOCKER: no window.open targets at all — redirect popups of
         // streaming sites die right here instead of covering the video.
         s.setSupportMultipleWindows(true);

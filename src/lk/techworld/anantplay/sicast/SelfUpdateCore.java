@@ -105,6 +105,11 @@ final class SelfUpdateCore {
     }
 
     // ── v3.2.0 — THE BACKOFF GATE (pure — the lab proves the whole contract) ──
+    // v3.4.6.f — LAW #2: the check network timeouts are 5 s connect /
+    // 8 s read (the v3.4.6.e field log stalled 32,891 ms on docs/latest.json
+    // inside the troubleshooter — a check may never hang like that).
+    static final int CHECK_CONNECT_MS = 5000;
+    static final int CHECK_READ_MS = 8000;
 
     /** The app-open success cooldown: automatic checks run at most every 5 min. */
     static final long MIN_CHECK_INTERVAL_MS = 5 * 60 * 1000L;
@@ -190,14 +195,22 @@ final class SelfUpdateCore {
     }
 
     /** The observable-redirect core: HEAD → 302 → Location's /tag/vX.Y.Z tail.
+     *  v3.4.6.f — 5 s connect / 8 s read (LAW #2: never a 32-second hang).
      *  Public-contract seam: the lab passes its own connection factory. */
     static String resolveLatestTagByRedirect(String releasesLatestUrl) throws Exception {
+        return resolveLatestTagByRedirect(releasesLatestUrl, CHECK_CONNECT_MS, CHECK_READ_MS);
+    }
+
+    /** The tunable-timeout overload (the deep troubleshooter drives 5 s/6 s
+     *  so the whole run finishes < 12 s; the updater keeps 5 s/8 s). */
+    static String resolveLatestTagByRedirect(String releasesLatestUrl,
+                                             int connectMs, int readMs) throws Exception {
         HttpURLConnection c = openConnection(releasesLatestUrl);
         try {
             c.setRequestMethod("HEAD");
             c.setInstanceFollowRedirects(false);     // the 302 is the ANSWER, not a chase
-            c.setConnectTimeout(8000);
-            c.setReadTimeout(10000);
+            c.setConnectTimeout(connectMs);
+            c.setReadTimeout(readMs);
             c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36");
             int code = c.getResponseCode();
             if (code != 302 && code != 303 && code != 307) return null;   // 200 = no releases
@@ -415,9 +428,15 @@ final class SelfUpdateCore {
     }
 
     static String httpGet(String url) throws Exception {
+        return httpGet(url, CHECK_CONNECT_MS, CHECK_READ_MS);
+    }
+
+    /** v3.4.6.f — the tunable-timeout GET (the troubleshooter drives 5 s/6 s
+     *  per probe so the entire run finishes < 12 seconds). */
+    static String httpGet(String url, int connectMs, int readMs) throws Exception {
         HttpURLConnection c = openConnection(url);
-        c.setConnectTimeout(8000);
-        c.setReadTimeout(15000);
+        c.setConnectTimeout(connectMs);
+        c.setReadTimeout(readMs);
         c.setRequestProperty("Accept", "application/json, text/plain;q=0.9, */*;q=0.8");
         try {
             if (c.getResponseCode() != 200) return null;

@@ -1,3 +1,4 @@
+import 'dart:ui';
 // AnantPlay Sinhala Player v3.4.6.c — the Mornye Liquid-Glass shell entry.
 //
 // Hosts the vendored Mornye v5.4.0 engine (ui/lib/mornye_ui, LGPL-3.0-only)
@@ -33,6 +34,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:anantplay_ui/mornye_ui/theme/mornye_theme.dart';
+import 'package:anantplay_ui/mornye_ui/theme/app_tokens.dart';
 import 'package:anantplay_ui/mornye_ui/models/theme_settings.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_preparation.dart';
 import 'package:anantplay_ui/mornye_ui/theme/mornye_icons.dart';
@@ -40,6 +42,7 @@ import 'package:anantplay_ui/mornye_ui/widgets/mornye_chrome.dart';
 
 import 'anantplay/app_state.dart';
 import 'anantplay/bridge.dart';
+import 'anantplay/settings_mirror.dart';
 import 'anantplay/force_update_screen.dart';
 import 'anantplay/help_screen.dart';
 import 'anantplay/home_screen.dart';
@@ -104,18 +107,150 @@ class AnantPlayApp extends StatelessWidget {
     return ProviderScope(
       child: AppStateScope(
         child: MornyeGlassPreparation(
-          child: MaterialApp(
-            title: 'AnantPlay Player',
-            debugShowCheckedModeBanner: false,
-            theme: MornyeTheme.build(
-              Brightness.dark,
-              accent: MornyeAccent.teal,
-              glassClarity: 0.75,
-            ),
-            home: const ShellRoot(),
-          ),
+          // v3.4.6.f — GAP #1: the ONE place that builds the app's ThemeData.
+          // A hardcoded MaterialApp here meant every Settings slider wrote a
+          // pref but painted nothing until a cold restart. _ThemedApp reads
+          // AppState on EVERY rebuild, so the very next frame after any
+          // customization repaints the whole tree.
+          child: const _ThemedApp(),
         ),
       ),
+    );
+  }
+}
+
+/// v3.4.6.f — the live Mornye theme bridge. Every appearance key the Studio
+/// writes flows through [AppStateNotifier] into this widget; because it reads
+/// [AppState.of] during build, Flutter rebuilds + repaints the entire app the
+/// instant a preference changes (no restart, no setState in 40 screens).
+class _ThemedApp extends StatelessWidget {
+  const _ThemedApp();
+
+  static const _accentColors = <Color>[
+    Color(0xFF7FCDD0), Color(0xFFFFB340), Color(0xFF63D668),
+    Color(0xFF64D2FF), Color(0xFF7E7FF0), Color(0xFFF07FD0), Color(0xFFFF6482),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppState.of(context).settings;
+    final String modeId = s.themeMode;
+    final bool amoled = modeId == 'amoled';
+    final ThemeMode mode = modeId == 'system'
+        ? ThemeMode.system
+        : (modeId == 'light' ? ThemeMode.light : ThemeMode.dark);
+    // The platform dispatcher keeps system-brightness in sync with the
+    // rendering binding; MaterialApp resolves ThemeMode.system itself.
+    PlatformDispatcher.instance.platformBrightness;
+    // Presets 0–6 map 1:1 onto MornyeAccent. A valid custom #RRGGBB or the
+    // Material You seed overrides the seed roles on the derived ColorScheme.
+    final int accentIndex = s.accent.clamp(0, _accentColors.length - 1);
+    final MornyeAccent accent = MornyeAccent.values[accentIndex];
+    final String hex = s.accentHex.trim();
+    final int? custom = hex.length == 6 ? int.tryParse('FF$hex', radix: 16) : null;
+    final Color? override = custom != null
+        ? Color(custom)
+        : (s.dynamicColor ? const Color(0xFF6750A4) : null);
+
+    // 0.10–0.95 is the Studio's published glass range; "flat" force-blurs off.
+    final double clarity =
+        (s.i(SettingsMirror.kGlassClarity, 75) / 100.0).clamp(0.10, 0.95);
+    final bool flat =
+        s.s(SettingsMirror.kSurfaceStyle, 'glass') == 'flat';
+    final bool outlines = flat ? false : s.glassOutlines;
+
+    final ThemeData light = _themeFor(
+      s, Brightness.light, accent, override, clarity, outlines,
+      amoled: false,
+    );
+    final ThemeData dark = _themeFor(
+      s, Brightness.dark, accent, override, clarity, outlines,
+      amoled: amoled,
+    );
+    return MaterialApp(
+      title: 'AnantPlay Player',
+      debugShowCheckedModeBanner: false,
+      themeMode: mode,
+      theme: light,
+      darkTheme: dark,
+      home: const ShellRoot(),
+    );
+  }
+
+  static ThemeData _themeFor(
+    SettingsMirror s,
+    Brightness brightness,
+    MornyeAccent accent,
+    Color? override,
+    double clarity,
+    bool outlines, {
+    required bool amoled,
+  }) {
+    final String? font = switch (s.s(SettingsMirror.kUiFont, '')) {
+      '' => null,
+      final f => f,
+    };
+    final ThemeData base = MornyeTheme.build(
+      brightness,
+      accent: accent,
+      fontFamily: font,
+      glassClarity: clarity,
+      glassOutlines: outlines,
+    );
+    ColorScheme scheme = base.colorScheme;
+    if (override != null) {
+      scheme = scheme.copyWith(
+        primary: override,
+        onPrimary: override.computeLuminance() < 0.179
+            ? Colors.white
+            : Colors.black,
+        secondary: override,
+        onSecondary: Colors.white,
+      );
+    }
+    if (amoled && brightness == Brightness.dark) {
+      scheme = scheme.copyWith(
+        surface: Colors.black,
+        surfaceContainerLowest: Colors.black,
+        surfaceContainerLow: const Color(0xFF080808),
+        surfaceContainer: const Color(0xFF101010),
+        surfaceContainerHigh: const Color(0xFF161616),
+        surfaceContainerHighest: const Color(0xFF1C1C1C),
+      );
+    }
+    if (s.b(SettingsMirror.kMidnightDimmer, false)) {
+      final double dim = (s.i(SettingsMirror.kMidnightDimPct, 30) / 100.0)
+          .clamp(0.10, 0.70);
+      scheme = scheme.copyWith(
+        surface: Color.lerp(scheme.surface, Colors.black, dim) ?? scheme.surface,
+        surfaceContainerLowest:
+            Color.lerp(scheme.surfaceContainerLowest, Colors.black, dim) ??
+                scheme.surfaceContainerLowest,
+      );
+    }
+    final AppTokens tokens = base.extension<AppTokens>() ?? AppTokens.standard;
+    final String density = s.s(SettingsMirror.kDensity, 'comfortable');
+    final String radius = s.s('cardRadius', 'rounded');
+    final bool motion = s.motionEnabled;
+    final AppTokens liveTokens = tokens.copyWith(
+      radiusCard: radius == 'sharp'
+          ? 4
+          : (radius == 'apple-pill' ? 30 : tokens.radiusCard),
+      rowPaddingV: density == 'compact'
+          ? 10
+          : (density == 'spacious' ? 20 : tokens.rowPaddingV),
+      rowPaddingVCompact: density == 'compact' ? 6 : tokens.rowPaddingVCompact,
+      motionFast: motion ? tokens.motionFast : Duration.zero,
+      motionMedium: motion ? tokens.motionMedium : Duration.zero,
+      motionSlow: motion ? tokens.motionSlow : Duration.zero,
+    );
+    return base.copyWith(
+      colorScheme: scheme,
+      scaffoldBackgroundColor: scheme.surface,
+      extensions: [
+        for (final ThemeExtension<dynamic> e in base.extensions.values)
+          if (e is AppTokens) liveTokens else e,
+      ],
     );
   }
 }
@@ -175,6 +310,11 @@ class ShellRootState extends State<ShellRoot> {
   /// handoff when a pending APK re-arms the gate at boot).
   UpdateGateEvent? _lastGate;
 
+  /// v3.4.6.f — the REAL installed version (from the native appInfo method:
+  /// never a hardcoded literal — v3.4.6.e baked '3.4.6.e' into this file and
+  /// shipped it inside the .f build). Empty until the first appInfo reply.
+  String _installedVersion = '';
+
   StreamSubscription<UpdateGateEvent>? _gateSub;
 
   static ShellRootState of(BuildContext context) =>
@@ -192,14 +332,31 @@ class ShellRootState extends State<ShellRoot> {
   @override
   void initState() {
     super.initState();
+    // v3.4.6.f — the REAL installed identity (the gate's `current` string and
+    // the fallback below are read from native AppInfo — never a literal).
+    AnantPlay.instance.appInfo().then((info) {
+      if (!mounted) return;
+      setState(() => _installedVersion = info.versionName);
+    });
     // v3.4.6.d — THE MANDATORY GATE SUBSCRIPTION: the instant the host pushes
     // gate:available (a strictly newer release resolved through Tier-1/Tier-2,
     // zero api.github.com calls), the lock flips on and the whole app becomes
     // ForceUpdateScreen. `uptodate` (no update / the release vanished) is the
     // ONLY thing that unlocks it.
+    // v3.4.6.f — LAW #1 IN DART: an `available` frame arms the lock ONLY when
+    // `next` is STRICTLY newer than the installed build (isNewerVersion —
+    // the Dart mirror of Java's UpdateChecker.isNewer). A v3.4.6.f → v3.4.6.f
+    // frame (the v3.4.6.e self-lock) can NEVER flip the lock. NEVER `>=`.
     _gateSub = AnantPlay.instance.updateGateEvents().listen((e) {
       if (!mounted) return;
+      final String installed =
+          e.current.isNotEmpty ? e.current : _installedVersion;
       if (e.gate == 'available' && e.next.isNotEmpty) {
+        if (!isNewerVersion(e.next, installed)) {
+          // Same-version or older: the lock is mathematically impossible.
+          if (_forceUpdateLock) setState(() => _forceUpdateLock = false);
+          return;
+        }
         setState(() {
           _lastGate = e;
           _forceUpdateLock = true;
@@ -268,14 +425,13 @@ class ShellRootState extends State<ShellRoot> {
     if (_forceUpdateLock) {
       return ForceUpdateScreen(
         key: const ValueKey('force-update-gate'),
-        // v3.4.6.e — the installed version the gate's badge shows. This was a
-        // hardcoded '3.4.6.d' (v3.4.6.d's own identity) that the .e release
-        // left behind: every user would have been told they run .d while the
-        // package says .e. It is read from the gate frame the host resolved
-        // (AppInfo.VERSION_NAME on the native side) and never from a literal.
+        // v3.4.6.f — the installed version the gate's badge shows: read from
+        // the gate frame the host resolved (AppInfo.VERSION_NAME on the native
+        // side), falling back to the native appInfo reply — NEVER a literal
+        // (v3.4.6.e hardcoded '3.4.6.d', then .e left '3.4.6.e' behind).
         currentVersion: _lastGate?.current.isNotEmpty == true
             ? _lastGate!.current
-            : '3.4.6.e',
+            : (_installedVersion.isEmpty ? '…' : _installedVersion),
         initialGate: _lastGate,
       );
     }

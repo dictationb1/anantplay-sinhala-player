@@ -54,6 +54,10 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
   String _current = '';
   bool _updateKnown = false;
   bool _resumedInstall = false;
+  /// v3.4.6.f — LAW #3 Step 1: true between the user's Update Now tap and
+  /// the moment the install-permission grant lands (the bounded native
+  /// 30 s watcher auto-resumes the download the instant it does).
+  bool _awaitingPermission = false;
   StreamSubscription<UpdateGateEvent>? _gateSub;
 
   @override
@@ -69,20 +73,28 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
       _next = g.next;
     }
     _gateSub = AnantPlay.instance.updateGateEvents().listen(_onGate);
-    // A pending verified APK from a previous session re-arms instantly.
+    // A pending verified APK from a previous session re-arms instantly —
+    // but ONLY when it is STRICTLY newer than the installed build (LAW #1:
+    // the v3.4.6.e bootstrap armed the gate with a SAME-version pending and
+    // locked the user behind v3.4.6.e → v3.4.6.e).
     _bootstrapPending();
   }
 
   Future<void> _bootstrapPending() async {
     final pending = await AnantPlay.instance.pendingUpdate();
     if (!mounted) return;
-    if (pending.pending && pending.version.isNotEmpty) {
-      setState(() {
-        _updateKnown = true;
-        _next = pending.version;
-        _current = widget.currentVersion;
-      });
-    }
+    if (!pending.pending || pending.version.isEmpty) return;
+    final info = await AnantPlay.instance.appInfo();
+    if (!mounted) return;
+    final installed = info.versionName;
+    // v3.4.6.f — LAW #1: the pending APK must be STRICTLY newer than the
+    // installed build, else this screen renders NOTHING (self-lock dead).
+    if (!isNewerVersion(pending.version, installed)) return;
+    setState(() {
+      _updateKnown = true;
+      _next = pending.version;
+      _current = installed.isEmpty ? widget.currentVersion : installed;
+    });
   }
 
   @override
@@ -97,6 +109,16 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
     setState(() {
       switch (e.gate) {
         case 'available':
+          // v3.4.6.f — LAW #1 IN DART: an available frame whose `next` is NOT
+          // strictly newer than the installed build never arms this screen
+          // (v3.4.6.f → v3.4.6.f renders NOTHING — the self-lock is dead).
+          final installed =
+              e.current.isNotEmpty ? e.current : widget.currentVersion;
+          if (!isNewerVersion(e.next, installed)) {
+            _updateKnown = false;
+            _phase = _GatePhase.idle;
+            break;
+          }
           _updateKnown = true;
           _current = e.current.isEmpty ? widget.currentVersion : e.current;
           _next = e.next;
@@ -110,6 +132,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
           _phase = _GatePhase.verifying;
         case 'installer':
           _phase = _GatePhase.installer;
+          _awaitingPermission = false;
         case 'failed':
           _phase = _GatePhase.failed;
           _reason = e.reason;
@@ -139,12 +162,34 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
     }
   }
 
+  /// v3.4.6.f — LAW #3, THE USER'S UPDATE NOW TAP: permission FIRST, then
+  /// the single-flight download, then verify + installer.
   Future<void> _updateNow() async {
-    setState(() => _reason = '');
+    setState(() {
+      _reason = '';
+      _awaitingPermission = false;
+    });
+    // ── Step 1 of 2 — the install-permission guarantee comes FIRST ──
+    bool installsGranted = false;
+    try {
+      installsGranted = await AnantPlay.instance.canRequestPackageInstalls();
+    } on PlatformException {
+      installsGranted = false;
+    }
+    if (!installsGranted) {
+      setState(() {
+        _awaitingPermission = true;
+        _reason = 'Step 1 of 2: allow AnantPlay Player to install updates.\n'
+            'The install-updates page just opened — flip the switch, and the '
+            'download starts automatically the moment you return.';
+      });
+      await AnantPlay.instance.installPendingUpdate();
+      return;
+    }
+    // ── Step 2 — a verified APK may already be pending: install it; else the
+    // native updateNow lane resolves → downloads (single-flight) → verifies →
+    // hands to the installer. Progress frames stream through the gate events.
     await AnantPlay.instance.installPendingUpdate();
-    // If nothing was pending (or the pending file was swept), the updateNow
-    // handler re-runs the full resolve → download → verify pipeline; the
-    // progress frames stream in through the gate events.
     final pending = await AnantPlay.instance.pendingUpdate();
     if (!mounted) return;
     if (!pending.pending) {
@@ -273,14 +318,18 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
                       const SizedBox(height: 18),
                     ],
                     // ── the failure surface (gate stays LOCKED) ─────────────
-                    if (_phase == _GatePhase.failed) ...[
+                    if (_phase == _GatePhase.failed || _awaitingPermission) ...[
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: scheme.errorContainer.withValues(alpha: 0.3),
+                          color: _awaitingPermission
+                              ? scheme.primaryContainer.withValues(alpha: 0.35)
+                              : scheme.errorContainer.withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                              color: scheme.error.withValues(alpha: 0.5)),
+                              color: _awaitingPermission
+                                  ? scheme.primary.withValues(alpha: 0.5)
+                                  : scheme.error.withValues(alpha: 0.5)),
                         ),
                         child: Text(
                           _reason.isEmpty

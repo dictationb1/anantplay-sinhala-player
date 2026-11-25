@@ -12,6 +12,8 @@ import android.provider.Settings;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.engine.FlutterEngine;
@@ -57,6 +59,9 @@ public class MainActivity extends FlutterActivity {
     private static final String CH_HISTORY = "anantplay/history";
     private static final String CH_UPDATER = "anantplay/updater";
     private static final String CH_TROUBLE = "anantplay/troubleshoot";
+    /** v3.4.6.f — the Flutter PlatformView's browser lane: headless (no Java
+     *  chrome). Used at construction AND read by the live deep probe. */
+    private static final boolean PLATFORM_VIEW_HEADLESS = true;
     // v3.4.6.a — THE DART-SIDE CRASH REPORTER. Uncaught Dart errors (a null
     // deref in a widget build, a broken asset path, anything FlutterError /
     // PlatformDispatcher surfaces during startup) are forwarded INTO the same
@@ -326,12 +331,12 @@ public class MainActivity extends FlutterActivity {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // v3.4.6.e — THE LIVE 54-FEATURE SELF-TEST HOOK (hosted Android 36 KVM CI)
+    // v3.4.6.e — THE LIVE 56-FEATURE SELF-TEST HOOK (hosted Android 36 KVM CI)
     //
     // WHY: the CI smoke job only proved the activity OPENS. Every release that
     // shipped a dead Stop-Receiver button, oversized subtitles or a silently
     // disabled updater passed that gate. This hook lets the SAME emulator run
-    // the SAME 54 probes the Help tab runs — inside real Android OS, against
+    // the SAME 56 probes the Help tab runs — inside real Android OS, against
     // real SharedPreferences, a real foreground service, a real PackageManager
     // and a real clipboard — and publish a machine-readable verdict to logcat.
     //
@@ -354,6 +359,16 @@ public class MainActivity extends FlutterActivity {
     /** True while a CI self-test run is in flight (never re-entered). */
     private volatile boolean ciDeepProbeStarted;
 
+    /** v3.4.6.f — GAP #4: the LIVE count of method names the Dart side
+     *  actually invoked but this host answered notImplemented. The deep probe
+     *  reads this instead of a hardcoded zero. */
+    private static final Set<String> NOT_IMPLEMENTED_METHODS =
+        ConcurrentHashMap.newKeySet();
+
+    private static void markNotImplemented(String method) {
+        NOT_IMPLEMENTED_METHODS.add(method == null ? "" : method);
+    }
+
     /** Handle the `ci_run_deep_probe` launch extra (cold start + warm intent). */
     private void maybeStartCiDeepProbe(Intent i) {
         if (i == null) return;
@@ -367,7 +382,7 @@ public class MainActivity extends FlutterActivity {
 
     /**
      * The self-test driver: settle (~3 s so the receiver/auto-update cold-start
-     * work finishes), run the real 54-probe matrix on a background thread, then
+     * work finishes), run the real 56-probe matrix on a background thread, then
      * publish one line per probe + the parsed summary + the clipboard proof.
      */
     private void runCiDeepProbe() {
@@ -382,7 +397,7 @@ public class MainActivity extends FlutterActivity {
                 // The matrix itself refuses to run: publish a FAILING summary so
                 // the workflow's assertion fails loudly instead of timing out.
                 android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_SUMMARY_KEY
-                        + " pass=0 fail=54 total=54 clipboard_copied=false"
+                        + " pass=0 fail=56 env_fail=0 total=56 clipboard_copied=false"
                         + " privacy_clean=false error=" + t.getClass().getSimpleName());
                 android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_DONE_KEY + " aborted");
                 return;
@@ -482,13 +497,24 @@ public class MainActivity extends FlutterActivity {
                 .setMethodCallHandler(this::onCrashlogCall);
 
         // ── EventChannels ──
+        // v3.4.6.f — THE EVENTCHANNEL CONTRACT: every Dart-side consumer goes
+        // through bridge.dart's SINGLETON broadcast hub, so the native side
+        // sees AT MOST ONE onListen per channel name for the whole process
+        // (zero duplicate onListen/onCancel — the `No active stream to
+        // cancel` PlatformException in the v3.4.6.e CrashLog was the clobber
+        // of FOUR parallel receiveBroadcastStream() products on this name).
+        // Every onCancel below is idempotent (nulling an already-null sink is
+        // a no-op, never a throw).
         new EventChannel(engine.getDartExecutor().getBinaryMessenger(), CH_CAST + "/events")
                 .setStreamHandler(new EventChannel.StreamHandler() {
                     @Override public void onListen(Object a, EventChannel.EventSink s) {
                         castSink = s;
                         pushCastStatus();
                     }
-                    @Override public void onCancel(Object a) { castSink = null; }
+                    @Override public void onCancel(Object a) {
+                        // idempotent: never throws, sink simply goes dark.
+                        if (castSink != null) castSink = null;
+                    }
                 });
         new EventChannel(engine.getDartExecutor().getBinaryMessenger(), CH_UPDATER + "/events")
                 .setStreamHandler(new EventChannel.StreamHandler() {
@@ -502,12 +528,16 @@ public class MainActivity extends FlutterActivity {
                         replayGate(s);
                         pushUpdateState();
                     }
-                    @Override public void onCancel(Object a) { updateSink = null; }
+                    @Override public void onCancel(Object a) {
+                        if (updateSink != null) updateSink = null;
+                    }
                 });
         new EventChannel(engine.getDartExecutor().getBinaryMessenger(), CH_TROUBLE + "/events")
                 .setStreamHandler(new EventChannel.StreamHandler() {
                     @Override public void onListen(Object a, EventChannel.EventSink s) { troubleSink = s; }
-                    @Override public void onCancel(Object a) { troubleSink = null; }
+                    @Override public void onCancel(Object a) {
+                        if (troubleSink != null) troubleSink = null;
+                    }
                 });
         // v3.4.6.c — the shell route pump (cast / DLNA / share / test → the
         // in-shell Mornye Cinema Player; openWebTab → the Browser tab).
@@ -524,7 +554,9 @@ public class MainActivity extends FlutterActivity {
                             });
                         }
                     }
-                    @Override public void onCancel(Object a) { shellSink = null; }
+                    @Override public void onCancel(Object a) {
+                        if (shellSink != null) shellSink = null;
+                    }
                 });
 
         // the native Media3 player bridge: hardware video inside a Flutter Texture
@@ -608,19 +640,29 @@ public class MainActivity extends FlutterActivity {
             }
         });
         if (SelfUpdater.hasPendingUpdate(this)) {
-            pushUpdateEvent("pending", SelfUpdater.pendingVersion(this));
-            // v3.4.6.d — a pending verified APK on a cold start re-arms the
-            // gate IMMEDIATELY (the download already finished last session).
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("t", "gate");
-            m.put("gate", "available");
-            m.put("current", AppInfo.VERSION_NAME);
-            m.put("next", SelfUpdater.pendingVersion(this));
-            pushGate(m);
+            // v3.4.6.f — LAW #1: the pending re-arm may ONLY fire when the
+            // pending version is STRICTLY newer than the installed build.
+            // (v3.4.6.e armed this gate with next == 3.4.6.e == installed —
+            // the literal self-lock screenshot.) hasPendingUpdate() already
+            // enforces the same rule through pendingFile(); this is the
+            // defense-in-depth mirror at the emission site.
+            String pendingVer = SelfUpdater.pendingVersion(this);
+            if (UpdateChecker.isNewer(pendingVer, AppInfo.VERSION_NAME)) {
+                pushUpdateEvent("pending", pendingVer);
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("t", "gate");
+                m.put("gate", "available");
+                m.put("current", AppInfo.VERSION_NAME);
+                m.put("next", pendingVer);
+                pushGate(m);
+            } else {
+                Diag.i("cast", "pending v" + pendingVer + " not newer than installed v"
+                    + AppInfo.VERSION_NAME + " — gate NOT armed (self-lock killed)");
+            }
         } else {
             // v3.4.6.d — NO silent suppression: a fresh install/upgrade checks
             // on EVERY cold start (the K_AUTO_UPDATE preference still governs
-            // the AUTO-DOWNLOAD leg; the CHECK always runs so the mandatory
+            // the periodic JOB only; the CHECK always runs so the mandatory
             // gate can lock the app when a newer release exists).
             SelfUpdater.checkOnLaunch(this);
         }
@@ -711,7 +753,10 @@ public class MainActivity extends FlutterActivity {
             if ("status".equals(m)) {
                 result.success(castStatusMap());
             } else if ("arm".equals(m)) {
-                ReceiverService.arm(this, "flutter-ui");
+                // v3.4.6.f — GAP #3: this channel is the explicit Home
+                // "Start Receiver" tap, the ONLY caller allowed to clear the
+                // persisted user stop.
+                ReceiverService.armFromUser(this);
                 main.postDelayed(this::pushCastStatus, 400);
                 result.success(true);
             } else if ("stop".equals(m)) {
@@ -881,6 +926,7 @@ public class MainActivity extends FlutterActivity {
                 openExternalPlayer(call.<String>argument("url"));
                 result.success(true);
             } else {
+                markNotImplemented(call.method);
                 result.notImplemented();
             }
         } catch (Throwable t) {
@@ -900,6 +946,10 @@ public class MainActivity extends FlutterActivity {
     /** The receiver status blob the Home hero card renders. */
     private Map<String, Object> castStatusMap() {
         Map<String, Object> m = new LinkedHashMap<>();
+        // v3.4.6.f — the frame discriminator the Dart castStatus() view
+        // filters on; the OTHER frames on this shared EventChannel carry
+        // their own t values and must never be read as receiver statuses.
+        m.put("t", "castStatus");
         m.put("up", ReceiverService.isUp());
         m.put("port", ReceiverService.port());
         m.put("discoverable", ReceiverService.castDiscoverable());
@@ -1083,23 +1133,39 @@ public class MainActivity extends FlutterActivity {
 
     /** v3.4.6.d — THE ZERO-RACE GATE DELIVERY: cache the blob, then push it.
      *  Cached FIRST so a not-yet-subscribed Flutter side still receives the
-     *  last state the moment onListen() runs (see replayGate below). */
+     *  last state the moment onListen() runs (see replayGate below).
+     *  v3.4.6.f — LAW #1 DEFENSE IN DEPTH: an `available` blob whose `next`
+     *  is not STRICTLY newer than `current` is rewritten to `uptodate` right
+     *  here — a same-version lock can never pass through this pump, whatever
+     *  upstream produced it. */
     private void pushGate(Map<String, Object> m) {
         if (m == null) return;
+        if ("available".equals(m.get("gate"))) {
+            String current = String.valueOf(m.get("current"));
+            String next = String.valueOf(m.get("next"));
+            if (!UpdateChecker.isNewer(next, current)) {
+                Diag.i("cast", "gate pump refused same-version arm (" + current
+                    + " → " + next + ") — rewriting to uptodate");
+                m = new LinkedHashMap<>();
+                m.put("t", "gate");
+                m.put("gate", "uptodate");
+            }
+        }
         lastGatePayload = m;
         pushEvent(updateSink, m);
     }
 
     /** v3.4.6.d — REPLAY the latest gate blob into a freshly-subscribed sink.
-     *  Called from EventChannel.StreamHandler.onListen(...), which is the exact
-     *  moment Flutter's ForceUpdateScreen starts listening: a check that
-     *  FINISHED BEFORE the subscription can no longer be dropped. */
+     *  v3.4.6.f — LAW #1: the replay path (the exact cold-boot handoff that
+     *  produced the v3.4.6.e → v3.4.6.e lock) re-arms ONLY a strictly-newer
+     *  cached blob; a same-version cached blob is rewritten to uptodate. */
     private void replayGate(EventChannel.EventSink s) {
         Map<String, Object> m = lastGatePayload;
         if (m == null) {
-            // nothing cached yet: at least re-arm any verified pending APK, and
-            // re-derive the latest known availability from persisted state.
-            if (SelfUpdater.hasPendingUpdate(this)) {
+            // nothing cached yet: at least re-arm any strictly-newer verified
+            // pending APK (never a same-version one).
+            if (SelfUpdater.hasPendingUpdate(this)
+                    && UpdateChecker.isNewer(SelfUpdater.pendingVersion(this), AppInfo.VERSION_NAME)) {
                 Map<String, Object> avail = new LinkedHashMap<>();
                 avail.put("t", "gate");
                 avail.put("gate", "available");
@@ -1109,6 +1175,15 @@ public class MainActivity extends FlutterActivity {
                 m = avail;
             } else {
                 return;
+            }
+        } else if ("available".equals(m.get("gate"))) {
+            String current = String.valueOf(m.get("current"));
+            String next = String.valueOf(m.get("next"));
+            if (!UpdateChecker.isNewer(next, current)) {
+                m = new LinkedHashMap<>();
+                m.put("t", "gate");
+                m.put("gate", "uptodate");
+                lastGatePayload = m;
             }
         }
         pushEvent(s, m);
@@ -1145,6 +1220,7 @@ public class MainActivity extends FlutterActivity {
                         title == null ? "" : title, "", false, 0L);
                 result.success(true);
             } else {
+                markNotImplemented(call.method);
                 result.notImplemented();
             }
         } catch (Throwable t) {
@@ -1184,6 +1260,7 @@ public class MainActivity extends FlutterActivity {
                     result.success(false);
                 }
             } else {
+                markNotImplemented(call.method);
                 result.notImplemented();
             }
         } catch (Throwable t) {
@@ -1217,7 +1294,8 @@ public class MainActivity extends FlutterActivity {
                                 // Chromium WebView viewport (zero Java browser
                                 // chrome — the old toolbar/tab strip/speed dial
                                 // never appear; BrowserScreen owns the UI).
-                                final WebBrowserView v = new WebBrowserView(MainActivity.this, true);
+                                final WebBrowserView v = new WebBrowserView(
+                                    MainActivity.this, PLATFORM_VIEW_HEADLESS);
                                 browserView = v;
                                 if (args instanceof Map) {
                                     Object url = ((Map<?, ?>) args).get("url");
@@ -1279,10 +1357,54 @@ public class MainActivity extends FlutterActivity {
                 out.put("rejected", r.rejected);
                 out.put("count", r.values.size());
                 result.success(out);
+            } else if ("importBackup".equals(m)) {
+                // v3.4.6.f — GAP #2: a REAL import (the UI previously only
+                // showed a toast). Strict SettingsBackup validation first,
+                // then apply every validated key synchronously and publish a
+                // fresh gatherSettings() snapshot. Device-only onboarding
+                // keys are NEVER overwritten by a restored backup.
+                SettingsBackup.Import r =
+                        SettingsBackup.parseImport(orEmpty(call.argument("json")));
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("ok", r.ok);
+                out.put("error", r.error);
+                out.put("errorSi", r.errorSi);
+                out.put("rejected", r.rejected);
+                if (!r.ok) {
+                    out.put("applied", 0);
+                    out.put("count", 0);
+                    out.put("snapshot", gatherSettings());
+                    result.success(out);
+                    return;
+                }
+                SharedPreferences.Editor ed = prefs.edit();
+                int applied = 0;
+                for (Map.Entry<String, Object> e : r.values.entrySet()) {
+                    String key = e.getKey();
+                    if (AppPrefs.K_ONBOARDING_DONE.equals(key)
+                            || AppPrefs.K_ONBOARDING_STAGE.equals(key)
+                            || AppPrefs.K_ONBOARDING_VERSION.equals(key)) {
+                        continue;   // this device's wizard state stays untouched
+                    }
+                    Object v = e.getValue();
+                    if (v instanceof Boolean) ed.putBoolean(key, (Boolean) v);
+                    else if (v instanceof Integer) ed.putInt(key, (Integer) v);
+                    else if (v instanceof Long) ed.putLong(key, (Long) v);
+                    else if (v instanceof Number) ed.putFloat(key, ((Number) v).floatValue());
+                    else if (v instanceof String) ed.putString(key, (String) v);
+                    else continue;
+                    applied++;
+                }
+                ed.commit();   // durable BEFORE the fresh snapshot is read
+                out.put("applied", applied);
+                out.put("count", applied);
+                out.put("snapshot", gatherSettings());
+                result.success(out);
             } else if ("resetAll".equals(m)) {
                 prefs.edit().clear().apply();
                 result.success(true);
             } else {
+                markNotImplemented(call.method);
                 result.notImplemented();
             }
         } catch (Throwable t) {
@@ -1394,6 +1516,7 @@ public class MainActivity extends FlutterActivity {
                         call.<String>argument("key")));
                 result.success(true);
             } else {
+                markNotImplemented(call.method);
                 result.notImplemented();
             }
         } catch (Throwable t) {
@@ -1411,8 +1534,8 @@ public class MainActivity extends FlutterActivity {
             } else if ("updateNow".equals(call.method)) {
                 // v3.4.6.d — Update Now on the force-update gate: if a
                 // verified APK is already pending, resume its install; a
-                // failed/missing download re-runs the full resolve → download
-                // → verify → install pipeline from scratch (the Retry lane).
+                // failed/missing download re-runs the full resolve → permission
+                // → download (single-flight) → verify → install pipeline.
                 if (SelfUpdater.hasPendingUpdate(this)) {
                     SelfUpdater.installPendingUpdate(this, true);
                 } else {
@@ -1424,7 +1547,18 @@ public class MainActivity extends FlutterActivity {
                 m.put("pending", SelfUpdater.hasPendingUpdate(this));
                 m.put("version", SelfUpdater.pendingVersion(this));
                 result.success(m);
+            } else if ("appInfo".equals(call.method)) {
+                // v3.4.6.f — the REAL installed identity, so the Dart side
+                // gates the ForceUpdateScreen on the package's own version
+                // (v3.4.6.e hardcoded a '3.4.6.e' literal that outlived its
+                // release). Never a literal again.
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("versionName", AppInfo.VERSION_NAME);
+                m.put("versionCode", AppInfo.VERSION_CODE);
+                m.put("packageName", getPackageName());
+                result.success(m);
             } else {
+                markNotImplemented(call.method);
                 result.notImplemented();
             }
         } catch (Throwable t) {
@@ -1442,7 +1576,8 @@ public class MainActivity extends FlutterActivity {
     // must never itself crash the app — the worst case is a Diag ring entry.
     private void onCrashlogCall(MethodCall call, MethodChannel.Result result) {
         try {
-            if (!"report".equals(call.method)) { result.notImplemented(); return; }
+            if (!"report".equals(call.method)) { markNotImplemented(call.method);
+                result.notImplemented(); return; }
             final Object kindArg = call.argument("kind");
             final Object zoneArg = call.argument("zone");
             final Object errorArg = call.argument("error");
@@ -1495,14 +1630,14 @@ public class MainActivity extends FlutterActivity {
                 }, "probe").start();
                 result.success(true);
             } else if ("runDeepProbe".equals(call.method)) {
-                // v3.4.6.e — THE 6-DOMAIN FULL-APP DEEP TROUBLESHOOTER: 54 live
+                // v3.4.6.f — THE 6-DOMAIN FULL-APP DEEP TROUBLESHOOTER: 56 live
                 // probes across every feature in the app, transactional
                 // (the user's settings + receiver state are snapshotted BEFORE
                 // and restored in DeepProbe.runAll's finally), each outcome
                 // PASS/FAIL + ms + detail, the full report privacy-scrubbed.
                 // LIVE PROGRESS: the listener pushes one frame per completed
-                // probe ({t:'deep', done:n, total:54, outcome:{…}}) so the
-                // Help tab renders "Running 54 deep feature probes… 32/54";
+                // probe ({t:'deep', done:n, total:56, outcome:{…}}) so the
+                // Help tab renders "Running 56 deep feature probes… 32/56";
                 // the final full outcome list lands when the run ends and the
                 // clipboard auto-copy happens on the Dart side.
                 new Thread(() -> {
@@ -1514,7 +1649,7 @@ public class MainActivity extends FlutterActivity {
                                 Map<String, Object> frame = new LinkedHashMap<>();
                                 frame.put("t", "deep");
                                 frame.put("done", done);
-                                frame.put("total", 54);
+                                frame.put("total", 56);
                                 frame.put("outcome", deepOutcomeMap(o));
                                 main.post(() -> {
                                     EventChannel.EventSink s = troubleSink;
@@ -1546,6 +1681,7 @@ public class MainActivity extends FlutterActivity {
                 // clipboard auto-copy + Copy Again + Share.
                 result.success(buildDeepReport());
             } else {
+                markNotImplemented(call.method);
                 result.notImplemented();
             }
         } catch (Throwable t) {
@@ -1581,6 +1717,11 @@ public class MainActivity extends FlutterActivity {
      * v3.4.6.e — THE STRUCTURED DEEP REPORT: Status Summary + the Domain A–F
      * probe ledger + Last Crash + the timeline, end-to-end privacy-scrubbed.
      * This is the payload the Help tab auto-copies to the clipboard.
+     *
+     * v3.4.6.f — THE HONEST VERDICT LAW: every FAIL ✗ is pulled to the VERY
+     * TOP of the report (its own block, before anything else), so nothing is
+     * ever hidden behind 50 passing lines — the v3.4.6.e report hid a dead
+     * worker (HTTP 0) and a captured crash behind "54/54 PASS".
      */
     String buildDeepReport() {
         List<DeepProbe.Outcome> outcomes = DeepProbe.lastResults();
@@ -1590,6 +1731,20 @@ public class MainActivity extends FlutterActivity {
         sb.append("Android SDK ").append(Build.VERSION.SDK_INT)
             .append(" · privacy-safe (zero phone details / PII)\n\n");
         int pass = DeepProbe.passCount(outcomes);
+        int fail = outcomes.size() - pass;
+        // ── THE FAILS FIRST, at the very top, impossible to miss ──
+        sb.append("== VERDICT: ").append(pass).append('/').append(outcomes.size())
+            .append(" PASS · ").append(fail).append(" FAIL ==\n");
+        if (fail > 0) {
+            sb.append("== EVERY FAIL (nothing hidden) ==\n");
+            for (DeepProbe.Outcome o : outcomes) {
+                if (!o.pass) {
+                    sb.append(String.format(java.util.Locale.US, "  FAIL %d. %s — %s%n",
+                        o.id, o.name, o.detail == null ? "" : o.detail));
+                }
+            }
+            sb.append('\n');
+        }
         sb.append("== Status Summary ==\n");
         sb.append("probes: ").append(pass).append('/').append(outcomes.size()).append(" PASS\n");
         sb.append("receiver: ").append(ReceiverService.isUp() ? "up (port " + ReceiverService.port() + ")" : "down").append('\n');
@@ -1640,7 +1795,7 @@ public class MainActivity extends FlutterActivity {
 
     /**
      * v3.4.6.e — the Android DeepProbe.Hooks implementation: every live fact
-     * the 54 probes read, against the REAL subsystems (prefs, receiver,
+     * the 56 probes read, against the REAL subsystems (prefs, receiver,
      * channels, browser, history). All main-thread-safe or self-contained.
      */
     private DeepProbe.Hooks deepHooks() {
@@ -1692,13 +1847,29 @@ public class MainActivity extends FlutterActivity {
                 }
                 return ReceiverService.isUp();
             }
+            @Override public boolean userStopped() { return ReceiverService.userStopped(); }
+            @Override public void restoreUserStopped(boolean veto) {
+                ReceiverService.setUserStop(ctx, veto);
+            }
             @Override public int receiverPort() { return ReceiverService.port(); }
             @Override public int receiverInfoHttp() {
                 int port = ReceiverService.port();
                 if (port <= 0) return 0;
+                // The receiver is started asynchronously: isUp() flips before
+                // the server socket accepts. Give the freshly armed service a
+                // bounded readiness window instead of reporting a false
+                // environment failure on a cold emulator.
+                for (int attempt = 0; attempt < 12; attempt++) {
+                    int code = httpCode(port, "/info");
+                    if (code != 0) return code;
+                    try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                }
+                return 0;
+            }
+            private int httpCode(int port, String path) {
                 try {
                     java.net.HttpURLConnection c = (java.net.HttpURLConnection)
-                        new java.net.URL("http://127.0.0.1:" + port + "/info").openConnection();
+                        new java.net.URL("http://127.0.0.1:" + port + path).openConnection();
                     c.setConnectTimeout(1500); c.setReadTimeout(1500);
                     int code = c.getResponseCode();
                     c.disconnect();
@@ -1708,6 +1879,14 @@ public class MainActivity extends FlutterActivity {
             @Override public int[] dlnaDescHttp() {
                 int port = ReceiverService.port();
                 if (port <= 0) return new int[]{0, 0};
+                for (int attempt = 0; attempt < 12; attempt++) {
+                    int[] r = dlnaOnce(port);
+                    if (r[0] != 0) return r;
+                    try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                }
+                return new int[]{0, 0};
+            }
+            private int[] dlnaOnce(int port) {
                 try {
                     java.net.HttpURLConnection c = (java.net.HttpURLConnection)
                         new java.net.URL("http://127.0.0.1:" + port + "/dlna/desc.xml").openConnection();
@@ -1765,13 +1944,43 @@ public class MainActivity extends FlutterActivity {
             @Override public int workerHealthHttp() {
                 String base = p.getString(AppPrefs.K_WORKER_URL, BridgeApi.DEFAULT_WORKER_URL);
                 try {
+                    // v3.4.6.f — 5 s connect / 6 s read (the honest-run cap:
+                    // every network probe capped so the WHOLE troubleshoot
+                    // finishes < 12 s; the v3.4.6.e leg stalled 32,891 ms).
                     java.net.HttpURLConnection c = (java.net.HttpURLConnection)
                         new java.net.URL(base + "/health").openConnection();
-                    c.setConnectTimeout(2500); c.setReadTimeout(2500);
+                    c.setConnectTimeout(5000); c.setReadTimeout(6000);
                     int code = c.getResponseCode();
                     c.disconnect();
                     return code;
                 } catch (Throwable t) { return 0; }
+            }
+            @Override public int workerResolveHttp() {
+                // v3.4.6.f — THE REAL SUBTITLE-RESOLUTION LEG (probe 47's
+                // second half): /api/resolve?title=The+Odyssey, same 5 s/6 s
+                // caps, honestly reported (0 = unreachable → the probe
+                // FAILS, never a fake PASS).
+                String base = p.getString(AppPrefs.K_WORKER_URL, BridgeApi.DEFAULT_WORKER_URL);
+                try {
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                        new java.net.URL(base + "/api/resolve?title=The+Odyssey").openConnection();
+                    c.setConnectTimeout(5000); c.setReadTimeout(6000);
+                    int code = c.getResponseCode();
+                    c.disconnect();
+                    return code;
+                } catch (Throwable t) { return 0; }
+            }
+            @Override public java.util.List<String> crashTopLines() {
+                // v3.4.6.f — THE CRASH GATE's live data: CrashLog.read() for
+                // THIS build, top-first (CrashLog itself version-stamps every
+                // record, so older-version reports auto-expire on upgrade).
+                try {
+                    String crash = CrashLog.read(ctx.getFilesDir());
+                    return Troubleshooter.crashTop(crash, 8);
+                } catch (Throwable t) {
+                    return java.util.Collections.singletonList(
+                        "crash log unreadable: " + t.getClass().getSimpleName());
+                }
             }
             @Override public boolean[] updateTiersLive() {
                 boolean t1 = false, t2 = false;
@@ -1790,24 +1999,21 @@ public class MainActivity extends FlutterActivity {
                 return lastGatePayload != null;
             }
             @Override public int missingChannelHandlers() {
-                // The wiring auditor's count, executed live: every Dart-side
-                // invokeMethod needs a Java case (verify_flutter_bridge_wiring
-                // is the CI gate; this is the runtime mirror).
-                return 0;   // the CI gate owns the count; the runtime reports 0 when green
+                // v3.4.6.f — GAP #4: the LIVE registry of notImplemented calls
+                // this process actually observed (the CI wiring verifier is
+                // still the static gate; this is the runtime mirror).
+                return NOT_IMPLEMENTED_METHODS.size();
             }
             @Override public boolean[] browserHardening() {
-                WebBrowserView v = browserView;
-                boolean attached = v != null;
-                return new boolean[]{
-                    true,   // MIXED_CONTENT_NEVER_ALLOW — set at WebView build (WebBrowserView)
-                    true,   // allowFileAccess == false
-                    true,   // allowContentAccess == false
-                    true,   // BridgeGuard 5 MB pre-decode cap
-                    true    // top-frame/user-gesture Blob subtitle guard
-                };
+                // Real WebSettings + BridgeGuard facts, never hardcoded PASS.
+                return WebBrowserView.liveHardeningState();
             }
             @Override public boolean headlessBrowser() {
-                return true;   // the PlatformView is created headless (chromeHidden)
+                // The same constant the PlatformView factory uses to construct
+                // WebBrowserView (no separate hardcoded probe answer).
+                WebBrowserView v = browserView;
+                return v != null ? v.isHeadless() : PLATFORM_VIEW_HEADLESS
+                    && WebBrowserView.platformViewHeadless();
             }
             @Override public boolean backupRoundTrip() {
                 try {

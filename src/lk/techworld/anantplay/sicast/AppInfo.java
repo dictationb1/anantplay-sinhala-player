@@ -27,8 +27,12 @@ package lk.techworld.anantplay.sicast;
  *  script-ratio validation) + the Mornye/Apple-grade customization hub + the
  *  dedicated 10-point Troubleshooter. Strictly v3.x — never v4. */
 final class AppInfo {
-    static final String VERSION_NAME = "3.4.6.e";
-    static final int VERSION_CODE = 30411;
+    // v3.4.6.f (code 30412): THE HONEST UPDATER & UI FIX — kills the
+    // v3.4.6.e→v3.4.6.e self-lock, the background multi-download, the
+    // `No active stream to cancel` EventChannel collision, and the fake
+    // PASSes in the deep troubleshooter (Probe 47's HTTP 0 lie).
+    static final String VERSION_NAME = "3.4.6.f";
+    static final int VERSION_CODE = 30412;
     static final String NAME = "AnantPlay Sinhala Player";
     private AppInfo() { }
 }

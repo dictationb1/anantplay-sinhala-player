@@ -1463,9 +1463,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v346e upd: versionCode 30411 strictly > 30410 (v3.4.6.d) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30411 && AppInfo.VERSION_CODE > 30410 && AppInfo.VERSION_CODE < 40000
-              && "3.4.6.e".equals(AppInfo.VERSION_NAME));
+        check("v346f upd: versionCode 30412 strictly > 30411 (v3.4.6.e) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30412 && AppInfo.VERSION_CODE > 30411 && AppInfo.VERSION_CODE < 40000
+              && "3.4.6.f".equals(AppInfo.VERSION_NAME));
         // v3.4.6.b — THE ALPHABETICAL LADDER is proven by execution, not assertion:
         // the updater must order 3.4.6 < .a < .b < .c < .d < 3.4.7 and never throw.
         try {
@@ -1565,9 +1565,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v346e pipe: build.sh defaults match the shipped version (3.4.6.e / 30411 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.e}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30411}")
+        check("v346f pipe: build.sh defaults match the shipped version (3.4.6.f / 30412 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.f}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30412}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -1633,10 +1633,11 @@ public class ReceiverLab {
         // ═════════ v3.4.6.e — THE DEEP TROUBLESHOOT + REAL-DEVICE FIX LAB ═════════
         System.out.println("== v3.4.6.e deep troubleshooter + stop/rotate/subtitle fixes ==");
         runLeg("v346eDeepProbeChecks", () -> { v346eDeepProbeChecks(); });
-        runLeg("v346eVersionIdentityChecks", () -> { v346eVersionIdentityChecks(); });
+        runLeg("v346fVersionIdentityChecks", () -> { v346fVersionIdentityChecks(); });
         runLeg("v346eCompactSubtitleChecks", () -> { v346eCompactSubtitleChecks(); });
         runLeg("v346eCiSelfTestContractChecks", () -> { v346eCiSelfTestContractChecks(); });
         runLeg("v346eStopReceiverContractChecks", () -> { v346eStopReceiverContractChecks(); });
+        runLeg("v346fSurgicalGapChecks", () -> { v346fSurgicalGapChecks(); });
 
         System.out.println(failed == 0 ? "Lab result: ALL " + passed + " PASSED" : "Lab result: " + failed + " FAILED of " + (passed + failed));
         System.exit(failed == 0 ? 0 : 1);
@@ -2727,8 +2728,8 @@ public class ReceiverLab {
         String upd = readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdater.java");
         check("v31 sec: progress posts go through the UpdateNotify throttle (no per-chunk notify)",
             upd.contains("throttle.onProgress(percent)"));
-        check("v31 sec: the single-flight AtomicBoolean guard exists",
-            upd.contains("inFlight.compareAndSet"));
+        check("v31 sec: the single-flight AtomicBoolean guard exists (v3.4.6.f: checkInFlight)",
+            upd.contains("checkInFlight.compareAndSet"));
         String notifySrc = readRepoFile("src/lk/techworld/anantplay/sicast/UpdateNotify.java");
         check("v31 sec: the 24h per-version alert cooldown + skip wiring exist",
             notifySrc.contains("alertAllowed") && notifySrc.contains("stillSkipped")
@@ -2772,8 +2773,8 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346e sec: workflows and manifest enforce versionCode 30411 / 3.4.6.e",
-            buildYml.contains("30411") && buildYml.contains("3.4.6.e") && relYml.contains("3.4.6.e"));
+        check("v346f sec: workflows and manifest enforce versionCode 30412 / 3.4.6.f",
+            buildYml.contains("30412") && buildYml.contains("3.4.6.f") && relYml.contains("3.4.6.f"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
@@ -2783,12 +2784,12 @@ public class ReceiverLab {
         // in android/app/build.gradle; the manifest no longer carries a package
         // attribute, and build.sh passes --version-code/--version-name to aapt2.
         String hostGradle = readRepoFile("android/app/build.gradle");
-        check("v346e pipe: android/app/build.gradle declares the shipped 30411 / 3.4.6.e identity",
+        check("v346f pipe: android/app/build.gradle declares the shipped 30412 / 3.4.6.f identity",
             hostGradle.contains("applicationId = \"lk.techworld.anantplay.sicast\"")
-                && hostGradle.contains("versionCode = 30411")
-                && hostGradle.contains("versionName = \"3.4.6.e\"")
-                && "30411".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.6.e".equals(AppInfo.VERSION_NAME));
+                && hostGradle.contains("versionCode = 30412")
+                && hostGradle.contains("versionName = \"3.4.6.f\"")
+                && "30412".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.6.f".equals(AppInfo.VERSION_NAME));
         // v3.4.6 — AGP 9 forbids <uses-sdk> in the manifest: the SDK levels are
         // owned by android/app/build.gradle (and by build.sh's aapt2 flags).
         check("v346 pipe: the manifest drops BOTH the package attribute and <uses-sdk> (AGP 9)",
@@ -4395,17 +4396,17 @@ public class ReceiverLab {
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
         String hostAppGradle = readRepoFile("android/app/build.gradle");
-        check("v346e parity: android/app/build.gradle says 3.4.6.e / 30411",
-            hostAppGradle.contains("versionCode = 30411") && hostAppGradle.contains("versionName = \"3.4.6.e\"")
+        check("v346f parity: android/app/build.gradle says 3.4.6.f / 30412",
+            hostAppGradle.contains("versionCode = 30412") && hostAppGradle.contains("versionName = \"3.4.6.f\"")
                 && hostAppGradle.contains("targetSdk = 36") && !manifest.contains("android:minSdkVersion"));
-        check("v346e parity: AppInfo says 3.4.6.e / 30411",
-            "3.4.6.e".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30411);
-        check("v346e parity: 30411 strictly > 30410 — an in-place update over v3.4.6.d, no downgrade",
-            AppInfo.VERSION_CODE == 30411 && AppInfo.VERSION_CODE > 30410);
+        check("v346f parity: AppInfo says 3.4.6.f / 30412",
+            "3.4.6.f".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30412);
+        check("v346f parity: 30412 strictly > 30411 — an in-place update over v3.4.6.e, no downgrade",
+            AppInfo.VERSION_CODE == 30412 && AppInfo.VERSION_CODE > 30411);
         String build = readRepoFile("build.sh");
-        check("v346e parity: build.sh defaults to 3.4.6.e / 30411 (previous 30410)",
-            build.contains("VERSION_NAME:-3.4.6.e") && build.contains("VERSION_CODE:-30411")
-                && build.contains("PREV_VERSION_CODE:-30410"));
+        check("v346f parity: build.sh defaults to 3.4.6.f / 30412 (previous 30411)",
+            build.contains("VERSION_NAME:-3.4.6.f") && build.contains("VERSION_CODE:-30412")
+                && build.contains("PREV_VERSION_CODE:-30411"));
         String latest = readRepoFile("docs/latest.json");
         boolean latestPrevious = latest.contains("\"version\":\"3.4.4\"")
             && latest.contains("\"code\":30404")
@@ -4440,22 +4441,28 @@ public class ReceiverLab {
         boolean latestE = latest.contains("\"version\":\"3.4.6.e\"")
             && latest.contains("\"code\":30411")
             && latest.contains("/download/v3.4.6.e/AnantPlay-Sinhala-Player-v3.4.6.e.apk");
+        // v3.4.6.f lab: the branch keeps docs/latest.json at the LIVE v3.4.6.e
+        // tier (the release workflow rewrites it to .f when v3.4.6.f ships) —
+        // so this gate must accept BOTH 3.4.6.e and 3.4.6.f as the current tier.
+        boolean latestF = latest.contains("\"version\":\"3.4.6.f\"")
+            && latest.contains("\"code\":30412")
+            && latest.contains("/download/v3.4.6.f/AnantPlay-Sinhala-Player-v3.4.6.f.apk");
         check("v346c parity: latest.json is a valid previous or current signed release",
-            (latestPrevious || latestCurrent || latestRelease || latestHotfix || latestA || latestPrevC || latestD || latestE)
+            (latestPrevious || latestCurrent || latestRelease || latestHotfix || latestA || latestPrevC || latestD || latestE || latestF)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         String readme = readRepoFile("README.md");
         String setupSi = readRepoFile("SETUP-SI.md");
-        check("v346e parity: README and Sinhala setup guide announce 3.4.6.e",
-            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.6.e")
-                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.e)"));
+        check("v346f parity: README and Sinhala setup guide announce 3.4.6.f",
+            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.6.f")
+                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.f)"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346e parity: build-apk.yml resolves and verifies the shared 3.4.6.e identity",
-            buildWf.contains("test \"$VERSION\" = \"3.4.6.e\"")
-                && buildWf.contains("test \"$CODE\" = \"30411\"")
+        check("v346f parity: build-apk.yml resolves and verifies the shared 3.4.6.f identity",
+            buildWf.contains("test \"$VERSION\" = \"3.4.6.f\"")
+                && buildWf.contains("test \"$CODE\" = \"30412\"")
                 && buildWf.contains("steps.app-version.outputs.version"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v346e parity: release workflow defaults to 3.4.6.e and publishes its computed checksum",
-            relWf.contains("default: '3.4.6.e'")
+        check("v346f parity: release workflow defaults to 3.4.6.f and publishes its computed checksum",
+            relWf.contains("default: '3.4.6.f'")
                 && relWf.contains("SHA=$(cut -d' ' -f1 dist/SHA256SUMS.txt)")
                 && relWf.contains("docs/latest.json"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
@@ -4898,13 +4905,13 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v346e A11: the Gradle host declares 30411 / 3.4.6.e (AGP 9 owns the identity)",
-            readRepoFile("android/app/build.gradle").contains("versionCode = 30411")
-                && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.e\"")
+        check("v346f A11: the Gradle host declares 30412 / 3.4.6.f (AGP 9 owns the identity)",
+            readRepoFile("android/app/build.gradle").contains("versionCode = 30412")
+                && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.f\"")
                 && readRepoFile("android/app/build.gradle").contains("targetSdk = 36")
                 && !manifest340.contains("android:minSdkVersion"));
-        check("v346e A11: AppInfo is 3.4.6.e / 30411",
-            "3.4.6.e".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30411);
+        check("v346f A11: AppInfo is 3.4.6.f / 30412",
+            "3.4.6.f".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30412);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -5260,8 +5267,13 @@ public class ReceiverLab {
             && latest.contains("\"code\":30411")
             && latest.contains("/download/v3.4.6.e/AnantPlay-Sinhala-Player-v3.4.6.e.apk")
             && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*");
+        // v3.4.6.f lab: the .f tier this release will publish also counts.
+        boolean latestIsV346f = latest.contains("\"version\":\"3.4.6.f\"")
+            && latest.contains("\"code\":30412")
+            && latest.contains("/download/v3.4.6.f/AnantPlay-Sinhala-Player-v3.4.6.f.apk")
+            && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*");
         check("v346c customize: latest.json points to a valid signed release",
-            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease || latestIsV346a || latestIsV346aPrior || latestIsV346c || latestIsV346cPrev || latestIsV346d || latestIsV346e));
+            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease || latestIsV346a || latestIsV346aPrior || latestIsV346c || latestIsV346cPrev || latestIsV346d || latestIsV346e || latestIsV346f));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
 
@@ -5360,8 +5372,8 @@ public class ReceiverLab {
             relYml.contains("is not above the live 3.4.6.d (30410)")
                 && relYml.contains("3.4.6.e must derive exactly 30411"),
             "no derived code may sit at or below 30410 (except the live 3.4.6.d itself)");
-        check("v346d LAW: build-apk.yml carries the 3.4.6.e / 30411 lock (the shipping identity)",
-            buildYml.contains("test \"$VERSION\" = \"3.4.6.e\"") && buildYml.contains("test \"$CODE\" = \"30411\""));
+        check("v346d LAW: build-apk.yml carries the 3.4.6.f / 30412 lock (the shipping identity)",
+            buildYml.contains("test \"$VERSION\" = \"3.4.6.f\"") && buildYml.contains("test \"$CODE\" = \"30412\""));
         check("v346d LAW: the lab itself proves the whole alphabet by execution (no ceiling in the lab)",
             readRepoFile("lab/ReceiverLab.java").contains("for (char ch = 'a'; ch < 'z'; ch++)")
                 && readRepoFile("lab/ReceiverLab.java").contains("the full a→z sweep is strictly increasing"));
@@ -5404,9 +5416,11 @@ public class ReceiverLab {
                 && readRepoFile("src/lk/techworld/anantplay/sicast/UpdateNotify.java")
                     .contains("public static boolean stillSkipped("),
             "skip/cooldown govern NOTIFICATIONS only — the gate always arms");
-        check("v346d LAW: the gate is armed BEFORE the Auto-update preference (OFF still blocks)",
+        check("v346f LAW: the gate arms BEFORE any download decision and the auto-download lane is GONE",
             upd.indexOf("gateAvailable(AppInfo.VERSION_NAME, rel.version)")
-                < upd.indexOf("if (!autoUpdate && !forceDownload)"));
+                < upd.indexOf("if (!forceDownload)")
+                && !upd.contains("if (!autoUpdate && !forceDownload)"),
+            "v3.4.6.f LAW #2: no background download exists at all — the gate waits for the tap");
 
         // ── 4. WARM RESUME cadence + offline backoff ───────────────────────────
         check("v346d LAW: onResume triggers the warm check (checkOnResume)",
@@ -5874,20 +5888,20 @@ public class ReceiverLab {
         String releaseWorkflow = readRepoFile(".github/workflows/release-apk.yml");
 
         // v3.4.6 — AGP 9 owns the app identity in android/app/build.gradle.
-        check("v346e identity: the Gradle host declares app version 3.4.6.e / code 30411",
-            readRepoFile("android/app/build.gradle").contains("versionCode = 30411") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.e\"")
+        check("v346f identity: the Gradle host declares app version 3.4.6.f / code 30412",
+            readRepoFile("android/app/build.gradle").contains("versionCode = 30412") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.f\"")
                 && readRepoFile("android/app/build.gradle").contains("targetSdk = 36"));
-        check("v346e identity: AppInfo matches the manifest",
-            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6.e\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30411"));
-        check("v346e identity: build.sh defaults and downgrade floor use 3.4.6.e / 30411",
-            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6.e") && readRepoFile("build.sh").contains("VERSION_CODE:-30411") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30410"));
-        check("v346e identity: CI validates the manifest and emits dynamic version outputs",
-            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6.e\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30411\""));
+        check("v346f identity: AppInfo matches the manifest",
+            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6.f\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30412"));
+        check("v346f identity: build.sh defaults and downgrade floor use 3.4.6.f / 30412",
+            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6.f") && readRepoFile("build.sh").contains("VERSION_CODE:-30412") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30411"));
+        check("v346f identity: CI validates the manifest and emits dynamic version outputs",
+            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6.f\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30412\""));
         check("v344 identity: CI artifact names use the resolved version",
             buildWorkflow.contains("AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}.apk")
                 && buildWorkflow.contains("name: AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}-apk"));
-        check("v346e identity: release dispatch defaults to 3.4.6.e",
-            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6.e'"));
+        check("v346f identity: release dispatch defaults to 3.4.6.f",
+            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6.f'"));
 
         check("v346 home: the visible app title is fixed to AnantPlay Player",
             readRepoFile("ui/lib/anantplay/home_screen.dart").contains("AnantPlay Player"));
@@ -6872,6 +6886,14 @@ public class ReceiverLab {
         /** v3.4.6.e — the Android 16 shape: the daemon holds 5353, our responder degrades. */
         boolean mdnsDegraded = false;
         int workerHealth = 200;
+        /** v3.4.6.f — the worker /api/resolve leg (probe 47's second half). */
+        int workerResolve = 200;
+        /** v3.4.6.f — THE CRASH GATE's fixture: the captured crash lines. */
+        java.util.List<String> crashLines = new java.util.ArrayList<>();
+        @Override public int workerResolveHttp() { return workerResolve; }
+        @Override public java.util.List<String> crashTopLines() {
+            return new java.util.ArrayList<>(crashLines);
+        }
         @Override public boolean historyRoundTrip(String key) { return true; }
         @Override public boolean urlValid(String url) { return url != null && url.startsWith("http"); }
         @Override public boolean notificationsGranted() { return true; }
@@ -6900,7 +6922,7 @@ public class ReceiverLab {
         hooks.prefs.put(AppPrefs.K_RECEIVER_NAME, "Lab Receiver");
         java.util.List<DeepProbe.Outcome> results = DeepProbe.runAll(hooks, null);
         int total = results.size();
-        check("v346e deep: the full 54-probe matrix executes", total == 54,
+        check("v346f deep: the full 56-probe matrix executes", total == 56,
             "got " + total);
         // Every one of the six domains is present.
         for (String d : new String[]{"A", "B", "C", "D", "E", "F"}) {
@@ -6908,7 +6930,8 @@ public class ReceiverLab {
             for (DeepProbe.Outcome o : results) if (o.domain.equals(d)) n++;
             check("v346e deep: domain " + d + " carries its probes (n=" + n + ")", n > 0);
         }
-        // The exact per-domain counts (A6 B9 C16 D6 E12 F5 = 54).
+        // The exact per-domain counts (A6 B9 C16 D6 E13 F6 = 56 — v3.4.6.f
+        // added the real-subtitle E2E probe E13 and the crash-gate F6).
         int a = 0, b = 0, c = 0, dd = 0, e = 0, f = 0;
         for (DeepProbe.Outcome o : results) {
             switch (o.domain) {
@@ -6916,8 +6939,8 @@ public class ReceiverLab {
                 case "D": dd++; break; case "E": e++; break; default: f++;
             }
         }
-        check("v346e deep: the domain counts are 6/9/16/6/12/5",
-            a == 6 && b == 9 && c == 16 && dd == 6 && e == 12 && f == 5,
+        check("v346f deep: the domain counts are 6/9/16/6/13/6",
+            a == 6 && b == 9 && c == 16 && dd == 6 && e == 13 && f == 6,
             a + "/" + b + "/" + c + "/" + dd + "/" + e + "/" + f);
         // Every probe landed a PASS/FAIL verdict + a non-empty detail + ms.
         boolean allLanded = true;
@@ -6935,10 +6958,10 @@ public class ReceiverLab {
         check("v346e deep: the receiver state is restored (non-destructive)", !hooks.receiverRunning);
         // A second run refuses while RUNNING (single-flight) — executed.
         DeepProbe.remember(results);
-        check("v346e deep: lastResults() carries the run", DeepProbe.lastResults().size() == 54);
+        check("v346f deep: lastResults() carries the run", DeepProbe.lastResults().size() == 56);
         int pass = DeepProbe.passCount(results);
-        check("v346e deep: the lab hooks drive the expected PASSes", pass >= 50,
-            pass + "/54 (offline-sensitive probes are environmental)");
+        check("v346f deep: the lab hooks drive the expected PASSes", pass >= 52,
+            pass + "/56 (offline-sensitive probes are environmental)");
         // DeepProbe is pure: no android.* import may exist in its bytecode.
         boolean pure = true;
         try {
@@ -6985,16 +7008,72 @@ public class ReceiverLab {
         fullyDown.receiverRunning = false;
         check("v346e env: B4 fails when NO discovery pillar and no HTTP answer",
             !DeepProbe.probeB4(fullyDown, null).pass);
-        // ── E10: the worker's offline-retention contract ─────────────────────
+        // ── E10 (probe 47): THE STRICT HONESTY LAW (v3.4.6.f inversion) ────────
+        // The v3.4.6.e lab asserted the EXACT LIE this release kills: a dead
+        // worker (HTTP 0) was a PASS ("offline retention path IS the contract")
+        // while real subtitles were broken. Now HTTP 0 (health OR resolve) is a
+        // FAIL with the code in the detail — the probe CANNOT lie anymore.
         LabHooks online = new LabHooks();
         online.workerHealth = 200;
-        check("v346e env: E10 passes with the worker reachable", DeepProbe.probeE10(online, null).pass);
+        online.workerResolve = 200;
+        check("v346f env: E10 passes with the worker reachable on BOTH legs",
+            DeepProbe.probeE10(online, null).pass);
         LabHooks offline = new LabHooks();
-        offline.workerHealth = 0;                  // a sandboxed emulator has no route
+        offline.workerHealth = 0;                  // the exact v3.4.6.e field shape
+        offline.workerResolve = 0;
         DeepProbe.Outcome e10 = DeepProbe.probeE10(offline, null);
-        check("v346e env: E10 passes offline — the retention path IS the contract", e10.pass);
-        check("v346e env: E10's offline detail names the retention path",
-            e10.detail.contains("offline retention path"));
+        check("v346f env: E10 FAILS when the worker is unreachable (HTTP 0) — NEVER a fake PASS",
+            !e10.pass);
+        check("v346f env: E10's dead-worker detail names HTTP 0 and the fallback",
+            e10.detail.contains("HTTP 0") && e10.detail.contains("local translator"));
+        LabHooks halfDown = new LabHooks();
+        halfDown.workerHealth = 200;
+        halfDown.workerResolve = 0;                // /api/resolve dead = subtitles broken
+        check("v346f env: E10 FAILS when only the RESOLVE leg is dead (HTTP 0)",
+            !DeepProbe.probeE10(halfDown, null).pass);
+        LabHooks degraded5xx = new LabHooks();
+        degraded5xx.workerHealth = 503;
+        degraded5xx.workerResolve = 200;
+        DeepProbe.Outcome e10b = DeepProbe.probeE10(degraded5xx, null);
+        check("v346f env: E10 FAILS on any non-200 (503) with the code in the detail",
+            !e10b.pass && e10b.detail.contains("HTTP 503"));
+        // ── F6: THE CRASH GATE (an uncaught exception is a FAIL, not a PASS) ──
+        LabHooks clean = new LabHooks();
+        check("v346f env: F6 passes with ZERO captured crash lines",
+            DeepProbe.probeF6(clean, null).pass);
+        LabHooks crashed = new LabHooks();
+        crashed.crashLines.add("EXCEPTION java.lang.IllegalStateException: PlatformException"
+            + "(error, No active stream to cancel, null, null)");
+        crashed.crashLines.add("  at lk.techworld.anantplay.sicast.MainActivity.onCrashlogCall"
+            + "(MainActivity.java:1456)");
+        DeepProbe.Outcome f6 = DeepProbe.probeF6(crashed, null);
+        check("v346f env: F6 FAILS with a captured PlatformException (the v3.4.6.e lie)",
+            !f6.pass);
+        check("v346f env: F6's detail carries the exact exception class + the capturing line",
+            f6.detail.contains("No active stream to cancel") && f6.detail.contains("MainActivity"));
+        // ── E13: the REAL subtitle SRT → parse → ZWJ → store E2E ──────────────
+        check("v346f env: E13 (real subtitle E2E) passes through the shipped pipeline",
+            DeepProbe.probeE13(null).pass);
+        // ── LAW #1 source contracts (SelfUpdater is Android-side; source-gated) ──
+        String upd = new String(java.nio.file.Files.readAllBytes(
+            new java.io.File("src/lk/techworld/anantplay/sicast/SelfUpdater.java").toPath()),
+            StandardCharsets.UTF_8);
+        check("v346f law1: sweepStalePending exists and App.onCreate calls it FIRST",
+            upd.contains("static long sweepStalePending(")
+                && new String(java.nio.file.Files.readAllBytes(
+                    new java.io.File("src/lk/techworld/anantplay/sicast/App.java").toPath()),
+                    StandardCharsets.UTF_8).contains("SelfUpdater.sweepStalePending(this);"));
+        check("v346f law1: pendingFile gates on UpdateChecker.isNewer (self-lock dead)",
+            upd.contains("!UpdateChecker.isNewer(version, AppInfo.VERSION_NAME)"));
+        check("v346f law2: the 60-second in-process dedupe constant exists",
+            upd.contains("PROCESS_DEDUPE_MS = 60 * 1000L"));
+        check("v346f law2: zero auto-download — the gate arms and WAITS (no silent lane)",
+            upd.contains("gate armed, WAITING for the user's Update Now tap"));
+        check("v346f law3: the download single-flight + the cached-APK reuse exist",
+            upd.contains("downloadInFlight.compareAndSet(false, true)")
+                && upd.contains("matchesSha256(apk, rel.sha256Expected)"));
+        check("v346f law3: the bounded 30 s install-permission watcher exists",
+            upd.contains("30_000L") && upd.contains("watchInstallPermission"));
         // ── the source atlas seam ────────────────────────────────────────────
         check("v346e env: DeepProbe exposes a settable source base (atlas)",
             DeepProbe.sourceBase() == null || DeepProbe.sourceBase().isDirectory());
@@ -7017,23 +7096,153 @@ public class ReceiverLab {
         return true;
     }
 
-    /** The 3.4.6.e / 30411 identity across every surface. */
-    static void v346eVersionIdentityChecks() throws Exception {
-        check("v346e id: AppInfo is 3.4.6.e / 30411",
-            "3.4.6.e".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30411);
+    /** The 3.4.6.f / 30412 identity across every surface. */
+    /** v3.4.6.f — the five CROSS-AUDIT surgical patches: source contracts +
+     *  the honest env_fail split executed through the real DeepProbe engine. */
+    static void v346fSurgicalGapChecks() throws Exception {
+        java.io.File root = new java.io.File(".");
+        java.util.function.Function<String, String> src = path -> {
+            try {
+                return new String(java.nio.file.Files.readAllBytes(
+                    new java.io.File(root, path).toPath()), StandardCharsets.UTF_8);
+            } catch (Exception e) { return ""; }
+        };
+        final String svc = src.apply("src/lk/techworld/anantplay/sicast/ReceiverService.java");
+        final String app = src.apply("src/lk/techworld/anantplay/sicast/App.java");
+        final String main = src.apply("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        final String dart = src.apply("ui/lib/main.dart");
+        final String state = src.apply("ui/lib/anantplay/app_state.dart");
+        final String mirror = src.apply("ui/lib/anantplay/settings_mirror.dart");
+        final String bridge = src.apply("ui/lib/anantplay/bridge.dart");
+        final String feedback = src.apply("ui/lib/anantplay/action_feedback.dart");
+        final String workflow = src.apply(".github/workflows/build-apk.yml");
+
+        // GAP #1 — the live repaint.
+        check("v346f gap1: MaterialApp is below a reactive _ThemedApp",
+            dart.contains("child: const _ThemedApp()")
+                && dart.contains("class _ThemedApp extends StatelessWidget")
+                && dart.contains("AppState.of(context).settings")
+                && dart.contains("themeMode: mode"));
+        check("v346f gap1: theme/amoled/glass/density/motion feed the theme",
+            dart.contains("MornyeTheme.build(")
+                && dart.contains("glassClarity: clarity")
+                && dart.contains("radiusCard:")
+                && dart.contains("motionFast:"));
+
+        // GAP #2 — optimistic mirror + real importBackup + visible feedback.
+        check("v346f gap2: put* updates the mirror BEFORE the platform await",
+            state.contains("notifyListeners();")
+                && state.indexOf("notifyListeners();") < state.indexOf("await writer()")
+                && state.contains("SettingsMirror.fromJavaMap"));
+        check("v346f gap2: SettingsMirror has value equality",
+            mirror.contains("bool operator ==(Object other)") && mirror.contains("int get hashCode"));
+        check("v346f gap2: native importBackup validates + applies + counts",
+            main.contains("\"importBackup\".equals(m)")
+                && main.contains("SettingsBackup.parseImport")
+                && main.contains("out.put(\"applied\", applied)")
+                && main.contains("out.put(\"snapshot\", gatherSettings())"));
+        check("v346f gap2: onboarding keys are excluded from an import",
+            main.contains("AppPrefs.K_ONBOARDING_DONE.equals(key)")
+                && main.contains("AppPrefs.K_ONBOARDING_VERSION.equals(key)"));
+        check("v346f gap2: Dart exposes importBackup + visible feedback lanes",
+            bridge.contains("invokeMethod('importBackup'")
+                && feedback.contains("Up to date ($kVisibleVersion)")
+                && feedback.contains("Worker unreachable · HTTP")
+                && feedback.contains("Imported $applied settings"));
+
+        // GAP #3 — the persisted stop veto.
+        check("v346f gap3: a DEDICATED receiver_state file holds userStop",
+            svc.contains("STATE_PREFS = \"receiver_state\"")
+                && svc.contains("KEY_USER_STOP = \"userStop\"")
+                && svc.contains("getSharedPreferences(STATE_PREFS")
+                && svc.contains("putBoolean(KEY_USER_STOP, stopped).commit()"));
+        check("v346f gap3: restore runs at process start before auto-arm",
+            app.contains("ReceiverService.restoreUserStop(this)")
+                && svc.contains("restoreUserStop(this)"));
+        check("v346f gap3: only the explicit Start tap clears the veto",
+            svc.contains("armFromUser(Context c)") && svc.contains("if (userStop)"));
+        check("v346f gap3: heal + apply-prefs can no longer clear the veto",
+            svc.contains("self-heal skipped: standing user stop")
+                && svc.contains("if (!userStop) arm(this, \"apply-prefs\")"));
+        // The persisted veto must not strand the DLNA/mDNS re-arm after
+        // B2's live stop proof: the probe lane clears it transiently BEFORE
+        // the arm call, and runAll's finally block restores the real veto.
+        String deepSource = readRepoFile("src/lk/techworld/anantplay/sicast/DeepProbe.java");
+        String b3Source = deepSource.substring(
+            deepSource.indexOf("static Outcome probeB3"),
+            deepSource.indexOf("static Outcome probeB4"));
+        check("v346f gap3: the DLNA re-arm clears the persisted veto first",
+            b3Source.contains("restoreUserStopped(false)")
+                && b3Source.contains("armReceiver()")
+                && b3Source.indexOf("restoreUserStopped(false)") < b3Source.indexOf("armReceiver()"));
+        check("v346f gap3: DeepProbe saves/restores the exact veto",
+            src.apply("src/lk/techworld/anantplay/sicast/DeepProbe.java")
+                .contains("h.restoreUserStopped(userStopWas)"));
+
+        // GAP #4 — cast discriminator + honest deep-hook runtime state.
+        check("v346f gap4: castStatus filters to cast frames only",
+            bridge.contains("e['t'] == 'castStatus'") && main.contains("m.put(\"t\", \"castStatus\")"));
+        check("v346f gap4: no hardcoded deep-hook results",
+            !main.contains("return true;   // the PlatformView is created headless")
+                && main.contains("WebBrowserView.liveHardeningState()")
+                && main.contains("NOT_IMPLEMENTED_METHODS.size()"));
+
+        // GAP #5 — the CI fail / env_fail split (real engine, not source-only).
+        LabHooks envHooks = new LabHooks();
+        envHooks.workerHealth = 0;   // optional external outage on the CI emulator
+        java.util.List<DeepProbe.Outcome> envResults = DeepProbe.runAll(envHooks, null);
+        String envSummary = DeepProbe.ciSummaryLine(envResults, true, true);
+        java.util.Map<String, String> envKv = new java.util.LinkedHashMap<>();
+        for (String part : envSummary.split(" ")) {
+            int eq = part.indexOf('=');
+            if (eq > 0) envKv.put(part.substring(0, eq), part.substring(eq + 1));
+        }
+        check("v346f gap5: the worker outage is env_fail, not an app failure",
+            "1".equals(envKv.get("env_fail")) && "0".equals(envKv.get("fail")), envSummary);
+        DeepProbe.Outcome worker = envResults.get(46);   // probe 47, id 47
+        check("v346f gap5: probe 47 STILL prints FAIL ✗ to the user",
+            !worker.pass && worker.detail.contains("HTTP 0"), worker.detail);
+        check("v346f gap5: workflow parses env_fail at a token boundary",
+            workflow.contains("env_fail=[0-9]+") && workflow.contains("::notice title=deep-probe env_fail")
+                && workflow.contains("No active stream to cancel"));
+
+        // A genuine app/code failure must NEVER be laundered into env_fail:
+        // break the receiver's own /info lane (not the optional worker) and
+        // assert that fail= rises while env_fail stays tied to the worker.
+        LabHooks brokenHooks = new LabHooks() {
+            @Override public int receiverInfoHttp() { return 0; }
+        };
+        brokenHooks.workerHealth = 0;   // keep the env_fail controlled
+        brokenHooks.workerResolve = 0;
+        java.util.List<DeepProbe.Outcome> brokenResults = DeepProbe.runAll(brokenHooks, null);
+        String brokenSummary = DeepProbe.ciSummaryLine(brokenResults, true, true);
+        java.util.Map<String, String> brokenKv = new java.util.LinkedHashMap<>();
+        for (String part : brokenSummary.split(" ")) {
+            int eq = part.indexOf('=');
+            if (eq > 0) brokenKv.put(part.substring(0, eq), part.substring(eq + 1));
+        }
+        int brokenFail = Integer.parseInt(brokenKv.get("fail"));
+        int brokenEnv = Integer.parseInt(brokenKv.get("env_fail"));
+        check("v346f gap5: a REAL code failure stays in fail=",
+            brokenFail > 0 && brokenEnv == 1, brokenSummary);
+    }
+
+    static void v346fVersionIdentityChecks() throws Exception {
+        check("v346f id: AppInfo is 3.4.6.f / 30412",
+            "3.4.6.f".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30412);
         check("v346e id: the alphabetical ladder places .e strictly above .d",
             UpdateChecker.isNewer("3.4.6.e", "3.4.6.d") && !UpdateChecker.isNewer("3.4.6.d", "3.4.6.e"));
         String buildSh = readRepoFile("build.sh");
-        check("v346e id: build.sh defaults to 3.4.6.e / 30411 (prev 30410)",
-            buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.e}")
-            && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30411}")
-            && buildSh.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30410}"));
+        check("v346f id: build.sh defaults to 3.4.6.f / 30412 (prev 30411)",
+            buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.f}")
+            && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30412}")
+            && buildSh.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30411}"));
         String gradle = readRepoFile("android/app/build.gradle");
-        check("v346e id: gradle declares 30411 / \"3.4.6.e\"",
-            gradle.contains("versionCode = 30411") && gradle.contains("versionName = \"3.4.6.e\""));
+        check("v346f id: gradle declares 30412 / \"3.4.6.f\"",
+            gradle.contains("versionCode = 30412") && gradle.contains("versionName = \"3.4.6.f\""));
         String pubspec = readRepoFile("ui/pubspec.yaml");
-        check("v346e id: ui/pubspec.yaml is 3.4.6+30411 (pure integer build)",
-            pubspec.contains("version: 3.4.6+30411"));
+        check("v346f id: ui/pubspec.yaml is 3.4.6+30412 (pure integer build)",
+            pubspec.contains("version: 3.4.6+30412"));
         // docs/latest.json — THE TWO-LEG CONTRACT, WITHOUT A HARDCODED VERSION.
         // On a release branch it still points at the PREVIOUS live release (the
         // post-merge release job is the only writer). On main, after that job
@@ -7062,13 +7271,13 @@ public class ReceiverLab {
             latest.contains("/releases/download/v" + liveV + "/AnantPlay-Sinhala-Player-v" + liveV + ".apk"),
             "url does not derive from " + liveV);
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
-        check("v346e id: the release workflow defaults to 3.4.6.e and derives 30411",
-            relYml.contains("default: '3.4.6.e'")
+        check("v346f id: the release workflow defaults to 3.4.6.f and derives 30412",
+            relYml.contains("default: '3.4.6.f'")
             && relYml.contains("3.4.6.e must derive exactly 30411"));
         String buildApkYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346e id: build-apk.yml locks 3.4.6.e / 30411",
-            buildApkYml.contains("test \"$VERSION\" = \"3.4.6.e\"")
-            && buildApkYml.contains("test \"$CODE\" = \"30411\""));
+        check("v346f id: build-apk.yml locks 3.4.6.f / 30412",
+            buildApkYml.contains("test \"$VERSION\" = \"3.4.6.f\"")
+            && buildApkYml.contains("test \"$CODE\" = \"30412\""));
     }
 
     /** The compact cinema subtitle contract (the oversized fix). */
@@ -7096,9 +7305,10 @@ public class ReceiverLab {
         // v3.4.6.e — the line height is a single source of truth: the Text
         // style reads _subLineHeight(s) and the helper returns the tight 1.25
         // (an inline literal would be a second, driftable copy).
-        check("v346e sub: the HUD line height is the tight 1.25",
+        check("v346f sub: the HUD line height is the tight 1.25 (the named constant)",
             hud.contains("height: _subLineHeight(s)")
-            && hud.contains("return 1.25;"));
+            && hud.contains("compactSubLineHeight = 1.25")
+            && hud.contains("return PlayerScreen.compactSubLineHeight;"));
         check("v346e sub: the pill padding is compact (10/4)",
             hud.contains("horizontal: 10, vertical: 4"));
         check("v346e sub: the anchors are 6% portrait / 4% landscape",
@@ -7251,12 +7461,12 @@ public class ReceiverLab {
         check("v346e ci: the summary carries clipboard_copied + privacy_clean",
             "true".equals(kv.get("clipboard_copied")) && "true".equals(kv.get("privacy_clean")),
             summary);
-        check("v346e ci: total is exactly the 54-probe matrix", total == 54, "total=" + total);
+        check("v346f ci: total is exactly the 56-probe matrix", total == 56, "total=" + total);
 
         // The domain roll-up the job summary renders.
         String domains = DeepProbe.ciDomainLine(results);
-        for (String d : new String[]{"A=6/6", "B=9/9", "C=16/16", "D=6/6", "E=12/12", "F=5/5"}) {
-            check("v346e ci: the domain roll-up carries " + d, domains.contains(d), domains);
+        for (String d : new String[]{"A=6/6", "B=9/9", "C=16/16", "D=6/6", "E=13/13", "F=6/6"}) {
+            check("v346f ci: the domain roll-up carries " + d, domains.contains(d), domains);
         }
 
         // The privacy fixed point: a scrubbed report passes, a raw leak fails.

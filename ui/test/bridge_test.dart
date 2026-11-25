@@ -21,6 +21,9 @@ void main() {
         return <String, Object>{'up': true, 'port': 8765, 'discoverable': true, 'mdns': true};
       case 'pending':
         return <String, Object>{'pending': true, 'version': '3.4.6.b'};
+      case 'appInfo':
+        // v3.4.6.f — the REAL installed identity for the LAW #1 Dart audits.
+        return <String, Object>{'versionName': '3.4.6.f', 'versionCode': 30412};
       case 'list':
         return '[{"title":"ශ්‍රී ලංකාවේ චිත්‍රපටිය","url":"https://example.com/v.m3u8","source":"cast","pos":120000,"dur":600000,"at":1,"ephemeralRelay":false}]';
       case 'getAll':
@@ -262,5 +265,161 @@ void main() {
     expect(outcomes.first.name, 'x');
     expect(decodeDeepOutcomes('deep probe failed: boom'), isEmpty);
     expect(decodeDeepOutcomes(null), isEmpty);
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // v3.4.6.f — THE UPDATER LAW + EVENTCHANNEL COLLISION + HONEST VERDICTS
+  // ════════════════════════════════════════════════════════════════════
+  group('v3.4.6.f updater laws (the self-lock kill)', () {
+    test('isNewerVersion: v3.4.6.f → v3.4.6.f is FALSE (the self-lock is dead)', () {
+      expect(isNewerVersion('3.4.6.f', '3.4.6.f'), isFalse,
+          reason: 'a same-version gate is mathematically impossible now');
+      expect(isNewerVersion('3.4.6.e', '3.4.6.e'), isFalse);
+      expect(isNewerVersion('3.4.6.f', '3.4.6.e'), isTrue);
+      expect(isNewerVersion('3.4.6.g', '3.4.6.f'), isTrue);
+      expect(isNewerVersion('3.4.6.z', '3.4.6.f'), isTrue);
+      expect(isNewerVersion('3.4.7', '3.4.6.z'), isTrue);
+      expect(isNewerVersion('3.4.6.d', '3.4.6.e'), isFalse,
+          reason: 'an older "release" is never an update');
+      expect(isNewerVersion(null, '3.4.6.f'), isFalse);
+      expect(isNewerVersion('junk', '3.4.6.f'), isFalse);
+    });
+
+    test('appInfo reads the REAL installed identity from the host (never a literal)', () async {
+      final info = await AnantPlay.instance.appInfo();
+      expect(info.versionName, '3.4.6.f');
+      expect(info.versionCode, 30412);
+    });
+  });
+
+  group('v3.4.6.f EventChannel singleton hub (the collision kill)', () {
+    setUp(() {
+      AnantPlay.instance.resetStreams();
+    });
+
+    test('MANY listeners on ONE channel: exactly one native listen, zero errors', () async {
+      final received = <String>[];
+      // FOUR parallel listeners on the SAME cast events channel (the exact
+      // v3.4.6.e topology that clobbered handlers and produced
+      // `No active stream to cancel`) — now all fed by ONE hub.
+      final subs = [
+        AnantPlay.instance.castStatus().listen((s) => received.add('cast:${s.up}')),
+        AnantPlay.instance.installEvents().listen((e) => received.add('install:${e.type}')),
+        AnantPlay.instance.officialVersionEvents().listen((e) => received.add('official:${e.installed}')),
+        AnantPlay.instance.onboardingStatusEvents().listen((e) => received.add('onboarding:${e.overlay}')),
+      ];
+      // plus the updater hub with BOTH typed views (banner + gate) on one listen.
+      final gateSub = AnantPlay.instance.updateGateEvents().listen((e) => received.add('gate:${e.gate}'));
+      final updaterSub = AnantPlay.instance.updaterEvents().listen((e) => received.add('updater:${e.type}'));
+      await Future<void>.delayed(Duration.zero);
+      final envelope = const StandardMethodCodec().encodeSuccessEnvelope(
+          <String, Object>{'t': 'onboardingStatus', 'overlay': true, 'notif': false, 'battery': true, 'installs': true, 'official': false});
+      await TestDefaultBinaryMessengerBinding
+          .instance.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/cast/events', envelope, (ByteData? data) {});
+      await Future<void>.delayed(Duration.zero);
+      // The onboarding-status listener received its frame...
+      expect(received.where((r) => r.startsWith('onboarding:')), isNotEmpty);
+      // ...and the hub health: every channel ≤ 1 native listen, zero errors.
+      final stats = AnantPlay.instance.hubStats();
+      for (final st in stats) {
+        expect(st.nativeListens, lessThanOrEqualTo(1),
+            reason: '$st — at most ONE native listen per channel name');
+        expect(st.streamErrors, 0, reason: '$st — zero stream errors');
+      }
+      final castStats = stats.firstWhere((s) => s.channel == 'anantplay/cast/events');
+      expect(castStats.nativeListens, 1,
+          reason: 'four feature views, ONE native listen (the collision killer)');
+      await Future.wait([for (final s in subs) s.cancel(), gateSub.cancel(), updaterSub.cancel()]);
+      AnantPlay.instance.resetStreams();
+    });
+
+    test('updateGateEvents and updaterEvents share ONE native listen (both views fed)', () async {
+      final gates = <String>[];
+      final states = <String>[];
+      final gateSub = AnantPlay.instance.updateGateEvents().listen((e) => gates.add(e.gate));
+      final stateSub = AnantPlay.instance.updaterEvents().listen((e) => states.add(e.type));
+      await Future<void>.delayed(Duration.zero);
+      await TestDefaultBinaryMessengerBinding
+          .instance.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate', 'gate': 'available', 'current': '3.4.6.f', 'next': '3.4.6.g',
+        }),
+        (ByteData? data) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+      await TestDefaultBinaryMessengerBinding
+          .instance.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'state', 'v': 'Up to date',
+        }),
+        (ByteData? data) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+      // BOTH typed views received THEIR frames — the handler was never stolen.
+      expect(gates, contains('available'));
+      expect(states, contains('state'));
+      final stat = AnantPlay.instance.hubStats()
+          .firstWhere((s) => s.channel == 'anantplay/updater/events');
+      expect(stat.nativeListens, 1);
+      expect(stat.streamErrors, 0);
+      await Future.wait([gateSub.cancel(), stateSub.cancel()]);
+      AnantPlay.instance.resetStreams();
+    });
+  });
+
+  group('v3.4.6.f honest troubleshooter (zero fake PASSes)', () {
+    test('a dead worker (HTTP 0) is a FAIL ✗ — NEVER a PASS', () {
+      // The native probe 47 contract, mirrored on the honest detail text.
+      const detail =
+          'FAIL — Worker unreachable (HTTP 0 / HTTP 0): subtitles fall back to the local translator';
+      const fail = DeepOutcome(
+          id: 47, domain: 'E', name: 'Worker /health + /api/resolve live',
+          pass: false, ms: 6528, detail: detail);
+      expect(fail.pass, isFalse);
+      expect(detail, contains('HTTP 0'));
+      expect(detail, isNot(contains('offline retention path ✓')));
+    });
+
+    test('composeHonestReport puts EVERY FAIL ✗ at the very top', () {
+      final native = [
+        const DeepOutcome(id: 1, domain: 'A', name: 'Tier-1 redirect', pass: true, ms: 120, detail: 'ok'),
+        const DeepOutcome(id: 47, domain: 'E', name: 'Worker /health + /api/resolve live',
+            pass: false, ms: 6528, detail: 'FAIL — Worker unreachable (HTTP 0 / HTTP 0)'),
+        const DeepOutcome(id: 56, domain: 'F', name: 'Uncaught crash gate (Last Crash)',
+            pass: false, ms: 3, detail: 'FAIL — uncaught crash captured: IllegalStateException'),
+      ];
+      final dart = [
+        const DeepOutcome(id: 57, domain: 'G', name: 'Bridge singleton hubs', pass: true, ms: 1, detail: 'ok'),
+        const DeepOutcome(id: 60, domain: 'G', name: 'Settings round-trip', pass: false, ms: 2,
+            detail: 'FAIL — read back null'),
+      ];
+      final report = composeHonestReport('AnantPlay Sinhala Player v3.4.6.f (30412) — report body', native, dart);
+      // The verdict line is FIRST, and every FAIL precedes the report body.
+      final verdictIndex = report.indexOf('== MERGED VERDICT: 2/5 PASS · 3 FAIL ==');
+      final fail47 = report.indexOf('FAIL ✗ 47. Worker');
+      final fail56 = report.indexOf('FAIL ✗ 56. Uncaught crash');
+      final fail60 = report.indexOf('FAIL ✗ 60. Settings');
+      final bodyIndex = report.indexOf('report body');
+      expect(verdictIndex, 0);
+      for (final i in [fail47, fail56, fail60]) {
+        expect(i, greaterThan(0));
+        expect(i, lessThan(bodyIndex),
+            reason: 'every FAIL must sit ABOVE the report body (nothing hidden)');
+      }
+      expect(report, contains('== Domain G — Live Flutter UI (Dart layer'));
+    });
+
+    test('the crash-gate outcome: a captured PlatformException FAILS honestly', () {
+      const crashOutcome = DeepOutcome(
+          id: 56, domain: 'F', name: 'Uncaught crash gate (Last Crash)',
+          pass: false, ms: 2,
+          detail: 'FAIL — uncaught crash captured: '
+              'IllegalStateException: PlatformException(error, No active stream to cancel, null, null)');
+      expect(crashOutcome.pass, isFalse);
+      expect(crashOutcome.detail, contains('No active stream to cancel'));
+    });
   });
 }

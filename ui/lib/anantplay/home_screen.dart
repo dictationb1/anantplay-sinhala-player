@@ -12,11 +12,14 @@
 //   · Play URL  → the Mornye glass URL sheet (Paste + Play) → PlayerScreen
 //   · Test      → the MORNYE CINEMA PLAYER (player_screen.dart over the real
 //                 Media3TextureBridge) with the Mux HLS test + Sinhala demo
+import 'dart:async' show StreamSubscription;
+
 import 'package:flutter/services.dart' show Clipboard;
 import 'package:material_ui/material_ui.dart';
 
 import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
 
+import 'action_feedback.dart';
 import 'app_state.dart';
 import 'bridge.dart';
 import 'package:anantplay_ui/main.dart';
@@ -52,7 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 IconButton(
                   tooltip: 'Check for update',
                   icon: const Icon(Icons.system_update_rounded),
-                  onPressed: () => AnantPlay.instance.checkForUpdate(),
+                  onPressed: () => checkForUpdateWithFeedback(context),
                 ),
                 IconButton(
                   tooltip: 'Settings',
@@ -509,11 +512,16 @@ class _InstallerSheetState extends State<_InstallerSheet> {
   int _percent = 0;
   String _state = '';
   bool _running = false;
+  StreamSubscription<InstallEvent>? _installSub;
 
   @override
   void initState() {
     super.initState();
-    AnantPlay.instance.installEvents().listen((e) {
+    // v3.4.6.f — the ONE bridge hub subscription is cancelled on dispose:
+    // every previously opened sheet leaked a listener forever (each new
+    // sheet stacked ANOTHER one). The hub makes them harmless to the native
+    // side; this makes them harmless to memory as well.
+    _installSub = AnantPlay.instance.installEvents().listen((e) {
       if (!mounted) return;
       setState(() {
         if (e.type == 'installProgress') {
@@ -524,6 +532,12 @@ class _InstallerSheetState extends State<_InstallerSheet> {
         }
       });
     });
+  }
+
+  @override
+  void dispose() {
+    _installSub?.cancel();
+    super.dispose();
   }
 
   @override

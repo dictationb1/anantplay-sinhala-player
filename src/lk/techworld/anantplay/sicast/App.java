@@ -143,6 +143,9 @@ public class App extends Application {
         // the app again must not silently re-arm what the user stopped on Home
         // (the Home Start button — which clears the veto — is the one re-arm).
         try {
+            // v3.4.6.f — GAP #3: hydrate the veto from receiver_state BEFORE
+            // any auto-arm decision (the old in-memory flag reset on restart).
+            ReceiverService.restoreUserStop(this);
             if (ReceiverService.userStopped()) {
                 Diag.i("app", "standing user stop — receiver stays off until Start is tapped");
                 Troubleshooter.record("APP", "receiver NOT auto-armed (standing user stop)");
@@ -158,7 +161,12 @@ public class App extends Application {
         // the user to return from install-permission settings. MainActivity starts
         // the immediate daemon-thread check after its in-app update UI is attached.
         // The 4-hour JobScheduler check remains the background/reboot fallback.
+        // v3.4.6.f — LAW #1: sweepStalePending FIRST (pending metadata that is
+        // not STRICTLY newer than the installed build — the completed-install
+        // leftover that produced the v3.4.6.e → v3.4.6.e self-lock — is killed
+        // from prefs AND disk before anything can re-arm a gate from it).
         try {
+            SelfUpdater.sweepStalePending(this);
             SelfUpdater.sweepUpdates(this);
             SelfUpdater.schedulePeriodic(this);
         } catch (Throwable t) {

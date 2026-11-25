@@ -21,6 +21,7 @@ import 'package:anantplay_ui/mornye_ui/widgets/settings_group.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/app_switch.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_chrome.dart';
 
+import 'action_feedback.dart';
 import 'app_state.dart';
 import 'home_screen.dart' show showInstallerSheet;
 import 'bridge.dart';
@@ -135,7 +136,8 @@ class SettingsScreen extends StatelessWidget {
             ),
             _ActionRow(
               title: 'Check for update now',
-              onTap: () => AnantPlay.instance.checkForUpdate(),
+              subtitle: 'Checking… → Up to date ($kVisibleVersion)',
+              onTap: () => checkForUpdateWithFeedback(context),
             ),
           ]),
 
@@ -683,7 +685,7 @@ class _CastRows extends StatelessWidget {
         title: 'Ping worker',
         subtitle: s.s(SettingsMirror.kWorkerUrl,
             'https://anantplay-si-subs-bridge.techworldlk.workers.dev'),
-        onTap: () => AnantPlay.instance.runProbe(),
+        onTap: () => pingWorkerWithFeedback(context),
       ),
     ]);
   }
@@ -761,19 +763,71 @@ class _BackupRows extends StatelessWidget {
   }
 
   Future<void> _export(BuildContext context) async {
-    final json = await AnantPlay.instance.exportBackup();
-    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Backup exported to the app folder')));
-    // The Java side writes the file; the JSON length proves it materialized.
-    debugPrint('backup bytes: ${json.length}');
+        const SnackBar(content: Text('Exporting backup…')));
+    try {
+      final json = await AnantPlay.instance.exportBackup();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Backup exported · ${json.length} bytes ✓')));
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Export failed · $error')));
+      }
+    }
   }
 
   Future<void> _import(BuildContext context) async {
-    // The SAF picker on the Java side writes the pending import; the shell
-    // previews through the bridge (SettingsBackup.parseImport).
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Open the .json backup from the player screen')));
+    // v3.4.6.f — the REAL apply path: paste the exported JSON, preview it
+    // through SettingsBackup.parseImport, then apply via native importBackup.
+    final controller = TextEditingController();
+    final scheme = Theme.of(context).colorScheme;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        backgroundColor: scheme.surfaceContainerHigh,
+        title: Text('Import backup',
+            style: TextStyle(color: scheme.onSurface)),
+        content: TextField(
+          controller: controller,
+          maxLines: 8,
+          decoration: const InputDecoration(hintText: 'Paste backup JSON here'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(d, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(d, true),
+              child: const Text('Import')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final json = controller.text.trim();
+    if (json.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Import failed · empty backup')));
+      }
+      return;
+    }
+    try {
+      final preview = await AnantPlay.instance.importPreview(json);
+      if (!context.mounted) return;
+      if (!preview.ok) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Import failed · ${preview.error}')));
+        return;
+      }
+      await importBackupWithFeedback(context, json);
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Import failed · $error')));
+      }
+    }
   }
 
   Future<void> _reset(BuildContext context) async {
@@ -1270,7 +1324,7 @@ class _VersionFooter extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 18, bottom: 6),
       child: Center(
-        child: Text('AnantPlay Sinhala Player v3.4.6.e (30411)',
+        child: Text('AnantPlay Sinhala Player v3.4.6.f (30412)',
             style: TextStyle(
                 color: scheme.onSurfaceVariant, fontSize: 11.5)),
       ),

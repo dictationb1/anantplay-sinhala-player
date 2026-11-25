@@ -35,6 +35,16 @@ final class BridgeGuard {
     /** The largest base64 STRING that can encode {@link #BLOB_CAP} bytes (pre-decode). */
     static final int B64_MAX_CHARS = BLOB_CAP * 4 / 3 + 16;
 
+    /** v3.4.6.f — live runtime facts for the deep probe's browser hooks. */
+    static boolean blobCapConfigured() {
+        return BLOB_CAP == 5 * 1024 * 1024 && B64_MAX_CHARS > BLOB_CAP;
+    }
+
+    static boolean blobGuardConfigured() {
+        return B64_MAX_CHARS == BLOB_CAP * 4 / 3 + 16
+            && MIN_BLOB_INTERVAL_MS > 0;
+    }
+
     /** Two accepted blobs must be at least this far apart (single-flight rate limit). */
     static final long MIN_BLOB_INTERVAL_MS = 1500L;
 

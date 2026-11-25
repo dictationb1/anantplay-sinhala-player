@@ -26,6 +26,8 @@ public class BootReceiver extends BroadcastReceiver {
         // v3.4.6.e — a user's explicit Stop must SURVIVE a reboot's auto-arm
         // (the phone re-boots, the receiver stays stopped until THEY start it).
         // MY_PACKAGE_REPLACED always re-arms — an update is a fresh contract.
+        // v3.4.6.f — the veto lives on disk, so hydrate it on the boot process.
+        try { ReceiverService.restoreUserStop(c); } catch (Throwable ignored) { }
         if (boot && ReceiverService.userStopped()) {
             Diag.i("boot", "boot with a standing user stop — receiver stays off");
             return;

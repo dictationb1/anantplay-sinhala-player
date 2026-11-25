@@ -8,7 +8,7 @@ import java.util.Map;
  * v3.4.6.e — THE 6-DOMAIN FULL-APP DEEP TROUBLESHOOTER (Phase 2's engine).
  *
  * <p>Replaces the old 10-point {@link FeatureProbe} surface as the engine
- * behind the Help tab's "Run Full App Troubleshoot": <b>54 live probes
+ * behind the Help tab's "Run Full App Troubleshoot": <b>56 live probes
  * across every feature in the entire app</b>, each one a REAL executed check
  * (mutate → verify → restore), logged with PASS ✓ / FAIL ✗ + timing ms +
  * the exact detail line. Every detail is built from booleans, counters,
@@ -23,7 +23,7 @@ import java.util.Map;
  * restored in the finally block — the user's configuration is never
  * changed by a troubleshoot run, even if a probe throws.
  *
- * <h2>The 6-domain matrix (54 probes)</h2>
+ * <h2>The 6-domain matrix (56 probes)</h2>
  *
  * <ul>
  *   <li><b>A — The In-App Auto-Updater Law</b> (A1–A6): tier-1 redirect,
@@ -67,12 +67,16 @@ public final class DeepProbe {
 
     /** One probe's outcome (immutable after finish). */
     public static final class Outcome {
-        public final int id;          // 1..54
-        public final String domain;   // A|B|C|D|E|F
-        public final String name;     // the feature's short name
+        public int id;                // 1..56 — guarded() may stamp a missing identity
+        public String domain;         // A|B|C|D|E|F
+        public String name;           // the feature's short name
         public boolean pass;
         public long ms;               // the probe's wall-clock latency
         public String detail = "";    // the fact line (PII-free by construction)
+        /** v3.4.6.f — true ONLY for an external-environment outage (the
+         *  worker's HTTP 0/5xx). The probe STILL prints FAIL to the user and
+         *  per-probe CI log; only the machine summary splits this out. */
+        public boolean envFail = false;
 
         Outcome(int id, String domain, String name) {
             this.id = id; this.domain = domain; this.name = name;
@@ -82,7 +86,7 @@ public final class DeepProbe {
     /**
      * The Android/lab seam. The app (MainActivity) implements every method
      * against the REAL subsystems; the lab implements them against in-memory
-     * fakes + the pure engines — so the exact same 54-probe run executes in
+     * fakes + the pure engines — so the exact same 56-probe run executes in
      * both worlds and the lab result is the shipped result.
      */
     public interface Hooks {
@@ -101,6 +105,11 @@ public final class DeepProbe {
         boolean armReceiver();
         /** Stop the receiver (returns the live up-state after stopping). */
         boolean stopReceiver();
+        /** v3.4.6.f — the persisted user stop veto (false by default in the
+         *  lab); the run must restore this EXACTLY to avoid a false "up". */
+        default boolean userStopped() { return false; }
+        /** v3.4.6.f — transiently clear / restore the veto around the probe. */
+        default void restoreUserStopped(boolean veto) { }
         /** The receiver's port (the live server port, -1 when down). */
         int receiverPort();
         /** The receiver's loopback /info HTTP code (0 = unreachable). */
@@ -126,6 +135,12 @@ public final class DeepProbe {
         boolean installsGranted();
         /** The worker /health HTTP code (0 = unreachable). */
         int workerHealthHttp();
+        /** v3.4.6.f — the worker /api/resolve?title=The+Odyssey HTTP code
+         *  (0 = unreachable): the REAL subtitle-resolution leg, live. */
+        int workerResolveHttp();
+        /** v3.4.6.f — THE CRASH GATE: the top lines of CrashLog.read() for
+         *  THIS build (empty when no uncaught Java/Dart exception exists). */
+        java.util.List<String> crashTopLines();
         /** A live update check round-trip: [0]=tier1 ok, [1]=tier2 ok. */
         boolean[] updateTiersLive();
         /** True when the ForceUpdateScreen blocking gate is armed. */
@@ -172,8 +187,18 @@ public final class DeepProbe {
         return p;
     }
 
+    /** v3.4.6.f — external-only failures (Worker HTTP 0 / non-200). These
+     *  never mask a code defect: fail = total - pass - env_fail. */
+    public static int envFailureCount(List<Outcome> results) {
+        int n = 0;
+        if (results != null) for (Outcome o : results) {
+            if (o != null && !o.pass && o.envFail) n++;
+        }
+        return n;
+    }
+
     /**
-     * THE single entry: all 54 probes in order, each landing an outcome NO
+     * THE single entry: all 56 probes in order, each landing an outcome NO
      * MATTER WHAT (the guarded() contract from FeatureProbe, retained). The
      * settings snapshot is captured BEFORE the mutating domains and restored
      * in the finally block — a troubleshoot run NEVER changes the user's
@@ -185,13 +210,18 @@ public final class DeepProbe {
         }
         Map<String, Object> prefsSnapshot = null;
         boolean receiverWasUp = false;
+        boolean userStopWas = false;
         try {
             LAST.clear();
-            List<Outcome> out = new ArrayList<>(54);
+            List<Outcome> out = new ArrayList<>(56);
             // ── THE TRANSACTIONAL SNAPSHOT (before ANY mutation) ──────────
             try {
                 prefsSnapshot = h.snapshotPrefs();
                 receiverWasUp = h.receiverUp();
+                // GAP #3 — save the EXACT veto, then open a transient probe
+                // lane; the finally block puts it back (no false "receiver: up").
+                userStopWas = h.userStopped();
+                h.restoreUserStopped(false);
             } catch (Throwable t) {
                 Diag.w("deep", "snapshot: " + t);
             }
@@ -247,15 +277,23 @@ public final class DeepProbe {
             out.add(guarded(id++, "E", "Tracks (audio/video) contract", () -> probeE7(l), l));
             out.add(guarded(id++, "E", "Auto-rotate + orientation lock", () -> probeE8(l), l));
             out.add(guarded(id++, "E", "Find Subtitles (LkSubFinder 10 sites)", () -> probeE9(l), l));
-            out.add(guarded(id++, "E", "Worker bridge + free translator", () -> probeE10(h, l), l));
+            // v3.4.6.f — HONESTY LAW: probe 47 (worker bridge) FAILS on any
+            // non-200 HTTP code (the v3.4.6.e “HTTP 0 → offline retention ✓”
+            // PASS-on-a-dead-worker is the exact lie this release kills), and
+            // the run gains the REAL subtitle E2E probe + the crash gate.
+            out.add(guarded(id++, "E", "Worker /health + /api/resolve live", () -> probeE10(h, l), l));
             out.add(guarded(id++, "E", "More Tools complete wiring", () -> probeE11(l), l));
             out.add(guarded(id++, "E", "Battery & GPU performance guards", () -> probeE12(l), l));
+            out.add(guarded(id++, "E", "Real subtitle SRT → parse → ZWJ → store", () -> probeE13(l), l));
             // ══ DOMAIN F — PERMISSIONS, SECURITY & PRIVACY ═════════════════
             out.add(guarded(id++, "F", "Notifications live status", () -> probeF1(h, l), l));
             out.add(guarded(id++, "F", "Display over other apps", () -> probeF2(h, l), l));
             out.add(guarded(id++, "F", "Background stability", () -> probeF3(h, l), l));
             out.add(guarded(id++, "F", "Zero AccessibilityService + no backup", () -> probeF4(l), l));
             out.add(guarded(id++, "F", "PrivacyScrubber live self-test", () -> probeF5(l), l));
+            // v3.4.6.f — THE CRASH GATE: an uncaught Java/Dart exception in
+            // THIS build is a FAIL with the exact class + line, never a PASS.
+            out.add(guarded(id++, "F", "Uncaught crash gate (Last Crash)", () -> probeF6(h, l), l));
             List<Outcome> snap = java.util.Collections.unmodifiableList(new ArrayList<>(out));
             if (l != null) try { l.onAllDone(snap); } catch (Throwable ignored) { }
             return snap;
@@ -265,6 +303,7 @@ public final class DeepProbe {
                 if (prefsSnapshot != null) h.restorePrefs(prefsSnapshot);
                 if (receiverWasUp && !h.receiverUp()) h.armReceiver();
                 else if (!receiverWasUp && h.receiverUp()) h.stopReceiver();
+                h.restoreUserStopped(userStopWas);
             } catch (Throwable t) {
                 Diag.w("deep", "restore: " + t);
             }
@@ -300,11 +339,9 @@ public final class DeepProbe {
         o.ms = System.currentTimeMillis() - t0;
         if (o.id <= 0) {
             // Keep the computed verdict; only stamp the missing identity.
-            Outcome fixed = new Outcome(id, domain, name);
-            fixed.pass = o.pass;
-            fixed.ms = o.ms;
-            fixed.detail = o.detail;
-            o = fixed;
+            o.id = id;
+            if (o.domain == null || o.domain.isEmpty()) o.domain = domain;
+            if (o.name == null || o.name.isEmpty()) o.name = name;
         }
         LAST.add(o);
         if (l != null) try { l.onProbeDone(o); } catch (Throwable ignored) { }
@@ -316,8 +353,11 @@ public final class DeepProbe {
     static Outcome probeTier1(Listener l) {
         Outcome o = new Outcome(0, "A", "");
         try {
+            // v3.4.6.f — 5 s connect / 6 s read (the whole run < 12 s; the
+            // v3.4.6.e tier-2 leg once stalled 32,891 ms).
             String tag = SelfUpdateCore.resolveLatestTagByRedirect(
-                "https://github.com/" + SelfUpdateCore.REPO + "/releases/latest");
+                "https://github.com/" + SelfUpdateCore.REPO + "/releases/latest",
+                5000, 6000);
             boolean ok = tag != null && tag.matches("v[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?");
             o.pass = ok;
             o.detail = ok ? "302 → " + tag : "no release redirect (offline or none published)";
@@ -331,7 +371,9 @@ public final class DeepProbe {
     static Outcome probeTier2(Listener l) {
         Outcome o = new Outcome(0, "A", "");
         try {
-            String body = SelfUpdateCore.httpGet(SelfUpdateCore.rawLatestJsonUrl());
+            // v3.4.6.f — 5 s connect / 6 s read: the v3.4.6.e run STALLED
+            // 32,891 ms on this exact GET (the honest-run cap is 12 s).
+            String body = SelfUpdateCore.httpGet(SelfUpdateCore.rawLatestJsonUrl(), 5000, 6000);
             boolean schemaOk = false;
             if (body != null && !body.trim().isEmpty()) {
                 Object root = MiniJson.parse(body);
@@ -444,6 +486,10 @@ public final class DeepProbe {
         // The receiver may have been stopped by probe B2's live-stop proof —
         // re-arm first so the DLNA/MCast probes read a live receiver, then
         // let the finally-restore return the user's original state.
+        // GAP #3 — B2's stop persisted the user veto; the probe lane must
+        // clear it transiently before re-arming, exactly as runAll's snapshot
+        // does (the finally block restores the user's original veto).
+        try { h.restoreUserStopped(false); } catch (Throwable ignored) { }
         try { h.armReceiver(); } catch (Throwable ignored) { }
         int[] r = h.dlnaDescHttp();
         int code = r.length > 0 ? r[0] : 0;
@@ -936,21 +982,29 @@ public final class DeepProbe {
     static Outcome probeE10(Hooks h, Listener l) {
         Outcome o = new Outcome(0, "E", "");
         int health = h.workerHealthHttp();
+        int resolve = h.workerResolveHttp();
         // The free translator contract, executed live: translate one real
-        // cue through the exact engine. Online → a Sinhala result; offline →
-        // the ORIGINAL English cue is retained verbatim (never an error,
-        // never an empty track). Either outcome satisfies the contract.
+        // cue through the exact engine (a live translation OR the documented
+        // offline retention — reported HONESTLY either way below).
         boolean freeOk = freeTranslatorContractHolds();
-        // v3.4.6.e — the worker is an OPTIONAL acceleration bridge: with it
-        // unreachable the app must retain the original cue and stay fully
-        // usable (that retention IS the shipped contract, and it is what
-        // `freeTranslatorContractHolds` proves live). Reachability is
-        // environmental — a sandboxed CI emulator has no route to the worker —
-        // so it can never be the pass condition; the bridge's DEGRADATION is.
-        o.pass = freeOk && health >= 0;
-        o.detail = "worker /health " + (health == 200 ? "200 ✓" : "HTTP " + health
-                + " → offline retention path ✓")
-            + " · free keyless translator " + (freeOk ? "✓ (translates live, retains on failure)" : "✗");
+        // v3.4.6.f — THE STRICT HONESTY LAW (the v3.4.6.e probe-47 lie fix):
+        // the worker is a REQUIRED live dependency of the shipped subtitle
+        // pipeline. HTTP 0 / timeout / any non-200 on EITHER /health OR
+        // /api/resolve?title=The+Odyssey is a FAIL — “offline retention” is
+        // the degraded fallback the app then runs on, NEVER a PASS. A dead
+        // worker must stare at the user from the top of the report.
+        boolean workerOk = health == 200 && resolve == 200;
+        o.pass = workerOk && freeOk;
+        // An external Worker outage is an ENV failure, not an app defect;
+        // a broken local translator IS an app failure and stays in fail=.
+        o.envFail = !workerOk && freeOk;
+        o.detail = workerOk
+            ? "worker /health 200 ✓ · /api/resolve 200 ✓ · free translator "
+                + (freeOk ? "✓ (translates live, retains on failure)" : "✗")
+            : "FAIL — Worker unreachable (HTTP " + health + " / HTTP " + resolve
+                + "): subtitles fall back to the local translator"
+                + (freeOk ? " (which is live ✓)" : " (also degraded ✗)")
+                + " · free translator " + (freeOk ? "✓" : "✗");
         return o;
     }
 
@@ -988,6 +1042,84 @@ public final class DeepProbe {
         o.pass = guards;
         o.detail = guards ? "RepaintBoundary · ValueNotifier ticks · HUD-hidden blur unmount · "
             + "TickerMode offstage ✓" : "a perf guard is missing";
+        return o;
+    }
+
+    /**
+     * v3.4.6.f — THE REAL SUBTITLE E2E PROBE (every leg live, every leg
+     * honest): a genuine SRT body (with the Sinhala ZWJ conjunct ශ්‍රී —
+     * U+200D preserved verbatim) through the EXACT shipped pipeline —
+     * SrtLoader.load (the byte-level parse the app uses on every download)
+     * → Cue.stripMarkup → SubtitleStore.save → SubtitleStore.load → the
+     * rendered cue read back. ANY leg failing (parse threw, cue count wrong,
+     * ZWJ lost, the store returned a different cue) is a FAIL with the exact
+     * leg named — never a blanket PASS.
+     */
+    static Outcome probeE13(Listener l) {
+        Outcome o = new Outcome(0, "E", "");
+        try {
+            final String zwjCue = "\u0DC1\u0DCA\u200D\u0DBB\u0DD3";   // ශ්‍රී — the shaping canary
+            String srt = "1\n00:00:01,000 --> 00:00:04,000\n"
+                + zwjCue + " ලංකා | Sinhala line one\n\n"
+                + "2\n00:00:05,000 --> 00:00:08,000\n"
+                + "\u0D86\u0DBA\u0DD4\u0DB6\u0DDD\u0DC0\u0DB1\u0DCA | Sinhala line two\n";
+            // ── leg 1: the byte-level SRT parse (SrtLoader.load) ──
+            List<Cue> cues = SrtLoader.load(srt.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                "probe-e2e.srt");
+            boolean parsed = cues != null && cues.size() == 2;
+            // ── leg 2: markup stripping keeps the ZWJ conjunct verbatim ──
+            boolean zwjKept = false;
+            if (parsed) {
+                String stripped = Cue.stripMarkup(cues.get(0).si == null ? cues.get(0).en : cues.get(0).si);
+                zwjKept = stripped.contains(zwjCue) && stripped.indexOf('\u200D') >= 0;
+            }
+            // ── leg 3: the SubtitleStore attach + read-back round trip ──
+            java.io.File base = new java.io.File(System.getProperty("java.io.tmpdir", "/tmp"),
+                "deep-probe-subs");
+            SubtitleStore store = new SubtitleStore(base);
+            store.save("probe-e2e", cues == null ? java.util.Collections.emptyList() : cues);
+            List<Cue> back = store.load("probe-e2e");
+            boolean stored = back != null && back.size() == 2 && back.get(0).t0 == 1000L
+                && back.get(1).t1 == 8000L;
+            boolean storedZwj = stored
+                && ((back.get(0).si != null && back.get(0).si.contains(zwjCue))
+                    || (back.get(0).en != null && back.get(0).en.contains(zwjCue)));
+            o.pass = parsed && zwjKept && stored && storedZwj;
+            o.detail = (o.pass ? "parse 2 cues ✓ · ZWJ ශ්‍රී preserved ✓ · store round-trip ✓"
+                : "FAIL — parse " + (parsed ? "✓" : "✗") + " · ZWJ " + (zwjKept ? "✓" : "✗ lost")
+                    + " · store " + (stored ? "✓" : "✗") + " · stored ZWJ " + (storedZwj ? "✓" : "✗ lost"));
+            return o;
+        } catch (Throwable t) {
+            o.pass = false;
+            o.detail = "FAIL — subtitle E2E threw: " + t.getClass().getSimpleName();
+            return o;
+        }
+    }
+
+    /**
+     * v3.4.6.f — THE CRASH GATE (Last Crash): the v3.4.6.e run answered
+     * 54/54 PASS while CrashLog held a REAL uncaught PlatformException —
+     * an uncaught Java OR Dart crash in THIS build (v3.4.6.f's own identity
+     * filters stale reports from older versions) is now a FAIL with the
+     * exact exception class + the capturing line, at the very top of the
+     * report. Zero captured lines → the only honest PASS.
+     */
+    static Outcome probeF6(Hooks h, Listener l) {
+        Outcome o = new Outcome(0, "F", "");
+        java.util.List<String> top = h.crashTopLines();
+        boolean clean = top == null || top.isEmpty();
+        o.pass = clean;
+        if (clean) {
+            o.detail = "no uncaught Java/Dart exception captured in v" + AppInfo.VERSION_NAME + " ✓";
+        } else {
+            StringBuilder sb = new StringBuilder("FAIL — uncaught crash captured: ");
+            for (int i = 0; i < Math.min(3, top.size()); i++) {
+                if (i > 0) sb.append(" | ");
+                sb.append(top.get(i).trim());
+            }
+            if (top.size() > 3) sb.append(" (+" + (top.size() - 3) + " more lines)");
+            o.detail = sb.toString();
+        }
         return o;
     }
 
@@ -1053,7 +1185,7 @@ public final class DeepProbe {
     // The hosted Android 36 KVM smoke test used to prove ONE thing: the
     // activity opens and survives 12 s. That is a launch test, not a feature
     // test — a dead Stop button, a broken staircase of subtitle sizes or a
-    // silently disabled updater all pass it. This block turns the SAME 54
+    // silently disabled updater all pass it. This block turns the SAME 56
     // probes the Help tab runs into a machine-readable logcat report so CI can
     // assert every single feature LIVE inside real Android OS.
     //
@@ -1087,16 +1219,24 @@ public final class DeepProbe {
     }
 
     /**
-     * The single machine-parsed summary line:
-     * `DEEP_PROBE_SUMMARY pass=<N> fail=<F> total=<T> clipboard_copied=<b> privacy_clean=<b>`.
+     * The single machine-parsed summary line (v3.4.6.f — honest split):
+     * `DEEP_PROBE_SUMMARY pass=<N> fail=<F> env_fail=<E> total=<T>
+     *  clipboard_copied=<b> privacy_clean=<b>`.
+     *
+     * `fail` is REAL app/code failures and MUST be 0; `env_fail` is only an
+     * optional external Worker outage (probe 47). The user-facing report and
+     * the per-probe CI lines still show that outage as FAIL ✗ — only the
+     * machine gate distinguishes the two so CI is honest AND non-flaky.
      */
     public static String ciSummaryLine(List<Outcome> results, boolean clipboardCopied,
                                        boolean privacyClean) {
         int total = results == null ? 0 : results.size();
         int pass = passCount(results);
+        int env = envFailureCount(results);
         return CI_SUMMARY_KEY
             + " pass=" + pass
-            + " fail=" + (total - pass)
+            + " fail=" + (total - pass - env)
+            + " env_fail=" + env
             + " total=" + total
             + " clipboard_copied=" + clipboardCopied
             + " privacy_clean=" + privacyClean;

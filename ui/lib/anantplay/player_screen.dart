@@ -29,7 +29,26 @@ import 'package:anantplay_ui/main.dart';
 import 'settings_mirror.dart';
 
 /// The playback request the shell hands the player.
+/// v3.4.6.f — THE COMPACT CINEMA SUBTITLE CONTRACT, as named constants the
+/// honest Layer-1 audit (deep_troubleshooter.dart) reads LIVE: width cap,
+/// portrait/landscape base font, and the clamp bounds.
 class PlayerScreen extends StatefulWidget {
+  /// The subtitle pill never exceeds this fraction of the viewport width.
+  static const double compactSubWidthRatio = 0.82;
+
+  /// Portrait base subtitle size (sp).
+  static const double compactSubPortraitSp = 14;
+
+  /// Landscape base subtitle size (sp).
+  static const double compactSubLandscapeSp = 15;
+
+  /// The user-facing slider bounds the base clamps into.
+  static const double compactSubMinSp = 10;
+  static const double compactSubMaxSp = 28;
+
+  /// The fixed tight compact cinema line height.
+  static const double compactSubLineHeight = 1.25;
+
   const PlayerScreen({super.key, required this.request, required this.onExit});
 
   final PlayRequest request;
@@ -303,9 +322,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     child: ConstrainedBox(
                       // 82% of the video viewport — the pill can never grow to
                       // full-screen width even at the 28sp slider ceiling.
+                      // (Named constant: the honest Layer-1 audit reads THIS
+                      // shipped value, never a duplicated literal.)
                       constraints: BoxConstraints(
                         maxWidth:
-                            MediaQuery.sizeOf(context).width * 0.82,
+                            MediaQuery.sizeOf(context).width *
+                            PlayerScreen.compactSubWidthRatio,
                       ),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -710,16 +732,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double _subFontSp(SettingsMirror s) {
     final portrait =
         MediaQuery.sizeOf(context).height > MediaQuery.sizeOf(context).width;
-    final base = s.i(SettingsMirror.kFontSpKey, portrait ? 14 : 15);
+    final base = s.i(SettingsMirror.kFontSpKey,
+        portrait ? PlayerScreen.compactSubPortraitSp.round()
+            : PlayerScreen.compactSubLandscapeSp.round());
     // The compact cinema clamp: the user's slider runs 10–28sp and even the
     // ceiling can never dominate the video window.
-    return base.toDouble().clamp(10.0, 28.0);
+    return base.toDouble().clamp(
+        PlayerScreen.compactSubMinSp, PlayerScreen.compactSubMaxSp);
   }
 
   double _subLineHeight(SettingsMirror s) {
     // v3.4.6.e — fixed tight 1.25 for the compact cinema line (the studio's
     // line-spacing preference still drives the SHEET preview, not the movie).
-    return 1.25;
+    return PlayerScreen.compactSubLineHeight;
   }
 
   Color _subColor(SettingsMirror s) {

@@ -48,6 +48,10 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     static final String ACTION_TEST = "lk.techworld.anantplay.sicast.TEST";
     /** v3.1.0 — re-arm with fresh prefs (the Cast & Network settings page). */
     static final String ACTION_APPLY_PREFS = "lk.techworld.anantplay.sicast.APPLY_PREFS";
+    /** v3.4.6.f — GAP #3: DEDICATED state file, deliberately NOT "sicast" so
+     *  SettingsBackup / resetAll / DeepProbe prefs snapshots never touch it. */
+    static final String STATE_PREFS = "receiver_state";
+    static final String KEY_USER_STOP = "userStop";
 
     private static volatile ReceiverService running;
     /** v3.3.0 audit — the Sinhala .srt the loopback /subs/current.srt route serves to
@@ -117,6 +121,13 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
                 boolean serverOk = server != null && server.isRunning();
                 boolean announceOk = (nsd != null && (nsd.isAnnounced() || (nsd.responder() != null && nsd.responder().isRunning())))
                     || (dlnaRenderer != null && dlnaRenderer.isRunning());   // v3.0.0: either discovery pillar is enough
+                if (userStop) {
+                    // v3.4.6.f — the 15-minute healer must NEVER undo an
+                    // explicit user stop (it used to call arm() and clear it).
+                    Diag.i("service", "self-heal skipped: standing user stop");
+                    stopSelf();
+                    return;
+                }
                 if (!serverOk || !announceOk) {
                     Diag.w("service", "self-heal: re-arming (server=" + serverOk + " announce=" + announceOk + ")");
                     stopSelf();
@@ -132,12 +143,47 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         }
     };
 
+    /** v3.4.6.f — GAP #3: the persisted veto. commit() (not apply()) makes a
+     *  user stop survive an immediate process death / reboot / 15-min heal. */
+    static void setUserStop(Context c, boolean stopped) {
+        userStop = stopped;
+        try {
+            c.getApplicationContext()
+                .getSharedPreferences(STATE_PREFS, android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean(KEY_USER_STOP, stopped).commit();
+        } catch (Throwable t) {
+            Diag.w("service", "userStop persist failed: " + t);
+        }
+    }
+
+    /** Restore before the app's auto-arm decision (Application.onCreate). */
+    static void restoreUserStop(Context c) {
+        try {
+            userStop = c.getApplicationContext()
+                .getSharedPreferences(STATE_PREFS, android.content.Context.MODE_PRIVATE)
+                .getBoolean(KEY_USER_STOP, false);
+        } catch (Throwable t) {
+            Diag.w("service", "userStop restore failed: " + t);
+        }
+    }
+
+    /** The ONLY surface allowed to clear the veto: the explicit Start tap. */
+    static void armFromUser(Context c) {
+        userStop = false;   // the explicit-start clear (source contract)
+        setUserStop(c, false);
+        arm(c, "user-start");
+    }
+
     /** Best-effort arm from any entry point (app start, boot, tile). */
     static void arm(Context c, String why) {
         Diag.i("service", "arm (" + why + ") from " + c.getClass().getSimpleName());
-        // v3.4.6.e — arming clears the user's stop veto (Start Receiver on
-        // Home is the one surface allowed to undo an explicit stop).
-        userStop = false;
+        // v3.4.6.f — a STANDING user stop vetoes every non-user caller: app
+        // start, boot, apply-prefs, self-heal, deep-probe restore. Only
+        // armFromUser() (Home's Start Receiver) may clear it.
+        if (userStop) {
+            Diag.i("service", "arm (" + why + ") refused: standing user stop");
+            return;
+        }
         try {
             c.startForegroundService(new Intent(c, ReceiverService.class));
         } catch (Throwable t) {
@@ -182,7 +228,7 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
      */
     static android.content.Intent requestStop(Context c) {
         Diag.i("service", "stop by user (requestStop)");
-        userStop = true;
+        setUserStop(c, true);   // v3.4.6.f — persisted across restarts/reboots
         try { Troubleshooter.record("APP", "receiver stop requested (user)"); } catch (Throwable ignored) { }
         android.content.Intent stop = new Intent(c, ReceiverService.class).setAction(ACTION_STOP);
         try { c.startService(stop); } catch (Throwable t) {
@@ -212,15 +258,17 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         stopSelf();
     }
 
-    /** v3.4.6.e — the user's explicit stop veto (cleared by every arm). */
+    /** v3.4.6.f — the user's explicit stop veto (persisted in receiver_state;
+     *  cleared ONLY by armFromUser, or transiently by DeepProbe's restore). */
     private static volatile boolean userStop;
 
-    /** v3.4.6.e — the veto state (the lab and the troubleshooter read it). */
+    /** The veto state (App, BootReceiver, lab and troubleshooter read it). */
     static boolean userStopped() { return userStop; }
 
     @Override
     public void onCreate() {
         super.onCreate();
+        restoreUserStop(this);   // process restart / START_STICKY resurrection
         if (userStop) {
             // v3.4.6.e — the zombie veto: a START_STICKY resurrection after the
             // user's explicit stop must NOT re-announce on the LAN. Tear down
@@ -343,6 +391,7 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         String a = intent == null ? null : intent.getAction();
         if (ACTION_STOP.equals(a)) {
             Diag.i("service", "stop by user");
+            setUserStop(this, true);   // the notification Stop is also explicit
             // v3.4.6.e — REMOVE the foreground notification (the old bare
             // stopSelf() left the persistent "ready for cast" notification
             // alive after the receiver was down — the ghost a user reads as
@@ -364,7 +413,9 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
             Diag.i("service", "apply prefs — re-arming");
             stopSelf();
             android.os.SystemClock.sleep(200);
-            arm(this, "apply-prefs");
+            // v3.4.6.f — a settings change must not resurrect a stopped receiver.
+            if (!userStop) arm(this, "apply-prefs");
+            else Diag.i("service", "apply-prefs: standing user stop honored");
             return START_NOT_STICKY;
         }
         if (ACTION_TEST.equals(a)) {
