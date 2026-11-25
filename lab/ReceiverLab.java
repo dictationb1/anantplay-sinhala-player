@@ -6983,8 +6983,12 @@ public class ReceiverLab {
             hud.contains("0.82"));
         check("v346e sub: the HUD renders max 3 lines with softWrap",
             hud.contains("maxLines: 3") && hud.contains("softWrap: true"));
+        // v3.4.6.e — the line height is a single source of truth: the Text
+        // style reads _subLineHeight(s) and the helper returns the tight 1.25
+        // (an inline literal would be a second, driftable copy).
         check("v346e sub: the HUD line height is the tight 1.25",
-            hud.contains("height: 1.25"));
+            hud.contains("height: _subLineHeight(s)")
+            && hud.contains("return 1.25;"));
         check("v346e sub: the pill padding is compact (10/4)",
             hud.contains("horizontal: 10, vertical: 4"));
         check("v346e sub: the anchors are 6% portrait / 4% landscape",

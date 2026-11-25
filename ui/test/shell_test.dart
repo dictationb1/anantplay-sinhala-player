@@ -491,7 +491,19 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       expect(stops, isNotEmpty,
           reason: 'tapping Stop Receiver must reach the native stop lane');
-      // And the card flips back to Start once the status event lands.
+      // And the card flips back to Start once the status event lands — the
+      // host pushes it synchronously (MainActivity's "stop" handler calls
+      // pushCastStatus immediately AND ReceiverService.onDestroy notifies),
+      // so the flip must not wait on a 400 ms race.
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/cast/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          'up': false, 'port': -1, 'discoverable': false, 'mdns': false,
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       expect(find.text('Start Receiver'), findsOneWidget);
     });
 

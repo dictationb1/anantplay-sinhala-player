@@ -33,6 +33,9 @@ void main() {
         return call.arguments['url'];
       case 'copyToClipboard':
         return true;
+      case 'deepReport':
+        // v3.4.6.e — the real host always answers with the built report.
+        return 'AnantPlay Sinhala Player v3.4.6.e (30411) — Deep Troubleshoot Report';
       case 'onboardingStatus':
         return <String, Object>{'t': 'onboardingStatus', 'overlay': true, 'notif': false, 'battery': true, 'installs': true, 'official': false};
       default:
