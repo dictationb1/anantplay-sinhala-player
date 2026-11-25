@@ -91,13 +91,7 @@ class _ChannelHub {
     _started = true;
     nativeListens++;
     _nativeSub = EventChannel(name).receiveBroadcastStream().listen(
-          (dynamic event) {
-            if (name.contains('troubleshoot')) {
-              // ignore: avoid_print
-              print('DBG hub $name recv ${event.runtimeType}');
-            }
-            _controller?.add(event);
-          },
+          (dynamic event) => _controller?.add(event),
           onError: (Object error) {
             // Counted, NEVER an uncaught zone error (the v3.4.6.e crash was
             // exactly an unhandled PlatformException here).

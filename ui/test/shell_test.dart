@@ -745,15 +745,11 @@ void main() {
           '"pass":true,"ms":40,"detail":"stop -> running == false"},'
           '{"id":24,"domain":"C","name":"Subtitle Studio compact bounds",'
           '"pass":true,"ms":5,"detail":"slider 10-28"}]';
-      // ignore: avoid_print
-      print('DBG test sending deepJson len=${deepJson.length}');
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'anantplay/troubleshoot/events',
         const StandardMethodCodec().encodeSuccessEnvelope(deepJson),
         (ByteData? data) {},
       );
-      // ignore: avoid_print
-      print('DBG test sent deepJson');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(const Duration(milliseconds: 100));
@@ -767,6 +763,11 @@ void main() {
       // where that scope exists — asserting it here would test the mock host
       // (the v3.4.6.d suite asserted a typed 10-point stream that no longer
       // exists and had been silently failing since the .e engine landed).
+      // The domain cards render BELOW the six 1-tap action cards in the lazy
+      // ListView, so scroll the first one into view before asserting (the same
+      // scroll the B/C cards below already use).
+      await tester.scrollUntilVisible(find.text('Auto-Updater Law'), 200,
+          scrollable: find.byType(Scrollable).first);
       expect(find.text('Auto-Updater Law'), findsOneWidget);
       for (final title in const [
         'Home & Cast Receiver',
