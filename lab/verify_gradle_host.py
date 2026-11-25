@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""v3.4.6.c — THE GRADLE-HOST STRUCTURAL GATE (gating auditor #6).
+"""v3.4.6.d — THE GRADLE-HOST STRUCTURAL GATE (gating auditor #6).
 
 The Option-A host (android/ + the Flutter module ui/) is the ONLY packaging path
 now, so a structural break there is a release blocker that no runtime test can
@@ -13,7 +13,7 @@ the shipped delta had (all four were hard build failures, not warnings):
   G3  THE FLUTTER PLUGIN IS APPLIED.  Without dev.flutter.flutter-gradle-plugin
       the engine AAR is never resolved and :flutter is never packaged.
   G4  THE VERSION TRIAD AGREES.  Gradle host / AppInfo / build.sh / workflows all
-      say 3.4.6.c + 30409, and the wrapper + AGP pins match Flutter 3.50.1
+      say 3.4.6.d + 30410, and the wrapper + AGP pins match Flutter 3.50.1
       (Gradle 9.5.0, AGP 9.3.1) — a mismatch here is an instant CI failure.
   G5  THE MODULE CONTRACT.  ui/.android/include_flutter.groovy is what
       settings.gradle evaluates; the pubspec must declare a module + the real
@@ -172,7 +172,7 @@ version_pins = {
     "build.sh": buildsh,
 }
 for name, text in version_pins.items():
-    check("%s carries 3.4.6.c + 30409" % name, "3.4.6.c" in text and "30409" in text)
+    check("%s carries 3.4.6.d + 30410" % name, "3.4.6.d" in text and "30410" in text)
 check("the manifest no longer carries the AGP-9-obsolete package attribute",
       'package="lk.techworld' not in manifest)
 # v3.4.6 — AGP 9 rejects <uses-sdk>; the SDK levels are owned by the Gradle host
@@ -225,10 +225,10 @@ check("the flutter extension points at the module (ui/, lib/main.dart)",
 
 # ── G5: the Flutter module contract ──────────────────────────────────────────
 pubspec = read("ui/pubspec.yaml")
-check("pubspec carries the 3.4.6.c / 30409 identity in a pub-semver-VALID, Gradle-integer build number",
-      re.search(r"^version: 3\.4\.6\+30409$", pubspec, re.M) is not None
-      and "v3.4.6.c" in pubspec
-      and "3.4.6.c+30409" not in pubspec
+check("pubspec carries the 3.4.6.d / 30410 identity in a pub-semver-VALID, Gradle-integer build number",
+      re.search(r"^version: 3\.4\.6\+30410$", pubspec, re.M) is not None
+      and "3.4.6.d" in pubspec
+      and "3.4.6.d+30410" not in pubspec
       and re.search(r"^version: .*\.\w+$", pubspec, re.M) is None)
 check("pubspec declares the add-to-app module block", re.search(r"^  module:", pubspec, re.M) is not None)
 _asset_dirs = re.findall(r"^\s+- (mornye/[A-Za-z0-9_.-]+|assets/[A-Za-z0-9_/.-]+/)$", pubspec, re.M)
@@ -270,5 +270,5 @@ if os.path.isdir(path(".git")):
 
 for f in failures:
     print("::error title=gradle-host::%s" % f)
-print("v3.4.6.c gradle host: %d checks, %d failed" % (checks, len(failures)))
+print("v3.4.6.d gradle host: %d checks, %d failed" % (checks, len(failures)))
 sys.exit(1 if failures else 0)

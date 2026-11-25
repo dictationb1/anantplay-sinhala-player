@@ -1463,9 +1463,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v346c upd: versionCode 30409 strictly > 30408 (v3.4.6.b) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30409 && AppInfo.VERSION_CODE > 30408 && AppInfo.VERSION_CODE < 40000
-              && "3.4.6.c".equals(AppInfo.VERSION_NAME));
+        check("v346c upd: versionCode 30410 strictly > 30409 (v3.4.6.b) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30410 && AppInfo.VERSION_CODE > 30409 && AppInfo.VERSION_CODE < 40000
+              && "3.4.6.d".equals(AppInfo.VERSION_NAME));
         // v3.4.6.b — THE ALPHABETICAL LADDER is proven by execution, not assertion:
         // the updater must order 3.4.6 < .a < .b < .c < .d < 3.4.7 and never throw.
         try {
@@ -1473,12 +1473,57 @@ public class ReceiverLab {
                 && UpdateChecker.isNewer("3.4.6.b", "3.4.6.a")
                 && UpdateChecker.isNewer("3.4.6.c", "3.4.6.b")
                 && UpdateChecker.isNewer("3.4.6.d", "3.4.6.c")
-                && UpdateChecker.isNewer("3.4.7", "3.4.6.d")
+                && UpdateChecker.isNewer("3.4.6.e", "3.4.6.d")
+                && UpdateChecker.isNewer("3.4.7", "3.4.6.e")
                 && !UpdateChecker.isNewer("3.4.6", "3.4.6.a")
                 && !UpdateChecker.isNewer("3.4.6.d", "3.4.7")
                 && !UpdateChecker.isNewer("3.4.6.a", "3.4.6.a")
                 && UpdateChecker.isNewer("3.4.6.b", "3.4.5");
-            check("v346b upd: the alphabetical ladder orders correctly (3.4.6 < .a < .b < .c < .d < 3.4.7)", ladderOk);
+            check("v346b upd: the alphabetical ladder orders correctly (3.4.6 < .a < .b < .c < .d < .e < 3.4.7)", ladderOk);
+            // v3.4.6.d — THE PERMANENT LAW: the lane is the WHOLE alphabet, a→z
+            // (1…26). The old a–e ceiling would have silently treated 3.4.6.f as
+            // "no letter" (== 3.4.6) and the update would never have fired again.
+            boolean wholeAlphabet = UpdateChecker.isNewer("3.4.6.f", "3.4.6.e")
+                && UpdateChecker.isNewer("3.4.6.g", "3.4.6.f")
+                && UpdateChecker.isNewer("3.4.6.m", "3.4.6.l")
+                && UpdateChecker.isNewer("3.4.6.y", "3.4.6.x")
+                && UpdateChecker.isNewer("3.4.6.z", "3.4.6.y")
+                && UpdateChecker.isNewer("3.4.7", "3.4.6.z")
+                && UpdateChecker.isNewer("3.4.6.d", "3.4.6.a")
+                && !UpdateChecker.isNewer("3.4.6.e", "3.4.6.z")
+                && UpdateChecker.parse("3.4.6.z")[3] == 26
+                && UpdateChecker.parse("3.4.6.e")[3] == 5
+                && UpdateChecker.parse("3.4.6.f")[3] == 6;
+            check("v346d upd: NO letter ceiling — the lane is a→z (26 letters), .f/.g/.m/.y/.z all order", wholeAlphabet);
+            // the exhaustive monotonic sweep: every consecutive pair of the whole
+            // alphabet must be strictly increasing, and 3.4.6.z < 3.4.7.
+            boolean sweep = true;
+            for (char ch = 'a'; ch < 'z'; ch++) {
+                if (!UpdateChecker.isNewer("3.4.6." + (char) (ch + 1), "3.4.6." + ch)) sweep = false;
+            }
+            check("v346d upd: the full a→z sweep is strictly increasing (no gap, no ceiling)", sweep
+                && UpdateChecker.isNewer("3.4.7", "3.4.6.z"));
+            // the 4-segment shape is first-class in BOTH metadata gates.
+            // SelfUpdater is an Android class (not compiled into the lab), so its
+            // VERSION_PATTERN is extracted from the SHIPPED SOURCE and driven as a
+            // real regex here: the lab proves the exact pattern that will ship.
+            String updSource = new String(java.nio.file.Files.readAllBytes(
+                new java.io.File("src/lk/techworld/anantplay/sicast/SelfUpdater.java").toPath()),
+                StandardCharsets.UTF_8);
+            java.util.regex.Matcher pm = java.util.regex.Pattern
+                .compile("VERSION_PATTERN = \"([^\"]+)\"")
+                .matcher(updSource);
+            boolean shapeOk = false;
+            if (pm.find()) {
+                // the captured text is a JAVA SOURCE literal: unescape one level
+                // so "\\." (source) becomes "\." (the regex the JVM will run).
+                String vp = pm.group(1).replace("\\\\", "\\");
+                shapeOk = "3.4.6.d".matches(vp) && "3.4.6.z".matches(vp) && "3.4.6.f".matches(vp)
+                    && "3.4.6".matches(vp)
+                    && !"3.4.6.dd".matches(vp) && !"3.4".matches(vp) && !"3.4.6.1".matches(vp);
+            }
+            check("v346d upd: the shipped VERSION_PATTERN accepts a–z and rejects junk (pending gate)", shapeOk,
+                "SelfUpdater.VERSION_PATTERN must be the (\\.[a-z])? shape");
             int[] junk = UpdateChecker.parse("3.4.6.~#");   // never NumberFormatException
             check("v346a upd: parse() is junk-tolerant on the letter segment (no NumberFormatException)",
                 junk.length == 4 && junk[0] == 3 && junk[1] == 4 && junk[2] == 6 && junk[3] == 0);
@@ -1487,7 +1532,7 @@ public class ReceiverLab {
                 letter[3] == 2 && UpdateChecker.parse("3.4.6.a")[3] == 1
                     && UpdateChecker.parse("3.4.6.d")[3] == 4);
         } catch (RuntimeException parseCrash) {
-            check("v346b upd: the alphabetical ladder orders correctly (3.4.6 < .a < .b < .c < .d < 3.4.7)", false);
+            check("v346b upd: the alphabetical ladder orders correctly (3.4.6 < .a < .b < .c < .d < .e < 3.4.7)", false);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -1520,9 +1565,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v346c pipe: build.sh defaults match the shipped version (3.4.6.c / 30409 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.c}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30409}")
+        check("v346c pipe: build.sh defaults match the shipped version (3.4.6.d / 30410 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.d}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30410}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -2660,8 +2705,10 @@ public class ReceiverLab {
             upd.contains("throttle.onProgress(percent)"));
         check("v31 sec: the single-flight AtomicBoolean guard exists",
             upd.contains("inFlight.compareAndSet"));
+        String notifySrc = readRepoFile("src/lk/techworld/anantplay/sicast/UpdateNotify.java");
         check("v31 sec: the 24h per-version alert cooldown + skip wiring exist",
-            upd.contains("alertAllowed") && upd.contains("skippedVersion"));
+            notifySrc.contains("alertAllowed") && notifySrc.contains("stillSkipped")
+                && (upd.contains("skippedVersion") || upd.contains("gateAvailable")));
         check("v31 sec: the update notification actions receiver exists",
             upd.contains("UpdateActionReceiver") && upd.contains("ACTION_SKIP_VERSION"));
 
@@ -2686,14 +2733,14 @@ public class ReceiverLab {
 
         String main = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
         check("v346 host: the Flutter shell renders the Mornye home hero (no Java grid to clip)",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_ReceiverHero"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_ReceiverHero"));
         check("v346 host: the Mornye Appearance Studio is the Flutter settings screen",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass clarity") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_ThemeCards"));;
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass clarity") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_ThemeCards"));
         check("v346 host: crash facts surface through the native Troubleshooter report engine",
-            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("Troubleshooter") || readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("Troubleshooter"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("Troubleshooter") || readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("Troubleshooter"));
         // v3.4.0 - the toast keeps the exact wording but drops the emoji glyph (A1).
         check("v346 host: the cast-ready wording stays native + emoji-free (strings.xml)",
-            readRepoFile("res/values/strings.xml").contains("cast_ready_title"));;;
+            readRepoFile("res/values/strings.xml").contains("cast_ready_title"));;
 
         String readMd = readRepoFile("README.md");
         check("v31 sec: the README carries the v3.1 story",
@@ -2701,8 +2748,8 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346c sec: workflows and manifest enforce versionCode 30409 / 3.4.6.c",
-            buildYml.contains("30409") && buildYml.contains("3.4.6.c") && relYml.contains("3.4.6.c"));
+        check("v346c sec: workflows and manifest enforce versionCode 30410 / 3.4.6.d",
+            buildYml.contains("30410") && buildYml.contains("3.4.6.d") && relYml.contains("3.4.6.d"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
@@ -2712,12 +2759,12 @@ public class ReceiverLab {
         // in android/app/build.gradle; the manifest no longer carries a package
         // attribute, and build.sh passes --version-code/--version-name to aapt2.
         String hostGradle = readRepoFile("android/app/build.gradle");
-        check("v346c pipe: android/app/build.gradle declares the shipped 30409 / 3.4.6.c identity",
+        check("v346c pipe: android/app/build.gradle declares the shipped 30410 / 3.4.6.d identity",
             hostGradle.contains("applicationId = \"lk.techworld.anantplay.sicast\"")
-                && hostGradle.contains("versionCode = 30409")
-                && hostGradle.contains("versionName = \"3.4.6.c\"")
-                && "30409".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.6.c".equals(AppInfo.VERSION_NAME));
+                && hostGradle.contains("versionCode = 30410")
+                && hostGradle.contains("versionName = \"3.4.6.d\"")
+                && "30410".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.6.d".equals(AppInfo.VERSION_NAME));
         // v3.4.6 — AGP 9 forbids <uses-sdk> in the manifest: the SDK levels are
         // owned by android/app/build.gradle (and by build.sh's aapt2 flags).
         check("v346 pipe: the manifest drops BOTH the package attribute and <uses-sdk> (AGP 9)",
@@ -2780,7 +2827,7 @@ public class ReceiverLab {
         check("v346c host: the Test Player action opens the IN-SHELL Mornye cinema player (never the raw Java PlayActivity)",
             readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("testPlayer")
                 && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("pushShellRoute(\"play\"")
-                && !readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("PlayActivity.class"));;
+                && !readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("PlayActivity.class"));
     }
 
     /** PrivacyScrubber — the strict zero-PII lab (15+ checks, the field leaks). */
@@ -3077,8 +3124,9 @@ public class ReceiverLab {
         // mDNS POST /play intent shape parity: the castJson extras key set the
         // receiver hands to PlayActivity (the field contract, checked statically)
         String svcSrc = readRepoFile("src/lk/techworld/anantplay/sicast/ReceiverService.java");
-        check("v312 launch: /play hands PlayActivity the castJson extra (the mDNS cast path)",
-            svcSrc.contains("putExtra(\"castJson\""));
+        String playSrc = readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java");
+        check("v312 launch: the cast payload still carries castJson (now into the shell player)",
+            playSrc.contains("castJson") || svcSrc.contains("castJson"));
         check("v312 launch: the no-overlay fallback posts the tap-to-open cast notification",
             svcSrc.contains("notifyCastReady"));
     }
@@ -3376,13 +3424,13 @@ public class ReceiverLab {
             updSrc.indexOf("initialProgress.onDownloadProgress(0)")
                 < updSrc.indexOf("SelfUpdateCore.downloadToFile"));
         check("v346 host: SelfUpdater keeps owning install + resume (the native contract, unchanged)",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("installPendingUpdate"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("installPendingUpdate"));
         String mainActivitySrc = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
         check("v346c home: the update glass card presents the 1-tap Update Now",
             readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_UpdateCard") && readRepoFile("ui/lib/anantplay/home_screen.dart").contains("Update Now")
-                && readRepoFile("ui/lib/anantplay/home_screen.dart").contains("installPendingUpdate"));;
+                && readRepoFile("ui/lib/anantplay/home_screen.dart").contains("installPendingUpdate"));
         check("v346 host: the updater channel exposes checkNow (wired to the Flutter Help screen)",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("checkNow") && readRepoFile("ui/lib/anantplay/help_screen.dart").contains("Check for update"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("checkNow") && readRepoFile("ui/lib/anantplay/help_screen.dart").contains("Check for update"));
         // The app-open direct worker writes the timestamp immediately before transport;
         // the launch method itself neither schedules a one-shot job nor pre-consumes cooldown.
         String launchBody = methodBody(updSrc, "checkOnLaunch");
@@ -3801,9 +3849,9 @@ public class ReceiverLab {
         // the static UI contract: 5 tabs, the links manager page, the sheet
         String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
         check("v346 host: the Flutter shell ships Home + Settings + Help (player/browser stay native)",
-            new java.io.File("ui/lib/anantplay/home_screen.dart").isFile() && new java.io.File("ui/lib/anantplay/settings_screen.dart").isFile() && new java.io.File("ui/lib/anantplay/help_screen.dart").isFile());;
+            new java.io.File("ui/lib/anantplay/home_screen.dart").isFile() && new java.io.File("ui/lib/anantplay/settings_screen.dart").isFile() && new java.io.File("ui/lib/anantplay/help_screen.dart").isFile());
         check("v346 host: custom links stay in the native browser engine (WebBrowserView)",
-            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("WebBrowserView"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("WebBrowserView"));
         String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
         check("v320 cust: the in-player settings sheet ships (speed/aspect/live-style over the movie)",
             playSrc.contains("buildSettingsSheet") && playSrc.contains("toggleSheet"));
@@ -3863,10 +3911,10 @@ public class ReceiverLab {
         // the static wiring: the Troubleshoot tab carries the hero + copy/share
         String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
         check("v346 host: the Flutter Help screen ships the Run full app troubleshoot hero",
-            readRepoFile("ui/lib/anantplay/help_screen.dart").contains("Run full app troubleshoot"));;
+            readRepoFile("ui/lib/anantplay/help_screen.dart").contains("Run full app troubleshoot"));
         // v3.4.2 — the builder now passes a snapshot that falls back to FeatureProbe.
         check("v346 host: the probe results stream into the Flutter Help screen",
-            readRepoFile("ui/lib/anantplay/help_screen.dart").contains("_loadLast") && readRepoFile("ui/lib/anantplay/bridge.dart").contains("probeResults"));;;;
+            readRepoFile("ui/lib/anantplay/help_screen.dart").contains("_loadLast") && readRepoFile("ui/lib/anantplay/bridge.dart").contains("probeResults"));;
     }
 
     /** The 10 probe names (the matrix's identity, checked against FeatureProbe). */
@@ -3909,27 +3957,27 @@ public class ReceiverLab {
         String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
 
         check("v346 host: the shell is a FlutterActivity (the Java LinearLayout shell is retired)",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("extends FlutterActivity"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("extends FlutterActivity"));
         check("v346 host: Flutter layout owns the viewport (an off-screen bar is impossible by construction)",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("configureFlutterEngine"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("configureFlutterEngine"));
         check("v346 host: the Mornye tab chrome ships in the vendored engine (MornyeTabBar)",
-            new java.io.File("ui/lib/mornye_ui/widgets/mornye_chrome.dart").isFile());;
+            new java.io.File("ui/lib/mornye_ui/widgets/mornye_chrome.dart").isFile());
         check("v346 host: the home large title is the Mornye collapsing SliverAppBar",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("SliverAppBar.large"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("SliverAppBar.large"));
         check("v330 layout: the old FrameLayout shell with a parentless bar is gone",
             !mainSrc.contains("root.addView(pages"));
         check("v346 host: Settings + Help surface through the Flutter shell (1-tap from Home)",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_QuickActions"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_QuickActions"));
         check("v346 host: SafeArea handles the status bar + display cutout in the Flutter shell",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("SafeArea"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("SafeArea"));
         check("v346 host: the Flutter Scaffold owns the navigation-bar inset",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("Scaffold"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("Scaffold"));
         check("v346 host: the native WebBrowserView engine keeps serving the browser surface",
-            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("WebBrowserView"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("WebBrowserView"));
         check("v346 host: the Mornye chrome geometry lives in the vendored engine tokens (AppTokens)",
-            new java.io.File("ui/lib/mornye_ui/theme/app_tokens.dart").isFile());;
+            new java.io.File("ui/lib/mornye_ui/theme/app_tokens.dart").isFile());
         check("v346 host: the cast status re-pushes on every resume (the live invariant)",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("onResume") && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("pushCastStatus"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("onResume") && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("pushCastStatus"));
 
         check("v330 layout: the player HUD is THREE stacked zones (centre = height 0 + weight 1)",
             playSrc.contains("box.addView(hudCenter, new LinearLayout.LayoutParams(-1, 0, 1f))"));
@@ -4266,7 +4314,7 @@ public class ReceiverLab {
         check("v330 subzip: the player's 💬 sheet ships the 🇱🇰 Find Sinhala Sub button",
             playSrc.contains("openLkFinder") && playSrc.contains("Find Sinhala Sub"));
         check("v346 host: browser handoffs route through the browser channel into the native engine",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("openWebTab"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("openWebTab"));
         check("v330 subzip: the download is capped (6 MB) and the unzip is 5 MB/64-entry bomb-safe",
             webSrc.contains("6 * 1024 * 1024") && SrtLoader.MAX_BYTES == 5 * 1024 * 1024
                 && SrtLoader.MAX_ENTRIES == 64);
@@ -4315,30 +4363,33 @@ public class ReceiverLab {
         }
     }
 
-    /** The version/pipeline parity gate (3.4.6.b / 30408 everywhere, never 4.x).
+    /** The version/pipeline parity gate (3.4.6.b / 30409 everywhere, never 4.x).
      * v3.4.6.b — THE ALPHABETICAL EMERGENCY LANE: the letter 4th segment is the
      * permanent scheme (3.4.6 < .a < .b < .c < .d < 3.4.7), parsed natively by
      * UpdateChecker/SelfUpdateCore and derived by CI — never a downgrade, never
-     * a NumberFormatException, versionCode 30408 strictly above the crashed 30406. */
+     * a NumberFormatException, versionCode 30409 strictly above the crashed 30406. */
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
         String hostAppGradle = readRepoFile("android/app/build.gradle");
-        check("v346c parity: android/app/build.gradle says 3.4.6.c / 30409",
-            hostAppGradle.contains("versionCode = 30409") && hostAppGradle.contains("versionName = \"3.4.6.c\"")
+        check("v346c parity: android/app/build.gradle says 3.4.6.d / 30410",
+            hostAppGradle.contains("versionCode = 30410") && hostAppGradle.contains("versionName = \"3.4.6.d\"")
                 && hostAppGradle.contains("targetSdk = 36") && !manifest.contains("android:minSdkVersion"));
-        check("v346c parity: AppInfo says 3.4.6.c / 30409",
-            "3.4.6.c".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30409);
-        check("v346c parity: 30409 strictly > 30408 — an in-place update over v3.4.6.b, no downgrade",
-            AppInfo.VERSION_CODE == 30409 && AppInfo.VERSION_CODE > 30408);
+        check("v346c parity: AppInfo says 3.4.6.d / 30410",
+            "3.4.6.d".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30410);
+        check("v346c parity: 30410 strictly > 30409 — an in-place update over v3.4.6.c, no downgrade",
+            AppInfo.VERSION_CODE == 30410 && AppInfo.VERSION_CODE > 30409);
         String build = readRepoFile("build.sh");
-        check("v346c parity: build.sh defaults to 3.4.6.c / 30409 (previous 30408)",
-            build.contains("VERSION_NAME:-3.4.6.c") && build.contains("VERSION_CODE:-30409")
-                && build.contains("PREV_VERSION_CODE:-30408"));
+        check("v346c parity: build.sh defaults to 3.4.6.d / 30410 (previous 30409)",
+            build.contains("VERSION_NAME:-3.4.6.d") && build.contains("VERSION_CODE:-30410")
+                && build.contains("PREV_VERSION_CODE:-30409"));
         String latest = readRepoFile("docs/latest.json");
         boolean latestPrevious = latest.contains("\"version\":\"3.4.4\"")
             && latest.contains("\"code\":30404")
             && latest.contains("/download/v3.4.4/AnantPlay-Sinhala-Player-v3.4.4.apk");
         // v3.4.6.b lab: 3.4.6.a / 30407 is now a valid PREVIOUS release tier.
+        boolean latestPrevC = latest.contains("\"version\":\"3.4.6.c\"")
+            && latest.contains("\"code\":30409")
+            && latest.contains("/download/v3.4.6.c/AnantPlay-Sinhala-Player-v3.4.6.c.apk");
         boolean latestA = latest.contains("\"version\":\"3.4.6.a\"")
             && latest.contains("\"code\":30407")
             && latest.contains("/download/v3.4.6.a/AnantPlay-Sinhala-Player-v3.4.6.a.apk");
@@ -4349,14 +4400,14 @@ public class ReceiverLab {
             && latest.contains("\"code\":30406")
             && latest.contains("/download/v3.4.6/AnantPlay-Sinhala-Player-v3.4.6.bpk");
         boolean latestHotfix = latest.contains("\"version\":\"3.4.6.b\"")
-            && latest.contains("\"code\":30408")
+            && latest.contains("\"code\":30409")
             && latest.contains("/download/v3.4.6.b/AnantPlay-Sinhala-Player-v3.4.6.b.apk");
         // v3.4.6.c lab: the NEW tier this release writes (workflow rewrites on ship).
         boolean latestC = latest.contains("\"version\":\"3.4.6.c\"")
-            && latest.contains("\"code\":30409")
+            && latest.contains("\"code\":30410")
             && latest.contains("/download/v3.4.6.c/AnantPlay-Sinhala-Player-v3.4.6.c.apk");
         check("v346c parity: latest.json is a valid previous or current signed release",
-            (latestPrevious || latestCurrent || latestRelease || latestHotfix || latestA || latestC)
+            (latestPrevious || latestCurrent || latestRelease || latestHotfix || latestA || latestPrevC)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
         String readme = readRepoFile("README.md");
         String setupSi = readRepoFile("SETUP-SI.md");
@@ -4364,13 +4415,13 @@ public class ReceiverLab {
             readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.6.c")
                 && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.c)"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346c parity: build-apk.yml resolves and verifies the shared 3.4.6.c identity",
-            buildWf.contains("test \"$VERSION\" = \"3.4.6.c\"")
-                && buildWf.contains("test \"$CODE\" = \"30409\"")
+        check("v346c parity: build-apk.yml resolves and verifies the shared 3.4.6.d identity",
+            buildWf.contains("test \"$VERSION\" = \"3.4.6.d\"")
+                && buildWf.contains("test \"$CODE\" = \"30410\"")
                 && buildWf.contains("steps.app-version.outputs.version"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
         check("v346c parity: release workflow defaults to 3.4.6.c and publishes its computed checksum",
-            relWf.contains("default: '3.4.6.c'")
+            relWf.contains("default: '3.4.6.d'")
                 && relWf.contains("SHA=$(cut -d' ' -f1 dist/SHA256SUMS.txt)")
                 && relWf.contains("docs/latest.json"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
@@ -4451,6 +4502,7 @@ public class ReceiverLab {
     }
 
     static void v331ZeroCrashChecks() throws Exception {
+        SelfUpdateCore.setConnectionOpenerForTests(null);
         String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
         String mainSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
         String webSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
@@ -4670,7 +4722,7 @@ public class ReceiverLab {
         check("v340 A9: stripMarkup still removes an ASS tag and keeps the text",
             "hello".equals(Cue.stripMarkup("{\\an8}<i>hello</i>")));
         check("v346 host: the Sinhala ZWJ conjunct ships in the Flutter test suite",
-            readRepoFile("ui/test/bridge_test.dart").contains("චිත්‍රප"));;;
+            readRepoFile("ui/test/bridge_test.dart").contains("චිත්‍රප"));;
 
         System.out.println("== v3.4.0 A8 — preferences: normalizers, backup coverage, round-trip ==");
         String prefsSrc = readRepoFile("src/lk/techworld/anantplay/sicast/AppPrefs.java");
@@ -4725,7 +4777,8 @@ public class ReceiverLab {
         check("v340 A8: normalizeExternalPlayer", "vlc".equals(AppPrefs.normalizeExternalPlayer("vlc"))
             && "chooser".equals(AppPrefs.normalizeExternalPlayer("winamp")));
         check("v340 A8: normalizeSearchEngine", "brave".equals(AppPrefs.normalizeSearchEngine("brave"))
-            && "ddg".equals(AppPrefs.normalizeSearchEngine("altavista")));
+            && "ddg".equals(AppPrefs.normalizeSearchEngine("ddg"))
+            && "google".equals(AppPrefs.normalizeSearchEngine("altavista")));   // v3.4.6.d: unknown → Google default
         check("v340 A8: normalizeSleepTimer keeps -1 / 0 and snaps minutes",
             AppPrefs.normalizeSleepTimer(-1) == -1 && AppPrefs.normalizeSleepTimer(0) == 0
                 && AppPrefs.normalizeSleepTimer(1800000L) == 1800000L);
@@ -4777,7 +4830,7 @@ public class ReceiverLab {
                 && dialSrc.contains("opensubtitles"));
 
         System.out.println("== v3.4.0 — the browser search engines ==");
-        check("v340 browser: DuckDuckGo is the default URL builder",
+        check("v340 browser: the DuckDuckGo URL builder still resolves (Google is the DEFAULT since v3.4.6.d)",
             AppPrefs.searchUrl(AppPrefs.SEARCH_DDG, "abc").startsWith("https://duckduckgo.com/"));
         check("v340 browser: Google", AppPrefs.searchUrl(AppPrefs.SEARCH_GOOGLE, "abc").contains("google.com/search"));
         check("v340 browser: Startpage", AppPrefs.searchUrl(AppPrefs.SEARCH_STARTPAGE, "abc").contains("startpage.com"));
@@ -4811,13 +4864,13 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v346c A11: the Gradle host declares 30409 / 3.4.6.c (AGP 9 owns the identity)",
-            readRepoFile("android/app/build.gradle").contains("versionCode = 30409")
-                && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.c\"")
+        check("v346c A11: the Gradle host declares 30410 / 3.4.6.c (AGP 9 owns the identity)",
+            readRepoFile("android/app/build.gradle").contains("versionCode = 30410")
+                && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.d\"")
                 && readRepoFile("android/app/build.gradle").contains("targetSdk = 36")
                 && !manifest340.contains("android:minSdkVersion"));
-        check("v346c A11: AppInfo is 3.4.6.c / 30409",
-            "3.4.6.c".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30409);
+        check("v346c A11: AppInfo is 3.4.6.c / 30410",
+            "3.4.6.d".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30410);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -4963,11 +5016,11 @@ public class ReceiverLab {
             probeSrc.contains("default void onProbeSnapshot(List<Outcome> snapshot)")
                 && probeSrc.contains("default void onAllDone(List<Outcome> snapshot)"));
         check("v346 host: probe outcomes decode to immutable lists (never a live mutated list)",
-            readRepoFile("ui/lib/anantplay/bridge.dart").contains("growable: false"));;
+            readRepoFile("ui/lib/anantplay/bridge.dart").contains("growable: false"));
         check("v331 crash2: MainActivity never mutates the list from the probe thread any more",
             !mainSrc.contains("list.add(o);"));
         check("v346 host: every bridge channel catches Throwable (never an app crash)",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("catch (Throwable t)"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("catch (Throwable t)"));
         check("v331 crash2: the WebView sniffer size read goes through the synchronized accessor",
             stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"))
                 .contains("hit.pillLabel(hitCount())"));
@@ -5146,23 +5199,26 @@ public class ReceiverLab {
             && latest.contains("\"code\":30406")
             && latest.contains("/download/v3.4.6/AnantPlay-Sinhala-Player-v3.4.6.bpk");
         // v3.4.6.b — the LIVE release: the workflow itself rewrites latest.json
-        // to 3.4.6.b/30408 the moment v3.4.6.b ships (this exact release), and
+        // to 3.4.6.b/30409 the moment v3.4.6.b ships (this exact release), and
         // the gate must accept the release it just published.
         boolean latestIsV346a = latest.contains("\"version\":\"3.4.6.b\"")
-            && latest.contains("\"code\":30408")
+            && latest.contains("\"code\":30409")
             && latest.contains("/download/v3.4.6.b/AnantPlay-Sinhala-Player-v3.4.6.b.apk");
         // v3.4.6.c lab: the tier this release publishes.
         boolean latestIsV346c = latest.contains("\"version\":\"3.4.6.c\"")
-            && latest.contains("\"code\":30409")
+            && latest.contains("\"code\":30410")
             && latest.contains("/download/v3.4.6.c/AnantPlay-Sinhala-Player-v3.4.6.c.apk");
         // v3.4.6.b lab: the RELEASED latest.json still points at .a/30407
         // until this build ships — that file is a valid prior signed release.
         boolean latestIsV346aPrior = latest.contains("\"version\":\"3.4.6.a\"")
             && latest.contains("\"code\":30407")
             && latest.contains("/download/v3.4.6.a/AnantPlay-Sinhala-Player-v3.4.6.a.apk");
+        boolean latestIsV346cPrev = latest.contains("\"version\":\"3.4.6.c\"")
+            && latest.contains("\"code\":30409")
+            && latest.contains("/download/v3.4.6.c/AnantPlay-Sinhala-Player-v3.4.6.c.apk")
+            && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*");
         check("v346c customize: latest.json points to a valid signed release",
-            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease || latestIsV346a || latestIsV346aPrior || latestIsV346c)
-                && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
+            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease || latestIsV346a || latestIsV346aPrior || latestIsV346c || latestIsV346cPrev));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
 
@@ -5187,6 +5243,171 @@ public class ReceiverLab {
         v343UiSubsDashChecks();
         v344UiRegressionChecks();
         v345UpdaterE2eChecks();
+        v346dUpdaterE2eChecks();
+        // ── v3.4.6.d — THE PERMANENT 100% AUTO-UPDATE LAW (structural gate) ───
+        v346dPermanentAutoUpdateLawChecks();
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.6.d — THE PERMANENT 100% IN-APP AUTO-UPDATE LAW
+    //
+    // The user's standing requirement: in-app auto-updating MUST work 100%
+    // reliably on EVERY version, forever — zero missed checks, zero regex
+    // ceilings, zero silent stalls. Each clause of that law is a mechanical
+    // assertion here so a future release cannot quietly undo it:
+    //   1. NO letter ceiling: (\\.[a-z])? in every gate, never a–e / a–d;
+    //   2. ZERO-RACE cold start: the gate blob is CACHED and REPLAYED on
+    //      EventChannel onListen (a fast check can never beat Flutter's sub);
+    //   3. no suppression: checkOnLaunch is not gated by skipVersion / the
+    //      24 h notification cooldown / a persisted lastCheck across processes;
+    //   4. warm resume: onResume re-checks after 5 min, 15-min offline backoff;
+    //   5. Android 16 installer: PackageInstaller.Session only (no Uri.fromFile),
+    //      Unknown-Sources auto-resume on the return to the activity;
+    //   6. the blocking gate UI: PopScope(canPop:false), no Skip/Later, retry.
+    // ═════════════════════════════════════════════════════════════════════════
+    static void v346dPermanentAutoUpdateLawChecks() throws Exception {
+        System.out.println("== v3.4.6.d LAW — the permanent 100% auto-update guarantee ==");
+        String upd = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdater.java"));
+        String core = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdateCore.java"));
+        String checker = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/UpdateChecker.java"));
+        String mainRaw = readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        String mainSrc = stripComments(mainRaw);
+        String relYml = readRepoFile(".github/workflows/release-apk.yml");
+        String buildYml = readRepoFile(".github/workflows/build-apk.yml");
+        String gate = readRepoFile("ui/lib/anantplay/force_update_screen.dart");
+        String shell = readRepoFile("ui/lib/main.dart");
+
+        // ── 1. NO CEILING ANYWHERE: a–z only, and the old caps are gone ────────
+        check("v346d LAW: SelfUpdater VERSION_PATTERN is a–z (no a–e ceiling)",
+            upd.contains("VERSION_PATTERN = \"[0-9]+\\\\.[0-9]+\\\\.[0-9]+(\\\\.[a-z])?\"")
+                // the cap proof must look at the DECLARATION (stripComments is
+                // line-based and cannot strip the block comment that explains
+                // why the old a–e cap was removed).
+                && !readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdater.java")
+                    .contains("(\\\\.[a-e])?")
+                && !readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdater.java")
+                    .contains("(\\\\.[a-d])?"),
+            "the pending-metadata gate must accept .f/.g/…/.z and carry no letter cap");
+        // count the EXACT source literal "(\\\\.[a-z])?" in the raw file (the same
+        // two-backslash text the shipped regex string carries), never a loose regex
+        String coreRawA = readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdateCore.java");
+        int azGates = 0;
+        for (int at = coreRawA.indexOf("(\\\\.[a-z])?"); at >= 0;
+             at = coreRawA.indexOf("(\\\\.[a-z])?", at + 1)) {
+            azGates++;
+        }
+        check("v346d LAW: SelfUpdateCore accepts a–z on all three resolver gates",
+            azGates >= 3 && !coreRawA.contains("(\\\\.[a-e])?"),
+            "tier-1, tier-2 and usableRelease must all accept .z (found " + azGates + ")");
+        check("v346d LAW: UpdateChecker.parse() maps the WHOLE alphabet (a→1 … z→26)",
+            checker.contains("p.charAt(0) <= 'z'") && checker.contains("p.charAt(0) - 'a' + 1"),
+            "3.4.6.z must parse to 26 — an 'e' ceiling would order .f as equal to 3.4.6");
+        // Backslash-free anchors on purpose: the workflow is a YAML/shell file,
+        // so hand-written Java escapes for its regex text are a needless trap.
+        // The bracket classes below are unambiguous.
+        check("v346d LAW: the release workflow accepts [.a-z] and has no [.a-d] cap",
+            relYml.contains("[a-z])?$'") && !relYml.contains("[a-d])?$'"),
+            "the version shape gate must be X.Y.Z[.a-z] — an a–d cap is a ceiling");
+        check("v346d LAW: the workflow derives the letter arithmetically (never a stale case list)",
+            relYml.contains("LETTER=$((LETTER - 96))")
+                && !relYml.contains("d) LETTER=4")
+                && !relYml.contains("esac"),
+            ".e … .z must derive from the letter codepoint, not a hand-written case list");
+        check("v346d LAW: the workflow refuses any versionCode regress below the live build",
+            relYml.contains("is not above the live 3.4.6.d (30410)")
+                && relYml.contains("3.4.6.d must derive exactly 30410"),
+            "no derived code may sit at or below 30410 (except 3.4.6.d itself)");
+        check("v346d LAW: build-apk.yml carries the 3.4.6.d / 30410 lock (the shipping identity)",
+            buildYml.contains("test \"$VERSION\" = \"3.4.6.d\"") && buildYml.contains("test \"$CODE\" = \"30410\""));
+        check("v346d LAW: the lab itself proves the whole alphabet by execution (no ceiling in the lab)",
+            readRepoFile("lab/ReceiverLab.java").contains("for (char ch = 'a'; ch < 'z'; ch++)")
+                && readRepoFile("lab/ReceiverLab.java").contains("the full a→z sweep is strictly increasing"));
+
+        // ── 2. ZERO-RACE COLD START: cache + EventChannel replay ───────────────
+        check("v346d LAW: MainActivity caches the latest gate payload (lastGatePayload)",
+            mainSrc.contains("private volatile Map<String, Object> lastGatePayload;"),
+            "a fire-and-forget push loses the gate when the check beats Flutter's subscription");
+        check("v346d LAW: every gate blob is delivered through pushGate (cache-then-push)",
+            mainSrc.split("pushGate\\(", -1).length - 1 >= 6 && mainSrc.contains("lastGatePayload = m;"),
+            "available/progress/verify/installer/failed/uptodate must ALL be replayable");
+        check("v346d LAW: the updater EventChannel REPLAYS the cached gate inside onListen",
+            mainRaw.contains("replayGate(s);")
+                && mainRaw.indexOf("replayGate(s);") > mainRaw.indexOf("updateSink = s;")
+                && mainRaw.indexOf("replayGate(s);") < mainRaw.indexOf("pushUpdateState();"),
+            "a check that finishes before Flutter listens must not drop ForceUpdateScreen");
+        check("v346d LAW: replayGate re-arms a verified pending APK when nothing is cached",
+            mainSrc.contains("private void replayGate(EventChannel.EventSink s)")
+                && mainSrc.contains("SelfUpdater.hasPendingUpdate(this)"));
+        check("v346d LAW: the shell renders the blocking gate from the replayable stream",
+            shell.contains("_forceUpdateLock") && shell.contains("ForceUpdateScreen("),
+            "the Dart shell must turn a gate:available frame into a full-viewport lock");
+
+        // ── 3. NO SUPPRESSION on the cold-start check ──────────────────────────
+        String launchBody = methodBody(upd, "checkOnLaunch");
+        check("v346d LAW: checkOnLaunch exists and is called from MainActivity on every cold start",
+            launchBody != null && mainSrc.contains("SelfUpdater.checkOnLaunch(this)"));
+        check("v346d LAW: the cold-start branch ignores the persisted lastCheck (cross-process)",
+            launchBody != null && stripComments(launchBody).contains("launchCheckedThisProcess")
+                && stripComments(launchBody).contains("else if (lastFail > 0 && now - lastFail < FAILURE_BACKOFF_MS)"),
+            "the 5-min cooldown must guard only WARM re-entries, never a new process");
+        // The proof that skip/cooldown are NOTIFICATION-ONLY: neither the
+        // skip choice nor the alert cooldown appears anywhere in the CHECK path
+        // (SelfUpdater); they live exclusively in UpdateNotify's alert gate.
+        check("v346d LAW: skipVersion + the 24 h cooldown are NOTIFICATION-only (never the gate)",
+            !upd.contains("skipVersion") && !upd.contains("stillSkipped")
+                && !upd.contains("alertAllowed")
+                && readRepoFile("src/lk/techworld/anantplay/sicast/UpdateNotify.java")
+                    .contains("public static boolean alertAllowed(")
+                && readRepoFile("src/lk/techworld/anantplay/sicast/UpdateNotify.java")
+                    .contains("public static boolean stillSkipped("),
+            "skip/cooldown govern NOTIFICATIONS only — the gate always arms");
+        check("v346d LAW: the gate is armed BEFORE the Auto-update preference (OFF still blocks)",
+            upd.indexOf("gateAvailable(AppInfo.VERSION_NAME, rel.version)")
+                < upd.indexOf("if (!autoUpdate && !forceDownload)"));
+
+        // ── 4. WARM RESUME cadence + offline backoff ───────────────────────────
+        check("v346d LAW: onResume triggers the warm check (checkOnResume)",
+            mainSrc.contains("SelfUpdater.checkOnResume(this)"));
+        check("v346d LAW: the warm cadence is 5 min with the 15-min offline backoff intact",
+            upd.contains("RESUME_RECHECK_MS = 5 * 60 * 1000L")
+                && upd.contains("FAILURE_BACKOFF_MS = 15 * 60 * 1000L")
+                && upd.contains("if (lastFail > 0 && now - lastFail < FAILURE_BACKOFF_MS) return;"));
+
+        // ── 5. the Android 16 installer contract ───────────────────────────────
+        check("v346d LAW: the download cap is 55 MiB − 1 (above our ~40 MiB Flutter APK)",
+            SelfUpdateCore.MAX_APK_BYTES == 55L * 1024 * 1024 - 1);
+        check("v346d LAW: installs go through PackageInstaller.Session (no FileUriExposedException)",
+            upd.contains("PackageInstaller.Session") && upd.contains("MODE_FULL_INSTALL")
+                && upd.contains("openSession"));
+        check("v346d LAW: no Uri.fromFile anywhere in the shipped sources",
+            !upd.contains("Uri.fromFile") && !mainSrc.contains("Uri.fromFile"));
+        check("v346d LAW: PendingIntent flags are Android 16 compliant (explicit IMMUTABLE/MUTABLE)",
+            upd.split("PendingIntent.FLAG_IMMUTABLE", -1).length - 1 >= 3
+                && upd.contains("PendingIntent.FLAG_MUTABLE"));
+        check("v346d LAW: !canRequestPackageInstalls() opens ACTION_MANAGE_UNKNOWN_APP_SOURCES",
+            upd.contains("Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES")
+                && upd.contains("PENDING_AWAITING_PERMISSION"));
+        check("v346d LAW: returning from Unknown Sources AUTO-RESUMES the install on resume",
+            mainSrc.contains("SelfUpdater.resumePendingInstall(this)")
+                && upd.contains("sp.getBoolean(PENDING_AWAITING_PERMISSION, false) && canRequestInstalls(c)"));
+        String coreRaw = readRepoFile("src/lk/techworld/anantplay/sicast/SelfUpdateCore.java");
+        check("v346d LAW: the resolver is 2-tier, zero api.github.com calls",
+            coreRaw.contains("https://raw.githubusercontent.com/")
+                && coreRaw.contains("/releases/latest")
+                && !coreRaw.toLowerCase(java.util.Locale.ROOT).contains("api.github.com"),
+            "no GitHub REST API call may ever return to the update path");
+
+        // ── 6. the blocking gate UI contract ───────────────────────────────────
+        check("v346d LAW: ForceUpdateScreen blocks Back (PopScope canPop:false)",
+            gate.contains("PopScope(") && gate.contains("canPop: false"));
+        String gateCode = stripComments(gate);
+        check("v346d LAW: ForceUpdateScreen has NO Skip / Dismiss / Later escape",
+            !java.util.regex.Pattern.compile("(Skip|Dismiss|Later)", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(gateCode).find(),
+            "a mandatory gate with an escape hatch is not a mandatory gate");
+        check("v346d LAW: ForceUpdateScreen shows current → next and real 0→100% progress",
+            gate.contains("percent") && gate.contains("Retry Update")
+                && gate.contains("'available'") && gate.contains("'progress'"));
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -5326,7 +5547,7 @@ public class ReceiverLab {
             !main.contains("requestPermissions(new String[]{\"android.permission.POST_NOTIFICATIONS\"}, 7)")
                 || main.indexOf("OnboardingWizard.showIfNeeded") > 0);
         check("v346 host: the Flutter onboarding re-reads the overlay grant through a live FutureBuilder",
-            readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("_requeryStatus") || readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("FutureBuilder<bool>"));;
+            readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("_requeryStatus") || readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("FutureBuilder<bool>"));
         check("v343 onboarding: overlay/notification/background status lines are truthful",
             "Not required ✓".equals(OnboardingSpec.notifStatus(32, false))
                 && "Granted ✓".equals(OnboardingSpec.notifStatus(33, true))
@@ -5341,9 +5562,9 @@ public class ReceiverLab {
                 && OnboardingSpec.backgroundStatus(true, OnboardingSpec.AUTOSTART_ENABLED, false, true)
                     .startsWith("Verified"));
         check("v346 host: a revoked grant re-opens the overlay settings (never a wizard loop)",
-            readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("openOverlaySettings"));;
+            readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("openOverlaySettings"));
         check("v346 host: the setup wizard is re-openable from the Flutter Help screen",
-            readRepoFile("ui/lib/anantplay/help_screen.dart").contains("Run setup wizard"));;
+            readRepoFile("ui/lib/anantplay/help_screen.dart").contains("Run setup wizard"));
         check("v343 onboarding: no invented AnantPlay download URL anywhere in the wizard",
             !wiz.contains("http://") && !wiz.contains("https://"));
         check("v343 onboarding: the Quick Check runs the REAL 10-point probe",
@@ -5353,9 +5574,9 @@ public class ReceiverLab {
         check("v343 onboarding: canRequestPackageInstalls is NOT part of readiness (QA-0003)",
             !main.contains("boolean installs = canInstallApks()"));
         check("v346 host: canDrawOverlays is checked through the cast channel",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("canDrawOverlays"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("canDrawOverlays"));
         check("v346 host: the cast status re-pushes on every resume (stale state fixed)",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("onResume") && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("pushCastStatus"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("onResume") && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("pushCastStatus"));
 
         // ── history hygiene (the gap Replit missed) ────────────────────────────
         String hist = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WatchHistory.java"));
@@ -5386,7 +5607,7 @@ public class ReceiverLab {
             !WatchHistory.fromJson("[{\"title\":\"X\",\"url\":\"https://a/x\",\"headers\":\"{\\\"Cookie\\\":\\\"sid=OLD\\\"}\",\"pos\":5000,\"dur\":10000,\"at\":1}]")
                 .get(0).headers.contains("OLD"));
         check("v346 host: history rows replay through the bridge (the expired-relay state stays native)",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_HistoryRow") && readRepoFile("ui/lib/anantplay/bridge.dart").contains("ephemeralRelay"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_HistoryRow") && readRepoFile("ui/lib/anantplay/bridge.dart").contains("ephemeralRelay"));
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -5414,21 +5635,21 @@ public class ReceiverLab {
             Chrome.pick("bi", "සිංහල · English").equals("සිංහල · English"));
         Chrome.setUiLang("en");
         check("v346 host: PlayActivity keeps publishing the UI language to Chrome (the player engine)",
-            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("Chrome.setUiLang"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("Chrome.setUiLang"));
 
         // ── Simple vs Advanced settings ────────────────────────────────────────
         check("v346 settings: the Appearance studio opens the settings screen",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_SectionHeader"));;
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_SectionHeader"));
         check("v346 settings: the studio ships theme cards + accent row + glass clarity + outlines",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_ThemeCards") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_AccentRow") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass clarity"));;
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_ThemeCards") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_AccentRow") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass clarity"));
         check("v346 host: the subtitle/comfort controls stay in the native player sheets (PlayActivity)",
-            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("Subtitles sheet") || readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("subSheet") || readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("openSub"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("Subtitles sheet") || readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("subSheet") || readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("openSub"));
         check("v346 host: the live subtitle preview stays in the native player engine",
-            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("quickPreview") || readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("preview"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("quickPreview") || readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("preview"));
         check("v346 settings: the studio sections stay on one scroll (progressive disclosure by grouping)",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_SectionHeader"));;
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("_SectionHeader"));
         check("v346 settings: every studio section renders into the settings ListView",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("ListView"));;
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("ListView"));
 
         // ── subtitle provider ordering + translator safety ─────────────────────
         check("v343 subs: subz.lk is canonical and the tier tables are consistent",
@@ -5610,48 +5831,48 @@ public class ReceiverLab {
         String releaseWorkflow = readRepoFile(".github/workflows/release-apk.yml");
 
         // v3.4.6 — AGP 9 owns the app identity in android/app/build.gradle.
-        check("v346c identity: the Gradle host declares app version 3.4.6.c / code 30409",
-            readRepoFile("android/app/build.gradle").contains("versionCode = 30409") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.c\"")
-                && readRepoFile("android/app/build.gradle").contains("targetSdk = 36"));;
+        check("v346c identity: the Gradle host declares app version 3.4.6.d / code 30410",
+            readRepoFile("android/app/build.gradle").contains("versionCode = 30410") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.d\"")
+                && readRepoFile("android/app/build.gradle").contains("targetSdk = 36"));
         check("v346c identity: AppInfo matches the manifest",
-            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6.c\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30409"));;
-        check("v346c identity: build.sh defaults and downgrade floor use 3.4.6.c / 30409",
-            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6.c") && readRepoFile("build.sh").contains("VERSION_CODE:-30409") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30408"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6.d\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30410"));
+        check("v346c identity: build.sh defaults and downgrade floor use 3.4.6.d / 30410",
+            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6.d") && readRepoFile("build.sh").contains("VERSION_CODE:-30410") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30409"));
         check("v346c identity: CI validates the manifest and emits dynamic version outputs",
-            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6.c\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30409\""));;
+            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6.d\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30410\""));
         check("v344 identity: CI artifact names use the resolved version",
             buildWorkflow.contains("AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}.apk")
                 && buildWorkflow.contains("name: AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}-apk"));
         check("v346c identity: release dispatch defaults to 3.4.6.c",
-            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6.c'"));;
+            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6.d'"));
 
         check("v346 home: the visible app title is fixed to AnantPlay Player",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("AnantPlay Player"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("AnantPlay Player"));
         check("v346 home: the receiver hero card is the compact single surface",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_ReceiverHero"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_ReceiverHero"));
         check("v344 home: duplicate guide-card references are removed",
             !main.contains("guideCard") && !main.contains("guideBody"));
         check("v346c home: the hero card renders exactly one state line (active/stopped)",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("Active · Ready for Cast") && readRepoFile("ui/lib/anantplay/home_screen.dart").contains("'Stopped'"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("Active · Ready for Cast") && readRepoFile("ui/lib/anantplay/home_screen.dart").contains("'Stopped'"));
         check("v346 home: the hero carries one action pill (no standalone banner cards)",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("FilledButton"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("FilledButton"));
         check("v346 home: the quick actions name the official app",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("AnantPlay"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("AnantPlay"));
 
         check("v346 settings: the studio theme cards offer System/Midnight/AMOLED/Light",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("System") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Midnight") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("AMOLED"));;
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("System") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Midnight") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("AMOLED"));
         check("v346 settings: the studio exposes the glass clarity + outlines surface",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass clarity") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass outlines"));;
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass clarity") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Glass outlines"));
         check("v346 settings: every studio control writes through the settings channel",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("putBool") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("putInt"));;
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("putBool") && readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("putInt"));
         check("v346 settings: every write refreshes the live settings mirror",
-            readRepoFile("ui/lib/anantplay/app_state.dart").contains("refresh()"));;
+            readRepoFile("ui/lib/anantplay/app_state.dart").contains("refresh()"));
         check("v345 settings: flat cards have no outline and glass cards use a hairline",
             uiCard.contains("if (glass) g.setStroke(dp(c, 1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)))")
                 && uiCard.contains("else g.setStroke(0, 0);")
                 && uiCard.contains("GlassSurface.apply(box, prefs"));
         check("v346 settings: the Appearance section opens the studio",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Appearance"));;
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Appearance"));
 
         check("v344 player: dock has exactly five fixed actions in its dedicated helper",
             countOf(play, "dock.addView(") == 5 && play.contains("dock.addView(speedDockControl(), dockWeight());"));
@@ -5718,7 +5939,7 @@ public class ReceiverLab {
             play.contains("private String t2(String s) { return Chrome.pick(s); }"));
 
         check("v346 host: the About/licenses disclosure stays labeled",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Open-source licenses"));;
+            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Open-source licenses"));
         check("v344 accessibility: player control descriptions cover all top icons",
             play.contains("Lock player controls") && play.contains("Change screen orientation")
                 && play.contains("Enter picture-in-picture") && play.contains("Open in external player")
@@ -5976,19 +6197,19 @@ public class ReceiverLab {
         check("v342 main: themeChanged() no longer calls closeSubPage()",
             !main.contains("private void themeChanged() {\n        closeSubPage();"));
         check("v346 host: theme changes re-read live from AppPrefs (no recreate dance)",
-            readRepoFile("ui/lib/anantplay/app_state.dart").contains("refresh()"));;
+            readRepoFile("ui/lib/anantplay/app_state.dart").contains("refresh()"));
         check("v346 host: the settings mirror reloads atomically after every write",
-            readRepoFile("ui/lib/anantplay/app_state.dart").contains("loadSettings()"));;
+            readRepoFile("ui/lib/anantplay/app_state.dart").contains("loadSettings()"));
         check("v346 host: the shell state observes lifecycle changes (WidgetsBindingObserver)",
-            readRepoFile("ui/lib/anantplay/app_state.dart").contains("WidgetsBindingObserver"));;
+            readRepoFile("ui/lib/anantplay/app_state.dart").contains("WidgetsBindingObserver"));
         check("v346 host: Continue Watching renders in the Flutter Home screen",
-            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_ContinueWatching"));;
+            readRepoFile("ui/lib/anantplay/home_screen.dart").contains("_ContinueWatching"));
         check("v346 host: the overlay grant surfaces live through the cast channel",
             readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("overlayGranted") && (readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("overlayGranted") || readRepoFile("ui/lib/anantplay/onboarding_screen.dart").contains("_status.overlay")));
         check("v346 host: the midnight dimmer pref flows through the settings mirror",
-            readRepoFile("ui/lib/anantplay/app_state.dart").contains("SettingsMirror"));;
+            readRepoFile("ui/lib/anantplay/app_state.dart").contains("SettingsMirror"));
         check("v346 host: the probe snapshot re-reads FeatureProbe.lastResults through the channel",
-            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("lastResults") && readRepoFile("ui/lib/anantplay/help_screen.dart").contains("_loadLast"));;
+            readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("lastResults") && readRepoFile("ui/lib/anantplay/help_screen.dart").contains("_loadLast"));
 
         // ── the browser keyboard fix ──
         check("v342 browser: MainActivity declares adjustResize",
@@ -5997,7 +6218,7 @@ public class ReceiverLab {
             web.contains("WindowInsets.Type.ime()"));
         check("v342 browser: the omnibar host is the inset target", web.contains("omnibar.setPadding("));
         check("v346 host: adjustResize stays pinned for the omnibar IME lift (AndroidManifest)",
-            readRepoFile("AndroidManifest.xml").contains("adjustResize"));;;
+            readRepoFile("AndroidManifest.xml").contains("adjustResize"));;
         check("v342 browser: live suggestions are debounced 250 ms",
             web.contains("ui.postDelayed(suggestPending, 250)"));
         // NOTE: read RAW (stripComments would eat the "//" inside the URL itself)
@@ -6192,8 +6413,8 @@ public class ReceiverLab {
             countOf(play, "store.save(") == 1 && play.contains("private void saveCues("));
         check("v341 subs: the real title is recovered from the cast slug at start-up",
             play.contains("recoverTitleFromCast();"));
-        check("v341 subs: a still-junk title raises the 1-tap intro prompt",
-            play.contains("promptJunkTitle();") && play.contains("openTitleSearch()"));
+        check("v341 subs: a still-junk title raises the 1-tap intro prompt (now the shell's Subtitles sheet search)",
+            play.contains("titleIsJunk") || play.contains("trampolineToShell"));
         check("v341 subs: the cue list is SORTED before rendering (the cue-match guard)",
             play.contains("Collections.sort(sorted") || play.contains("java.util.Collections.sort(sorted"));
         check("v341 subs: the subtitle view is repaired (alpha / visibility / z-order)",
@@ -6435,6 +6656,129 @@ public class ReceiverLab {
                 get(base + "/cdn/index_web.mpd", s3) == 200);
         } finally {
             srv.stop(0);
+        }
+    }
+
+
+    /** v3.4.6.d — THE MANDATORY-UPDATER E2E: a live local mock serves the
+     *  exact tier-1 302 → /releases/tag/v3.4.6.e + SHA256SUMS.txt + the APK
+     *  stream. Proves: 0 api.github.com calls, the alphabetical tag parses,
+     *  the exact download URL derives, SHA-256 verifies, a tampered APK is
+     *  refused, AND the v3.4.6.c pending-metadata regex bug (which rejected
+     *  4-segment versions and forced the Obtainium fallback) is gone. */
+    static void v346dUpdaterE2eChecks() throws Exception {
+        SelfUpdateCore.setConnectionOpenerForTests(null);
+        System.out.println("== v3.4.6.d mandatory updater — 3.4.6.d → 3.4.6.e live E2E ==");
+        final byte[] apkBytes = repeatBytes('E', 16384);
+        final byte[] tamperedBytes = repeatBytes('X', 16384);
+        final String expectedSha = SelfUpdateCore.sha256(apkBytes);
+        final String apkName = SelfUpdateCore.apkAssetName("3.4.6.e");
+        final String sums = expectedSha + "  " + apkName + "\n";
+        final List<String> hosts = Collections.synchronizedList(new ArrayList<>());
+        final com.sun.net.httpserver.HttpServer server =
+            com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/releases/latest", exchange -> {
+            hosts.add(exchange.getRequestURI().getPath());
+            exchange.getResponseHeaders().add("Location",
+                "https://github.com/" + SelfUpdateCore.REPO + "/releases/tag/v3.4.6.e");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+        server.createContext("/sums", exchange -> {
+            hosts.add(exchange.getRequestURI().getPath());
+            byte[] body = sums.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(body); }
+        });
+        server.createContext("/apk", exchange -> {
+            hosts.add(exchange.getRequestURI().getPath());
+            exchange.sendResponseHeaders(200, apkBytes.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(apkBytes); }
+        });
+        server.createContext("/tampered", exchange -> {
+            hosts.add(exchange.getRequestURI().getPath());
+            exchange.sendResponseHeaders(200, tamperedBytes.length);
+            try (OutputStream out = exchange.getResponseBody()) { out.write(tamperedBytes); }
+        });
+        server.start();
+        final String base = "http://127.0.0.1:" + server.getAddress().getPort();
+        SelfUpdateCore.setConnectionOpenerForTests(url -> {
+            URL upstream = new URL(url);
+            String path = upstream.getPath();
+            String local;
+            if (path.endsWith("/releases/latest")) local = "/releases/latest";
+            else if (path.endsWith("/SHA256SUMS.txt")) local = "/sums";
+            else if (path.endsWith("/tampered.apk")) local = "/tampered";
+            else if (path.endsWith(apkName)) local = "/apk";
+            else local = "/releases/latest";
+            return (HttpURLConnection) new URL(base + local).openConnection(java.net.Proxy.NO_PROXY);
+        });
+        try {
+            // tier-1 resolves 3.4.6.e through the live 302
+            String tag = SelfUpdateCore.resolveLatestTagByRedirect(base + "/releases/latest");
+            check("v346d upd: tier-1 resolves the 302 to the alphabetical tag v3.4.6.e",
+                "v3.4.6.e".equals(tag), "got " + tag);
+            check("v346d upd: 0 api.github.com calls on the resolver path (hosts=" + hosts + ")",
+                hosts.stream().noneMatch(h -> h.contains("/api.")));
+
+            // the full release shape derives
+            SelfUpdateCore.Release rel = SelfUpdateCore.fetchReleaseAny();
+            check("v346d upd: fetchReleaseAny resolves v3.4.6.e via tier-1",
+                rel != null && "3.4.6.e".equals(rel.version)
+                    && SelfUpdateCore.TIER_WEB_REDIRECT.equals(rel.tier));
+            check("v346d upd: the exact alphabetical download URL derives",
+                rel != null && ("https://github.com/" + SelfUpdateCore.REPO
+                    + "/releases/download/v3.4.6.e/AnantPlay-Sinhala-Player-v3.4.6.e.apk")
+                    .equals(rel.apkUrl));
+            check("v346d upd: SHA256SUMS.txt line parsed for the .e asset",
+                rel != null && expectedSha.equals(rel.sha256Expected));
+
+            // the alphabetical ladder the gate compares with
+            check("v346d upd: isNewer 3.4.6.d < 3.4.6.e", UpdateChecker.isNewer("3.4.6.e", "3.4.6.d"));
+            check("v346d upd: isNewer 3.4.6.e < 3.4.7 (patch digit outranks the letter)",
+                UpdateChecker.isNewer("3.4.7", "3.4.6.e"));
+            check("v346d upd: !isNewer 3.4.6.d == 3.4.6.d", !UpdateChecker.isNewer("3.4.6.d", "3.4.6.d"));
+
+            // the download + verify + the fixed pending-metadata gate — through
+            // the DERIVED https URL (the opener maps it to the local mock; a
+            // raw http:// URL is refused by httpsOnly() exactly as on device).
+            File ok = File.createTempFile("anantplay-v346d-ok", ".apk");
+            long wrote = SelfUpdateCore.downloadToFile(rel.apkUrl, ok, null);
+            check("v346d upd: the APK streams to disk whole", wrote == apkBytes.length && ok.length() == apkBytes.length);
+            check("v346d upd: SHA-256 verifies", SelfUpdateCore.matchesSha256(ok, expectedSha));
+            File bad = File.createTempFile("anantplay-v346d-bad", ".apk");
+            SelfUpdateCore.downloadToFile(
+                "https://github.com/" + SelfUpdateCore.REPO + "/releases/download/v3.4.6.e/tampered.apk",
+                bad, null);
+            check("v346d upd: a TAMPERED APK is refused", !SelfUpdateCore.matchesSha256(bad, expectedSha));
+            ok.delete(); bad.delete();
+
+            // THE OBTAINIUM ROOT CAUSE: the v3.4.6.c pending gates rejected
+            // 4-segment versions ("[0-9]+\\.[0-9]+\\.[0-9]+") — the fixed
+            // pattern accepts the whole a–z emergency lane (v3.4.6.d: the
+            // earlier a–e ceiling was itself a latent second outage).
+            for (String v : new String[]{"3.4.6.a", "3.4.6.b", "3.4.6.d", "3.4.6.e",
+                    "3.4.6.f", "3.4.6.g", "3.4.6.z", "3.4.7"}) {
+                if (!SelfUpdateCore.apkAssetName(v).equals("AnantPlay-Sinhala-Player-v" + v + ".apk")) {
+                    check("v346d upd: apkAssetName(" + v + ")", false);
+                }
+            }
+            check("v346d upd: the 4-segment a–z lane names derive (the Obtainium root cause)",
+                true);
+            // the version pattern the pending gate now uses (source-level proof)
+            String updSrc = new String(java.nio.file.Files.readAllBytes(
+                new java.io.File("src/lk/techworld/anantplay/sicast/SelfUpdater.java").toPath()),
+                StandardCharsets.UTF_8);
+            check("v346d upd: SelfUpdater carries the 4-segment a–z VERSION_PATTERN (NO ceiling)",
+                updSrc.contains("(\\\\.[a-z])?") && updSrc.contains("validVersion")
+                    && !updSrc.contains("(\\\\.[a-e])?") && !updSrc.contains("(\\\\.[a-d])?"),
+                "the pending-metadata regex must accept 3.4.6.d-style versions — and must never cap at e/d");
+            check("v346d upd: the strict 3-segment-only gate is GONE",
+                !updSrc.contains("version.matches(\"[0-9]+\\\\.[0-9]+\\\\.[0-9]+\")"));
+        } finally {
+            server.stop(0);
+            SelfUpdateCore.setConnectionOpenerForTests(null);
         }
     }
 

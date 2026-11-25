@@ -183,8 +183,57 @@ class UpdaterEvent {
         value: (map['v'] as String?) ?? '',
       );
 
-  final String type;   // available | progress | state | pending
+  final String type;   // available | progress | state | pending | gate
   final String value;
+}
+
+/// v3.4.6.d — one frame of the mandatory force-update gate state the host
+/// pushes on the anantplay/updater EventChannel: the available blob carries
+/// the current → new version pair, and the live legs (progress / verify /
+/// installer / failed / uptodate) drive the ForceUpdateScreen.
+class UpdateGateEvent {
+  const UpdateGateEvent({
+    required this.gate,
+    this.current = '',
+    this.next = '',
+    this.percent = 0,
+    this.bytes = 0,
+    this.total = 0,
+    this.reason = '',
+  });
+
+  factory UpdateGateEvent.fromMap(Map<dynamic, dynamic> map) => UpdateGateEvent(
+        gate: (map['gate'] as String?) ?? '',
+        current: (map['current'] as String?) ?? '',
+        next: (map['next'] as String?) ?? '',
+        percent: (map['percent'] as num?)?.toInt() ?? 0,
+        bytes: (map['bytes'] as num?)?.toInt() ?? 0,
+        total: (map['total'] as num?)?.toInt() ?? 0,
+        reason: (map['reason'] as String?) ?? '',
+      );
+
+  final String gate; // available | progress | verify | installer | failed | uptodate
+  final String current;
+  final String next;
+  final int percent;
+  final int bytes;
+  final int total;
+  final String reason;
+}
+
+/// v3.4.6.d — the official AnantPlay live version pill (Slide 2): installed
+/// state + the exact installed version name, pushed fresh on every resume.
+class OfficialVersionEvent {
+  const OfficialVersionEvent({required this.installed, required this.version});
+
+  factory OfficialVersionEvent.fromMap(Map<dynamic, dynamic> map) =>
+      OfficialVersionEvent(
+        installed: map['installed'] == true,
+        version: (map['version'] as String?) ?? '',
+      );
+
+  final bool installed;
+  final String version;
 }
 
 /// v3.4.6.c — the native texture session Media3TextureBridge.open returns:
@@ -323,6 +372,7 @@ class AnantPlay {
 
   Stream<CastStatus>? _castStream;
   Stream<UpdaterEvent>? _updaterStream;
+  Stream<UpdateGateEvent>? _gateStream;
   Stream<List<ProbeOutcome>>? _probeStream;
   Stream<OnboardingStatus>? _onboardingStream;
   Stream<InstallEvent>? _installStream;
@@ -332,9 +382,11 @@ class AnantPlay {
   void resetStreams() {
     _castStream = null;
     _updaterStream = null;
+    _gateStream = null;
     _probeStream = null;
     _onboardingStream = null;
     _installStream = null;
+    _officialVersionStream = null;
   }
 
   /// The live receiver status stream (pushed on every change + resume).
@@ -350,6 +402,18 @@ class AnantPlay {
     return _updaterStream ??= _updaterEvents
         .receiveBroadcastStream()
         .map((e) => UpdaterEvent.fromMap(e as Map));
+  }
+
+  /// v3.4.6.d — the mandatory force-update gate stream (available → progress →
+  /// verify → installer, or failed with a retry reason, or uptodate). The
+  /// shell locks the whole app behind ForceUpdateScreen the moment an
+  /// `available` frame arrives with a strictly newer `next`.
+  Stream<UpdateGateEvent> updateGateEvents() {
+    return _gateStream ??= _updaterEvents
+        .receiveBroadcastStream()
+        .where((e) => e is Map && e['t'] == 'gate')
+        .cast<Map<dynamic, dynamic>>()
+        .map(UpdateGateEvent.fromMap);
   }
 
   /// The probe-completion stream (10/10 outcomes, pushed when a run ends).
@@ -387,6 +451,40 @@ class AnantPlay {
   Future<bool> officialInstalled() async => await _cast.invokeMethod('officialInstalled');
   Future<void> openOfficialApp() => _cast.invokeMethod('openOfficial');
   Future<void> runTestPlayer() => _cast.invokeMethod('testPlayer');
+
+  // ── v3.4.6.d — the REAL notifications grant + the overlay return-watch ─────
+
+  /// Slide 3's real in-app grant: API 33+ fires the native POST_NOTIFICATIONS
+  /// runtime dialog IN-APP (zero leaving the app); a permanently-denied state
+  /// opens ACTION_APP_NOTIFICATION_SETTINGS. The result arrives through
+  /// [onboardingStatusEvents] (onRequestPermissionsResult pushes it).
+  Future<void> requestNotifications() => _cast.invokeMethod('requestNotifications');
+
+  /// The fallback lane: the app's own notification settings page.
+  Future<void> openNotificationSettings() =>
+      _cast.invokeMethod('openNotificationSettings');
+
+  /// The 30-second bounded overlay watcher: polls canDrawOverlays every
+  /// 500 ms while the app is paused and the instant the user flips the
+  /// Display-over-other-apps toggle ON in Android Settings, brings the app
+  /// back to the front automatically.
+  Future<void> watchOverlayGrant() => _cast.invokeMethod('watchOverlayGrant');
+
+  /// The live official-AnantPlay version pill (installed + version name),
+  /// pushed fresh on every resume through [officialVersionEvents].
+  Future<String> officialVersion() async =>
+      await _cast.invokeMethod('officialVersion');
+
+  /// The officialVersion event stream ({t:'officialVersion', installed, version}).
+  Stream<OfficialVersionEvent> officialVersionEvents() {
+    return _officialVersionStream ??= _castEvents
+        .receiveBroadcastStream()
+        .where((e) => e is Map && e['t'] == 'officialVersion')
+        .cast<Map<dynamic, dynamic>>()
+        .map(OfficialVersionEvent.fromMap);
+  }
+
+  Stream<OfficialVersionEvent>? _officialVersionStream;
 
   // ── v3.4.6.b — the unbreakable onboarding finish + in-app installer ─────────
 
@@ -433,9 +531,6 @@ class AnantPlay {
   /// percent → Android's 1-tap PackageInstaller sheet.
   Future<void> installOfficialAnantPlay() =>
       _cast.invokeMethod('installOfficialAnantPlay');
-
-  Future<String> officialVersion() async =>
-      await _cast.invokeMethod('officialVersion');
 
   /// Slide 5's universal background stability entry (OEM-aware page).
   Future<void> openBatteryOptimization() => _cast.invokeMethod('openBatteryOptimization');

@@ -373,26 +373,41 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         Troubleshooter.record("CAST", "/play accepted · opening the Sinhala player");
 
         String castJson = MiniJson.write(body);
-        Intent i = new Intent(this, PlayActivity.class)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            .putExtra("castJson", castJson);
+        // v3.4.6.d — ONE UNIFIED PLAYER: the cast opens the Flutter shell's
+        // MORNYE CINEMA PLAYER (PlayerScreen over Media3TextureBridge) through
+        // the shell route pump — was: a raw `new Intent(this, PlayActivity
+        // .class)` that rendered the OLD JAVA PLAYER UI (the v3.4.6.c "two
+        // video players" complaint). MainActivity.shellRoute brings the
+        // shell forward and pushes the route blob; the overlay grant governs
+        // the background-launch exactly as before.
         boolean overlay = Settings.canDrawOverlays(this);
+        boolean opened = false;
         try {
-            startActivity(i);   // works with the overlay grant; blocked (silently) without it
+            Map<String, Object> m = Cue.statusOf(castJson);
+            String castUrl = MiniJson.str(m, "url");
+            String castTitle = MiniJson.str(m, "title");
+            if (castTitle == null || castTitle.isEmpty()) castTitle = MiniJson.str(m, "pageTitle");
+            String headersJson = MiniJson.str(m, "headers");
+            if (castUrl == null || castUrl.isEmpty()) castUrl = url;
+            if (castUrl == null) castUrl = "";
+            PlayActivity.trampolineToShell(this, castUrl,
+                castTitle == null ? (title == null ? "" : title) : castTitle,
+                headersJson == null ? "" : headersJson, false);
+            opened = true;
+            Diag.i("play", "routed into the Mornye shell player");
         } catch (Throwable t) {
-            Diag.w("play", "startActivity: " + t);
-            Troubleshooter.record("CAST", "/play launch failed: " + t + " — falling back to the notification");
+            Diag.w("play", "shell route: " + t + " — falling back to the notification");
         }
-        // Without the overlay grant Android 10+ refuses the background activity launch, so
-        // wait a shorter window and then hand the user a tap-to-open notification. The cast
-        // still SUCCEEDS (ok:true) — AnantPlay keeps its Remote and nothing crashes.
+        // The wait loop still proves the player session took the screen (the
+        // shell's PlayerScreen claims PlayActivity's /status mirror through
+        // adoptBridgeSession, so current() answers from the bridge session).
         int waits = overlay ? 50 : 12;
         for (int n = 0; n < waits; n++) {           // Cast.play's wait loop (Cast.java:171-176)
             try { Thread.sleep(100); } catch (InterruptedException e) { break; }
-            if (PlayActivity.current() != null) {
+            if (PlayActivity.current() != null || PlayActivity.bridgeSessionLive()) {
                 Diag.i("play", "player opened" + (overlay ? "" : " (no overlay perm — it worked anyway)"));
                 Troubleshooter.record("CAST", "player opened ✓" + (overlay ? "" : " (no overlay perm)"));
-                if (overlay) scheduleTakeover();  // hand the screen from AnantPlay's Remote to our player
+                if (overlay) scheduleTakeover();
                 return ReceiverServer.okJson();
             }
         }
@@ -426,10 +441,13 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         lastTakeoverAtMs = now;
         main.postDelayed(() -> {
             try {
-                PlayActivity p = PlayActivity.current();
-                if (p == null) return;
-                Diag.i("takeover", "bringing the Sinhala player to the front");
-                startActivity(new Intent(ReceiverService.this, PlayActivity.class)
+                // v3.4.6.d — the takeover brings the FLUTTER SHELL forward (the
+                // Mornye Cinema Player owns the screen), never the old Java
+                // PlayActivity UI. A bare MainActivity intent reorders the
+                // existing task to the front; the bridge session keeps serving
+                // /status while the shell is on screen.
+                Diag.i("takeover", "bringing the Mornye shell player to the front");
+                startActivity(new Intent(ReceiverService.this, MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
             } catch (Throwable t) {
                 Diag.w("takeover", "not allowed now: " + t + " — the user can tap the notification");

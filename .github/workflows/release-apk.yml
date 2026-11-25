@@ -37,7 +37,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.4.6.c — no leading v)'
         required: true
-        default: '3.4.6.c'
+        default: '3.4.6.d'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -75,32 +75,62 @@ jobs:
             # that ships) — VERSION_NAME=${VERSION_NAME:-<default>}
             V=$(grep -o 'VERSION_NAME=${VERSION_NAME:-[^}]*}' build.sh | head -1 | sed 's/.*:-\([^}]*\)}/\1/')
           fi
-          # v3.4.6.c — THE ALPHABETICAL SCHEME: X.Y.Z[.a-d]. The letter is a 4th
-          # segment; the whole ladder 3.4.6 < .a < .b < .c < .d < 3.4.7 must hold
-          # in versionCode space too: letters occupy +1..+4 of the base, 3.4.7
-          # takes the next free slot 30411, later numerics take +9 (below).
-          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-d])?$' || { echo "::error::version '$V' is not X.Y.Z[.a-d]"; exit 1; }
+          # v3.4.6.d — THE ALPHABETICAL SCHEME, WIDENED FOR GOOD: X.Y.Z[.a-z].
+          # NO REGEX CEILING ANYWHERE: .e, .f … .z derive cleanly, forever.
+          #
+          # Two codepoint regimes, one strictly-increasing ladder:
+          #
+          #  A. LEGACY LANE (base ≤ 30406 — the already-shipped 3.4.0..3.4.6
+          #     numerics and their a–z emergency letters): CODE = BASE + LETTER,
+          #     so 3.4.6.c=30409, 3.4.6.d=30410 (the permanent strict lock),
+          #     3.4.6.e=30411 … 3.4.6.z=30432. These exact codes must never move:
+          #     they are burned into shipped APKs and users' update paths.
+          #
+          #  B. WIDE LANE (every base > 30406 — 3.4.7 onward, forever):
+          #     CODE = MAJOR*1000000 + MINOR*10000 + PATCH*100 + LETTER.
+          #     Each numeric version gets a 100-wide lane, so its own a–z letters
+          #     (1…26) always fit BELOW the next numeric version, and the next
+          #     numeric version always sits above the whole previous lane:
+          #         3.4.7 = 3040700   (… 3.4.7.z = 3040726)
+          #         3.4.8 = 3040800   (… 3.4.8.z = 3040826)
+          #         3.5.0 = 3050000   (… 3.5.0.z = 3050026)
+          #         4.0.0 = 4000000
+          #     This is why the lane is multiplicative: a +1 letter step and a
+          #     +1 patch step can never collide again (the 30407 = 3.4.6.a trap
+          #     that originally forced "+9" hacks and a .d ceiling).
+          #     ≥ 30410 on entry, so the ladder never regresses past the live
+          #     3.4.6.d build, and the ceiling is Android's own 2.1e9.
+          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' || { echo "::error::version '$V' is not X.Y.Z[.a-z]"; exit 1; }
           MAJOR=$(echo "$V" | cut -d. -f1); MINOR=$(echo "$V" | cut -d. -f2); PATCH=$(echo "$V" | cut -d. -f3)
-          SUFFIX=$(echo "$V" | sed -n 's/^[0-9]*\.[0-9]*\.[0-9]*\.\([a-d]\)$/\1/p')
+          SUFFIX=$(echo "$V" | sed -n 's/^[0-9]*\.[0-9]*\.[0-9]*\.\([a-z]\)$/\1/p')
           LETTER=0
-          case "$SUFFIX" in a) LETTER=1 ;; b) LETTER=2 ;; c) LETTER=3 ;; d) LETTER=4 ;; esac
-          BASE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
           if [ -n "$SUFFIX" ]; then
-            # the emergency letter lane: 3.4.6.c=30409, 3.4.6.d=30410
+            # a→1 … z→26, derived arithmetically so the WHOLE alphabet works —
+            # no case list that could ever go stale at .e, .f, .g …
+            LETTER=$(printf '%d' "'$SUFFIX")
+            LETTER=$((LETTER - 96))
+          fi
+          BASE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          if [ "$BASE" -le 30406 ]; then
+            # A. LEGACY LANE — the shipped 3.4.0..3.4.6 history, unchanged.
             CODE=$((BASE + LETTER))
-          elif [ "$BASE" -le 30406 ]; then
-            # LEGACY numeric history (3.4.0..3.4.6): X*10000+Y*100+Z, already shipped
-            CODE=$BASE
-          elif [ "$BASE" -eq 30407 ]; then
-            # 3.4.7 — the first numeric release AFTER the 3.4.6 letter lane:
-            # BASE for 3.4.7 is 3*10000+4*100+7 = 30407 (NOT 30409 — that is
-            # 3.4.6.b's code, a letter-lane value). It must be > 3.4.6.d
-            # (30410), so it takes the next free slot 30411.
-            CODE=$((BASE + 4))
           else
-            # later numeric releases (3.4.8+): +9 keeps every future letter lane
-            # of the PREVIOUS base (up to .d, +4) below this code with margin.
-            CODE=$((BASE + 9))
+            # B. WIDE LANE — 3.4.7 and every future release, letters included.
+            CODE=$((MAJOR * 1000000 + MINOR * 10000 + PATCH * 100 + LETTER))
+          fi
+          # ── the global monotonic guarantee: never below the live 3.4.6.d ────
+          # 3.4.6.d itself is 30410 (this release); everything after it must be
+          # strictly higher, so no shipped build can ever be "updated" downward.
+          if [ "$V" = "3.4.6.d" ]; then
+            [ "$CODE" -eq 30410 ] || { echo "::error::3.4.6.d must derive exactly 30410 (got $CODE)"; exit 1; }
+          else
+            [ "$CODE" -gt 30410 ] || { echo "::error::derived versionCode $CODE for '$V' is not above the live 3.4.6.d (30410)"; exit 1; }
+          fi
+          # the wide lane reserves 100 slots per numeric version; a patch or minor
+          # of 100+ would spill into the next lane, so it is refused loudly.
+          if [ "$BASE" -gt 30406 ] && { [ "$PATCH" -ge 100 ] || [ "$MINOR" -ge 100 ]; }; then
+            echo "::error::minor and patch must be < 100 (got $MINOR / $PATCH) — the 100-slot letter lane would collide"
+            exit 1
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"

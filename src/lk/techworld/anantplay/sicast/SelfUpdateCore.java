@@ -164,7 +164,7 @@ final class SelfUpdateCore {
 
     private static boolean usableRelease(Release r) {
         return r != null
-            && r.version != null && r.version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-d])?")
+            && r.version != null && r.version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?")
             && httpsOnly(r.apkUrl)
             && apkAssetName(r.version).equals(apkFileName(r.apkUrl))
             && r.sha256Expected != null && r.sha256Expected.matches("(?i)[0-9a-f]{64}");
@@ -182,7 +182,7 @@ final class SelfUpdateCore {
         if (tag == null || tag.isEmpty()) return null;
         Release r = new Release();
         r.version = stripV(tag);
-        if (!r.version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-d])?")) return null;
+        if (!r.version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?")) return null;
         r.tier = TIER_WEB_REDIRECT;
         r.apkUrl = derivedApkUrl(tag);
         r.sha256Expected = fetchExpectedSha(derivedSumsUrl(tag), apkAssetName(r.version));
@@ -243,7 +243,7 @@ final class SelfUpdateCore {
         }
         if (!(root instanceof Map)) return null;
         String version = MiniJson.str(root, "version");
-        if (version == null || !stripV(version).matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-d])?")) return null;
+        if (version == null || !stripV(version).matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?")) return null;
         String tag = version.startsWith("v") ? version : "v" + version;
         Release r = new Release();
         r.version = stripV(tag);

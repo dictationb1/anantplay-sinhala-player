@@ -81,6 +81,49 @@ public final class SelfUpdater {
     static void fire(String state) {
         UiListener u = ui;
         if (u != null) { try { u.onUpdateState(state); } catch (Throwable ignored) { } }
+        pushGateEvent("state", state);
+    }
+
+    // ── v3.4.6.d — THE MANDATORY GATE EVENT SURFACE ──────────────────────────
+    // The ForceUpdateScreen's data source. MainActivity forwards these onto the
+    // anantplay/updater EventChannel; the shell renders the blocking gate the
+    // moment a strictly-newer release is known (updateAvailable == true).
+    private static volatile GateListener gate;
+    interface GateListener {
+        void onAvailable(String currentVersion, String newVersion, String apkUrl);
+        void onProgress(int percent, long bytes, long total);
+        void onVerify();
+        void onInstaller();
+        void onFailed(String reason);
+        void onUpToDate();
+    }
+    static void setGateListener(GateListener l) { gate = l; }
+    static void pushGateEvent(String type, String value) {
+        GateListener g = gate;
+        if (g == null) return;
+        try {
+            if ("available".equals(type)) {
+                // value carries "current|new" — split and forward.
+                String[] parts = value.split("\\|");
+                g.onAvailable(parts[0], parts.length > 1 ? parts[1] : parts[0], "");
+            } else if ("verify".equals(type)) {
+                g.onVerify();
+            } else if ("installer".equals(type)) {
+                g.onInstaller();
+            } else if ("failed".equals(type)) {
+                g.onFailed(value);
+            } else if ("uptodate".equals(type)) {
+                g.onUpToDate();
+            }
+        } catch (Throwable ignored) { }
+    }
+    private static void gateAvailable(String current, String next) {
+        GateListener g = gate;
+        if (g != null) { try { g.onAvailable(current, next, ""); } catch (Throwable ignored) { } }
+    }
+    private static void gateProgress(int percent, long bytes, long total) {
+        GateListener g = gate;
+        if (g != null) { try { g.onProgress(percent, bytes, total); } catch (Throwable ignored) { } }
     }
 
     /** v3.1.0 (Bug 5) — the SINGLE-FLIGHT guard: the launch-check job and the
@@ -182,13 +225,31 @@ public final class SelfUpdater {
             .remove(PENDING_AWAITING_PERMISSION).apply();
     }
 
+    /** v3.4.6.d — THE ALPHABETICAL VERSION PATTERN (the Obtainium root cause):
+     * every pending-metadata gate in v3.4.6.c matched the strict 3-segment
+     * "[0-9]+\\.[0-9]+\\.[0-9]+" — so a downloaded+verified 3.4.6.d release
+     * made savePendingUpdate() THROW IllegalArgumentException, the metadata
+     * was never written, hasPendingUpdate() stayed false and the install
+     * never ran (the user had to fall back to Obtainium).
+     *
+     * v3.4.6.d PERMANENT LAW — the 4th segment is the WHOLE ALPHABET a–z
+     * (never a–e): the earlier (\\.[a-e]) ceiling would have broken again on
+     * 3.4.6.f, and this gate must never have a regex ceiling. 3.4.6 < 3.4.6.a
+     * < … < 3.4.6.d < … < 3.4.6.z < 3.4.7 holds forever. */
+    static final String VERSION_PATTERN = "[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?";
+
+    /** True when v is a valid release version (3 or 4 segments, a–z lane). */
+    static boolean validVersion(String v) {
+        return v != null && v.matches(VERSION_PATTERN);
+    }
+
     /** Returns only a name-checked file beneath cacheDir/updates. */
     private static File pendingFile(Context c) {
         android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
         String version = sp.getString(PENDING_VERSION, "");
         String hash = sp.getString(PENDING_SHA256, "");
         String name = sp.getString(PENDING_FILE, "");
-        if (version == null || !version.matches("[0-9]+\\.[0-9]+\\.[0-9]+")
+        if (version == null || !validVersion(version)
                 || hash == null || !hash.matches("(?i)[0-9a-f]{64}")
                 || !SelfUpdateCore.apkAssetName(version).equals(name)) {
             clearPendingMetadata(c);
@@ -204,7 +265,7 @@ public final class SelfUpdater {
     }
 
     private static void savePendingUpdate(Context c, File apk, String version, String sha256) {
-        if (apk == null || version == null || !version.matches("[0-9]+\\.[0-9]+\\.[0-9]+")
+        if (apk == null || version == null || !validVersion(version)
                 || sha256 == null || !sha256.matches("(?i)[0-9a-f]{64}")
                 || !SelfUpdateCore.apkAssetName(version).equals(apk.getName())
                 || !apk.getParentFile().equals(updatesDir(c))) {
@@ -271,10 +332,20 @@ public final class SelfUpdater {
         return SelfUpdateCore.checkAllowed(nowMs, lastCheck, lastFailedCheck, manual);
     }
 
-    /** Called by MainActivity after the live UI listener is ready. The check
-     *  runs immediately on a daemon worker; JobScheduler is only the periodic
-     *  fallback. The attempt timestamp is written inside the worker directly
-     *  before networking, avoiding a deferred-job race with the cooldown gate. */
+    /**
+     * Called by MainActivity after the live UI listener is ready. The check
+     * runs immediately on a daemon worker; JobScheduler is only the periodic
+     * fallback. The attempt timestamp is written inside the worker directly
+     * before networking, avoiding a deferred-job race with the cooldown gate.
+     *
+     * v3.4.6.d — THE MANDATORY-GATE LAUNCH CONTRACT: a COLD app start (a new
+     * process) ALWAYS checks immediately — the v3.4.6.c suppression (a 5-min
+     * success cooldown surviving process death made a just-restarted phone
+     * skip the launch check entirely, so the user never saw the update and
+     * reached for Obtainium) is gone. The 5-minute cooldown now guards only
+     * WARM re-entries inside one process (resume storms), and the 15-minute
+     * FAILURE backoff still prevents an offline phone from hammering.
+     */
     public static void checkOnLaunch(final Context c) {
         try {
             android.content.Context app = c.getApplicationContext();
@@ -286,9 +357,14 @@ public final class SelfUpdater {
             }
             android.content.SharedPreferences sp = app.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
             long now = System.currentTimeMillis();
-            long last = sp.getLong("lastCheck", 0);
             long lastFail = sp.getLong("lastFailedCheck", 0);
-            if (!checkAllowed(now, last, lastFail, false)) return;
+            if (launchCheckedThisProcess) {
+                // A warm re-entry in the SAME process: the normal cooldowns.
+                if (!checkAllowed(now, sp.getLong("lastCheck", 0), lastFail, false)) return;
+            } else if (lastFail > 0 && now - lastFail < FAILURE_BACKOFF_MS) {
+                return;   // cold start, but the failure backoff still holds
+            }
+            launchCheckedThisProcess = true;
             if (!launchQueued.compareAndSet(false, true)) return;
             fire("Checking…");
             checkExecutor.execute(() -> {
@@ -298,6 +374,61 @@ public final class SelfUpdater {
         } catch (Throwable t) {
             Diag.w("selfupd", "launch check: " + t);
             launchQueued.set(false);
+        }
+    }
+
+    /** True once a launch check has run in THIS process (warm re-entries cool down). */
+    private static volatile boolean launchCheckedThisProcess;
+
+    /** v3.4.6.d — THE WARM-RESUME CADENCE: a resume re-checks only when more
+     *  than 5 minutes have passed since the last check attempt. Never a
+     *  suppression of the COLD start (checkOnLaunch runs unconditionally), just
+     *  a debounce for the resume storms every Android app sees. */
+    static final long RESUME_RECHECK_MS = 5 * 60 * 1000L;
+
+    /**
+     * v3.4.6.d — WARM RESUME: called from MainActivity.onResume() on EVERY
+     * foreground return (including the return from the Unknown-Sources settings
+     * screen and from the installer sheet).
+     *
+     *   · > 5 min since the last attempt  → check now (a release published while
+     *     the phone sat on the home screen is picked up without a relaunch);
+     *   · a failed check within 15 min    → skipped entirely (the offline phone
+     *     never loops, never drains battery);
+     *   · an already-verified pending APK → NOT re-downloaded, the pending state
+     *     is re-armed so the gate renders again;
+     *   · Auto-update OFF never disables the CHECK (only the auto-DOWNLOAD leg —
+     *     the mandatory gate must be able to lock the app for a newer release).
+     *
+     * Fully guarded: a resume path must never be able to crash the activity.
+     */
+    public static void checkOnResume(Context c) {
+        try {
+            android.content.Context app = c.getApplicationContext();
+            if (pendingFile(app) != null) {
+                launchCheckedThisProcess = true;
+                android.content.SharedPreferences psp =
+                        app.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+                if (System.currentTimeMillis() - psp.getLong("lastCheck", 0) >= RESUME_RECHECK_MS) {
+                    fire("Update ready — tap Install Update");   // re-arm the gate prompt
+                }
+                return;
+            }
+            android.content.SharedPreferences sp =
+                    app.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+            long now = System.currentTimeMillis();
+            long lastCheck = sp.getLong("lastCheck", 0);
+            long lastFail = sp.getLong("lastFailedCheck", 0);
+            // the 15-minute offline backoff wins over any cadence
+            if (lastFail > 0 && now - lastFail < FAILURE_BACKOFF_MS) return;
+            if (lastCheck > 0 && now - lastCheck < RESUME_RECHECK_MS) return;
+            if (!launchQueued.compareAndSet(false, true)) return;
+            checkExecutor.execute(() -> {
+                try { checkAndMaybeInstall(app, false, false); }
+                finally { launchQueued.set(false); }
+            });
+        } catch (Throwable t) {
+            Diag.w("selfupd", "resume check: " + t);
         }
     }
 
@@ -510,35 +641,22 @@ public final class SelfUpdater {
                 Diag.i("selfupd", "up to date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
                 Troubleshooter.record("UPDATER", "check: up-to-date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
                 fire("Up to date (v" + AppInfo.VERSION_NAME + ")");
+                pushGateEvent("uptodate", rel.version);
                 return "up-to-date";
             }
-            // v3.1.0 — the skip choice: never alert about a skipped version again
-            String skippedVersion = sp.getString("skippedVersion", null);
-            if (UpdateNotify.stillSkipped(skippedVersion, rel.version)) {
-                Diag.i("selfupd", "v" + rel.version + " skipped by the user — staying quiet");
-                fire("Skipped v" + rel.version);
-                return "skipped";
-            }
-            // v3.1.0 — the 24 h per-version alert cooldown (manual checks bypass)
-            String alertKey = "lastAlert:" + rel.version;
-            long lastAlert = sp.getLong(alertKey, 0);
-            if (!UpdateNotify.alertAllowed(rel.version, System.currentTimeMillis(), lastAlert,
-                    skippedVersion, manualCheck)) {
-                Diag.i("selfupd", "v" + rel.version + " alerted "
-                    + ((System.currentTimeMillis() - lastAlert) / 3600000L) + " h ago — cooldown, staying quiet");
-                fire("Update alert is cooling down");
-                return "cooldown";
-            }
-            sp.edit().putLong(alertKey, System.currentTimeMillis()).apply();
-
-            UiListener u = ui;
-            if (u != null) { try { u.onUpdateAvailable(rel.version); } catch (Throwable ignored) { } }
+            // v3.4.6.d — THE MANDATORY GATE: a strictly newer release is known.
+            // The skip-version choice and the 24 h alert cooldown only govern
+            // NOTIFICATIONS — they can never suppress the blocking ForceUpdate
+            // gate (the v3.4.6.c "checked but never blocked" defect), and the
+            // gate is armed BEFORE the auto-download preference so the user
+            // always sees Update Now even with Auto-update OFF.
+            gateAvailable(AppInfo.VERSION_NAME, rel.version);
             fire("Update available: v" + AppInfo.VERSION_NAME + " → v" + rel.version);
 
             boolean autoUpdate = c.getSharedPreferences("sicast", Context.MODE_PRIVATE)
                 .getBoolean(AppPrefs.K_AUTO_UPDATE, true);
             if (!autoUpdate && !forceDownload) {
-                Diag.i("selfupd", "new release " + rel.version + " but Auto-update is OFF — waiting for Update Now");
+                Diag.i("selfupd", "new release " + rel.version + " but Auto-update is OFF — gate armed, waiting for Update Now");
                 return "available " + rel.version;
             }
             // the pre-download gates: https-only, declared size within the cap
@@ -554,6 +672,7 @@ public final class SelfUpdater {
                 // a release without a SHA256SUMS line for the apk: refuse (security)
                 Diag.w("selfupd", "no SHA-256 line for " + SelfUpdateCore.apkFileName(rel.apkUrl) + " — refusing");
                 App.notifyUpdateFailed(c, rel.version);
+                pushGateEvent("failed", "The release has no valid SHA-256 signature — refused for safety. Tap Retry Update.");
                 fire("Update refused: no valid SHA-256");
                 return "no-sha";
             }
@@ -568,27 +687,32 @@ public final class SelfUpdater {
                 try { initialProgress.onDownloadProgress(0); } catch (Throwable ignored) { }
             }
             App.notifyUpdateProgress(c, rel.version, 0);
+            gateProgress(0, 0, -1);
             SelfUpdateCore.downloadToFile(rel.apkUrl, apk, (bytes, total, percent) -> {
                 if (throttle.onProgress(percent)) {
                     App.notifyUpdateProgress(c, rel.version, percent);
                 }
+                gateProgress(percent, bytes, total);
                 UiListener ul = ui;
                 if (ul != null) { try { ul.onDownloadProgress(percent); } catch (Throwable ignored) { } }
             });
 
             // ── verify the strict SHA-256 against SHA256SUMS.txt ──
+            pushGateEvent("verify", rel.version);
             String sha = SelfUpdateCore.sha256(apk);
             if (!rel.sha256Expected.equalsIgnoreCase(sha)) {
                 Diag.e("selfupd", "SHA-256 MISMATCH — refusing to install (downloaded " + sha
                     + ", expected " + rel.sha256Expected + ")");
                 apk.delete();
                 App.notifyUpdateFailed(c, rel.version);
+                pushGateEvent("failed", "SHA-256 verification failed — the download was corrupted. Tap Retry Update.");
                 fire(Chrome.pick("බාගැනීම අසාර්ථක (SHA-256 නොගැලපේ) · download failed verification"));
                 return "sha-mismatch";
             }
             Diag.i("selfupd", "sha256 verified (" + sha + ") — saving verified update for installer handoff");
             savePendingUpdate(c, apk, rel.version, sha);
             App.notifyUpdateReady(c, rel.version);
+            pushGateEvent("installer", rel.version);
             fire("Update ready: v" + rel.version + " — tap Install Update");
             if (canRequestInstalls(c)) {
                 installPendingUpdate(c, false);
@@ -602,6 +726,8 @@ public final class SelfUpdater {
                 sp.edit().putLong("lastFailedCheck", System.currentTimeMillis()).apply();
             } catch (Throwable ignored) { }
             Diag.w("selfupd", "check: " + t);
+            pushGateEvent("failed", Chrome.pick(
+                "බාගැනීම අසාර්ථක — අන්තර්ජාල සම්බන්ධතාව පරීක්ෂා කර Retry Update ඔබන්න · download failed — check your connection and tap Retry Update"));
             fire(Chrome.pick("යාවත්කාලීන පරීක්ෂාව අසාර්ථක — මිනිත්තුවකින් නැවත · update check failed — retrying within 15 min"));
             Troubleshooter.record("UPDATER", "check threw: " + t.getClass().getSimpleName() + " — 15-min backoff engaged");
             return "offline";

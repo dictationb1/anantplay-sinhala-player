@@ -196,7 +196,7 @@ class SettingsScreen extends StatelessWidget {
     showLicensePage(
       context: context,
       applicationName: 'AnantPlay Sinhala Player',
-      applicationVersion: '3.4.6.c',
+      applicationVersion: '3.4.6.d',
       applicationIcon: const SizedBox(width: 48, height: 48),
     );
   }
@@ -625,12 +625,14 @@ class _BrowserRows extends StatelessWidget {
       ),
       _SegmentedRow(
         title: 'Search engine',
-        labels: const ['DuckDuckGo', 'Google', 'Startpage', 'Brave'],
-        selected: ['ddg', 'google', 'startpage', 'brave']
-            .indexOf(s.s(SettingsMirror.kSearchEngine, 'ddg'))
+        // v3.4.6.d — GOOGLE IS THE DEFAULT (the v3.4.6.c default 'ddg'
+        // resolves to Google too through AppPrefs.normalizeSearchEngine).
+        labels: const ['Google', 'DuckDuckGo', 'Startpage', 'Brave'],
+        selected: ['google', 'ddg', 'startpage', 'brave']
+            .indexOf(s.s(SettingsMirror.kSearchEngine, 'google'))
             .clamp(0, 3),
         onChanged: (i) => scope.putString(SettingsMirror.kSearchEngine,
-            ['ddg', 'google', 'startpage', 'brave'][i]),
+            ['google', 'ddg', 'startpage', 'brave'][i]),
       ),
       _SwitchRow(
         title: 'Ad-block',
@@ -1268,7 +1270,7 @@ class _VersionFooter extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 18, bottom: 6),
       child: Center(
-        child: Text('AnantPlay Sinhala Player v3.4.6.c (30409)',
+        child: Text('AnantPlay Sinhala Player v3.4.6.d (30410)',
             style: TextStyle(
                 color: scheme.onSurfaceVariant, fontSize: 11.5)),
       ),

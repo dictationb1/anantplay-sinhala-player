@@ -79,6 +79,18 @@ public class MainActivity extends FlutterActivity {
     /** v3.4.6.c — shell route events → Flutter (play / web-tab handoffs). */
     private EventChannel.EventSink shellSink;
 
+    // ── v3.4.6.d — THE ZERO-RACE GATE CACHE (the last delivered gate payload) ─
+    // The mandatory force-update gate used to be a pure fire-and-forget push:
+    // the cold-start check runs on a daemon worker IMMEDIATELY after
+    // configureFlutterEngine, and a fast release resolution could deliver the
+    // "available" blob BEFORE Flutter's ForceUpdateScreen subscribed to the
+    // anantplay/updater EventChannel. The event sank into a null sink and the
+    // user was dropped straight into the app with a mandatory update parked in
+    // cache — exactly the defect class this release exists to kill.
+    // Every gate blob is therefore CACHED here and REPLAYED in onListen(), so
+    // "check finished first" can never again mean "gate dropped".
+    private volatile Map<String, Object> lastGatePayload;
+
     // ── v3.4.6.c — THE SHELL ROUTE PUMP ─────────────────────────────────────
     // Casts (/play), DLNA SetAVTransportURI, shares and Test taps route INTO
     // the Flutter shell's Mornye Cinema Player instead of opening the raw
@@ -259,6 +271,12 @@ public class MainActivity extends FlutterActivity {
                 .setStreamHandler(new EventChannel.StreamHandler() {
                     @Override public void onListen(Object a, EventChannel.EventSink s) {
                         updateSink = s;
+                        // v3.4.6.d — ZERO-RACE REPLAY: the launch check runs on a
+                        // worker right after configureFlutterEngine, so it can beat
+                        // Flutter's subscription. The cached gate blob is replayed
+                        // here BEFORE the pending-state push, so ForceUpdateScreen
+                        // always renders on a fast cold start.
+                        replayGate(s);
                         pushUpdateState();
                     }
                     @Override public void onCancel(Object a) { updateSink = null; }
@@ -305,9 +323,82 @@ public class MainActivity extends FlutterActivity {
                 main.post(() -> pushUpdateEvent("state", bilingual));
             }
         });
+        // v3.4.6.d — THE MANDATORY GATE EVENT PUMP: every force-update state
+        // change (available with current→new versions, live 0→100% download,
+        // SHA-256 verify, installer handoff, failure + retry reason, up-to-
+        // date) flows onto the anantplay/updater EventChannel so the shell's
+        // ForceUpdateScreen renders the blocking gate with live progress.
+        SelfUpdater.setGateListener(new SelfUpdater.GateListener() {
+            @Override public void onAvailable(final String current, final String next, final String apkUrl) {
+                main.post(() -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("t", "gate");
+                    m.put("gate", "available");
+                    m.put("current", current == null ? "" : current);
+                    m.put("next", next == null ? "" : next);
+                    pushGate(m);
+                });
+            }
+            @Override public void onProgress(final int percent, final long bytes, final long total) {
+                main.post(() -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("t", "gate");
+                    m.put("gate", "progress");
+                    m.put("percent", percent);
+                    m.put("bytes", bytes);
+                    m.put("total", total);
+                    pushGate(m);
+                });
+            }
+            @Override public void onVerify() {
+                main.post(() -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("t", "gate");
+                    m.put("gate", "verify");
+                    pushGate(m);
+                });
+            }
+            @Override public void onInstaller() {
+                main.post(() -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("t", "gate");
+                    m.put("gate", "installer");
+                    pushGate(m);
+                });
+            }
+            @Override public void onFailed(final String reason) {
+                main.post(() -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("t", "gate");
+                    m.put("gate", "failed");
+                    m.put("reason", reason == null ? "" : reason);
+                    pushGate(m);
+                });
+            }
+            @Override public void onUpToDate() {
+                main.post(() -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("t", "gate");
+                    m.put("gate", "uptodate");
+                    pushGate(m);
+                });
+            }
+        });
         if (SelfUpdater.hasPendingUpdate(this)) {
             pushUpdateEvent("pending", SelfUpdater.pendingVersion(this));
-        } else if (prefs.getBoolean(AppPrefs.K_AUTO_UPDATE, true)) {
+            // v3.4.6.d — a pending verified APK on a cold start re-arms the
+            // gate IMMEDIATELY (the download already finished last session).
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("t", "gate");
+            m.put("gate", "available");
+            m.put("current", AppInfo.VERSION_NAME);
+            m.put("next", SelfUpdater.pendingVersion(this));
+            pushGate(m);
+        } else {
+            // v3.4.6.d — NO silent suppression: a fresh install/upgrade checks
+            // on EVERY cold start (the K_AUTO_UPDATE preference still governs
+            // the AUTO-DOWNLOAD leg; the CHECK always runs so the mandatory
+            // gate can lock the app when a newer release exists).
             SelfUpdater.checkOnLaunch(this);
         }
         if (SelfUpdater.ACTION_INSTALL_NOW.equals(getIntent().getAction())) {
@@ -324,11 +415,52 @@ public class MainActivity extends FlutterActivity {
         // battery, unknown-sources, official-app presence), so the wizard's
         // WidgetsBindingObserver re-query resolves from ONE native push.
         pushOnboardingStatus();
+        // v3.4.6.d — the official app's LIVE re-detect: a fresh version read
+        // on EVERY resume (never a cached installed/version state — the
+        // v3.4.6.c defect: installing/updating official AnantPlay while the
+        // app was open never refreshed the onboarding pill).
+        pushOfficialVersion();
+        // v3.4.6.d — the installer/updater resumes: if the user just granted
+        // install permission in system settings, the pending update or the
+        // pending official-APK install resumes automatically.
+        SelfUpdater.resumePendingInstall(this);
+        // v3.4.6.d — WARM RESUME, still zero-race: a phone left open for hours
+        // must notice a release published after it started. checkOnLaunch()
+        // handles the cold path with NO suppression at all; a warm re-entry
+        // only re-checks when >5 minutes have passed since the last SUCCESSFUL
+        // check (lastCheck is written before networking, so it is never a lie
+        // about an attempt), and the 15-minute FAILURE backoff inside
+        // checkAllowed() keeps an offline phone from ever looping.
+        SelfUpdater.checkOnResume(this);
         // the official APK handed to PackageInstaller leaves a cache copy
         // behind when the user cancels the 1-tap sheet — sweep it on resume.
         if (AnantPlayInstaller.anantplayInstalled(this)) {
             AnantPlayInstaller.sweepCache(this);
         }
+    }
+
+    /** v3.4.6.d — the official app's live version pill (fresh on every resume). */
+    private void pushOfficialVersion() {
+        EventChannel.EventSink s = castSink;
+        if (s == null) return;
+        try {
+            String v = AnantPlayInstaller.anantplayVersion(this);
+            boolean installed = AnantPlayInstaller.anantplayInstalled(this);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("t", "officialVersion");
+            m.put("installed", installed);
+            m.put("version", v == null ? "" : v);
+            s.success(m);
+        } catch (Throwable t) {
+            Diag.w("cast", "officialVersion push: " + t);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // The overlay watcher keeps polling while paused (it is the one thing
+        // that MUST run off-screen); everything else quiets down here.
     }
 
     /** v3.4.6.b — the permission/install snapshot the wizard auto-advance reads. */
@@ -474,6 +606,49 @@ public class MainActivity extends FlutterActivity {
                 result.success(true);
             } else if ("oemName".equals(m)) {
                 result.success(String.valueOf(Build.MANUFACTURER));
+            } else if ("requestNotifications".equals(m)) {
+                // v3.4.6.d — Slide 3's REAL in-app notifications grant (the
+                // v3.4.6.c defect: the Notifications step opened the OVERLAY
+                // page). API 33+: the native POST_NOTIFICATIONS runtime dialog
+                // fires IN-APP (zero leaving the app); below 33 the system
+                // toggles notifications through app details. A permanently
+                // denied state falls back to ACTION_APP_NOTIFICATION_SETTINGS.
+                requestNotificationsInApp();
+                result.success(true);
+            } else if ("openNotificationSettings".equals(m)) {
+                // v3.4.6.d — the fallback lane: the app's own notification
+                // settings page (the one Android 16's per-app toggle lives on).
+                try {
+                    Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+                    startActivity(i);
+                } catch (Throwable t) {
+                    Diag.w("cast", "notif settings: " + t);
+                    Miui.openAppDetails(this);
+                }
+                result.success(true);
+            } else if ("watchOverlayGrant".equals(m)) {
+                // v3.4.6.d — the 30-second overlay return-watcher: the user is
+                // heading into ACTION_MANAGE_OVERLAY_PERMISSION; we poll
+                // canDrawOverlays every 500 ms while paused and the INSTANT it
+                // flips true we bring MainActivity back to the front (REORDER_TO
+                // _FRONT | SINGLE_TOP) so the user glides straight back in.
+                watchOverlayGrant();
+                result.success(true);
+            } else if ("enterPip".equals(m)) {
+                // v3.4.6.d — THE DEAD-CHANNEL FIX #1: the player's PiP button
+                // invoked 'enterPip' and nothing answered. Real picture-in-
+                // picture on the host activity (the Flutter engine keeps
+                // rendering inside the PiP window).
+                enterPipMode();
+                result.success(true);
+            } else if ("openExternal".equals(m)) {
+                // v3.4.6.d — THE DEAD-CHANNEL FIX #2: the player's External
+                // (VLC) button invoked 'openExternal' and nothing answered.
+                // The URL is handed to the best external video player on the
+                // device (VLC by default, mx/ system viewer as fallbacks).
+                openExternalPlayer(call.<String>argument("url"));
+                result.success(true);
             } else {
                 result.notImplemented();
             }
@@ -504,6 +679,136 @@ public class MainActivity extends FlutterActivity {
     private void pushCastStatus() {
         EventChannel.EventSink s = castSink;
         if (s != null) s.success(castStatusMap());
+    }
+
+    // ── v3.4.6.d — the notifications runtime grant + the overlay return-watch ──
+
+    /** The API-33+ in-app POST_NOTIFICATIONS dialog request code. */
+    private static final int REQ_NOTIF = 30410;
+
+    /**
+     * v3.4.6.d — Slide 3's REAL notifications grant, in priority order:
+     * granted already → push the fresh status; API 33+ → the native in-app
+     * runtime dialog (onRequestPermissionsResult pushes the update); anything
+     * else / permanently denied → the app's notification settings page.
+     */
+    private void requestNotificationsInApp() {
+        if (Miui.notifGranted(this)) {
+            pushOnboardingStatus();
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            try {
+                requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIF);
+                return;   // onRequestPermissionsResult pushes the fresh status
+            } catch (Throwable t) {
+                Diag.w("cast", "requestPermissions: " + t);
+            }
+        }
+        // Permanently denied (or pre-33 with notifications off): the settings lane.
+        try {
+            Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            startActivity(i);
+        } catch (Throwable t) {
+            Diag.w("cast", "notif settings: " + t);
+            Miui.openAppDetails(this);
+        }
+    }
+
+    /** v3.4.6.d — the dialog answered: push the live snapshot to Flutter. */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_NOTIF) {
+            pushOnboardingStatus();
+            pushCastStatus();
+        }
+    }
+
+    /** The bounded overlay watcher (polls while paused; null when idle). */
+    private Runnable overlayWatcher;
+    private int overlayWatchTicks;
+
+    /**
+     * v3.4.6.d — the 30-second bounded overlay return-watcher: every 500 ms
+     * while the app is paused, re-check Settings.canDrawOverlays. The moment
+     * it flips true, bring MainActivity back to the front and push the fresh
+     * onboarding status. Cancelled cleanly on destroy / grant / 30 s timeout
+     * (60 ticks) so it can never leak a handler.
+     */
+    private void watchOverlayGrant() {
+        stopOverlayWatcher();
+        overlayWatchTicks = 0;
+        overlayWatcher = new Runnable() {
+            @Override public void run() {
+                if (overlayWatcher != this) return;   // superseded or stopped
+                overlayWatchTicks++;
+                boolean granted = false;
+                try { granted = Settings.canDrawOverlays(MainActivity.this); } catch (Throwable ignored) { }
+                if (granted) {
+                    stopOverlayWatcher();
+                    // Glide straight back into the app (the wizard auto-advances
+                    // from the pushed status — the v3.4.6.c complaint: users
+                    // were stranded in Android settings after flipping the toggle).
+                    try {
+                        Intent i = new Intent(MainActivity.this, MainActivity.class)
+                                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                        startActivity(i);
+                    } catch (Throwable t) {
+                        Diag.w("cast", "overlay return: " + t);
+                    }
+                    pushOnboardingStatus();
+                    return;
+                }
+                if (overlayWatchTicks >= 60) {        // 30 s bounded lifetime
+                    stopOverlayWatcher();
+                    return;
+                }
+                main.postDelayed(this, 500);
+            }
+        };
+        main.postDelayed(overlayWatcher, 500);
+    }
+
+    private void stopOverlayWatcher() {
+        overlayWatcher = null;
+    }
+
+    /** v3.4.6.d — real Picture-in-Picture on the Flutter host. */
+    private void enterPipMode() {
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                android.app.PictureInPictureParams p = new android.app.PictureInPictureParams.Builder().build();
+                enterPictureInPictureMode(p);
+            } else {
+                Diag.w("cast", "pip needs API 26+");
+            }
+        } catch (Throwable t) {
+            Diag.w("cast", "pip: " + t);
+        }
+    }
+
+    /** v3.4.6.d — hand the stream to an external video player (VLC first). */
+    private void openExternalPlayer(String url) {
+        if (url == null || url.isEmpty()) return;
+        try {
+            android.net.Uri u = android.net.Uri.parse(url);
+            // VLC's exported player activity first (the default choice), then
+            // the generic ACTION_VIEW lane with a video MIME type.
+            Intent vlc = new Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/x-mpegURL")
+                    .setPackage("org.videolan.vlc").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                startActivity(vlc);
+                return;
+            } catch (Throwable notInstalled) {
+                Intent generic = new Intent(Intent.ACTION_VIEW).setDataAndType(u, "video/*")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(Intent.createChooser(generic, "Open with"));
+            }
+        } catch (Throwable t) {
+            Diag.w("cast", "external: " + t);
+        }
     }
 
     /** v3.4.6.b — Slide 2's live installer stream (progress/state on the cast events channel). */
@@ -537,6 +842,45 @@ public class MainActivity extends FlutterActivity {
         m.put("t", t);
         m.put("v", v);
         s.success(m);
+    }
+
+    /** v3.4.6.d — post one already-built event blob (null-safe, guarded). */
+    private void pushEvent(EventChannel.EventSink s, Map<String, Object> m) {
+        if (s == null) return;
+        try { s.success(m); } catch (Throwable t) { Diag.w("shell", "pushEvent: " + t); }
+    }
+
+    /** v3.4.6.d — THE ZERO-RACE GATE DELIVERY: cache the blob, then push it.
+     *  Cached FIRST so a not-yet-subscribed Flutter side still receives the
+     *  last state the moment onListen() runs (see replayGate below). */
+    private void pushGate(Map<String, Object> m) {
+        if (m == null) return;
+        lastGatePayload = m;
+        pushEvent(updateSink, m);
+    }
+
+    /** v3.4.6.d — REPLAY the latest gate blob into a freshly-subscribed sink.
+     *  Called from EventChannel.StreamHandler.onListen(...), which is the exact
+     *  moment Flutter's ForceUpdateScreen starts listening: a check that
+     *  FINISHED BEFORE the subscription can no longer be dropped. */
+    private void replayGate(EventChannel.EventSink s) {
+        Map<String, Object> m = lastGatePayload;
+        if (m == null) {
+            // nothing cached yet: at least re-arm any verified pending APK, and
+            // re-derive the latest known availability from persisted state.
+            if (SelfUpdater.hasPendingUpdate(this)) {
+                Map<String, Object> avail = new LinkedHashMap<>();
+                avail.put("t", "gate");
+                avail.put("gate", "available");
+                avail.put("current", AppInfo.VERSION_NAME);
+                avail.put("next", SelfUpdater.pendingVersion(this));
+                lastGatePayload = avail;
+                m = avail;
+            } else {
+                return;
+            }
+        }
+        pushEvent(s, m);
     }
 
     private void pushUpdateState() {
@@ -637,7 +981,12 @@ public class MainActivity extends FlutterActivity {
                             @Override
                             public io.flutter.plugin.platform.PlatformView create(
                                     android.content.Context context, int viewId, Object args) {
-                                final WebBrowserView v = new WebBrowserView(MainActivity.this);
+                                // v3.4.6.d — HEADLESS: embedded in the Flutter
+                                // shell, the view renders ONLY the hardened
+                                // Chromium WebView viewport (zero Java browser
+                                // chrome — the old toolbar/tab strip/speed dial
+                                // never appear; BrowserScreen owns the UI).
+                                final WebBrowserView v = new WebBrowserView(MainActivity.this, true);
                                 browserView = v;
                                 if (args instanceof Map) {
                                     Object url = ((Map<?, ?>) args).get("url");
@@ -829,7 +1178,15 @@ public class MainActivity extends FlutterActivity {
                 SelfUpdater.checkNow(this);
                 result.success(true);
             } else if ("updateNow".equals(call.method)) {
-                SelfUpdater.installPendingUpdate(this, true);
+                // v3.4.6.d — Update Now on the force-update gate: if a
+                // verified APK is already pending, resume its install; a
+                // failed/missing download re-runs the full resolve → download
+                // → verify → install pipeline from scratch (the Retry lane).
+                if (SelfUpdater.hasPendingUpdate(this)) {
+                    SelfUpdater.installPendingUpdate(this, true);
+                } else {
+                    SelfUpdater.updateNow(this);
+                }
                 result.success(true);
             } else if ("pending".equals(call.method)) {
                 Map<String, Object> m = new LinkedHashMap<>();
@@ -951,6 +1308,7 @@ public class MainActivity extends FlutterActivity {
     @Override
     protected void onDestroy() {
         instance = null;
+        stopOverlayWatcher();          // v3.4.6.d — never leak the 500 ms poll
         if (playerBridge != null) playerBridge.dispose();
         SelfUpdater.setUiListener(null);
         super.onDestroy();

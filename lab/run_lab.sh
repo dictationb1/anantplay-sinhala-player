@@ -97,6 +97,21 @@ if ! python3 lab/verify_v345_ui.py >> lab/out/lab.txt 2>&1; then
   exit 1
 fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.4.6.d — THE FLUTTER-BRIDGE WIRING GATE (eighth gating auditor)
+#
+# The v3.4.6.c real-phone report shipped two DEAD MethodChannels (enterPip,
+# openExternal — invoked from Dart with no Java handler) and one literal
+# `onTap: () {}` fake button. This gate parses every invokeMethod in
+# ui/lib/anantplay/ and asserts a matching Java handler exists, plus asserts
+# zero empty button callbacks. One dead channel or one fake button fails CI.
+# ─────────────────────────────────────────────────────────────────────────────
+if ! python3 lab/verify_flutter_bridge_wiring.py >> lab/out/lab.txt 2>&1; then
+  cat lab/out/lab.txt
+  echo "LAB FAILED: flutter bridge wiring audit (dead channel or fake button)" >&2
+  exit 1
+fi
+
 cat lab/out/lab.txt
 if grep -q "  FAIL " lab/out/lab.txt; then
   echo "LAB FAILED: at least one FAIL line in lab/out/lab.txt" >&2

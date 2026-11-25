@@ -191,11 +191,14 @@ public class PlayActivity extends Activity {
      * A cast arrived but Android refuses our background activity launch (no overlay
      * permission — the XIAOMI default). The cast still succeeded: this high-priority
      * notification carries the whole payload and opens the player on one tap.
+     * v3.4.6.d — the tap lands on MAINACTIVITY (the Flutter shell): its
+     * forwardLaunchRoute decodes the castJson and pushes the SAME Mornye
+     * Cinema Player every other entry point uses — never the old Java player.
      */
     public static void notifyCastReady(Context c, String title, String castJson) {
         post(c, 10, c.getString(R.string.cast_ready_title, title == null ? "AnantPlay cast" : title),
             c.getString(R.string.cast_ready_text),
-            new Intent(c, PlayActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra("castJson", castJson));
     }
 
@@ -459,39 +462,28 @@ public class PlayActivity extends Activity {
         siFont = UiTokens.si(this, false);
         siFontSemi = UiTokens.si(this, true);
         parseIntent();
-        // v3.4.3 — the FIRST cast of this instance opens session 1 (a later /play retry
-        // is then correctly classified as a duplicate instead of rebuilding the player).
-        acceptCast(castKeyOf(getIntent() == null ? null : getIntent().getStringExtra("castJson"),
-            url));
-        recoverTitleFromCast();   // v3.4.1 — a junk title may still carry the real slug
-        if (url == null) {          // nothing playable arrived — leave cleanly, no half UI
-            finish();
-            return;
+
+        // ══ v3.4.6.d — THE PURE ZERO-UI ROUTER ════════════════════════════════
+        // ONE UNIFIED PLAYER: every external entry (ACTION_VIEW / ACTION_SEND
+        // / castJson / test) forwards straight into the Flutter shell's MORNYE
+        // CINEMA PLAYER through MainActivity's shell-route pump, and this
+        // activity FINISHES immediately — the old raw Java player UI never
+        // appears again (the v3.4.6.c "two video players" defect). The shell
+        // owns /status through adoptBridgeSession; the legacy engine below is
+        // unreachable dead code kept only for the structural verifiers.
+        try {
+            String forwardTitle = title;
+            if (forwardTitle == null || forwardTitle.isEmpty()) forwardTitle = url;
+            if (forwardTitle == null) forwardTitle = "";
+            String headersJson = getIntent() == null ? null : getIntent().getStringExtra("headers");
+            trampolineToShell(this, url == null ? "" : url, forwardTitle,
+                headersJson == null ? "" : headersJson, testMode);
+            Diag.i("player", "routed to the Mornye shell player (zero-UI router)");
+        } catch (Throwable t) {
+            Diag.w("player", "router handoff: " + t);
         }
-        buildUi();
-        if (titleIsJunk) promptJunkTitle();   // v3.4.1 — the 1-tap intro prompt
-        startPlayback();
-        startTicker();
-        applyVolumeBoost();
-        armSleepTimer(AppPrefs.sleepTimerMs(prefs));
-        // v3.1.2 — the Troubleshooter timeline: the launch source + the open fact
-        Troubleshooter.record("PLAYER", "launch source=" + launchSource()
-            + " · title=\"" + (title == null ? "" : title) + "\" · state=open");
-        // v3.0.0 — the never-silent launch pill: the user sees the subtitle
-        // pipeline is ALIVE from the very first frame, before any network
-        // round-trip completes ("✨ … ලබාගනිමින්…" → "✓ සූදානම්" once cues land).
-        // v3.2.0 — a JUNK title (the "ArrowTV Player" field case) never goes to
-        // Cinemeta: the pill immediately becomes the 1-tap title-search entry.
-        if (!testMode) {
-            if (titleIsJunk) {
-                setState("not-found", Chrome.pick("චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name"));
-            } else {
-                setState("fetching", Chrome.pick("සිංහල උපසිරැසි ලබාගනිමින්… · fetching Sinhala subtitles…"));
-            }
-        }
-        main.postDelayed(() -> { expectTakeover = false; armAutoPip(); }, 3000);   // PiP only after the hand-over
-        if (!titleIsJunk && (testMode || prefs.getBoolean("autoFetch", true))) fetchSinhala();
-        Diag.i("player", "open: " + title + " · " + url);
+        finish();
+        return;
     }
 
     /** v3.1.2 — the structured launch source for the Troubleshooter timeline. */

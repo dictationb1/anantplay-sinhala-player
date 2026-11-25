@@ -52,6 +52,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _draggingSeek = false;
   double _seekValue = 0;
 
+  // ── v3.4.6.d — THE ZERO-LAG POSITION PUMP ────────────────────────────────
+  // The 4 Hz position ticks land in a ValueNotifier that ONLY the seek bar
+  // and the time text listen to (ValueListenableBuilder) — the whole
+  // PlayerScreen NEVER rebuilds on a position tick again (the v3.4.6.c
+  // defect: setState on every frame repainted the entire HUD tree at 4 Hz
+  // over the video surface, a top cause of the movie-streaming lag + heat).
+  final ValueNotifier<PlayerFrame> _frameNotifier =
+      ValueNotifier<PlayerFrame>(PlayerFrame.empty);
+
   @override
   void initState() {
     super.initState();
@@ -63,7 +72,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _open() async {
     final r = widget.request;
     _frameSub = AnantPlay.instance.playerFrames().listen((f) {
-      if (mounted) setState(() => _frame = f);
+      // v3.4.6.d — the position pump: ticks feed the notifier (the seek bar
+      // + time text rebuild alone); a WHOLE-SCREEN rebuild happens only when
+      // a structural field flips (playing/buffering/geometry/cue state).
+      if (!mounted) return;
+      _frameNotifier.value = f;
+      final old = _frame;
+      final structural = f.playing != old.playing ||
+          f.buffering != old.buffering ||
+          f.videoWidth != old.videoWidth ||
+          f.videoHeight != old.videoHeight ||
+          f.subtitleState != old.subtitleState ||
+          f.activeCueSi != old.activeCueSi;
+      _frame = f;
+      if (structural) setState(() {});
     });
     try {
       final s = await AnantPlay.instance.openPlayer(
@@ -93,6 +115,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _frameSub?.cancel();
     _hudTimer?.cancel();
+    _frameNotifier.dispose();
     AnantPlay.instance.playerDispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
@@ -193,14 +216,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
           fit: StackFit.expand,
           children: [
             // ── THE VIDEO (Flutter Texture on the Media3 surface) ────────────
+            // v3.4.6.d — its OWN isolated RepaintBoundary: HUD rebuilds and
+            // subtitle re-layers can never repaint the video layer (the GPU
+            // surface compositor keeps the movie on its own layer — the
+            // single biggest movie-streaming jank fix).
             if (hasVideo)
-              Center(
-                child: LayoutBuilder(builder: (context, c) {
-                  return Container(
-                    constraints: _videoConstraints(c),
-                    child: Texture(textureId: _session.textureId),
-                  );
-                }),
+              RepaintBoundary(
+                child: Center(
+                  child: LayoutBuilder(builder: (context, c) {
+                    return Container(
+                      constraints: _videoConstraints(c),
+                      child: Texture(textureId: _session.textureId),
+                    );
+                  }),
+                ),
               )
             else
               Center(
@@ -447,6 +476,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
 
             // ── THE BOTTOM GLASS BAR (seek + the 5-icon dock) ────────────────
+            // v3.4.6.d — THE BATTERY FIX: when the HUD hides (hudVisible ==
+            // false) the ENTIRE glass bar — MornyeGlassPanel backdrop blur,
+            // seek bar, dock — is UNMOUNTED (maintainState: false), so ZERO
+            // blur shaders execute over the video while a movie plays (the
+            // v3.4.6.c ~70%-of-GPU-heat defect class).
             if (_hudVisible && !_locked)
               Positioned(
                 left: 0,
@@ -464,122 +498,123 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // the tactile seek bar with buffered progress
-                            Row(
-                              children: [
-                                SizedBox(
-                                  width: 44,
-                                  child: Text(_clock(_frame.positionMs),
-                                      style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 11,
-                                          fontFeatures: [
-                                            FontFeature.tabularFigures()
-                                          ])),
-                                ),
-                                Expanded(
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onHorizontalDragStart: (_) {
-                                      setState(() {
-                                        _draggingSeek = true;
-                                        _seekValue = _frame.durationMs > 0
-                                            ? _frame.positionMs /
-                                                _frame.durationMs
-                                            : 0;
-                                      });
-                                    },
-                                    onHorizontalDragUpdate: (d) {
-                                      setState(() => _seekValue =
-                                          (_seekValue +
-                                                  d.primaryDelta! / 600)
-                                              .clamp(0.0, 1.0));
-                                    },
-                                    onHorizontalDragEnd: (_) async {
-                                      final target = (_seekValue *
-                                              _frame.durationMs)
-                                          .round();
-                                      await AnantPlay.instance
-                                          .playerSeek(target);
-                                      setState(
-                                          () => _draggingSeek = false);
-                                    },
-                                    child: SizedBox(
-                                      height: 26,
-                                      child: Stack(
-                                        alignment:
-                                            Alignment.centerLeft,
-                                        children: [
-                                          // the track
-                                          Container(
-                                            height: 4,
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                                  BorderRadius.circular(
-                                                      2),
-                                              color: Colors.white
-                                                  .withValues(
-                                                      alpha: 0.2),
-                                            ),
-                                          ),
-                                          // the buffered fill
-                                          FractionallySizedBox(
-                                            widthFactor: _frame
-                                                        .durationMs >
-                                                    0
-                                                ? (_frame.bufferedMs /
-                                                        _frame
-                                                            .durationMs)
-                                    .clamp(0.0, 1.0)
-                                                : 0.0,
-                                            child: Container(
-                                              height: 4,
-                                              color: Colors.white
-                                                  .withValues(
-                                                      alpha: 0.35),
-                                            ),
-                                          ),
-                                          // the played fill
-                                          FractionallySizedBox(
-                                            widthFactor: _draggingSeek
-                                                ? _seekValue
-                                                : (_frame.durationMs >
-                                                        0
-                                                    ? (_frame.positionMs /
-                                                            _frame
-                                                                .durationMs)
-                                                        .clamp(
-                                                            0.0, 1.0)
-                                                    : 0.0),
-                                            child: Container(
+                            // v3.4.6.d — THE ZERO-LAG SEEK ISLAND: only this
+                            // Row rebuilds on the 4 Hz position ticks (a
+                            // ValueListenableBuilder on _frameNotifier); the
+                            // rest of PlayerScreen stays cold (was: setState
+                            // on the whole screen every 250 ms).
+                            ValueListenableBuilder<PlayerFrame>(
+                              valueListenable: _frameNotifier,
+                              builder: (context, f, _) => Row(
+                                children: [
+                                  SizedBox(
+                                    width: 44,
+                                    child: Text(_clock(f.positionMs),
+                                        style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 11,
+                                            fontFeatures: [
+                                              FontFeature.tabularFigures()
+                                            ])),
+                                  ),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onHorizontalDragStart: (_) {
+                                        setState(() {
+                                          _draggingSeek = true;
+                                          _seekValue = f.durationMs > 0
+                                              ? f.positionMs / f.durationMs
+                                              : 0;
+                                        });
+                                      },
+                                      onHorizontalDragUpdate: (d) {
+                                        setState(() => _seekValue =
+                                            (_seekValue +
+                                                    d.primaryDelta! / 600)
+                                                .clamp(0.0, 1.0));
+                                      },
+                                      onHorizontalDragEnd: (_) async {
+                                        final target = (_seekValue *
+                                                f.durationMs)
+                                            .round();
+                                        await AnantPlay.instance
+                                            .playerSeek(target);
+                                        setState(
+                                            () => _draggingSeek = false);
+                                      },
+                                      child: SizedBox(
+                                        height: 26,
+                                        child: Stack(
+                                          alignment:
+                                              Alignment.centerLeft,
+                                          children: [
+                                            // the track
+                                            Container(
                                               height: 4,
                                               decoration: BoxDecoration(
                                                 borderRadius:
-                                                    BorderRadius
-                                                        .circular(2),
-                                                color:
-                                                    scheme.primary,
+                                                    BorderRadius.circular(
+                                                        2),
+                                                color: Colors.white
+                                                    .withValues(
+                                                        alpha: 0.2),
                                               ),
                                             ),
-                                          ),
-                                        ],
+                                            // the buffered fill
+                                            FractionallySizedBox(
+                                              widthFactor: f.durationMs >
+                                                      0
+                                                  ? (f.bufferedMs /
+                                                          f.durationMs)
+                                                      .clamp(0.0, 1.0)
+                                                  : 0.0,
+                                              child: Container(
+                                                height: 4,
+                                                color: Colors.white
+                                                    .withValues(
+                                                        alpha: 0.35),
+                                              ),
+                                            ),
+                                            // the played fill
+                                            FractionallySizedBox(
+                                              widthFactor: _draggingSeek
+                                                  ? _seekValue
+                                                  : (f.durationMs > 0
+                                                      ? (f.positionMs /
+                                                              f.durationMs)
+                                                          .clamp(0.0, 1.0)
+                                                      : 0.0),
+                                              child: Container(
+                                                height: 4,
+                                                decoration: BoxDecoration(
+                                                  borderRadius:
+                                                      BorderRadius
+                                                          .circular(2),
+                                                  color:
+                                                      scheme.primary,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                SizedBox(
-                                  width: 52,
-                                  child: Text(
-                                      _clock(_frame.durationMs),
-                                      textAlign: TextAlign.right,
-                                      style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 11,
-                                          fontFeatures: [
-                                            FontFeature.tabularFigures()
-                                          ])),
-                                ),
-                              ],
+                                  SizedBox(
+                                    width: 52,
+                                    child: Text(
+                                        _clock(f.durationMs),
+                                        textAlign: TextAlign.right,
+                                        style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 11,
+                                            fontFeatures: [
+                                              FontFeature.tabularFigures()
+                                            ])),
+                                  ),
+                                ],
+                              ),
                             ),
                             const SizedBox(height: 2),
                             // ── THE FIXED 5-ICON MORNYE DOCK ──────────────
@@ -758,18 +793,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // language chips
+              // language chips — v3.4.6.d — REAL work: the tap persists the
+              // default subtitle language (K_DEFAULT_LANG through the settings
+              // bridge — the native pipeline fetches in that language next);
+              // was a dead `onTap: () {}` (the fake-button defect class).
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    for (final lang in const ['සිංහල', 'English'])
+                    for (final (lang, code) in const [
+                      ('සිංහල', 'si'),
+                      ('English', 'en'),
+                    ])
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: MornyeFilterChip(
                           label: lang,
-                          selected: lang == 'සිංහල',
-                          onTap: () {},
+                          selected: s.s(SettingsMirror.kDefaultLang, 'si') ==
+                              code,
+                          onTap: () => AppState.of(sheet)
+                              .scope
+                              .putString(SettingsMirror.kDefaultLang, code),
                         ),
                       ),
                   ],
@@ -928,8 +972,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                           widget.request.title ??
                                               widget.request.url);
                                     case 'free':
-                                      AnantPlay.instance
-                                          .loadSubtitleUrl('');
+                                      // v3.4.6.d — REAL work: re-fetch the
+                                      // current title's subtitles through the
+                                      // free on-device translator lane (was a
+                                      // dead loadSubtitleUrl('') call).
+                                      AnantPlay.instance.findSubtitles(
+                                          (widget.request.title ?? '')
+                                                  .isEmpty
+                                              ? widget.request.url
+                                              : (widget.request.title ?? ''));
                                     case 'spoken':
                                       AppState.of(more).scope.putString(
                                           'registerOverride', 'spoken');

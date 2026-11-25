@@ -10,6 +10,7 @@
 //     the 6-slide wizard exactly once (the version-int gate).
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart' hide Icons;
 import 'package:material_ui/material_ui.dart' as mi show Icons;
 
@@ -23,6 +24,7 @@ import 'package:anantplay_ui/mornye_ui/widgets/settings_group.dart';
 import 'package:anantplay_ui/anantplay/browser_screen.dart';
 import 'package:anantplay_ui/anantplay/player_screen.dart';
 import 'package:anantplay_ui/main.dart' as shell;
+import 'package:anantplay_ui/anantplay/force_update_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -72,6 +74,8 @@ void main() {
         case 'notifGranted':
         case 'officialInstalled':
           return false;
+        case 'officialVersion':
+          return '';
         case 'onboardingStatus':
           return <String, Object>{
             't': 'onboardingStatus',
@@ -151,9 +155,11 @@ void main() {
   });
 
   Widget wrap(Widget child) => AppStateScope(
-        child: MaterialApp(
-          debugShowCheckedModeBanner: false,
-          home: child,
+        child: ProviderScope(
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            home: child,
+          ),
         ),
       );
 
@@ -260,6 +266,8 @@ void main() {
         switch (call.method) {
           case 'officialInstalled':
             return true;
+          case 'officialVersion':
+            return '3.9.2';
           case 'onboardingStatus':
             return <String, Object>{
               't': 'onboardingStatus',
@@ -277,7 +285,8 @@ void main() {
       await tester.pump();
       await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
       await tester.pumpAndSettle();
-      expect(find.text('AnantPlay Installed ✓'), findsOneWidget);
+      // v3.4.6.d — the badge carries the exact installed version now.
+      expect(find.text('AnantPlay v3.9.2 Installed ✓'), findsOneWidget);
     });
   });
 
@@ -450,9 +459,9 @@ void main() {
       expect(find.text('Glass clarity'), findsOneWidget);
       expect(find.text('Live preview'), findsOneWidget);
       await tester.scrollUntilVisible(
-          find.text('AnantPlay Sinhala Player v3.4.6.c (30409)'), 240,
+          find.text('AnantPlay Sinhala Player v3.4.6.d (30410)'), 240,
           scrollable: find.byType(Scrollable).first);
-      expect(find.text('AnantPlay Sinhala Player v3.4.6.c (30409)'), findsOneWidget);
+      expect(find.text('AnantPlay Sinhala Player v3.4.6.d (30410)'), findsOneWidget);
       expect(find.text('ADVANCED'), findsOneWidget);
     });
 
@@ -506,7 +515,7 @@ void main() {
       await tester.pumpWidget(quiet(const HelpScreen()));
       await tester.pump();
       expect(find.text('Run full app troubleshoot'), findsOneWidget);
-      expect(find.text('Copy privacy-safe report'), findsOneWidget);
+      expect(find.text('Copy Again'), findsOneWidget);
       expect(find.text('Check for update'), findsOneWidget);
       expect(find.text('Share report'), findsOneWidget);
       expect(find.text('Run setup wizard'), findsOneWidget);
@@ -515,10 +524,10 @@ void main() {
     testWidgets('Copy puts the report on the clipboard', (tester) async {
       await tester.pumpWidget(quiet(const HelpScreen()));
       await tester.pump();
-      await tester.tap(find.text('Copy privacy-safe report'), warnIfMissed: false);
+      await tester.tap(find.text('Copy Again'), warnIfMissed: false);
       await tester.pump();
       final data = await Clipboard.getData('text/plain');
-      expect(data?.text, contains('v3.4.6.c (30409)'));
+      expect(data?.text, contains('v3.4.6.d (30410)'));
     });
   });
 
@@ -591,6 +600,373 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(OnboardingScreen), findsOneWidget,
           reason: 'Run Setup Guide must reopen the wizard from any tab');
+    });
+  });
+
+  // ══ v3.4.6.d — THE MANDATORY FORCE-UPDATE GATE ═══════════════════════════
+  group('ForceUpdateScreen (the mandatory blocking gate)', () {
+    testWidgets(
+        'gate:available locks the WHOLE app — no tabs, no onboarding, no skip button',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+      expect(find.byType(HomeScreen), findsOneWidget);
+
+      // The host pushes gate:available (v3.4.6.d → v3.4.6.e) on the updater
+      // EventChannel: the shell must replace EVERYTHING with ForceUpdateScreen.
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate',
+          'gate': 'available',
+          'current': '3.4.6.d',
+          'next': '3.4.6.e',
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ForceUpdateScreen), findsOneWidget,
+          reason: 'a strictly newer release must lock the whole viewport');
+      // HomeScreen is COMPLETELY gone (blocked, not covered).
+      expect(find.byType(HomeScreen), findsNothing);
+      // THE NO-BYPASS CONTRACT: no Skip / Dismiss / Later anywhere.
+      expect(find.text('Skip'), findsNothing);
+      expect(find.text('Dismiss'), findsNothing);
+      expect(find.text('Later'), findsNothing);
+      // The version badge + the one and only action.
+      expect(find.text('v3.4.6.d  →  v3.4.6.e'), findsOneWidget);
+      expect(find.text('Update required'), findsOneWidget);
+      expect(find.text('Update Now'), findsOneWidget);
+    });
+
+    testWidgets(
+        'live 0→100% download progress renders + Update Now taps installPendingUpdate',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      var installNowCalls = 0;
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/updater'), (call) async {
+        if (call.method == 'updateNow') installNowCalls++;
+        if (call.method == 'pending') {
+          return <String, Object>{'pending': false, 'version': ''};
+        }
+        return true;
+      });
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+
+      // arm the gate
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate', 'gate': 'available',
+          'current': '3.4.6.d', 'next': '3.4.6.e',
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Update Now'), warnIfMissed: false);
+      await tester.pump();
+      expect(installNowCalls, greaterThan(0),
+          reason: 'Update Now must invoke the native install/update pipeline');
+
+      // live progress frames stream onto the gate (fixed pumps: the busy
+      // spinner animates continuously, so pumpAndSettle would never settle).
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate', 'gate': 'progress', 'percent': 47,
+          'bytes': 11534336, 'total': 24576000,
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.textContaining('Downloading update — 47%'), findsOneWidget);
+
+      // the verify leg
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate', 'gate': 'verify',
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.text('Verifying SHA-256…'), findsOneWidget);
+
+      // the installer leg
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate', 'gate': 'installer',
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.textContaining('Opening installer'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a failed download shows the reason + Retry Update (the gate STAYS locked)',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate', 'gate': 'available',
+          'current': '3.4.6.d', 'next': '3.4.6.e',
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pumpAndSettle();
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate', 'gate': 'failed',
+          'reason': 'download failed — check your connection and tap Retry Update',
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ForceUpdateScreen), findsOneWidget,
+          reason: 'a failure never unlocks the gate');
+      expect(find.text('Retry Update'), findsOneWidget);
+      expect(find.textContaining('check your connection'), findsOneWidget);
+    });
+
+    testWidgets(
+        'gate:uptodate releases the lock (offline / no-update playback works)',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate', 'gate': 'available',
+          'current': '3.4.6.d', 'next': '3.4.6.e',
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ForceUpdateScreen), findsOneWidget);
+      // the release vanished / up-to-date: unlock.
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/updater/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
+          't': 'gate', 'gate': 'uptodate',
+        }),
+        (ByteData? data) {},
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ForceUpdateScreen), findsNothing);
+      expect(find.byType(HomeScreen), findsOneWidget);
+    });
+  });
+
+  // ══ v3.4.6.d — THE ONBOARDING PERMISSION INTENTS ══════════════════════════
+  group('onboarding permission intents (the wrong-intent fix)', () {
+    testWidgets(
+        'the Notifications slide fires requestNotifications — NEVER the overlay page',
+        (tester) async {
+      final calls = <String>[];
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
+        calls.add(call.method);
+        switch (call.method) {
+          case 'officialVersion':
+            return '';
+          case 'onboardingStatus':
+            return <String, Object>{
+              't': 'onboardingStatus',
+              'overlay': false, 'notif': false, 'battery': false,
+              'installs': false, 'official': false,
+            };
+          default:
+            return <String, Object>{'up': false, 'port': -1, 'discoverable': false, 'mdns': false};
+        }
+      });
+      await tester.pumpWidget(quiet(const OnboardingScreen()));
+      await tester.pump();
+      // glide to slide 3 (Notifications)
+      for (var i = 0; i < 2; i++) {
+        await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+        await tester.pumpAndSettle();
+      }
+      await tester.ensureVisible(find.text('Enable Notifications'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Enable Notifications'), warnIfMissed: false);
+      await tester.pump();
+      // THE v3.4.6.c DEFECT ASSERTION: the slide opened OVERLAY settings; the
+      // fix fires the in-app runtime notification dialog instead.
+      expect(calls, contains('requestNotifications'));
+      expect(calls, isNot(contains('openOverlay')));
+    });
+
+    testWidgets(
+        'the Auto-Open slide opens overlay settings AND arms the return watcher',
+        (tester) async {
+      final calls = <String>[];
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
+        calls.add(call.method);
+        switch (call.method) {
+          case 'officialVersion':
+            return '';
+          case 'onboardingStatus':
+            return <String, Object>{
+              't': 'onboardingStatus',
+              'overlay': false, 'notif': false, 'battery': false,
+              'installs': false, 'official': false,
+            };
+          default:
+            return <String, Object>{'up': false, 'port': -1, 'discoverable': false, 'mdns': false};
+        }
+      });
+      await tester.pumpWidget(quiet(const OnboardingScreen()));
+      await tester.pump();
+      for (var i = 0; i < 3; i++) {
+        await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+        await tester.pumpAndSettle();
+      }
+      await tester.ensureVisible(find.text('Enable Auto-Open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Enable Auto-Open'), warnIfMissed: false);
+      await tester.pump();
+      expect(calls, contains('openOverlay'));
+      expect(calls, contains('watchOverlayGrant'),
+          reason: 'the 30-second return watcher must be armed with the intent');
+    });
+
+    testWidgets('the official app slide shows the live version pill', (tester) async {
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
+        switch (call.method) {
+          case 'officialInstalled':
+            return true;
+          case 'officialVersion':
+            return '3.9.2';
+          case 'onboardingStatus':
+            return <String, Object>{
+              't': 'onboardingStatus',
+              'overlay': false, 'notif': false, 'battery': false,
+              'installs': false, 'official': true,
+            };
+          default:
+            return <String, Object>{'up': false, 'port': -1, 'discoverable': false, 'mdns': false};
+        }
+      });
+      await tester.pumpWidget(quiet(const OnboardingScreen()));
+      await tester.pump();
+      await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+      await tester.pumpAndSettle();
+      expect(find.text('AnantPlay v3.9.2 Installed ✓'), findsOneWidget);
+    });
+  });
+
+  // ══ v3.4.6.d — THE 1-TAP AUTO-COPY TROUBLESHOOT ═══════════════════════════
+  group('troubleshoot auto-copy (1-tap, zero extra taps)', () {
+    testWidgets(
+        'the moment 10 probes land, the report is on the clipboard + the pill shows',
+        (tester) async {
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/troubleshoot'), (call) async {
+        return '[]';
+      });
+      await tester.pumpWidget(quiet(const HelpScreen()));
+      await tester.pump();
+
+      await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
+      await tester.pump();
+
+      // The 10-probe result frame lands on the troubleshoot EventChannel.
+      final outcomes = <Object>[
+        for (var i = 1; i <= 10; i++)
+          <String, Object>{'id': i, 'name': 'probe $i', 'pass': true, 'ms': 12.0, 'detail': 'ok'},
+      ];
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        'anantplay/troubleshoot/events',
+        const StandardMethodCodec().encodeSuccessEnvelope(outcomes),
+        (ByteData? data) {},
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // THE AUTO-COPY CONTRACT: zero extra tap and the report is on the
+      // clipboard with the 10/10 confirmation pill.
+      final data = await Clipboard.getData('text/plain');
+      expect(data?.text, contains('10/10 PASS'));
+      expect(data?.text, contains('v3.4.6.d (30410)'));
+      expect(find.textContaining('10/10 Troubleshoot complete'), findsOneWidget);
+      // Copy Again + Share stay available below.
+      expect(find.text('Copy Again'), findsOneWidget);
+      expect(find.text('Share report'), findsOneWidget);
+    });
+  });
+
+  // ══ v3.4.6.d — GOOGLE IS THE DEFAULT SEARCH ENGINE ════════════════════════
+  group('browser settings (Google default)', () {
+    testWidgets('the search engine row defaults to Google', (tester) async {
+      await tester.pumpWidget(quiet(const SettingsScreen()));
+      await tester.pump();
+      // The Browser & Privacy group (collapsed by default).
+      await tester.scrollUntilVisible(find.text('Browser & Privacy'), 300,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Browser & Privacy'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Search engine'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Search engine'), findsOneWidget);
+      // The FIRST option (the default) is Google.
+      expect(find.text('Google'), findsWidgets);
+    });
+  });
+
+  // ══ v3.4.6.d — PERFORMANCE GATING (TickerMode on offstage tabs) ═══════════
+  group('performance gating (TickerMode)', () {
+    testWidgets('every offstage tab is wrapped in a disabled TickerMode',
+        (tester) async {
+      onboardingDone = true;
+      onboardingVersion = 2;
+      await tester.pumpWidget(upToDateApp());
+      await tester.pumpAndSettle();
+
+      // The FOUR tab-level TickerMode gates live in the IndexedStack's child
+      // CONFIG (offstage tabs are not inflated in the widget test harness, so
+      // the assertion reads the stack's children — exactly what the shell
+      // builds every frame on device).
+      final stack = tester.widget<IndexedStack>(find.byType(IndexedStack));
+      expect(stack.children.length, 4);
+      final tabModes = stack.children
+          .whereType<TickerMode>()
+          .map((m) => m.enabled)
+          .toList();
+      expect(tabModes.length, 4, reason: 'all four tabs are TickerMode-gated');
+      expect(tabModes.where((e) => e).length, 1,
+          reason: 'only the ACTIVE tab may run tickers');
+      expect(tabModes.first, isTrue, reason: 'Home (active) is the enabled one');
+
+      // Switch to Browser: now Browser is the one enabled tab.
+      await tester.tap(
+          find.descendant(
+              of: find.byType(shell.ShellRoot),
+              matching: find.text('Browser')).first,
+          warnIfMissed: false);
+      await tester.pumpAndSettle();
+      final stack2 = tester.widget<IndexedStack>(find.byType(IndexedStack));
+      final tabModes2 = stack2.children
+          .whereType<TickerMode>()
+          .map((m) => m.enabled)
+          .toList();
+      expect(tabModes2.where((e) => e).length, 1);
+      expect(tabModes2[1], isTrue, reason: 'Browser (now active) is enabled');
     });
   });
 }

@@ -456,6 +456,8 @@ public final class AppPrefs {
     public static final String OMNIBAR_TOP = "top", OMNIBAR_BOTTOM = "bottom";
     public static final String SEARCH_DDG = "ddg", SEARCH_GOOGLE = "google",
         SEARCH_STARTPAGE = "startpage", SEARCH_BRAVE = "brave";
+    /** v3.4.6.d — the default engine id (google). */
+    public static final String SEARCH_DEFAULT = SEARCH_GOOGLE;
     public static final String ORIENT_AUTO = "auto", ORIENT_LANDSCAPE = "landscape",
         ORIENT_PORTRAIT = "portrait";
     public static final String EXT_VLC = "vlc", EXT_MX = "mx", EXT_MPV = "mpv", EXT_CHOOSER = "chooser";
@@ -474,8 +476,13 @@ public final class AppPrefs {
     public static int normalizeSubOutline(int v) { return clampTo(v, 0, 6); }
     public static int normalizeVolumeBoost(int v) { return clampTo(v, 0, 150); }
     public static String normalizeSearchEngine(String v) {
-        if (SEARCH_GOOGLE.equals(v) || SEARCH_STARTPAGE.equals(v) || SEARCH_BRAVE.equals(v)) return v;
-        return SEARCH_DDG;
+        // v3.4.6.d — all FOUR known engines round-trip (ddg included — it was
+        // missing from the old accepted list, so a ddg-persisted preference
+        // silently fell to the fallback); only unknown/legacy junk resolves
+        // to the Google default.
+        if (SEARCH_GOOGLE.equals(v) || SEARCH_STARTPAGE.equals(v)
+            || SEARCH_BRAVE.equals(v) || SEARCH_DDG.equals(v)) return v;
+        return SEARCH_DEFAULT;
     }
     public static String normalizeOrientation(String v) {
         if (ORIENT_LANDSCAPE.equals(v) || ORIENT_PORTRAIT.equals(v)) return v;
@@ -779,7 +786,10 @@ public final class AppPrefs {
     public static String omnibarPos(SharedPreferences p) { return normalizeOmnibarPos(p.getString(K_OMNIBAR_POS, OMNIBAR_BOTTOM)); }
     public static boolean omnibarBottom(SharedPreferences p) { return OMNIBAR_BOTTOM.equals(omnibarPos(p)); }
     public static int speedDialCols(SharedPreferences p) { return normalizeSpeedDialCols(p.getInt(K_SPEEDDIAL_COLS, 4)); }
-    public static String searchEngine(SharedPreferences p) { return normalizeSearchEngine(p.getString(K_SEARCH_ENGINE, SEARCH_DDG)); }
+    // v3.4.6.d — GOOGLE IS THE DEFAULT SEARCH ENGINE (the v3.4.6.c default
+    // was DuckDuckGo; the user's explicit requirement flips it). DuckDuckGo,
+    // Startpage and Brave remain one-tap choices in Settings → Browser.
+    public static String searchEngine(SharedPreferences p) { return normalizeSearchEngine(p.getString(K_SEARCH_ENGINE, SEARCH_GOOGLE)); }
     public static String webCustomUa(SharedPreferences p) { return normalizeCustomUa(p.getString(K_WEB_CUSTOM_UA, "")); }
     public static boolean readerDark(SharedPreferences p) { return p.getBoolean(K_READER_DARK, true); }
     public static boolean favicons(SharedPreferences p) { return p.getBoolean(K_FAVICONS, true); }
