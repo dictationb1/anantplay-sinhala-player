@@ -84,6 +84,23 @@
             </intent-filter>
         </activity>
 
+        <!-- v3.4.6.i — THE XRECORDER-STYLE TRANSLUCENT PERMISSION GUIDE (video_1
+             00:06–00:20): a floating translucent card ON TOP of the Android system
+             settings page (startActivities{settings, guide} = one back-stack, so it
+             works on Android 16 EVEN BEFORE any overlay permission is granted).
+             The translucent theme + windowIsFloating make it a normal activity of
+             OUR OWN task — never a SYSTEM_ALERT_WINDOW overlay. noHistory +
+             excludeFromRecents: it can never pollute recents or the back stack.
+             guide extra: overlay | unknown_sources | battery | notifications. -->
+        <activity android:name=".PermissionGuideActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:windowIsFloating="true"
+            android:windowIsTranslucent="true"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="false"/>
+
         <!-- Our player: the same orientation/PiP/configChanges shape as AnantPlay's own
              PlayerActivity (AndroidManifest.xml:49-51) so rotation never restarts it.
              singleTask: a second cast re-targets the open player instead of stacking.

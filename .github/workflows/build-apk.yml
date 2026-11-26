@@ -56,8 +56,8 @@ jobs:
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.h"
-          test "$CODE" = "30414"
+          test "$VERSION" = "3.4.6.i"
+          test "$CODE" = "30415"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -411,8 +411,8 @@ jobs:
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.h"
-          test "$CODE" = "30414"
+          test "$VERSION" = "3.4.6.i"
+          test "$CODE" = "30415"
           test "$GRADLE_VERSION" = "$VERSION"
           test "$GRADLE_CODE" = "$CODE"
           test "$APPINFO_VERSION" = "$VERSION"
@@ -812,8 +812,8 @@ jobs:
           # .e … .z (or 3.4.7+) because of a stale regex.
           echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(\.[a-z])?$' \
             || { echo "::error::version '$VERSION' is not X.Y.Z[.a-z] — the auto-update lane has no letter ceiling"; exit 1; }
-          test "$VERSION" = "3.4.6.h"
-          test "$CODE" = "30414"
+          test "$VERSION" = "3.4.6.i"
+          test "$CODE" = "30415"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
@@ -1000,7 +1000,8 @@ jobs:
             # PackageManager, a real ClipboardManager — and publish one
             # `AnantPlayCI: PROBE …` line per feature plus the parsed
             # `DEEP_PROBE_SUMMARY`. Steps 6/7 parse those lines and HARD-ASSERT
-            # total >= 64, fail == 0, clipboard_copied == true, privacy_clean == true.
+            # total >= 73 (the v3.4.6.i native matrix: A2..I9), fail == 0,
+            # clipboard_copied == true, privacy_clean == true.
             echo '── 1/9 clear logcat ──'
             adb logcat -c || true
             echo '── 2/9 install the x86_64 release twin ──'
@@ -1050,7 +1051,7 @@ jobs:
             { echo ''; echo "**parsed:** pass=$(cat /tmp/npass.txt) app_fail=$(cat /tmp/nfail.txt) env_fail=$(cat /tmp/nenvfail.txt) total=$(cat /tmp/ntotal.txt) · per-probe lines=$(cat /tmp/nlines.txt)"; } >> "$GITHUB_STEP_SUMMARY"
             if ! grep -Eq '^[0-9]+$' /tmp/npass.txt || ! grep -Eq '^[0-9]+$' /tmp/nfail.txt || ! grep -Eq '^[0-9]+$' /tmp/nenvfail.txt || ! grep -Eq '^[0-9]+$' /tmp/ntotal.txt; then echo "::error title=deep-probe::the summary line did not parse (pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) env_fail=$(cat /tmp/nenvfail.txt) total=$(cat /tmp/ntotal.txt)) from: $(cat /tmp/summary.txt)"; exit 1; fi
             if [ "$(cat /tmp/nenvfail.txt)" -gt 0 ]; then echo "::notice title=deep-probe env_fail::$(cat /tmp/nenvfail.txt) external Worker probe(s) unreachable on this CI emulator — the app report still shows FAIL ✗ honestly, but this is an optional environment outage, NOT an app/code failure (fail must stay 0)"; fi
-            if [ "$(cat /tmp/ntotal.txt)" -lt 64 ]; then echo "::error title=deep-probe::total=$(cat /tmp/ntotal.txt) but the matrix must execute at least 64 probes"; tail -40 /tmp/deeplines.txt >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
+            if [ "$(cat /tmp/ntotal.txt)" -lt 73 ]; then echo "::error title=deep-probe::total=$(cat /tmp/ntotal.txt) but the matrix must execute at least 73 probes"; tail -40 /tmp/deeplines.txt >> "$GITHUB_STEP_SUMMARY"; exit 1; fi
             if [ "$(cat /tmp/nlines.txt)" -lt 64 ]; then echo "::error title=deep-probe::only $(cat /tmp/nlines.txt) per-probe lines were published (expected >= 64)"; exit 1; fi
             sed -n 's/.*\(PROBE [0-9][0-9]* .* -> FAIL .*\)/\1/p' /tmp/deeplines.txt > /tmp/fails.txt || true
             if [ "$(cat /tmp/nfail.txt)" -ne 0 ]; then echo "::error title=deep-probe::$(cat /tmp/nfail.txt) LIVE probe(s) FAILED on the Android 36 emulator (pass=$(cat /tmp/npass.txt) fail=$(cat /tmp/nfail.txt) total=$(cat /tmp/ntotal.txt))"; fi

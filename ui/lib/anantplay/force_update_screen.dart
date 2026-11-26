@@ -58,6 +58,19 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
   /// the moment the install-permission grant lands (the bounded native
   /// 30 s watcher auto-resumes the download the instant it does).
   bool _awaitingPermission = false;
+  /// v3.4.6.i — ZERO-DOUBLE-DOWNLOAD: a verified APK for the target version
+  /// is already cached on disk (its SHA-256 matched) — the button becomes
+  /// 'Install Downloaded Update' and NEVER re-downloads.
+  bool _cachedApkReady = false;
+  /// v3.4.6.i — while a download / verify / installer handoff is in flight
+  /// the button is disabled (a double-tap can never queue a second resolve
+  /// → download cycle).
+  bool _tapBusy = false;
+  /// v3.4.6.i — the PackageInstaller handoff started at this time; 2 s
+  /// later the button re-enables as 'Open Installer Again' (the user
+  /// dismissed the Android sheet and wants it back).
+  DateTime? _installerHandoffAt;
+  Timer? _reenableTimer;
   StreamSubscription<UpdateGateEvent>? _gateSub;
 
   @override
@@ -94,6 +107,9 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
       _updateKnown = true;
       _next = pending.version;
       _current = installed.isEmpty ? widget.currentVersion : installed;
+      // v3.4.6.i — a strictly-newer pending APK means the verified cache is
+      // on disk RIGHT NOW: the button starts as 'Install Downloaded Update'.
+      _cachedApkReady = true;
     });
   }
 
@@ -101,6 +117,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _gateSub?.cancel();
+    _reenableTimer?.cancel();
     super.dispose();
   }
 
@@ -125,6 +142,9 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
           _phase = _GatePhase.idle;
         case 'progress':
           _phase = _GatePhase.downloading;
+          // v3.4.6.i — live download bytes: the cached-APK fast path is NOT
+          // in play while a real download is streaming.
+          _cachedApkReady = false;
           _percent = e.percent.clamp(0, 100);
           _bytes = e.bytes;
           _total = e.total;
@@ -133,6 +153,11 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
         case 'installer':
           _phase = _GatePhase.installer;
           _awaitingPermission = false;
+          // v3.4.6.i — the verified APK is now cached (the download just
+          // completed, or the cache-reuse lane fired): any further tap is
+          // an INSTALLER RE-OPEN, never a re-download.
+          _cachedApkReady = true;
+          _installerHandoffAt = DateTime.now();
         case 'failed':
           _phase = _GatePhase.failed;
           _reason = e.reason;
@@ -142,6 +167,16 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
           _phase = _GatePhase.idle;
       }
     });
+    // v3.4.6.i — re-enable the button 2 s after the installer handoff as
+    // 'Open Installer Again' (the user dismissed the Android confirm sheet).
+    if (e.gate == 'installer') {
+      _reenableTimer?.cancel();
+      _reenableTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted && _phase == _GatePhase.installer) {
+          setState(() {});
+        }
+      });
+    }
   }
 
   @override
@@ -164,36 +199,44 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
 
   /// v3.4.6.f — LAW #3, THE USER'S UPDATE NOW TAP: permission FIRST, then
   /// the single-flight download, then verify + installer.
+  /// v3.4.6.i — ZERO-DOUBLE-DOWNLOAD: (a) a verified cached APK is used
+  /// INSTANTLY (the Java lane re-opens PackageInstaller in < 50 ms, never a
+  /// re-download); (b) the tap is single-flight while a download / verify /
+  /// handoff is running; (c) the v3.4.6.h follow-up checkForUpdate() network
+  /// leg (fired because pendingUpdate() reports false while metadata is only
+  /// written AFTER the download completes) is GONE.
   Future<void> _updateNow() async {
+    if (_tapBusy) return;                    // one tap in flight, forever
     setState(() {
       _reason = '';
       _awaitingPermission = false;
+      _tapBusy = true;
     });
-    // ── Step 1 of 2 — the install-permission guarantee comes FIRST ──
-    bool installsGranted = false;
     try {
-      installsGranted = await AnantPlay.instance.canRequestPackageInstalls();
-    } on PlatformException {
-      installsGranted = false;
-    }
-    if (!installsGranted) {
-      setState(() {
-        _awaitingPermission = true;
-        _reason = 'Step 1 of 2: allow AnantPlay Player to install updates.\n'
-            'The install-updates page just opened — flip the switch, and the '
-            'download starts automatically the moment you return.';
-      });
+      // ── Step 1 of 2 — the install-permission guarantee comes FIRST ──
+      bool installsGranted = false;
+      try {
+        installsGranted = await AnantPlay.instance.canRequestPackageInstalls();
+      } on PlatformException {
+        installsGranted = false;
+      }
+      if (!installsGranted) {
+        setState(() {
+          _awaitingPermission = true;
+          _reason = 'Step 1 of 2: allow AnantPlay Player to install updates.\n'
+              'The install-updates page just opened — flip the switch, and the '
+              'download starts automatically the moment you return.';
+        });
+        await AnantPlay.instance.installPendingUpdate();
+        return;
+      }
+      // ── Step 2 — the native 'updateNow' lane: a verified APK already
+      // cached → it re-opens the installer from cache (< 50 ms, zero
+      // network); no cache → the ONE single-flight download → verify →
+      // installer handoff. Progress frames stream through the gate events.
       await AnantPlay.instance.installPendingUpdate();
-      return;
-    }
-    // ── Step 2 — a verified APK may already be pending: install it; else the
-    // native updateNow lane resolves → downloads (single-flight) → verifies →
-    // hands to the installer. Progress frames stream through the gate events.
-    await AnantPlay.instance.installPendingUpdate();
-    final pending = await AnantPlay.instance.pendingUpdate();
-    if (!mounted) return;
-    if (!pending.pending) {
-      await AnantPlay.instance.checkForUpdate();
+    } finally {
+      if (mounted) setState(() => _tapBusy = false);
     }
   }
 
@@ -201,6 +244,41 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
       ? ''
       : ' · ${(_bytes / 1048576).toStringAsFixed(1)} MB'
           '${_total > 0 ? ' / ${(_total / 1048576).toStringAsFixed(1)} MB' : ''}';
+
+  /// v3.4.6.i — the button's honest label:
+  /// · failed → `Retry Update`;
+  /// · a verified cached APK (idle) → `Install Downloaded Update` (never a
+  ///   re-download);
+  /// · the first 2 s of the PackageInstaller handoff → disabled
+  ///   `Opening installer…`;
+  /// · ≥ 2 s into the handoff → `Open Installer Again` (the user dismissed
+  ///   the Android confirm sheet);
+  /// · otherwise → `Update Now`.
+  String get _buttonLabel {
+    if (_phase == _GatePhase.failed) return 'Retry Update';
+    if (_phase == _GatePhase.installer) {
+      final heldFor = _installerHandoffAt == null
+          ? const Duration()
+          : DateTime.now().difference(_installerHandoffAt!);
+      return heldFor >= const Duration(seconds: 2)
+          ? 'Open Installer Again'
+          : 'Opening installer…';
+    }
+    if (_cachedApkReady) return 'Install Downloaded Update';
+    return 'Update Now';
+  }
+
+  /// v3.4.6.i — the button is disabled while a tap, download, verification or
+  /// the first 2 s of the installer handoff is in flight (a double-tap can
+  /// never queue a second resolve → download cycle).
+  bool get _buttonBusy =>
+      _tapBusy ||
+      _phase == _GatePhase.downloading ||
+      _phase == _GatePhase.verifying ||
+      (_phase == _GatePhase.installer &&
+          (_installerHandoffAt == null ||
+              DateTime.now().difference(_installerHandoffAt!) <
+                  const Duration(seconds: 2)));
 
   @override
   Widget build(BuildContext context) {
@@ -344,13 +422,11 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
                       ),
                       const SizedBox(height: 14),
                     ],
-                    // ── THE ONLY BUTTON: Update Now / Retry Update ─────────
+                    // ── THE ONLY BUTTON: Update Now / Install Downloaded
+                    // Update / Open Installer Again / Retry Update ────────
                     MornyeUpdateButton(
-                      label: _phase == _GatePhase.failed
-                          ? 'Retry Update'
-                          : 'Update Now',
-                      busy: _phase == _GatePhase.downloading ||
-                          _phase == _GatePhase.verifying,
+                      label: _buttonLabel,
+                      busy: _buttonBusy,
                       onTap: _updateNow,
                     ),
                     const SizedBox(height: 10),

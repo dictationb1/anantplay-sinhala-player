@@ -5,13 +5,14 @@
 // Customizations · D Browser · E Cinema Player & Subtitles · F Permissions &
 // Privacy · G the v3.4.6.g real-phone fix contracts — 64 live probes) with
 // live progress, PLUS the Dart layer (H — 8 live Flutter UI audits executed
-// inside Dart against the live AppState & AnantPlayBridge hubs, ids 65–78 —
+// inside Dart against the live AppState & AnantPlayBridge hubs, ids 74–87 —
 // v3.4.6.h grew the Dart layer from 8 to 14 audits: live Light/AMOLED theme
 // integrity, the Material You interlock, the 4 subtitle fonts, the semantic
 // icon registry and the zero-uncaught-error session check).
-// The merged run is 72 unique sequential ids (1..72) across 8 domains — the
-// v3.4.6.g Domain/ID collision fix (the Dart layer used to be G/57–64 and
-// collided with the native G1–G8). The merged verdict highlights EVERY
+// The merged run is 87 unique sequential ids (1..87) across 9 domains (73
+// native A–G + I, plus 14 Dart H). v3.4.6.i closed the LAST id collision: the
+// native Domain I (the nine video-audit fix contracts) owns ids 65–73, so the
+// Dart layer moved from 65–78 to 74–87 — zero duplicate ids, zero gaps. The merged verdict highlights EVERY
 // FAIL ✗ at the very top of the report — nothing is ever hidden — and the
 // full privacy-safe report is copied to the clipboard AUTOMATICALLY
 // (native ClipboardManager + Flutter Clipboard) the instant the run ends,
@@ -26,6 +27,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
+import 'package:anantplay_ui/mornye_ui/theme/mornye_icons.dart';
 
 import 'action_feedback.dart';
 import 'app_state.dart';
@@ -47,7 +49,9 @@ class _HelpScreenState extends State<HelpScreen> {
   String _report = '';
   StreamSubscription<dynamic>? _probeSub;
   StreamSubscription<Map<dynamic, dynamic>>? _progressSub;
-  /// The live progress counter (n of 78 probes — 64 native + 14 Dart — in flight).
+  /// The live progress counter (n of 87 probes — 73 native (64 through
+  /// v3.4.6.h plus the 9 new v3.4.6.i Domain I video-audit probes) plus the
+  /// 14 Dart-layer audits, ids 1..87 with zero gaps).
   int _done = 0;
   final Map<String, bool> _expanded = {};
   /// v3.4.6.e — the watchdog Timer (owned; cancelled in dispose).
@@ -144,19 +148,23 @@ class _HelpScreenState extends State<HelpScreen> {
     // The native layer is COMPLETE: render its domain cards + auto-copy the
     // report IMMEDIATELY (the native verdict already stands and must never be
     // gated behind the Dart round-trips), THEN run the 8 live Dart audits
-    // (Domain H, ids 65–78) and merge them in as they land.
+    // (Domain H, ids 74–87) and merge them in as they land.
+    // v3.4.6.i — ONE TOAST AT THE VERY END (Law #2): the intermediate
+    // auto-copy (the native-layer landing) is SILENT — no mid-run
+    // `8/10`/`21/24`-style snackbar; the ONE completion banner fires only
+    // after the FULL two-layer run lands.
     if (!mounted) return;
     setState(() {
       _results = nativeOutcomes;
       _ranOnce = true;
     });
-    _autoCopyReport(nativeOutcomes);
+    _autoCopyReport(nativeOutcomes, const [], true);
     List<DeepOutcome> dartLayer = const [];
     try {
       final scope = AppState.of(context).scope;
       // v3.4.6.g — the Dart layer streams into the SAME live step-by-step feed
-      // as the native probes, so the ticker covers all 72 unique sequential ids
-      // (▶ Checking #65 … → ✓ #65 PASS) and the counter climbs 64 → 78. Zero
+      // as the native probes, so the ticker covers all 87 unique sequential ids
+      // (▶ Checking #74 … → ✓ #74 PASS) and the counter climbs 73 → 87. Zero
       // duplicate ids, zero overwritten rows.
       dartLayer = await DartLayerAuditor.run(
         scope,
@@ -193,7 +201,7 @@ class _HelpScreenState extends State<HelpScreen> {
   /// (anantplay/cast.copyToClipboard) AND Flutter's Clipboard.setData, then
   /// the confirmation banner shows the truthful pass/fail counts.
   Future<void> _autoCopyReport(List<DeepOutcome> nativeOutcomes,
-      [List<DeepOutcome> dartOutcomes = const []]) async {
+      [List<DeepOutcome> dartOutcomes = const [], bool silent = false]) async {
     // v3.4.6.e — a channel hiccup must never strand the run: if the report
     // cannot be fetched the completion still lands (cards + counter reset),
     // and the Copy Again row re-reads it on demand.
@@ -219,7 +227,9 @@ class _HelpScreenState extends State<HelpScreen> {
     final all = [...nativeOutcomes, ...dartOutcomes];
     final passed = all.where((o) => o.pass).length;
     final failed = all.length - passed;
-    if (mounted) {
+    // v3.4.6.i — the ONE completion banner: shown ONLY at the very end of
+    // the FULL run (the intermediate native-layer landing passes silent).
+    if (mounted && !silent) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
             '$passed/${all.length} PASS · $failed FAIL — honest report '
@@ -360,15 +370,15 @@ class _HelpScreenState extends State<HelpScreen> {
           StaggeredListItem(
             index: _copied && !_running && total > 0 ? 1 : 0,
             child: _ActionCard(
-              icon: Icons.health_and_safety_rounded,
+              icon: mornyeIconFor(Icons.health_and_safety_rounded),
               title: _running
-                  ? 'Running 78 deep feature probes… $_done/78'
+                  ? 'Running 87 deep feature probes… $_done/87'
                   : _ranOnce || total > 0
                       ? 'Run full app troubleshoot again'
                       : 'Run full app troubleshoot',
               subtitle: _running
                   ? 'Live audit of every feature — settings are restored after.'
-                  : 'Every feature · 64 native + 14 Dart-layer probes · 8 domains · honest results.',
+                  : 'Every feature · 87 native + 14 Dart-layer probes · 9 domains · honest results.',
               onTap: _running ? null : _run,
             ),
           ),
@@ -388,7 +398,11 @@ class _HelpScreenState extends State<HelpScreen> {
                         borderRadius: BorderRadius.circular(8),
                         child: LinearProgressIndicator(
                           minHeight: 6,
-                          value: (_done / 72).clamp(0.0, 1.0),
+                          // v3.4.6.i — the bar now divides by the SAME live
+                          // total as the counter (the v3.4.6.h bar divided by
+                          // 72 while the counter read /78 — the bar visibly
+                          // lagged behind 100% at the end).
+                          value: (_done / 87).clamp(0.0, 1.0),
                           backgroundColor: scheme.surfaceContainerHigh,
                         ),
                       ),
@@ -550,7 +564,7 @@ class _ActionCard extends StatelessWidget {
                     color: scheme.primaryContainer.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(icon, color: scheme.primary, size: 20),
+                  child: Icon(mornyeIconFor(icon), color: scheme.primary, size: 20),
                 ),
                 const SizedBox(width: 14),
                 Expanded(

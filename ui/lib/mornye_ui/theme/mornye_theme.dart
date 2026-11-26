@@ -441,16 +441,29 @@ class MornyeTheme extends ThemeExtension<MornyeTheme> {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: scheme.surfaceContainerHigh,
-        contentTextStyle: text.copyWith(fontSize: 15, color: foreground),
+        backgroundColor: dark
+            ? scheme.surfaceContainerHigh
+            // v3.4.6.i — THE LIGHT-MODE SNACKBAR (video_3 01:31–02:46): a
+            // clean frosted LIGHT elevated card (#FFFFFF, crisp #111118 text)
+            // — never a pitch-black bar with unreadable dark text in Light
+            // mode. (In dark mode the dark card is correct and unchanged.)
+            : const Color(0xFFFFFFFF),
+        contentTextStyle: text.copyWith(
+          fontSize: 15,
+          color: dark ? foreground : const Color(0xFF111118),
+        ),
         actionTextColor: accent,
         disabledActionTextColor: secondary,
-        closeIconColor: foreground,
-        elevation: 0,
+        closeIconColor: dark ? foreground : const Color(0xFF111118),
+        elevation: 3,
         insetPadding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
-          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+          side: BorderSide(
+            color: dark
+                ? scheme.outlineVariant.withValues(alpha: 0.5)
+                : const Color(0xFFE4E4EC),
+          ),
         ),
       ),
     );

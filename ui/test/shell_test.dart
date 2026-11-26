@@ -233,7 +233,15 @@ void main() {
       expect(find.text('Welcome'), findsOneWidget);
       expect(find.text('Get started'), findsOneWidget);
       expect(find.text('Skip'), findsOneWidget);
-      expect(find.text('Next'), findsOneWidget);
+      // v3.4.6.i — the red-pen layout: the bottom-right Next button is GONE
+      // (each slide owns ONE full-width primary action above the dots); the
+      // concise 1–2 line subtitle rides under the title.
+      expect(find.text('Next'), findsNothing);
+      expect(
+          find.text('Sinhala subtitles cinema — one receiver, zero forks.'),
+          findsOneWidget);
+      // 6 clickable page dots + Back hidden on slide 1.
+      expect(find.text('Back'), findsNothing);
     });
 
     testWidgets(
@@ -261,7 +269,9 @@ void main() {
       await hop('Continue without installing'); // slide 2 → slide 3
       await hop('Continue anyway'); // slide 3 → slide 4
       await hop('Continue anyway'); // slide 4 → slide 5
-      await hop('Continue anyway'); // slide 5 → slide 6
+      // v3.4.6.i — slide 5's redesign: ONE full-width Continue under the
+      // two permission rows (no second 'Continue anyway').
+      await hop('Continue'); // slide 5 → slide 6
 
       expect(find.text('Finish'), findsOneWidget);
       await tester.ensureVisible(find.text('Finish'));
@@ -828,7 +838,7 @@ void main() {
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
       await tester.pump();
       // The run title shows with the counter at 0/54.
-      expect(find.text('Running 78 deep feature probes… 0/78'), findsOneWidget);
+      expect(find.text('Running 87 deep feature probes… 0/87'), findsOneWidget);
       // Three live frames arrive: 1, 7, 32 of 54.
       for (final done in [1, 7, 32]) {
         await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
@@ -846,7 +856,7 @@ void main() {
         );
         await tester.pump(const Duration(milliseconds: 60));
       }
-      expect(find.text('Running 78 deep feature probes… 32/78'), findsOneWidget);
+      expect(find.text('Running 87 deep feature probes… 32/87'), findsOneWidget);
       // The run itself fired exactly once.
       expect(deepRuns, 1);
     });
@@ -1041,6 +1051,13 @@ void main() {
         }
         return true;
       });
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
+        // v3.4.6.i — Step 1 of 2 asks canRequestPackageInstalls first; the
+        // officialVersion lane must answer a STRING (the bridge casts it).
+        if (call.method == 'canRequestPackageInstalls') return true;
+        if (call.method == 'officialVersion') return '';
+        return true;
+      });
       await tester.pumpWidget(upToDateApp());
       await tester.pumpAndSettle();
 
@@ -1093,7 +1110,9 @@ void main() {
         (ByteData? data) {},
       );
       await tester.pump(const Duration(milliseconds: 120));
-      expect(find.textContaining('Opening installer'), findsOneWidget);
+      // v3.4.6.i — the status line + the disabled button BOTH say it now
+      // (the button reads 'Opening installer…' for its first 2 s).
+      expect(find.textContaining('Opening installer'), findsWidgets);
     });
 
     // v3.4.6.e — THE FAILURE SURFACE, asserted on the gate itself. The shell
@@ -1308,7 +1327,7 @@ void main() {
         );
         await tester.pump();
       }
-      expect(find.text('Running 78 deep feature probes… 54/78'), findsOneWidget);
+      expect(find.text('Running 87 deep feature probes… 54/87'), findsOneWidget);
 
       // The final full-run payload (a JSON string, exactly as the host sends it).
       final buf = StringBuffer('[');
@@ -1657,10 +1676,13 @@ void main() {
         await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
         await tester.pumpAndSettle();
       }
+      // v3.4.6.i — the redesigned slide 5: the row label + its [Enable]
+      // button (the prominent-pill layout is gone).
       expect(find.text('Allow App Updates'), findsOneWidget);
       await tester.ensureVisible(find.text('Allow App Updates'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Allow App Updates'), warnIfMissed: false);
+      final enableBtn = find.text('Enable');
+      await tester.tap(enableBtn.first, warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(unknownSourcesOpens, 1,
           reason: 'the card opens the REAL install-unknown-apps settings page');

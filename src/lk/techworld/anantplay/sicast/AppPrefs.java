@@ -801,7 +801,19 @@ public final class AppPrefs {
     public static int accent(SharedPreferences p) { return normalizeAccent(safeGetInt(p, K_ACCENT, 0)); }
     public static String accentHex(SharedPreferences p) { return normalizeAccentHex(p.getString(K_ACCENT_HEX, "")); }
     public static String uiLang(SharedPreferences p) { return normalizeUiLang(p.getString(K_UI_LANG, UI_EN)); }
-    public static boolean spacious(SharedPreferences p) { return DENSITY_SPACIOUS.equals(normalizeDensity(p.getString(K_DENSITY, DENSITY_COMFORTABLE))); }
+    public static boolean spacious(SharedPreferences p) { return DENSITY_SPACIOUS.equals(density(p)); }
+
+    /**
+     * v3.4.6.i — THE FULL DENSITY READER. The v3.4.6.h mirror collapsed
+     * layoutDensity to compact|comfortable (`compact() ? COMPACT : COMFORTABLE`),
+     * so every `spacious` pick snapped back to Comfortable the moment the
+     * optimistic refresh re-read the live map. The raw normalized string
+     * (spacious|comfortable|compact) is now the mirror's own value.
+     */
+    public static String density(SharedPreferences p) {
+        return p == null ? DENSITY_COMFORTABLE
+                : normalizeDensity(p.getString(K_DENSITY, DENSITY_COMFORTABLE));
+    }
 
     // ── v3.4.3 — the onboarding contract (never backed up, always re-checked) ──
     /** True once the user tapped "Finish setup" (the ONLY writer is OnboardingWizard). */
@@ -859,7 +871,7 @@ public final class AppPrefs {
         return normalizeCardRadius(p.getString(K_CARD_RADIUS, RADIUS_ROUNDED));
     }
 
-    public static boolean compact(SharedPreferences p) { return DENSITY_COMPACT.equals(normalizeDensity(p.getString(K_DENSITY, DENSITY_COMFORTABLE))); }
+    public static boolean compact(SharedPreferences p) { return DENSITY_COMPACT.equals(density(p)); }
     public static boolean showWebTab(SharedPreferences p) { return p.getBoolean(K_SHOW_WEB_TAB, true); }
     public static boolean showQuickActions(SharedPreferences p) { return p.getBoolean(K_SHOW_QUICK_ACTIONS, true); }
     /** v3.4.6.e — the compact cinema default: 14 sp portrait / 15 sp landscape

@@ -12,7 +12,7 @@
 // Layer 1 (THIS FILE, Dart): the LIVE Flutter UI & channel audits —
 // executed INSIDE Dart against the live AppState (InheritedNotifier) and the
 // live AnantPlayBridge singleton hubs. v3.4.6.h EXPANDED the layer from 8 to
-// FOURTEEN audits (ids 65–78) so every visual/theme/font/icon/updater defect
+// FOURTEEN audits (ids 74–87) so every visual/theme/font/icon/updater defect
 // the v3.4.6.g field report exposed is now caught AUTOMATICALLY:
 //   H1  65 AppStateScope live rebuild + optimistic write
 //   H2  66 _ChannelHub singleton (0 cancel collisions)
@@ -27,18 +27,21 @@
 //   H8  72 Material You ↔ manual accent interlock (applyManualAccent flips
 //          dynamicColor OFF and repaints)
 //   H9  73 Subtitle Font live rendering (4 distinct TextStyles, ZWJ intact)
-//   H10 74 Compact subtitle bounds (82% / 3 lines / 1.25 / 10–28sp)
-//   H11 75 Semantic Icon Registry (zero forbidden glyphs, Test Player = play)
-//   H12 76 Google search-engine contract
-//   H13 77 WatchHistory read-back round-trip
-//   H14 78 Zero-uncaught-Flutter-error session (0 Dart errors, else named)
+//   H10 83 Compact subtitle bounds (82% / 3 lines / 1.25 / 10–28sp)
+//   H11 84 Semantic Icon Registry (zero forbidden glyphs, Test Player = play)
+//   H12 85 Google search-engine contract
+//   H13 86 WatchHistory read-back round-trip
+//   H14 87 Zero-uncaught-Flutter-error session (0 Dart errors, else named)
 //
 // v3.4.6.g — THE DOMAIN/ID COLLISION FIX (Trap #2): the native layer grew
 // from 56 (A–F) to 64 probes (A–G, G1–G8 = ids 57–64). The Dart layer USED to
 // also be Domain G ids 57–64, so the merged verdict, the live feed and the
 // clipboard report carried DUPLICATE ids 57–64 and two different "Domain G"
-// cards overwriting each other. The Dart layer is now **Domain H, ids 65–72**
-// — the merged run is 100% unique sequential ids 1..72 with zero duplicates.
+// cards overwriting each other. The Dart layer then moved to Domain H ids 65–78
+// — and v3.4.6.i killed the SECOND collision: the native v3.4.6.i Domain I
+// (the nine video-audit fix contracts) owns ids 65–73, so the Dart layer is
+// now **Domain H, ids 74–87**. The merged run is 100% unique sequential ids
+// 1..87 (73 native + 14 Dart) with zero duplicates.
 // The verdict merges BOTH layers and every FAIL ✗ is printed at the very top
 // of the composed report — nothing is ever hidden.
 import 'dart:async';
@@ -107,7 +110,8 @@ class DeepDomain {
     // header prints (the v3.4.6.g misprint said "Permissions & Privacy").
     DeepDomain('G', 'Deep Systems, Thermal & Cast'),
     // v3.4.6.h — THE LIVE DART LAYER (Layer 1 of the honest audit), ids
-    // 65–78 (never colliding with native G's 57–64).
+    // 74–87 (v3.4.6.i renumber: native Domain I owns 65–73) (never colliding with native G's 57–64 or the v3.4.6.i
+    // native Domain I, which owns 65–73).
     DeepDomain('H', 'Live Flutter UI (Dart)'),
   ];
 
@@ -137,7 +141,7 @@ List<DeepOutcome> decodeDeepOutcomes(Object? raw) {
   return raw.whereType<Map>().map(DeepOutcome.fromMap).toList(growable: false);
 }
 
-// ── v3.4.6.g — LAYER 1: THE LIVE DART AUDITS (Domain H, ids 65–72) ──────────
+// ── LAYER 1: THE LIVE DART AUDITS (Domain H, ids 74–87) ─────────────────────
 
 /// The Layer-1 auditor: everything runs INSIDE Dart, against the LIVE
 /// AppState notifier and the LIVE AnantPlayBridge hubs — never against
@@ -151,16 +155,18 @@ class DartLayerAuditor {
   /// the audit lands as an honest FAIL instead of hanging the verdict.
   static const _auditTimeout = Duration(seconds: 3);
 
-  /// The first Dart-layer id. Native owns 1..64 (A–G); the Dart layer owns
-  /// 65..78 (H) — the merged run is unique sequential ids 1..78.
-  static const int firstId = 65;
+  /// The first Dart-layer id. Native owns 1..73 (A–G plus the v3.4.6.i
+  /// Domain I at 65–73); the Dart layer owns 74..87 (H) — so the merged run
+  /// is unique sequential ids 1..87 (73 native + 14 Dart) with zero
+  /// duplicates and zero gaps.
+  static const int firstId = 74;
 
-  /// Runs the 14 live Dart audits (ids 65–78, domain 'H').
+  /// Runs the 14 live Dart audits (ids 74–87, domain 'H').
   ///
   /// [onStart] fires the instant an audit begins and [onDone] the instant it
   /// lands, so the Help tab's live step-by-step feed streams the Dart layer
-  /// too (▶ Checking #65 … → ✓ #65 PASS) — the feed covers all 72 probes, not
-  /// just the native 64.
+  /// too (▶ Checking #74 … → ✓ #74 PASS) — the feed covers all 87 probes,
+  /// not just the native 73.
   static Future<List<DeepOutcome>> run(
     AppStateNotifier scope, {
     void Function(int id, String name)? onStart,
@@ -313,11 +319,16 @@ class DartLayerAuditor {
     );
   }
 
-  /// H4 (68) — THE EXHAUSTIVE SETTINGS PERSISTENCE & TYPE-SAFETY AUDIT: a
+  /// H4 (77) — THE EXHAUSTIVE SETTINGS PERSISTENCE & TYPE-SAFETY AUDIT: a
   /// bool, an int, a string AND a hex through the LIVE channel, plus the
   /// canonical putLong lane (the v3.4.6.g Integer→Long crash's Dart half —
   /// the Sync-step control wrote putInt('subSyncStepMs') and poisoned every
   /// Java getLong; the live mirror must read the long back EXACTLY).
+  /// v3.4.6.i — the string leg now reads BOTH ways: the RAW getString lane
+  /// (independent of the mirror's key coverage) AND through the live getAll
+  /// mirror — the v3.4.6.h whitelist dropped `deepProbe.dart.str`, so the
+  /// mirror read-back answered '' and probe 68 printed `string ✗`; with
+  /// gatherSettings now starting from the FULL prefs map, BOTH lanes agree.
   static Future<DeepOutcome> _auditSettings(AppStateNotifier scope) async {
     const key = 'deepProbe.dart.roundTrip';
     await AnantPlay.instance.putBool(key, true);
@@ -333,9 +344,10 @@ class DartLayerAuditor {
     final longAfter = scope.settings.i(SettingsMirror.kSyncStepMs, 250);
     await scope.putLong(SettingsMirror.kSyncStepMs, longBefore);
 
-    // a string + a hex through the same live channel
+    // a string + a hex through the same live channel — read RAW and MIRROR.
     const strKey = 'deepProbe.dart.str';
     await AnantPlay.instance.putString(strKey, 'probe-value');
+    final rawBack = await AnantPlay.instance.getString(strKey, def: '');
     final mirror = await AnantPlay.instance.loadSettings();
     final strBack = mirror.s(strKey, '');
     await AnantPlay.instance.putString(strKey, '');
@@ -345,7 +357,7 @@ class DartLayerAuditor {
 
     final boolOk = readTrue == true && readFalse == false;
     final longOk = longAfter == 500;
-    final strOk = strBack == 'probe-value';
+    final strOk = rawBack == 'probe-value' && strBack == 'probe-value';
     return DeepOutcome(
       id: 0,
       domain: 'H',
@@ -353,13 +365,13 @@ class DartLayerAuditor {
       pass: boolOk && longOk && strOk && hexOk,
       ms: 0,
       detail: 'bool ${boolOk ? '✓' : '✗'} · long (putLong 500 → read '
-          '$longAfter) ${longOk ? '✓' : '✗'} · string ${strOk ? '✓' : '✗'} · '
-          'hex shape ${hexOk ? '✓' : '✗'} — the Integer→Long crash lane is '
-          'type-safe end to end',
+          '$longAfter) ${longOk ? '✓' : '✗'} · string raw+mirror '
+          '${strOk ? '✓' : '✗'} · hex shape ${hexOk ? '✓' : '✗'} — the '
+          'Integer→Long crash lane is type-safe end to end',
     );
   }
 
-  /// H5 (69) — THE AUTO-UPDATER LAW FULL STATE MACHINE: the isNewer truth
+  /// H5 (78) — THE AUTO-UPDATER LAW FULL STATE MACHINE: the isNewer truth
   /// table (equal → false, older → false, newer → true, the a–z letter lane,
   /// the cross-segment ordering), the app's OWN identity never gating on
   /// itself, and the shipped version actually resolving through appInfo.
@@ -409,7 +421,7 @@ class DartLayerAuditor {
     return (hi + 0.05) / (lo + 0.05);
   }
 
-  /// H6 (70) — THE LIGHT MODE VISUAL INTEGRITY AUDIT (LIVE): builds the REAL
+  /// H6 (79) — THE LIGHT MODE VISUAL INTEGRITY AUDIT (LIVE): builds the REAL
   /// ThemeData the app would paint with — in the HOSTILE configuration that
   /// produced the v3.4.6.g "Light Mode is completely black" bug (amoled=true
   /// AND the midnight dimmer ON) — and HARD-ASSERTS the light contract:
@@ -452,7 +464,7 @@ class DartLayerAuditor {
     );
   }
 
-  /// H7 (71) — THE AMOLED & DARK MODE VISUAL INTEGRITY AUDIT: the dark lane
+  /// H7 (80) — THE AMOLED & DARK MODE VISUAL INTEGRITY AUDIT: the dark lane
   /// with amoled=true paints #000000 and STILL clears 4.5:1 text contrast.
   static Future<DeepOutcome> _auditDarkMode() async {
     final amoledOn = SettingsMirror.fromJavaMap(<String, Object?>{
@@ -479,7 +491,7 @@ class DartLayerAuditor {
     );
   }
 
-  /// H8 (72) — THE MATERIAL YOU ↔ MANUAL ACCENT INTERLOCK AUDIT (LIVE):
+  /// H8 (81) — THE MATERIAL YOU ↔ MANUAL ACCENT INTERLOCK AUDIT (LIVE):
   /// with dynamicColor ON, the SAME shared path the accent row drives
   /// (applyManualAccent) must flip dynamicColor OFF and move the accent —
   /// the v3.4.6.g settings silently fought each other instead. The user's
@@ -514,7 +526,7 @@ class DartLayerAuditor {
     );
   }
 
-  /// H9 (73) — THE SUBTITLE FONT LIVE RENDERING AUDIT: all FOUR shipped
+  /// H9 (82) — THE SUBTITLE FONT LIVE RENDERING AUDIT: all FOUR shipped
   /// families resolve to DISTINCT TextStyles through the SHARED resolver
   /// (both the Settings preview and the PlayerScreen overlay paint with it),
   /// and the Sinhala ZWJ conjunct ශ්‍රී passes through verbatim.
@@ -557,7 +569,7 @@ class DartLayerAuditor {
     );
   }
 
-  /// H11 (75) — THE SEMANTIC ICON REGISTRY AUDIT (PERMANENT LAW #3): the
+  /// H11 (84) — THE SEMANTIC ICON REGISTRY AUDIT (PERMANENT LAW #3): the
   /// four Home quick-action glyphs are the semantically-correct icons (Test
   /// Player = the cinema play glyph), and NO forbidden glyph (the chemistry
   /// flask family the v3.4.6.g Test Player tile carried) appears in the
@@ -615,7 +627,7 @@ class DartLayerAuditor {
     );
   }
 
-  /// H14 (78) — THE ZERO-UNCAUGHT-FLUTTER-ERROR SESSION CHECK: a healthy
+  /// H14 (87) — THE ZERO-UNCAUGHT-FLUTTER-ERROR SESSION CHECK: a healthy
   /// live session recorded ZERO uncaught Dart errors (the crash hooks count
   /// every FlutterError / PlatformDispatcher error). Any count > 0 is a FAIL
   /// naming the exact first line of the last error.
@@ -714,7 +726,7 @@ class DartLayerAuditor {
 ///   == EVERY FAIL ✗ (the whole truth, first — nothing hidden) ==
 ///   == Status Summary ==          (from the native report body)
 ///   == Domain A..G ==             (the native probe ledger)
-///   == Domain H — Live Flutter UI ==  (the Dart layer, ids 65–78)
+///   == Domain H — Live Flutter UI ==  (the Dart layer, ids 74–87)
 ///   == Last Crash ==              (from the native report body)
 ///   == Timeline ==                (from the native report body)
 ///

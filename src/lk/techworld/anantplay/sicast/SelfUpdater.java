@@ -707,10 +707,13 @@ public final class SelfUpdater {
             c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE).edit()
                 .putBoolean(PENDING_AWAITING_PERMISSION, true).apply();
             try {
-                Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:" + c.getPackageName()));
-                if (!(c instanceof Activity)) settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                c.startActivity(settings);
+                // v3.4.6.i — the FORCE-UPDATE GATE'S STEP-1 ALSO CARRIES THE
+                // XRECORDER-STYLE GUIDE CARD: the unknown-sources settings page
+                // opens with the translucent animated 'Allow from this source'
+                // toggle mockup floating on top (video_1). The stacked launch
+                // degrades to the plain page on any OEM refusal — the watcher
+                // (below) is armed either way.
+                PermissionGuideActivity.openUnknownSourcesWithGuide(c);
                 // v3.4.6.f — LAW #3 Step 1: the bounded 30 s watcher that resumes
                 // the install THE INSTANT the grant lands (see watchInstallPermission).
                 watchInstallPermission(c);
@@ -804,9 +807,20 @@ public final class SelfUpdater {
                 throw new SecurityException("pending APK SHA-256 no longer matches");
             }
             install(c, apk);
-            apk.delete();
-            clearPendingMetadata(c);
-            sweepUpdates(c);
+            // v3.4.6.i — THE ZERO-DOUBLE-DOWNLOAD LAW: the verified APK and its
+            // pending metadata SURVIVE the PackageInstaller handoff. The
+            // v3.4.6.h build deleted the file + metadata the moment the session
+            // was committed — so when the user dismissed the Android confirm
+            // sheet and tapped Update Now again, hasPendingUpdate() was false,
+            // the cache-reuse branch in downloadVerifyInstall could never hit,
+            // and the ENTIRE APK re-downloaded from 0% (the 42.8 MB × 2 caught
+            // on video_5). Now: dismiss the sheet → the next Update Now re-opens
+            // the installer from the SAME cached verified APK in < 50 ms.
+            // The cache is swept only AFTER the install actually SUCCEEDS —
+            // the NEW version's App.onCreate runs sweepStalePending(), sees
+            // the pending version is no longer newer than the installed one,
+            // clears the metadata and deletes the file ( LAW #1's self-lock
+            // kill, unchanged).
             fire("v" + version + Chrome.pick(" සූදානම් — 1-tap ස්ථාපනය · ready to install (1 tap)"));
         } catch (Throwable t) {
             Diag.w("selfupd", "pending install verification/handoff: " + t);
@@ -1196,7 +1210,17 @@ public final class SelfUpdater {
                         }
                     }
                 } else if (status == PackageInstaller.STATUS_SUCCESS) {
-                    Diag.i("selfupd", "installed ✓");
+                    Diag.i("selfupd", "installed ✓ — sweeping the verified pending cache");
+                    // v3.4.6.i — the install SUCCEEDED: the verified APK cache
+                    // and its metadata are swept NOW (the belt-and-braces path;
+                    // the NEW process's App.onCreate → sweepStalePending() does
+                    // the identical sweep when the old process was already gone).
+                    try {
+                        clearPendingMetadata(c);
+                        SelfUpdateCore.deleteAll(updatesDir(c));
+                    } catch (Throwable sweep) {
+                        Diag.w("selfupd", "post-success sweep: " + sweep);
+                    }
                     App.notifyUpdateDone(c);
                 } else {
                     Diag.w("selfupd", "install status " + status + ": "

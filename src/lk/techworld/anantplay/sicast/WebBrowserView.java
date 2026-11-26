@@ -177,6 +177,69 @@ public class WebBrowserView extends FrameLayout {
 
     private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
+    // ── v3.4.6.i — THE THEME-AWARE BROWSER BACKGROUND (the blank/dark-panel
+    //    half of the video_4 01:31 fix) ─────────────────────────────────────────
+
+    /**
+     * True when the browser should paint LIGHT (#FFFFFF) rather than the dark
+     * navy (#0F172A): an explicit Light themeMode wins, an explicit Dark/AMOLED
+     * loses, and `system` resolves against the live configuration's night
+     * mode (never a cached guess). The v3.4.6.h build painted the container
+     * and the WebView itself dark-navy in BOTH modes — a light-mode user opened
+     * a pitch-dark blank panel before the first page painted.
+     */
+    private boolean lightTheme() {
+        String mode = AppPrefs.themeMode(prefs);
+        if (AppPrefs.THEME_LIGHT.equals(mode)) return true;
+        if (AppPrefs.THEME_DARK.equals(mode) || AppPrefs.THEME_AMOLED.equals(mode)) return false;
+        try {
+            int night = act.getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+            return night != android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** #FFFFFF in Light Mode, #0F172A in Dark/AMOLED — the container AND WebView. */
+    private int themedBackground() { return lightTheme() ? 0xFFFFFFFF : 0xFF0F172A; }
+
+    /**
+     * v3.4.6.i — THE BOOTSTRAP CONTRACT (probe-audited): the URL a headless
+     * view boots to. `last` when there is one, otherwise HOME_URL — a first
+     * EVER Browser tab open can never sit as a blank panel.
+     */
+    static String bootstrapUrl(String last) {
+        return last != null && !last.isEmpty() ? last : HOME_URL;
+    }
+
+    /**
+     * v3.4.6.i — re-apply the themed background + the user-agent + the page
+     * color-scheme hint (called from the Browser tab on build/theme changes;
+     * idempotent). The Flutter side triggers it through the
+     * `anantplay/browser` `applyTheme` handler.
+     */
+    public void applyTheme() {
+        try {
+            int bg = themedBackground();
+            setBackgroundColor(bg);
+            column.setBackgroundColor(bg);
+            if (web != null) {
+                web.setBackgroundColor(bg);
+                web.getSettings().setUserAgentString(effectiveUa());
+                if (!lightTheme()) {
+                    web.evaluateJavascript(
+                        "try{document.documentElement.style.colorScheme='dark'}catch(e){}", null);
+                } else {
+                    web.evaluateJavascript(
+                        "try{document.documentElement.style.colorScheme='light'}catch(e){}", null);
+                }
+            }
+        } catch (Throwable t) {
+            Diag.w("web", "applyTheme: " + t);
+        }
+    }
+
     /**
      * v3.4.6.d — the SHARED web host builder: the FrameLayout that stacks the
      * progress bar, the (non-headless) speed-dial start page and the hardened
@@ -195,7 +258,7 @@ public class WebBrowserView extends FrameLayout {
     private LinearLayout column;
 
     private void buildUi() {
-        setBackgroundColor(0xFF0B1020);
+        setBackgroundColor(themedBackground());
 
         column = new LinearLayout(act);
         column.setOrientation(LinearLayout.VERTICAL);
@@ -322,7 +385,7 @@ public class WebBrowserView extends FrameLayout {
 
         // ── the WebView ──
         web = new WebView(act);
-        web.setBackgroundColor(0xFF0B1020);
+        web.setBackgroundColor(themedBackground());
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -449,9 +512,11 @@ public class WebBrowserView extends FrameLayout {
                     } catch (Throwable ignored) { }
                 }
                 if (urlBox != null) urlBox.setText(url == null ? "" : url);
-                // clean dark-mode styling: color-scheme dark so sites that honour
-                // it render dark, and our own background shows through the rest
-                v.evaluateJavascript("try{document.documentElement.style.colorScheme='dark'}catch(e){}", null);
+                // v3.4.6.i — the page color-scheme hint now follows the THEME
+                // (the v3.4.6.h line forced 'dark' unconditionally — a
+                // light-mode browser rendered dark pages).
+                v.evaluateJavascript("try{document.documentElement.style.colorScheme='"
+                    + (lightTheme() ? "light" : "dark") + "'}catch(e){}", null);
                 // THE MEDIA HOOK: catch <video>/<source> picks the network layer
                 // can't classify (extensionless sources, JS-built src attributes).
                 v.evaluateJavascript(
@@ -585,12 +650,17 @@ public class WebBrowserView extends FrameLayout {
 
         if (Build.VERSION.SDK_INT >= 19) web.setWebContentsDebuggingEnabled(false);
         String last = prefs.getString("webLastUrl", "");
-        // v3.4.6.d — headless boots STRAIGHT to the page (no Java start page;
-        // the Flutter speed dial is the home surface when no URL is passed).
+        // v3.4.6.i — THE BLANK-BROWSER KILL (video_4 01:31–02:05): HOME_URL is
+        // a REAL bootstrap now. The v3.4.6.d headless lane loaded NOTHING when
+        // there was no webLastUrl and no creationParams URL (HOME_URL was
+        // declared at the top of this file and never referenced) — so the very
+        // first Browser tab open sat as a blank dark-navy panel. The headless
+        // WebView now boots STRAIGHT to https://www.google.com/ — never blank.
         if (headless) {
             // the Flutter side hands the initial URL through creationParams;
-            // restore the last page so tab switches keep the position.
-            if (last != null && !last.isEmpty()) load(last);
+            // restore the last page so tab switches keep the position — and
+            // when neither exists, HOME_URL (the never-blank guarantee).
+            load(bootstrapUrl(last));
         } else if (last != null && !last.isEmpty()) {
             load(last);
         } else {

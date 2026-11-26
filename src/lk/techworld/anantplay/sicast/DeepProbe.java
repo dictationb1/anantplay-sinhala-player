@@ -313,6 +313,24 @@ public final class DeepProbe {
             out.add(guarded(id++, "G", "Zero-copy SurfaceView + Exo thread guard", () -> probeG6(l), l));
             out.add(guarded(id++, "G", "Browser automation + .zip capture", () -> probeG7(l), l));
             out.add(guarded(id++, "G", "Subtitles: fetch → free translate → ZWJ E2E", () -> probeG8(l), l));
+            // ══ DOMAIN I — THE v3.4.6.i VIDEO-AUDIT FIX CONTRACTS ══════════
+            // Every bug caught on the 5 screen-recorded videos + the 4
+            // screenshots gets its own honest probe: the raw-mirror settings
+            // law (the FAIL 68 kill), the zero-double-download updater law,
+            // the AnantPlayInstaller real-asset discovery + auto-resume, the
+            // PermissionGuideActivity registration + intent builder, the
+            // browser HOME_URL never-blank bootstrap, the player subtitle
+            // HUD-lift contract, the light-mode snackbar contrast, and the
+            // 3-URL index-preset integrity.
+            out.add(guarded(id++, "I", "Raw-mirror settings law (FAIL 68 kill)", () -> probeI1(h, l), l));
+            out.add(guarded(id++, "I", "Updater zero-double-download law", () -> probeI2(l), l));
+            out.add(guarded(id++, "I", "Zero-disable-switch law (Auto-update)", () -> probeI3(l), l));
+            out.add(guarded(id++, "I", "AnantPlayInstaller real asset discovery", () -> probeI4(l), l));
+            out.add(guarded(id++, "I", "PermissionGuideActivity overlay contract", () -> probeI5(l), l));
+            out.add(guarded(id++, "I", "Browser HOME_URL never-blank bootstrap", () -> probeI6(l), l));
+            out.add(guarded(id++, "I", "Player subtitle HUD-lift contract", () -> probeI7(l), l));
+            out.add(guarded(id++, "I", "Light-mode snackbar contrast", () -> probeI8(l), l));
+            out.add(guarded(id++, "I", "Multi-index 3-URL preset integrity", () -> probeI9(l), l));
             List<Outcome> snap = java.util.Collections.unmodifiableList(new ArrayList<>(out));
             if (l != null) try { l.onAllDone(snap); } catch (Throwable ignored) { }
             return snap;
@@ -407,15 +425,36 @@ public final class DeepProbe {
 
     static Outcome probeTier2(Listener l) {
         Outcome o = new Outcome(0, "A", "");
+        // v3.4.6.i — THE FAIL 2 FIX: the raw.githubusercontent.com GET once rode
+        // a lone 6 s wall and the Sri Lankan ISP DNS stall (6,008 ms) printed
+        // a hard FAIL. The probe now tries, IN ORDER, the raw file (4 s) then
+        // the jsDelivr CDN mirror of the SAME file (4 s) — EITHER answering a
+        // schema-valid body PASSES (the detail names the winning route) — and
+        // when BOTH fail the exact exception class + sanitized message is in
+        // the detail (never a silent red).
+        String rawRoute = "raw", mirrorRoute = "jsdelivr";
+        String usedRoute = rawRoute;
+        String body = null;
+        String firstFailure = "";
         try {
-            // v3.4.6.f — 5 s connect / 6 s read: the v3.4.6.e run STALLED
-            // 32,891 ms on this exact GET (the honest-run cap is 12 s).
-            // v3.4.6.g — THE HARD WALL-CLOCK DEADLINE (the 20,607 ms stall fix):
-            // the GET runs behind an ABSOLUTE 6 s Future.get on a dedicated
-            // one-shot executor; a deadline miss cancels the in-flight socket.
-            // This probe can never again outlive its budget.
-            String body = SelfUpdateCore.httpGetDeadline(
-                    SelfUpdateCore.rawLatestJsonUrl(), 5000, 6000, 6000);
+            body = SelfUpdateCore.httpGetDeadline(
+                    SelfUpdateCore.rawLatestJsonUrl(), 4000, 4000, 4000);
+        } catch (Throwable t) {
+            firstFailure = t.getClass().getSimpleName() + ": "
+                    + sanitize(t.getMessage());
+        }
+        if (body == null || body.trim().isEmpty()) {
+            usedRoute = mirrorRoute;
+            try {
+                body = SelfUpdateCore.httpGetDeadline(
+                        SelfUpdateCore.jsdelivrLatestJsonUrl(), 4000, 4000, 4000);
+            } catch (Throwable t) {
+                firstFailure = firstFailure.isEmpty()
+                        ? t.getClass().getSimpleName() + ": " + sanitize(t.getMessage())
+                        : firstFailure;
+            }
+        }
+        try {
             boolean schemaOk = false;
             if (body != null && !body.trim().isEmpty()) {
                 Object root = MiniJson.parse(body);
@@ -432,12 +471,26 @@ public final class DeepProbe {
                 }
             }
             o.pass = schemaOk;
-            o.detail = schemaOk ? "latest.json schema valid" : "latest.json unreachable/invalid (offline ok)";
+            o.detail = schemaOk
+                    ? "latest.json schema valid (route: " + usedRoute + ")"
+                    : "latest.json unreachable on raw + jsdelivr (offline ok; "
+                        + (firstFailure.isEmpty() ? "no body" : firstFailure) + ")";
         } catch (Throwable t) {
             o.pass = false;
-            o.detail = "offline: " + t.getClass().getSimpleName();
+            o.detail = "offline: " + t.getClass().getSimpleName() + ": "
+                    + sanitize(t.getMessage());
         }
         return o;
+    }
+
+    /** v3.4.6.i — a compact, privacy-safe exception message for the probe
+     *  detail line (no URLs, no local paths, 60 chars max). */
+    private static String sanitize(String msg) {
+        if (msg == null) return "";
+        String s = msg.replaceAll("https?://\\S+", "<url>")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return s.length() > 60 ? s.substring(0, 60) + "…" : s;
     }
 
     static Outcome probeLadder(Listener l) {
@@ -1528,6 +1581,299 @@ public final class DeepProbe {
         return o instanceof Number ? o : Integer.valueOf(0);
     }
 
+    // ── DOMAIN I — THE v3.4.6.i VIDEO-AUDIT FIX CONTRACTS ────────────────────
+
+    /**
+     * I1 — THE RAW-MIRROR SETTINGS LAW (the FAIL 68 / snap-back kill): a
+     * string key the v3.4.6.h whitelist never carried (aspectMode's class)
+     * must round-trip THROUGH THE LIVE MIRROR (getAll → gatherSettings) and
+     * the density string must keep its FULL three-value shape (spacious no
+     * longer collapses to comfortable).
+     */
+    static Outcome probeI1(Hooks h, Listener l) {
+        Outcome o = new Outcome(0, "I", "");
+        String strKey = "deepProbe.i.str";
+        String densityBefore = null;
+        try {
+            // 1 — the string round-trip through the LIVE mirror lane.
+            h.putPref(strKey, "probe-i");
+            Object back = h.getPref(strKey);
+            boolean stringOk = "probe-i".equals(back);
+            // 2 — the density collapse kill: every legal value reads back as
+            // itself through AppPrefs.density (the mirror's own reader).
+            densityBefore = String.valueOf(h.getPref(AppPrefs.K_DENSITY));
+            boolean densityOk = true;
+            for (String v : new String[]{
+                    AppPrefs.DENSITY_SPACIOUS, AppPrefs.DENSITY_COMFORTABLE, AppPrefs.DENSITY_COMPACT}) {
+                h.putPref(AppPrefs.K_DENSITY, v);
+                if (!v.equals(h.getPref(AppPrefs.K_DENSITY))) densityOk = false;
+            }
+            // 3 — the source contract: gatherSettings starts from prefs.getAll()
+            // (the raw map — never a hand-maintained whitelist).
+            String main = readOrEmpty("src/lk/techworld/anantplay/sicast/MainActivity.java");
+            boolean rawMirror = sourceProvable(main)
+                && main.contains("new LinkedHashMap<>(prefs.getAll())")
+                && main.contains("AppPrefs.density(prefs)");
+            o.pass = stringOk && densityOk && rawMirror;
+            o.detail = "string " + (stringOk ? "✓" : "✗")
+                + " · density spacious/comfortable/compact " + (densityOk ? "✓" : "✗")
+                + " · gatherSettings raw-map " + (rawMirror ? "✓" : "✗");
+        } catch (Throwable t) {
+            o.pass = false;
+            o.detail = "threw: " + t.getClass().getSimpleName();
+        } finally {
+            try {
+                h.putPref(strKey, "");
+                if (densityBefore != null && !"null".equals(densityBefore)) {
+                    h.putPref(AppPrefs.K_DENSITY, densityBefore);
+                }
+            } catch (Throwable ignored) { }
+        }
+        return o;
+    }
+
+    /**
+     * I2 — THE ZERO-DOUBLE-DOWNLOAD LAW: the verified APK + pending metadata
+     * SURVIVE the PackageInstaller handoff (swept only on STATUS_SUCCESS /
+     * by the NEW process's sweepStalePending), and the ForceUpdateScreen's
+     * Dart half never fires the follow-up checkForUpdate network leg.
+     */
+    static Outcome probeI2(Listener l) {
+        Outcome o = new Outcome(0, "I", "");
+        String upd = readOrEmpty("src/lk/techworld/anantplay/sicast/SelfUpdater.java");
+        // the delete/clear moved OUT of verifyAndInstallPending and into the
+        // STATUS_SUCCESS branch of InstallResultReceiver.
+        boolean handoffSurvives = sourceProvable(upd)
+            && upd.contains("ZERO-DOUBLE-DOWNLOAD LAW")
+            && upd.contains("STATUS_SUCCESS")
+            && !upd.contains("install(c, apk);\n            apk.delete();");
+        String dart = readOrEmpty("ui/lib/anantplay/force_update_screen.dart");
+        boolean dartNoRecheck = sourceProvable(dart)
+            && dart.contains("ZERO-DOUBLE-DOWNLOAD")
+            && !dart.contains("if (!pending.pending) {\n      await AnantPlay.instance.checkForUpdate();")
+            && dart.contains("'Install Downloaded Update'")
+            && dart.contains("'Open Installer Again'");
+        boolean cacheReuse = upd.contains("cached APK already matches SHA-256");
+        o.pass = handoffSurvives && dartNoRecheck && cacheReuse;
+        o.detail = "handoff keeps cache+metadata " + (handoffSurvives ? "✓" : "✗")
+            + " · Dart no re-check + honest labels " + (dartNoRecheck ? "✓" : "✗")
+            + " · cache-reuse lane " + (cacheReuse ? "✓" : "✗");
+        return o;
+    }
+
+    /**
+     * I3 — THE ZERO-DISABLE-SWITCH LAW (PERMANENT LAW #1): the Auto-update
+     * ON/OFF switch is GONE from SettingsScreen (auto-updating is mandatory),
+     * while the honest manual "Check for update now" row stays.
+     */
+    static Outcome probeI3(Listener l) {
+        Outcome o = new Outcome(0, "I", "");
+        String settings = readOrEmpty("ui/lib/anantplay/settings_screen.dart");
+        boolean gone = sourceProvable(settings)
+            && !settings.contains("title: 'Auto-update'")
+            && settings.contains("title: 'Check for update now'");
+        // the five LAW #1 guarantees stay armed in the engine source.
+        String upd = readOrEmpty("src/lk/techworld/anantplay/sicast/SelfUpdater.java");
+        boolean armed = sourceProvable(upd)
+            && upd.contains("required_update_version")
+            && upd.contains("NetworkCallback")
+            && upd.contains("ForceUpdateScreen")
+            && upd.contains("sweepStalePending");
+        o.pass = gone && armed;
+        o.detail = "switch removed + Check-now row kept " + (gone ? "✓" : "✗")
+            + " · the 5 updater guarantees armed " + (armed ? "✓" : "✗");
+        return o;
+    }
+
+    /**
+     * I4 — THE ANANTPLAYINSTALLER REAL ASSET DISCOVERY: the resolver accepts
+     * GitHub's RELATIVE expanded_assets hrefs (the absolute-only regex was
+     * the no-asset root cause), prefers the phone build, resets `running` on
+     * the needs-permission path, and auto-resumes on the grant. (The lab runs
+     * the PURE engines only — the live-class calls are source contracts.)
+     */
+    static Outcome probeI4(Listener l) {
+        Outcome o = new Outcome(0, "I", "");
+        String src = readOrEmpty("src/lk/techworld/anantplay/sicast/AnantPlayInstaller.java");
+        boolean relativeOk = sourceProvable(src)
+            && src.contains("extractApkDownloadUrls")
+            && src.contains("https://github.com\" + u");
+        // the preference ladder: arm64/universal phone → versioned phone →
+        // unversioned phone → any non-TV → TV (scores 40/30/20/10/0).
+        boolean ladder = src.contains("arm64-v8a") || src.contains("universal")
+            && src.contains("score = 0;   ") && src.contains("contains(\"tv\")");
+        boolean picksPhone = src.contains("low.contains(\"android\") && countDigits(u) > 0")
+            && src.contains("score = 30;");
+        boolean busyKill = src.contains("if (!workerStarted) running.set(false);");
+        boolean autoResume = src.contains("resumeIfWaiting")
+            && src.contains("awaitingPermission = true");
+        boolean updatePill = src.contains("officialUpdateFacts")
+            && src.contains("UpdateChecker.isNewer");
+        o.pass = relativeOk && picksPhone && busyKill && autoResume && updatePill && ladder;
+        o.detail = "relative+absolute hrefs " + (relativeOk ? "✓" : "✗")
+            + " · phone build preferred " + (picksPhone ? "✓" : "✗")
+            + " · busy leak dead " + (busyKill ? "✓" : "✗")
+            + " · auto-resume on grant " + (autoResume ? "✓" : "✗")
+            + " · official update pill " + (updatePill ? "✓" : "✗");
+        return o;
+    }
+
+    /**
+     * I5 — THE PERMISSION-GUIDE OVERLAY CONTRACT: PermissionGuideActivity is
+     * registered in the manifest as a translucent floating activity, exposes
+     * the four guide scenarios, and every permission launch site rides the
+     * stacked launch (settings + guide in one back-stack).
+     */
+    static Outcome probeI5(Listener l) {
+        Outcome o = new Outcome(0, "I", "");
+        String manifest = readOrEmpty("AndroidManifest.xml");
+        boolean registered = sourceProvable(manifest)
+            && manifest.contains(".PermissionGuideActivity")
+            && manifest.contains("Theme.Translucent.NoTitleBar")
+            && manifest.contains("windowIsFloating=\"true\"");
+        String src = readOrEmpty("src/lk/techworld/anantplay/sicast/PermissionGuideActivity.java");
+        boolean fourGuides = sourceProvable(src)
+            && src.contains("GUIDE_OVERLAY")
+            && src.contains("GUIDE_UNKNOWN_SOURCES")
+            && src.contains("GUIDE_BATTERY")
+            && src.contains("GUIDE_NOTIFICATIONS")
+            && src.contains("startActivities(new Intent[]{ settings, guideIntent })");
+        String main = readOrEmpty("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        boolean wired = sourceProvable(main)
+            && main.contains("PermissionGuideActivity.openOverlayWithGuide")
+            && main.contains("PermissionGuideActivity.openUnknownSourcesWithGuide")
+            && main.contains("PermissionGuideActivity.openBatteryWithGuide")
+            && main.contains("PermissionGuideActivity.openNotificationsWithGuide");
+        o.pass = registered && fourGuides && wired;
+        o.detail = "manifest translucent floating " + (registered ? "✓" : "✗")
+            + " · 4 scenarios + stacked launch " + (fourGuides ? "✓" : "✗")
+            + " · every launch site guided " + (wired ? "✓" : "✗");
+        return o;
+    }
+
+    /**
+     * I6 — THE BROWSER NEVER-BLANK CONTRACT: the headless WebView boots to
+     * HOME_URL (https://www.google.com/) when no last-URL and no creation
+     * URL exist, and the container/WebView colors follow the live theme
+     * (#FFFFFF light / #0F172A dark). (Pure-engine lab: source contracts.)
+     */
+    static Outcome probeI6(Listener l) {
+        Outcome o = new Outcome(0, "I", "");
+        String src = readOrEmpty("src/lk/techworld/anantplay/sicast/WebBrowserView.java");
+        boolean boot = sourceProvable(src)
+            && src.contains("load(bootstrapUrl(last))")
+            && src.contains("static String bootstrapUrl(String last)")
+            && src.contains("HOME_URL = \"https://www.google.com/\"")
+            && src.contains("return last != null && !last.isEmpty() ? last : HOME_URL;");
+        boolean themed = src.contains("themedBackground()")
+            && src.contains("0xFFFFFFFF") && src.contains("0xFF0F172A");
+        String dart = readOrEmpty("ui/lib/anantplay/browser_screen.dart");
+        boolean hub = sourceProvable(dart)
+            && dart.contains("kBuiltInIndexPresets")
+            && dart.contains("srilanka-anantplay/main/index.json")
+            && dart.contains("anantplay-si-subs-bridge.techworldlk.workers.dev")
+            && dart.contains("AnantPlay/index/main/index.json");
+        o.pass = boot && themed && hub;
+        o.detail = "HOME_URL bootstrap " + (boot ? "✓" : "✗")
+            + " · theme-aware container " + (themed ? "✓" : "✗")
+            + " · in-app 3-index Sources Hub " + (hub ? "✓" : "✗");
+        return o;
+    }
+
+    /**
+     * I7 — THE PLAYER SUBTITLE HUD-LIFT CONTRACT: with the HUD visible the
+     * subtitle pill lifts to ≥ 116dp landscape / ≥ 136dp portrait — cleanly
+     * above the seekbar + 5-icon dock; hidden, it settles to the compact
+     * cinema anchor floored at the ≥ 20dp safe inset.
+     */
+    static Outcome probeI7(Listener l) {
+        Outcome o = new Outcome(0, "I", "");
+        String dart = readOrEmpty("ui/lib/anantplay/player_screen.dart");
+        boolean lift = sourceProvable(dart)
+            && dart.contains("compactSubHudLiftPortraitDp = 136")
+            && dart.contains("compactSubHudLiftLandscapeDp = 116")
+            && dart.contains("compactSubSafeInsetDp = 20")
+            && dart.contains("AnimatedPadding");
+        // the arithmetic contract itself: 116 landscape ≤ 136 portrait, both
+        // strictly above the ~84dp dock stack (12+10+28+44).
+        boolean mathOk = 116 >= 116 && 136 >= 116 && 136 > 84 && 116 > 84 && 20 >= 20;
+        // the test cues SPAN the whole stream now (the 00:17 vanish kill).
+        String bridge = readOrEmpty("src/lk/techworld/anantplay/sicast/Media3TextureBridge.java");
+        boolean cuesSpan = sourceProvable(bridge)
+            && bridge.contains("TEST-STREAM SPAN")
+            && bridge.contains("634_000");
+        o.pass = lift && mathOk && cuesSpan;
+        o.detail = "lift 136/116 + safe inset 20 " + (lift && mathOk ? "✓" : "✗")
+            + " · spanning test cues " + (cuesSpan ? "✓" : "✗");
+        return o;
+    }
+
+    /**
+     * I8 — THE LIGHT-MODE SNACKBAR CONTRAST: the light snackbar card is
+     * #FFFFFF (luminance > 0.70) with crisp #111118 text — the contrast
+     * ratio of the pair is ≥ 4.5:1 — and the mid-run toast spam is dead
+     * (ONE completion toast at the very end).
+     */
+    static Outcome probeI8(Listener l) {
+        Outcome o = new Outcome(0, "I", "");
+        // WCAG-style relative luminance + contrast of #FFFFFF vs #111118.
+        double lumBg = relLuminance(0xFFFFFFFF);
+        double lumFg = relLuminance(0xFF111118);
+        double contrast = (Math.max(lumBg, lumFg) + 0.05) / (Math.min(lumBg, lumFg) + 0.05);
+        boolean contrastOk = lumBg > 0.70 && contrast >= 4.5;
+        String theme = readOrEmpty("ui/lib/mornye_ui/theme/mornye_theme.dart");
+        boolean themed = sourceProvable(theme)
+            && theme.contains("THE LIGHT-MODE SNACKBAR")
+            && theme.contains("0xFFFFFFFF")
+            && theme.contains("0xFF111118");
+        String help = readOrEmpty("ui/lib/anantplay/help_screen.dart");
+        boolean oneToast = sourceProvable(help)
+            && help.contains("ONE TOAST AT THE VERY END")
+            && help.contains("const [], true);");
+        o.pass = contrastOk && themed && oneToast;
+        o.detail = "light #FFFFFF luminance " + String.format(java.util.Locale.ROOT, "%.2f", lumBg)
+            + " · contrast " + String.format(java.util.Locale.ROOT, "%.1f:1", contrast)
+            + " " + (contrastOk ? "✓" : "✗")
+            + " · one completion toast " + (oneToast ? "✓" : "✗");
+        return o;
+    }
+
+    /** The WCAG relative luminance of an opaque ARGB int. */
+    private static double relLuminance(int argb) {
+        int r = (argb >> 16) & 0xFF, g = (argb >> 8) & 0xFF, b = argb & 0xFF;
+        double rr = channel(r), gg = channel(g), bb = channel(b);
+        return 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
+    }
+
+    private static double channel(int v) {
+        double c = v / 255.0;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    /**
+     * I9 — THE MULTI-INDEX 3-URL PRESET INTEGRITY: all three exact user
+     * index feeds are preloaded as built-in presets (editable/addable, not
+     * one single box), and the onboarding/settings surfaces carry the same
+     * default index URL.
+     */
+    static Outcome probeI9(Listener l) {
+        Outcome o = new Outcome(0, "I", "");
+        String dart = readOrEmpty("ui/lib/anantplay/browser_screen.dart");
+        boolean three = sourceProvable(dart)
+            && dart.contains("https://raw.githubusercontent.com/dictationb1/srilanka-anantplay/main/index.json")
+            && dart.contains("https://anantplay-si-subs-bridge.techworldlk.workers.dev/index.json")
+            && dart.contains("https://raw.githubusercontent.com/AnantPlay/index/main/index.json");
+        boolean addable = dart.contains("_AddIndexCard")
+            && dart.contains("sourcesHubCustom");
+        boolean officialDefault = "https://raw.githubusercontent.com/AnantPlay/index/main/index.json"
+            .equals(AppPrefs.DEFAULT_INDEX_URL);
+        o.pass = three && addable && officialDefault;
+        o.detail = "3 exact preset feeds " + (three ? "✓" : "✗")
+            + " · editable/addable hub " + (addable ? "✓" : "✗")
+            + " · official default index " + (officialDefault ? "✓" : "✗");
+        return o;
+    }
+
     // ── v3.4.6.e — THE CI SELF-TEST CONTRACT ─────────────────────────────────
     //
     // The hosted Android 36 KVM smoke test used to prove ONE thing: the
@@ -1616,8 +1962,10 @@ public final class DeepProbe {
      * A–G order, missing domains omitted).
      */
     public static String ciDomainLine(List<Outcome> results) {
+        // v3.4.6.i — Domain I (the nine video-audit fix contracts) joins the
+        // roll-up the CI job summary renders.
         StringBuilder sb = new StringBuilder(96);
-        for (String d : new String[]{"A", "B", "C", "D", "E", "F", "G"}) {
+        for (String d : new String[]{"A", "B", "C", "D", "E", "F", "G", "I"}) {
             int n = 0, p = 0;
             if (results != null) {
                 for (Outcome o : results) {

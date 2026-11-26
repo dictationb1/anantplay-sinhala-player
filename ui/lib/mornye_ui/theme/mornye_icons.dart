@@ -230,6 +230,42 @@ IconData _cupertinoFor(IconData icon) {
     Icons.swap_vert => CupertinoIcons.arrow_up_arrow_down,
     Icons.file_open_outlined => CupertinoIcons.doc,
     Icons.directions_car => CupertinoIcons.car_detailed,
+    // v3.4.6.i — PERMANENT LAW #3 additions (the Troubleshoot/Help/Settings
+    // surfaces): every glyph those screens render now has a crisp Mornye/
+    // Cupertino counterpart — zero mismatched boxy Material icons anywhere.
+    Icons.health_and_safety ||
+    Icons.health_and_safety_rounded ||
+    Icons.health_and_safety_outlined ||
+    Icons.shield ||
+    Icons.shield_outlined ||
+    Icons.shield_rounded => CupertinoIcons.shield_fill,
+    Icons.restart_alt ||
+    Icons.restart_alt_rounded ||
+    Icons.restart_alt_outlined ||
+    Icons.restart_alt_sharp => CupertinoIcons.arrow_2_circlepath,
+    Icons.movie ||
+    Icons.movie_outlined ||
+    Icons.movie_rounded ||
+    Icons.video_camera_back_outlined => CupertinoIcons.film,
+    Icons.cast ||
+    Icons.cast_outlined ||
+    Icons.cast_rounded ||
+    Icons.cast_connected ||
+    Icons.cast_connected_outlined => CupertinoIcons.dot_radiowaves_left_right,
+    Icons.backup ||
+    Icons.backup_outlined ||
+    Icons.backup_rounded ||
+    Icons.settings_backup_restore_rounded => CupertinoIcons.cloud_upload,
+    Icons.palette ||
+    Icons.palette_rounded ||
+    Icons.color_lens ||
+    Icons.color_lens_rounded => CupertinoIcons.paintbrush_fill,
+    Icons.tips_and_updates ||
+    Icons.tips_and_updates_rounded ||
+    Icons.tips_and_updates_outlined => CupertinoIcons.lightbulb,
+    Icons.upgrade ||
+    Icons.upgrade_rounded ||
+    Icons.upgrade_outlined => CupertinoIcons.arrow_up_circle,
     // Preserve meaning for symbols without a Cupertino counterpart, such as
     // numbered download limits. An unrelated gear hides the action's purpose.
     _ => icon,

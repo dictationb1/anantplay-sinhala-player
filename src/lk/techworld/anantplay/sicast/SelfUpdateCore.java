@@ -97,11 +97,134 @@ final class SelfUpdateCore {
         return "https://raw.githubusercontent.com/" + REPO + "/main/docs/latest.json";
     }
 
+    /**
+     * v3.4.6.i — THE jsDelivr CDN MIRROR of the same docs/latest.json (tier 3
+     * / the FAIL 2 fix). The v3.4.6.h phone stalled 6,008 ms on
+     * raw.githubusercontent.com (Sri Lankan ISP DNS + IPv6-first multi-address
+     * connect are NOT covered by socket timers), so probe 2 printed a FAIL
+     * and the fast check lane resolved null. The CDN edge serves the identical
+     * bytes from a closer POP — a genuine fallback, not a second API (zero
+     * GitHub-REST calls, still just a static file).
+     */
+    static String jsdelivrLatestJsonUrl() {
+        return "https://cdn.jsdelivr.net/gh/" + REPO + "@main/docs/latest.json";
+    }
+
     private SelfUpdateCore() { }
 
     /** True only for https:// URLs (the updater refuses everything else). */
     static boolean httpsOnly(String url) {
         return url != null && url.toLowerCase(Locale.ROOT).startsWith("https://");
+    }
+
+    /**
+     * v3.4.6.i — THE SSRF GUARD for every caller-supplied remote URL (the
+     * Dart {@code fetchUrl} lane that feeds the Sources Hub, and the installer
+     * fetcher). {@link #httpsOnly(String)} only proves the scheme; a hostile
+     * or simply buggy caller could still aim the request at loopback, a
+     * private/link-local range, a cloud metadata endpoint or a bare host. This
+     * adds the HOST law on top of the scheme law:
+     *
+     *   · https:// only (no file://, content://, http://, ftp://, …);
+     *   · a real, dotted DNS name or a globally-routable literal address;
+     *   · localhost / *.localhost / *.local / *.internal and every
+     *     loopback, private, link-local, CGNAT, unique-local, multicast,
+     *     broadcast and unspecified literal is refused, IPv6 included
+     *     ("[::1]", "[::ffff:127.0.0.1]", "[fd00::1]", "[fe80::1]").
+     *
+     * Deliberately resolves NOTHING (no DNS lookup here): the check is a pure
+     * string/parse predicate, so it is fast, offline, and lab-testable.
+     */
+    static boolean safeRemoteUrl(String url) {
+        if (!httpsOnly(url)) return false;
+        try {
+            URL u = new URL(url);
+            String scheme = u.getProtocol();
+            if (scheme == null || !"https".equals(scheme.toLowerCase(Locale.ROOT))) return false;
+            String host = u.getHost();
+            if (host == null) return false;
+            host = host.trim().toLowerCase(Locale.ROOT);
+            if (host.endsWith(".")) host = host.substring(0, host.length() - 1);
+            if (host.isEmpty()) return false;
+            // ── 1. the banned name suffixes (the classic SSRF pivots) ─────────
+            if (host.equals("localhost") || host.endsWith(".localhost")
+                    || host.endsWith(".local") || host.endsWith(".internal")
+                    || host.endsWith(".home.arpa") || host.equals("metadata.google.internal")) {
+                return false;
+            }
+            // ── 2. a bare single-label host (an intranet name, never a CDN) ──
+            boolean ipv6 = host.startsWith("[") || host.indexOf(':') >= 0;
+            if (!ipv6 && host.indexOf('.') < 0) return false;
+            // ── 3. numeric literals: refuse every non-public address ─────────
+            if (ipv6) return !ipv6Banned(host);
+            if (isIPv4Literal(host)) return !ipv4Banned(host);
+            // a dotted DNS name that is not a literal: accept.
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** True when the host is all-digits-and-dots (an IPv4 literal in any of the
+     *  shapes URL parsing normalises: 127.0.0.1, 0x7f.0.0.1, 2130706433 …). */
+    private static boolean isIPv4Literal(String host) {
+        if (host.indexOf('.') < 0) return host.matches("[0-9]+|0[xX][0-9a-fA-F]+");
+        for (int i = 0; i < host.length(); i++) {
+            char c = host.charAt(i);
+            boolean ok = (c >= '0' && c <= '9') || c == '.' || c == 'x' || c == 'X'
+                    || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            if (!ok) return false;
+        }
+        return host.matches("[0-9a-fA-FxX.]+");
+    }
+
+    /** The banned IPv4 ranges (loopback, private, CGNAT, link-local, metadata,
+     *  multicast, reserved, broadcast). */
+    private static boolean ipv4Banned(String host) {
+        try {
+            String[] parts = host.split("\\.");
+            if (parts.length != 4) return true;          // an odd shape is refused
+            int[] o = new int[4];
+            for (int i = 0; i < 4; i++) o[i] = Integer.parseInt(parts[i]);
+            for (int v : o) if (v < 0 || v > 255) return true;
+            if (o[0] == 0) return true;                              // 0.0.0.0/8
+            if (o[0] == 10) return true;                             // private
+            if (o[0] == 127) return true;                            // loopback
+            if (o[0] == 100 && o[1] >= 64 && o[1] <= 127) return true;  // CGNAT
+            if (o[0] == 169 && o[1] == 254) return true;             // link-local
+            if (o[0] == 172 && o[1] >= 16 && o[1] <= 31) return true;   // private
+            if (o[0] == 192 && o[1] == 168) return true;             // private
+            if (o[0] == 192 && o[1] == 0 && o[2] == 0) return true;  // 192.0.0.0/24
+            if (o[0] >= 224) return true;                            // multicast+reserved
+            return false;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** The banned IPv6 forms (loopback, unspecified, ULA, link-local, v4-mapped
+     *  private, multicast). */
+    private static boolean ipv6Banned(String rawHost) {
+        String h = rawHost;
+        if (h.startsWith("[")) h = h.substring(1, h.endsWith("]") ? h.length() - 1 : h.length());
+        h = h.toLowerCase(Locale.ROOT);
+        int pct = h.indexOf('%');
+        if (pct >= 0) h = h.substring(0, pct);          // strip the zone id
+        if (h.isEmpty()) return true;
+        if (h.equals("::") || h.equals("::1") || h.equals("0:0:0:0:0:0:0:0")
+                || h.equals("0:0:0:0:0:0:0:1")) {
+            return true;
+        }
+        if (h.startsWith("fe80") || h.startsWith("fc") || h.startsWith("fd")) return true;
+        if (h.startsWith("ff")) return true;            // multicast
+        // an IPv4-mapped/compatible form: judge the embedded v4 tail.
+        int lastColon = h.lastIndexOf(':');
+        if (lastColon >= 0) {
+            String tail = h.substring(lastColon + 1);
+            if (isIPv4Literal(tail) && ipv4Banned(tail)) return true;
+        }
+        if (isIPv4Literal(h)) return ipv4Banned(h);
+        return false;
     }
 
     // ── v3.2.0 — THE BACKOFF GATE (pure — the lab proves the whole contract) ──
@@ -153,6 +276,21 @@ final class SelfUpdateCore {
             }
         } catch (Throwable t) {
             Diag.w("selfupd", "fast tier-2: " + t);
+        }
+        // v3.4.6.i — TIER 3, the jsDelivr CDN mirror of the SAME file (the
+        // FAIL 2 fix): raw stalled → the CDN edge answers the identical bytes.
+        try {
+            String body = httpGetDeadline(jsdelivrLatestJsonUrl(),
+                FAST_CONNECT_MS, FAST_READ_MS, FAST_DEADLINE_MS);
+            if (body != null && !body.trim().isEmpty()) {
+                Object root = MiniJson.parse(body);
+                if (root instanceof Map) {
+                    String v = stripV(String.valueOf(((Map<?, ?>) root).get("version")));
+                    if (v.matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?")) return v;
+                }
+            }
+        } catch (Throwable t) {
+            Diag.w("selfupd", "fast tier-3 jsdelivr: " + t);
         }
         return null;
     }
@@ -209,6 +347,16 @@ final class SelfUpdateCore {
             if (usableRelease(r)) return r;
         } catch (Throwable t) {
             Diag.w("selfupd", "tier2 raw-json: " + t);
+        }
+        // Route 3 (v3.4.6.i) — the jsDelivr CDN mirror of the same
+        // docs/latest.json (the FAIL 2 Sri Lankan raw stall fallback). The
+        // parsed release keeps tier "raw-json" (it IS the same JSON file);
+        // only the transport differs.
+        try {
+            Release r = fetchViaMirrorJson();
+            if (usableRelease(r)) return r;
+        } catch (Throwable t) {
+            Diag.w("selfupd", "tier3 jsdelivr-json: " + t);
         }
         return null;
     }
@@ -286,6 +434,22 @@ final class SelfUpdateCore {
      *  v3.4.6.h — GUARANTEE #4: the GET rides the 4-second hard deadline. */
     static Release fetchViaRawJson() throws Exception {
         String body = httpGetDeadline(rawLatestJsonUrl(), FAST_CONNECT_MS, FAST_READ_MS, FAST_DEADLINE_MS);
+        Release r = fetchViaRawJsonBody(body);
+        if (r == null) return null;
+        String sumsSha = fetchExpectedSha(derivedSumsUrl("v" + r.version), apkAssetName(r.version));
+        if (sumsSha == null) return null;
+        if (r.sha256Expected != null && !r.sha256Expected.equalsIgnoreCase(sumsSha)) return null;
+        r.sha256Expected = sumsSha;
+        return r;
+    }
+
+    /**
+     * Route 3 (v3.4.6.i) — the jsDelivr CDN mirror of docs/latest.json:
+     * identical parsing, identical SHA256SUMS.txt cross-check, identical
+     * "raw-json" tier label (the transport is the only thing that differs).
+     */
+    static Release fetchViaMirrorJson() throws Exception {
+        String body = httpGetDeadline(jsdelivrLatestJsonUrl(), FAST_CONNECT_MS, FAST_READ_MS, FAST_DEADLINE_MS);
         Release r = fetchViaRawJsonBody(body);
         if (r == null) return null;
         String sumsSha = fetchExpectedSha(derivedSumsUrl("v" + r.version), apkAssetName(r.version));
@@ -407,12 +571,22 @@ final class SelfUpdateCore {
      * Returns the bytes written (== file length).
      */
     static long downloadToFile(String url, File out, Progress progress) throws Exception {
+        return downloadToFile(url, out, MAX_APK_BYTES, progress);
+    }
+
+    /**
+     * v3.4.6.i — the cap-parameterized overload: the official-AnantPlay
+     * installer downloads the OFFICIAL app (whose 200 MB cap is deliberately
+     * wider than our own 55 MB self-update cap). Everything else (https-only,
+     * declared-length check, mid-stream cap) is identical.
+     */
+    static long downloadToFile(String url, File out, long capBytes, Progress progress) throws Exception {
         if (!httpsOnly(url)) throw new SecurityException("refusing non-https download: " + url);
         HttpURLConnection c = openConnection(url);
         c.setConnectTimeout(10000);
         c.setReadTimeout(30000);
         try {
-            return pump(c, out, MAX_APK_BYTES, progress);
+            return pump(c, out, capBytes, progress);
         } finally {
             c.disconnect();
         }
