@@ -55,6 +55,16 @@ class PlayerScreen extends StatefulWidget {
   /// The fixed tight compact cinema line height.
   static const double compactSubLineHeight = 1.25;
 
+  /// v3.4.6.i — THE SUBTITLE HUD-LIFT CONTRACT (the video_3 05:00–05:16
+  /// collision kill): when the HUD is visible the subtitle pill lifts to
+  /// bottom: 136dp portrait / 116dp landscape — CLEANLY ABOVE the seekbar
+  /// + 5-icon dock glass bar — and returns to the compact cinema anchor
+  /// (4% landscape / 6% portrait, with a ≥ 20dp safe inset above the gesture
+  /// pill) when the HUD hides. The honest Layer-1 audit reads THESE values.
+  static const double compactSubHudLiftPortraitDp = 136;
+  static const double compactSubHudLiftLandscapeDp = 116;
+  static const double compactSubSafeInsetDp = 20;
+
   const PlayerScreen({super.key, required this.request, required this.onExit});
 
   final PlayRequest request;
@@ -425,13 +435,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
             // anchored near the bottom (4% landscape / 6% portrait default).
             // The Sinhala ZWJ/ZWNJ shaping (ශ්‍රී) is preserved verbatim —
             // the text is never re-encoded, only styled.
+            //
+            // v3.4.6.i — THE HUD-LIFT (video_3 05:00–05:16): when the HUD is
+            // visible the pill rides an AnimatedPadding that lifts it to
+            // 136dp portrait / 116dp landscape — COMPLETELY ABOVE the seekbar
+            // and the 5-icon dock (never colliding with `00:09 — 10:34`) —
+            // and settles back to the compact cinema anchor (MornyeMotion
+            // fast spring) the moment the HUD hides.
             if (!_hudVisible || hasVideo)
               Positioned(
                 left: 16,
                 right: 16,
-                bottom: _subBottom(s),
+                bottom: 0,
                 child: IgnorePointer(
-                  child: Center(
+                  child: AnimatedPadding(
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                    padding: EdgeInsets.only(bottom: _subBottom(s)),
+                    child: Center(
                     child: ConstrainedBox(
                       // 82% of the video viewport — the pill can never grow to
                       // full-screen width even at the 28sp slider ceiling.
@@ -476,6 +497,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                 ),
               ),
+            ),
 
             // ── THE TOP GLASS BAR ────────────────────────────────────────────
             if (!_hudGone && !_locked)
@@ -853,14 +875,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
   //   · anchor: 4% landscape / 6% portrait from the bottom (was 5%/8%);
   //   · line height: a tight 1.25 (was spacing+0.35 ≈ 1.55).
 
+  /// v3.4.6.i — the LIVE subtitle bottom offset (the HUD-lift contract):
+  ///  · HUD hidden → the compact cinema anchor: subBottomPct% (6% portrait /
+  ///    4% landscape default), floored by the ≥ 20dp safe inset above the
+  ///    gesture pill;
+  ///  · HUD visible → the LIFT: 136dp portrait / 116dp landscape — cleanly
+  ///    above the seekbar + 5-icon dock glass bar (the video_3 collision).
   double _subBottom(SettingsMirror s) {
-    final pct =
-        s.i(SettingsMirror.kSubBottomPct, 6).clamp(2, 35) / 100.0;
     final portrait =
         MediaQuery.sizeOf(context).height > MediaQuery.sizeOf(context).width;
+    if (_hudVisible && !_hudGone) {
+      return portrait
+          ? PlayerScreen.compactSubHudLiftPortraitDp
+          : PlayerScreen.compactSubHudLiftLandscapeDp;
+    }
+    final pct =
+        s.i(SettingsMirror.kSubBottomPct, 6).clamp(2, 35) / 100.0;
     // 6% portrait / 4% landscape default, from the studio setting.
     final base = portrait ? 0.06 : 0.04;
-    return MediaQuery.sizeOf(context).height * (pct > 0 ? pct : base);
+    final anchor = MediaQuery.sizeOf(context).height * (pct > 0 ? pct : base);
+    return anchor.clamp(
+        PlayerScreen.compactSubSafeInsetDp, double.maxFinite);
   }
 
   double _subFontSp(SettingsMirror s) {

@@ -376,8 +376,64 @@ class _ThemedApp extends StatelessWidget {
       theme: light,
       darkTheme: dark,
       home: const ShellRoot(),
+      // v3.4.6.i — Interface scale is now VISIBLY applied to text too: the
+      // AppTokens rows already tighten/relax (rowPaddingV), and the whole
+      // app text rides a gentle density factor (0.94 compact / 1.06 spacious)
+      // ON TOP of the system text scale — the user's own accessibility font
+      // size is multiplied, never discarded.
+      builder: (context, child) {
+        final density = s.s(SettingsMirror.kDensity, 'comfortable');
+        final double factor = density == 'compact'
+            ? 0.94
+            : (density == 'spacious' ? 1.06 : 1.0);
+        final media = MediaQuery.maybeOf(context);
+        // child is nullable on older builder signatures — a null child is
+        // passed through untouched (never wrapped, never crashed on).
+        if (factor == 1.0 || media == null || child == null) {
+          return child ?? const SizedBox.shrink();
+        }
+        return MediaQuery(
+          data: media.copyWith(
+            textScaler: _DensityTextScaler(media.textScaler, factor),
+          ),
+          child: child,
+        );
+      },
     );
   }
+}
+
+/// v3.4.6.i — multiplies the system text scale by the Interface-scale factor
+/// (compact 0.94 / spacious 1.06) while delegating everything else (including
+/// nonlinear platform scaling) to the ambient scaler.
+class _DensityTextScaler extends TextScaler {
+  const _DensityTextScaler(this._base, this._factor);
+
+  final TextScaler _base;
+  final double _factor;
+
+  @override
+  double scale(double fontSize) => _base.scale(fontSize) * _factor;
+
+  // Deliberate mirror of the base class's deprecated surface (the delegating
+  // scaler must stay substitutable everywhere a TextScaler is read).
+  @override
+  double get textScaleFactor {
+    // ignore: deprecated_member_use
+    return _base.textScaleFactor * _factor;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is _DensityTextScaler &&
+      other._base == _base &&
+      other._factor == _factor;
+
+  @override
+  int get hashCode => Object.hash(_base, _factor);
+
+  @override
+  String toString() => 'density(${_factor}x over $_base)';
 }
 
 /// One queued playback request (a cast, a sniffed stream, a shared URL —
@@ -564,7 +620,17 @@ class ShellRootState extends State<ShellRoot> {
       return const OnboardingScreen();
     }
     final scheme = Theme.of(context).colorScheme;
-    final bottomInset = MediaQuery.paddingOf(context).bottom + 12;
+    // v3.4.6.i — the Bottom bar / Tab labels settings are APPLIED to the live
+    // shell now (they used to persist invisibly and never mutate the bar):
+    //   · bottomBarStyle = docked → a full-width edge-to-edge docked bar
+    //     (vs the floating rounded glass capsule),
+    //   · bottomBarLabels = false → icon-only navigation (labels hidden).
+    final bool barDocked =
+        state.settings.s(SettingsMirror.kBottomBarStyle, 'floating') == 'docked';
+    final bool barLabels =
+        state.settings.b(SettingsMirror.kBottomBarLabels, true);
+    final mediaBottom = MediaQuery.paddingOf(context).bottom;
+    final bottomInset = mediaBottom + 12;
 
     // The player session routes ABOVE the whole tab shell (immersive).
     if (_activePlay != null) {
@@ -587,41 +653,74 @@ class ShellRootState extends State<ShellRoot> {
       TickerMode(enabled: _tab == 2, child: const SettingsScreen()),
       TickerMode(enabled: _tab == 3, child: const HelpScreen()),
     ];
+    // The docked bar hugs the navigation-bar inset edge-to-edge; the floating
+    // capsule rides 12dp above it. The page clears the taller of the two.
+    final pageBottom =
+        barDocked ? mediaBottom + 76 : bottomInset + 58;
     return Scaffold(
       backgroundColor: scheme.surface,
       body: Stack(
         children: [
-          // The active page, padded above the floating bar.
+          // The active page, padded above the bar.
           Positioned.fill(
             child: Padding(
-              padding: EdgeInsets.only(bottom: bottomInset + 58),
+              padding: EdgeInsets.only(bottom: pageBottom),
               child: IndexedStack(index: _tab, children: pages),
             ),
           ),
-          // ── THE ALWAYS-VISIBLE FLOATING MORNYE TAB BAR ────────────────────
+          // ── THE ALWAYS-VISIBLE MORNYE TAB BAR ────────────────────────────
           // v3.4.6.c hit-test contract: Positioned INSIDE the Stack (never
           // clipped, never overlapped), safe-area padded bottom + 12, and the
           // MornyeSelectionPill inside MornyeTabBar forwards taps through
           // its Listener (MornyeGlassPress stays OUT of the gesture arena —
           // verified in mornye_glass_press.dart: it uses raw Listener
           // callbacks, so a child InkWell/GestureDetector always wins).
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: bottomInset,
-            child: MornyeTabBar(
-              destinations: [
-                for (final (label, icon) in _tabs)
-                  NavigationDestination(
-                    icon: Icon(mornyeIconFor(icon)),
-                    label: label,
+          if (barDocked)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: SafeArea(
+                top: false,
+                maintainBottomViewPadding: true,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                  child: MornyeTabBar(
+                    destinations: [
+                      for (final (label, icon) in _tabs)
+                        NavigationDestination(
+                          icon: Icon(mornyeIconFor(icon)),
+                          label: label,
+                        ),
+                    ],
+                    selectedIndex: _tab,
+                    onSelected: selectTab,
+                    blurEnabled: true,
+                    docked: true,
+                    showLabels: barLabels,
                   ),
-              ],
-              selectedIndex: _tab,
-              onSelected: selectTab,
-              blurEnabled: true,
+                ),
+              ),
             ),
-          ),
+          if (!barDocked)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: bottomInset,
+              child: MornyeTabBar(
+                destinations: [
+                  for (final (label, icon) in _tabs)
+                    NavigationDestination(
+                      icon: Icon(mornyeIconFor(icon)),
+                      label: label,
+                    ),
+                ],
+                selectedIndex: _tab,
+                onSelected: selectTab,
+                blurEnabled: true,
+                showLabels: barLabels,
+              ),
+            ),
         ],
       ),
     );

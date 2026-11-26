@@ -21,7 +21,6 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart' hide Icons;
 import 'package:material_ui/material_ui.dart' as mi show Icons;
 
-import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_press.dart';
 
 import 'app_state.dart';
@@ -169,6 +168,18 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   void _finish() {
     // THE UNBREAKABLE FINISH: synchronous in-memory publish (ShellRoot flips
     // to HomeScreen this frame) + the dedicated native channel writer.
+    // v3.4.6.i — THE DEAD Skip/Finish KILL (video_4 00:41–01:15): when the
+    // wizard runs as a pushed ROUTE (Settings → Run setup guide / Help →
+    // Run setup wizard / Home → Watch Tour), completeOnboarding flips the
+    // shell underneath but the route stayed on top — the Finish looked dead.
+    // The route (when one exists) is popped FIRST so the user lands on
+    // HomeScreen immediately; the root-gate instance (first install) never
+    // had a route to pop and keeps working exactly as before.
+    final navigator = Navigator.of(context);
+    final bool pushedAsRoute = navigator.canPop();
+    if (pushedAsRoute) {
+      navigator.pop();
+    }
     AppState.of(context).scope.completeOnboarding();
   }
 
@@ -190,6 +201,17 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
+    // v3.4.6.i — SMART FIRST-TIME PROGRESSION: on a FIRST-TIME launch (the
+    // wizard gate, never a re-run) the slides gently guide each permission
+    // (the Continue button de-emphasizes until the grant lands — the flip
+    // auto-advance already glides on); the top-right Skip stays the explicit
+    // accessibility escape. A re-run (Settings / Help / Watch Tour) keeps
+    // the plain free Skip. Both paths still persist onboardingDone + version
+    // 2 through the one completeOnboarding lane.
+    final bool firstTimeLaunch = !AppState.of(context).settings.onboardingCurrent;
+    // (kept: the wizard-instance flag — the accessibility escape label reads
+    // 'Skip' on a first-time launch and 'Skip tour' on a voluntary re-run.)
+    final String skipLabel = firstTimeLaunch ? 'Skip' : 'Skip tour';
     return Scaffold(
       backgroundColor: const Color(0xFF0F2E30),
       body: SafeArea(
@@ -213,7 +235,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                             foregroundColor: const Color(0x99F2F7F7),
                             textStyle: const TextStyle(fontSize: 13),
                           ),
-                          child: const Text('Skip'),
+                          child: Text(skipLabel),
                         )
                       : const SizedBox(height: 44),
                 ),
@@ -240,30 +262,63 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  // ── the slide scaffold: hero (tap to replay) · title · body ─────────────────
+  // ── the slide scaffold: 55–60% hero stage · 35–40% title/body/actions ──────
 
+  /// v3.4.6.i — THE RED-PEN GEOMETRY (video_5 02:55–04:35): each slide is a
+  /// fixed Column — the hero stage fills the UPPER ~58% (Expanded 3:2) with
+  /// large crystal-clear visuals (never a cramped 210dp box with wasted
+  /// space below), the title + 1–2 line subtitle + full-width action button
+  /// anchor the lower ~40% right above the page dots.
   Widget _slide(int i) {
     final theme = Theme.of(context);
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 360),
-        child: Column(
-          children: [
-            const SizedBox(height: 8),
-            _SlideShell(
-              index: i,
-              hero: _heroFor(i),
-              title: _titles[i],
-              body: _bodies[i],
-              theme: theme,
+      child: Column(
+        children: [
+          // ── THE HERO STAGE: the upper 55–60%, filling generously ─────────
+          Expanded(
+            flex: 3,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10, bottom: 6),
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: _heroFor(i),
+              ),
             ),
-            const SizedBox(height: 18),
-            _actionsFor(i),
-            const SizedBox(height: 12),
-          ],
-        ),
+          ),
+          // ── THE TEXT + ACTION BLOCK: the lower 35–40% ────────────────────
+          Expanded(
+            flex: 2,
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                children: [
+                  Text(
+                    _titles[i],
+                    key: ValueKey('t$i'),
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: const Color(0xFFF2F7F7),
+                      fontWeight: FontWeight.w700,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _bodies[i],
+                    key: ValueKey('b$i'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xCCF2F7F7),
+                      height: 1.45,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 18),
+                  _actionsFor(i),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -277,13 +332,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     'Sources & Index',
   ];
 
+  // v3.4.6.i — the CONCISE 1–2 line subtitles (the red-pen sketch: a short
+  // subtitle under the title, never a dense paragraph).
   static const _bodies = [
-    'Watch AnantPlay with instant Sinhala subtitles — one receiver, zero forks, Liquid-Glass cinema.',
-    'The official app sends the cast. Install it here — checked live, downloaded with real progress, confirmed in one tap.',
-    'A cast arrives as a quiet notification when the screen can\'t open it automatically. One tap, and it plays.',
-    'With the overlay permission a cast opens the player by itself — tap Cast, the Cinema springs open.',
-    'Keep Cast ready on every device: allow background activity once, so the receiver always answers — and allow app updates so future AnantPlay updates install in one tap.',
-    'AnantPlay takes no deep-link for indexes — copy your Index URL once, open AnantPlay, add it under Sources.',
+    'Sinhala subtitles cinema — one receiver, zero forks.',
+    'Install the official app right here — one tap.',
+    'Cast alerts arrive as quiet notifications.',
+    'A cast opens the Cinema Player by itself.',
+    'Two clean permission rows — then one Continue.',
+    'Copy your index feeds into AnantPlay in one tap.',
   ];
 
   Widget _heroFor(int i) => switch (i) {
@@ -349,32 +406,30 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         _ => const SizedBox.shrink(),
       };
 
-  /// v3.4.6.f — LAW #3's ONBOARDING HALF: slide 5 ("Keep Cast ready") now
-  /// carries BOTH stability permissions — background activity AND the
-  /// install-updates (unknown-sources) grant — so brand-new AND upgrading
-  /// users can guarantee update-install permission right away (the exact
-  /// permission the ForceUpdateScreen's Step 1 of 2 needs at update time).
+  /// v3.4.6.f — LAW #3's ONBOARDING HALF: slide 5 ("Keep Cast ready") carries
+  /// BOTH stability permissions — background activity AND the install-updates
+  /// (unknown-sources) grant — so brand-new AND upgrading users can guarantee
+  /// update-install permission right away (the exact permission the
+  /// ForceUpdateScreen's Step 1 of 2 needs at update time).
+  ///
+  /// v3.4.6.i — THE RED-PEN REDESIGN (video_5 04:01–04:18): the confusing
+  /// double `[✓ Enabled ✓] [Continue] [✓ Enabled ✓] [Continue]` stack is
+  /// GONE. TWO cleanly labeled compact permission rows inside ONE Mornye
+  /// glass card + ONE single full-width Continue button at the bottom:
+  ///   Row 1: Background Activity (No restrictions) → [Enable] / [Enabled ✓]
+  ///   Row 2: Allow App Updates                  → [Enable] / [Enabled ✓]
   Widget _stabilityActions() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _permissionActions(
-            granted: _status.battery,
-            openLabel: 'Allow background activity',
-            onOpen: () => AnantPlay.instance.openBatteryOptimization(),
-            onContinue: () => _go(5)),
-        const SizedBox(height: 8),
-        _permissionActions(
-            granted: _status.installs,
-            openLabel: 'Allow App Updates',
-            onOpen: () async {
-              // Opens Settings → Install unknown apps (the exact page the
-              // updater's Step 1 of 2 opens); the resume re-query + the
-              // _applyStatus listener spring "Enabled ✓" the instant the
-              // toggle flips (the shared auto-advance machinery).
-              await AnantPlay.instance.openUnknownSources();
-            },
-            onContinue: () => _go(5)),
+        _StabilityCard(
+          batteryGranted: _status.battery,
+          installsGranted: _status.installs,
+          onBattery: () => AnantPlay.instance.openBatteryOptimization(),
+          onInstalls: () => AnantPlay.instance.openUnknownSources(),
+        ),
+        const SizedBox(height: 10),
+        _pill(label: 'Continue', onTap: () => _go(5), prominent: true),
       ],
     );
   }
@@ -458,6 +513,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         ],
       );
     }
+    // v3.4.6.i — first-time guidance: the primary action is the grant
+    // button; 'Continue anyway' stays the de-emphasized escape (never
+    // removed — accessibility) so a new user is gently steered to grant.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -483,7 +541,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             }
           },
           icon: mi.Icons.copy_rounded,
-          prominent: true,
         ),
         const SizedBox(height: 8),
         _pill(
@@ -491,8 +548,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           onTap: () => AnantPlay.instance.openOfficialApp(),
           icon: mi.Icons.open_in_new_rounded,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         _caption('In AnantPlay: Settings → Sources → Add Index, paste, done.'),
+        // v3.4.6.i — ONE clean full-width Finish (the ONE primary action of
+        // the final slide — never a duplicate Finish + Next stack).
         const SizedBox(height: 8),
         _pill(
           label: 'Finish',
@@ -562,12 +621,14 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             color: Color(0x99F2F7F7), fontSize: 12.5, height: 1.45),
       );
 
-  // ── the footer: Back · clickable dots · Next/Finish ─────────────────────────
+  // ── the footer: Back · clickable dots (the Next button is GONE) ──────────
+  // v3.4.6.i — the red-pen sketch (video_5): only Back (bottom-left when
+  // page > 0) and the centered dots remain; each slide's ONE full-width
+  // primary action button lives inside the slide itself, right above the
+  // dots — the final slide's is `Finish` (never a duplicate Finish + Next).
 
   Widget _footer() {
-    final isLast = _page == _pageCount - 1;
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         SizedBox(
           width: 86,
@@ -581,105 +642,153 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               : const SizedBox(height: 44),
         ),
         // CLICKABLE page dots: tap any dot → glide to that slide.
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (var i = 0; i < _pageCount; i++)
-              GestureDetector(
-                onTap: () => _go(i),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  width: i == _page ? 22 : 7,
-                  height: 7,
-                  margin: const EdgeInsets.symmetric(horizontal: 3),
-                  decoration: BoxDecoration(
-                    color: i <= _page
-                        ? const Color(0xFF3E8E8F)
-                        : const Color(0x33F2F7F7),
-                    borderRadius: BorderRadius.circular(4),
+        Expanded(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var i = 0; i < _pageCount; i++)
+                GestureDetector(
+                  onTap: () => _go(i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    width: i == _page ? 22 : 7,
+                    height: 7,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      color: i <= _page
+                          ? const Color(0xFF3E8E8F)
+                          : const Color(0x33F2F7F7),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
-        SizedBox(
-          width: 86,
-          child: isLast
-              ? const SizedBox(height: 44)
-              : TextButton(
-                  onPressed: () => _go(_page + 1),
-                  style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFF7FCDD0)),
-                  child: const Text('Next', style: TextStyle(fontSize: 14.5)),
-                ),
-        ),
+        // the right slot stays EMPTY (no Next — each slide owns its own
+        // single full-width primary action inside the slide).
+        const SizedBox(width: 86, height: 44),
       ],
     );
   }
 }
 
-// ── the slide shell (staggered entry like the v3.4.6.b wizard) ─────────────
+// ── v3.4.6.i — THE SLIDE-5 PERMISSION CARD (the red-pen redesign) ────────────
+//
+// TWO cleanly labeled compact permission rows inside ONE Mornye glass card:
+//   Row 1: Background Activity (No restrictions) → [Enable] / [Enabled ✓]
+//   Row 2: Allow App Updates                    → [Enable] / [Enabled ✓]
+// ONE single full-width Continue button sits BELOW the card (added by the
+// caller) — the v3.4.6.h confusing `[✓ Enabled ✓] [Continue] ×2` stack is
+// dead (video_5 04:01–04:18).
 
-class _SlideShell extends StatelessWidget {
-  const _SlideShell({
-    required this.index,
-    required this.hero,
-    required this.title,
-    required this.body,
-    required this.theme,
+class _StabilityCard extends StatelessWidget {
+  const _StabilityCard({
+    required this.batteryGranted,
+    required this.installsGranted,
+    required this.onBattery,
+    required this.onInstalls,
   });
 
-  final int index;
-  final Widget hero;
-  final String title;
-  final String body;
-  final ThemeData theme;
+  final bool batteryGranted;
+  final bool installsGranted;
+  final VoidCallback onBattery;
+  final VoidCallback onInstalls;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        StaggeredListItem(
-          index: 0,
-          duration: const Duration(milliseconds: 300),
-          staggerDelay: const Duration(milliseconds: 60),
-          animate: index == 0,
-          child: hero,
-        ),
-        const SizedBox(height: 26),
-        StaggeredListItem(
-          index: 1,
-          duration: const Duration(milliseconds: 300),
-          staggerDelay: const Duration(milliseconds: 60),
-          animate: index == 0,
-          child: Text(
-            title,
-            key: ValueKey('t$index'),
-            style: theme.textTheme.headlineSmall?.copyWith(
-              color: const Color(0xFFF2F7F7),
-              fontWeight: FontWeight.w700,
-            ),
-            textAlign: TextAlign.center,
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0x14FFFFFF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0x33FFFFFF)),
+      ),
+      child: Column(
+        children: [
+          _StabilityRow(
+            title: 'Background Activity (No restrictions)',
+            granted: batteryGranted,
+            onEnable: onBattery,
           ),
-        ),
-        const SizedBox(height: 12),
-        StaggeredListItem(
-          index: 2,
-          duration: const Duration(milliseconds: 300),
-          staggerDelay: const Duration(milliseconds: 60),
-          animate: index == 0,
-          child: Text(
-            body,
-            key: ValueKey('b$index'),
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: const Color(0xCCF2F7F7),
-              height: 1.45,
-            ),
-            textAlign: TextAlign.center,
+          Divider(
+            height: 1,
+            thickness: 0.5,
+            color: const Color(0x22FFFFFF),
           ),
-        ),
-      ],
+          _StabilityRow(
+            title: 'Allow App Updates',
+            granted: installsGranted,
+            onEnable: onInstalls,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StabilityRow extends StatelessWidget {
+  const _StabilityRow({
+    required this.title,
+    required this.granted,
+    required this.onEnable,
+  });
+
+  final String title;
+  final bool granted;
+  final VoidCallback onEnable;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = granted ? const Color(0xFF63D668) : const Color(0xFF7FCDD0);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      child: Row(
+        children: [
+          Icon(
+            granted ? mi.Icons.check_circle_rounded : mi.Icons.bolt_rounded,
+            size: 18,
+            color: color,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFFF2F7F7),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          granted
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Text(
+                    'Enabled ✓',
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              : TextButton(
+                  onPressed: onEnable,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(84, 40),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    foregroundColor: const Color(0xFF7FCDD0),
+                    textStyle: const TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w700),
+                  ),
+                  child: const Text('Enable'),
+                ),
+        ],
+      ),
     );
   }
 }

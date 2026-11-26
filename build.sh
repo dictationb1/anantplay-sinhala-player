@@ -53,8 +53,8 @@ done
 # (v3.4.6: no silent platform fallback — the release always compiles against android-36)
 TARGET_SDK=36
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-3.4.6.h}
-VERSION_CODE=${VERSION_CODE:-30414}
+VERSION_NAME=${VERSION_NAME:-3.4.6.i}
+VERSION_CODE=${VERSION_CODE:-30415}
 PREV_VERSION_CODE=${PREV_VERSION_CODE:-30413}   # v3.4.6.g — the last released build
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 

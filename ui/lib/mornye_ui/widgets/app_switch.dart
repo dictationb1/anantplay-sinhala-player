@@ -174,14 +174,14 @@ class _MornyeSwitchState extends State<_MornyeSwitch>
     _followValue();
 
     final position = _dragPosition ?? (value ? 1.0 : 0.0);
-    // v3.4.6.g — THE DYNAMIC ACCENT TRACK TINT: the ON track lerps the Mornye
-    // green toward the LIVE accent (a custom # hex, a preset or Material You
-    // wallpaper) — the whole switch family re-tints with the theme.
-    final trackOn = Color.lerp(
-      const Color(0xFF34C759),
-      scheme.primary,
-      0.45,
-    )!;
+    // v3.4.6.i — THE LIVE-ACCENT TRACK (video_4 03:03): the ON track IS the
+    // user's chosen Theme.of(context).colorScheme.primary now — the preset /
+    // custom # hex / Material You wallpaper accent, at full strength —
+    // instead of the hardcoded bright-green-with-a-45%-accent-lerp that made
+    // every accent look washed-out green. (The v3.4.6.g 0.45 lerp left the
+    // switch clearly green for 6 of 7 presets + custom hex.) The liquid-glass
+    // stretch spring is untouched.
+    final trackOn = scheme.primary;
     final control = AnimatedContainer(
       duration: fade,
       curve: MornyeMotion.effectsFast.curve,

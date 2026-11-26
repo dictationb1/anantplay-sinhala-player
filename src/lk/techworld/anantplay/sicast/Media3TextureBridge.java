@@ -815,10 +815,40 @@ final class Media3TextureBridge
 
     private void applyTestCues() {
         cues.clear();
-        cues.add(new Cue(0, 500, 4000, "00:00:00,500 --> 00:00:04,000", "", "", "ආයුබෝවන්! සිංහල Player ක්‍රියාත්මකයි"));
-        cues.add(new Cue(1, 4600, 9000, "00:00:04,600 --> 00:00:09,000", "00:00:04,600 --> 00:00:09,000", "", "මෙය AnantPlay Cast මඟින් එවන වීඩියෝවකි — උපසිරැසි සිංහලෙන්."));
-        cues.add(new Cue(2, 9500, 15000, "00:00:09,500 --> 00:00:15,000", "", "", "ඔබේ චිත්‍රපටිය AnantPlay තුළ විවෘත කර Cast ඔබන්න — මෙය ස්වයංක්‍රීයව විවෘත වේ."));
-        subState = "ready · test cues";
+        // v3.4.6.i — THE TEST-STREAM SPAN: the mux test stream runs ~10:34
+        // (634 s); the v3.4.6.h trio ended at 15 s so the demo subtitle
+        // VANISHED at 00:17 and the bottom overlay sat empty for the whole
+        // stream. The cue set now SPANS the entire duration cleanly —
+        // repeating the three-beat story every 12 s so a subtitle is always
+        // on screen for the full ~10:34 test session (the honest audit
+        // proves coverage: max gap ≤ 1 s between cues).
+        String[] beats = {
+            "ආයුබෝවන්! සිංහල Player ක්‍රියාත්මකයි",
+            "මෙය AnantPlay Cast මඟින් එවන වීඩියෝවකි — උපසිරැසි සිංහලෙන්.",
+            "ඔබේ චිත්‍රපටිය AnantPlay තුළ විවෘත කර Cast ඔබන්න — මෙය ස්වයංක්‍රීයව විවෘත වේ.",
+        };
+        long t = 500;
+        int id = 0;
+        long span = 634_000;   // the test stream's ~10:34 duration
+        while (t < span) {
+            for (int b = 0; b < beats.length && t < span; b++) {
+                cues.add(new Cue(id++, t, t + 10_000,
+                        formatTs(t, t + 10_000), "", "", beats[b]));
+                t += 12_000;    // 10 s live + 2 s breath — max gap 2 s
+            }
+        }
+        subState = "ready · test cues (spanning)";
+    }
+
+    /** `1234 → "00:00:01,234"` — the SRT-style timestamp for the demo cues. */
+    private static String formatTs(long startMs, long endMs) {
+        return ts(startMs) + " --> " + ts(endMs);
+    }
+
+    private static String ts(long ms) {
+        long h = ms / 3_600_000, m = (ms % 3_600_000) / 60_000,
+                s = (ms % 60_000) / 1000, r = ms % 1000;
+        return String.format(java.util.Locale.ROOT, "%02d:%02d:%02d,%03d", h, m, s, r);
     }
 
     private void maybeFetchSubs() {

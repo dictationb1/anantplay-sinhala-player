@@ -17,8 +17,8 @@
 //   · the auto-updater law state machine + the reopen-lock's Dart mirror
 //     (isNewerVersion truth table; the installed identity never gates on
 //     itself)
-//   · the 14-audit Dart layer of the 78-probe Debug Engine (H1..H14,
-//     ids 65–78) completing with the exact expected count
+//   · the 14-audit Dart layer of the 87-probe Debug Engine (H1..H14,
+//     ids 74–87, after the v3.4.6.i native Domain I took 65–73)
 import 'dart:io' show File;
 
 import 'package:flutter/services.dart';
@@ -277,8 +277,10 @@ void main() {
     });
 
     test('the selector offers all four faces (Cinema Bold included)', () {
+      // v3.4.6.i — SHORTENED labels (Noto / System / Serif / Bold) so the
+      // four-segment control can never ellipsize on a narrow phone.
       final settings = File('lib/anantplay/settings_screen.dart').readAsStringSync();
-      expect(settings.contains("'Noto Sinhala', 'System', 'Serif', 'Cinema Bold'"),
+      expect(settings.contains("'Noto', 'System', 'Serif', 'Bold'"),
           isTrue);
     });
   });
@@ -348,16 +350,20 @@ void main() {
     });
   });
 
-  group('v3.4.6.h the 78-probe Debug Engine (Dart layer H1..H14, ids 65–78)', () {
+  group('v3.4.6.h the 87-probe Debug Engine (Dart layer H1..H14, ids 74–87)', () {
     test('the Dart layer runs EXACTLY 14 audits with unique sequential ids', () async {
       final scope = AppStateNotifier();
       final out = await DartLayerAuditor.run(scope).timeout(
           const Duration(seconds: 60), onTimeout: () => <DeepOutcome>[]);
-      expect(out.length, 14, reason: 'H1..H14 (ids 65–78)');
+      expect(out.length, 14, reason: 'H1..H14 (ids 74–87)');
       final ids = out.map((o) => o.id).toSet();
       expect(ids.length, 14, reason: 'zero duplicate ids');
-      expect(ids.reduce((a, b) => a < b ? a : b), 65);
-      expect(ids.reduce((a, b) => a > b ? a : b), 78);
+      expect(ids.reduce((a, b) => a < b ? a : b), 74);
+      expect(ids.reduce((a, b) => a > b ? a : b), 87);
+      // v3.4.6.i — THE ID-PARITY LAW: the native layer owns 1..73 (A–G plus
+      // the new Domain I at 65–73), so no Dart id may ever land in 1..73.
+      expect(ids.every((i) => i >= 74), isTrue,
+          reason: 'Dart ids must never collide with the native 1..73');
       // the NEW visual audits exist by name
       final names = out.map((o) => o.name).toSet();
       expect(names, contains('Light Mode visual integrity (LIVE ThemeData)'));
@@ -398,7 +404,7 @@ void main() {
         const DeepOutcome(id: 1, domain: 'A', name: 'a', pass: true, ms: 1, detail: ''),
       ];
       final dart = <DeepOutcome>[
-        const DeepOutcome(id: 65, domain: 'H', name: 'h', pass: false, ms: 2, detail: 'boom'),
+        const DeepOutcome(id: 74, domain: 'H', name: 'h', pass: false, ms: 2, detail: 'boom'),
       ];
       final report = composeHonestReport(nativeReport, native, dart);
       // exactly ONE merged verdict + ONE every-fail block at the very top
@@ -411,7 +417,7 @@ void main() {
       expect(report.indexOf('== Domain H'), lessThan(report.indexOf('== Last Crash')));
       expect(report.indexOf('== Domain H'), greaterThan(report.indexOf('== Domain A')));
       // the fail is hoisted to the top block
-      expect(report.indexOf('FAIL ✗ 65. h — boom'),
+      expect(report.indexOf('FAIL ✗ 74. h — boom'),
           lessThan(report.indexOf('== Status Summary ==')));
     });
 
@@ -425,16 +431,16 @@ void main() {
   });
 
   group('v3.4.6.h version identity', () {
-    test('pubspec carries 3.4.6+30414 (pure integer build number)', () {
+    test('pubspec carries 3.4.6+30415 (pure integer build number)', () {
       final pubspec = File('pubspec.yaml').readAsStringSync();
-      expect(RegExp(r'^version: 3\.4\.6\+30414$', multiLine: true).hasMatch(pubspec), isTrue);
+      expect(RegExp(r'^version: 3\.4\.6\+30415$', multiLine: true).hasMatch(pubspec), isTrue);
       expect(pubspec.contains('3.4.6.h+30414'), isFalse,
           reason: 'pub-semver forbids the 4-part core in the version field');
     });
 
     test('the visible version literal matches the release identity', () {
       final feedback = File('lib/anantplay/action_feedback.dart').readAsStringSync();
-      expect(feedback.contains("kVisibleVersion = 'v3.4.6.h'"), isTrue);
+      expect(feedback.contains("kVisibleVersion = 'v3.4.6.i'"), isTrue);
     });
   });
 }

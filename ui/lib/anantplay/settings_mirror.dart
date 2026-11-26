@@ -116,6 +116,9 @@ class SettingsMirror {
   static const kSearchEngine = 'searchEngine';
   static const kSpeedDialCols = 'speedDialCols';
   static const kOmnibarPos = 'omnibarPos';
+  /// v3.4.6.i — the DoH DNS bypass flag (AppPrefs.K_DOH_DIAG's mirror twin;
+  /// read by the Sources Hub's status chip).
+  static const kDohDiag = 'dohDiag';
   static const kAutoFetch = 'autoFetch';
   static const kAutoTranslateNonSi = 'autoTranslateNonSi';
   static const kAutoZip = 'autoZip';

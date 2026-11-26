@@ -806,6 +806,12 @@ public class MainActivity extends FlutterActivity {
         // about an attempt), and the 15-minute FAILURE backoff inside
         // checkAllowed() keeps an offline phone from ever looping.
         SelfUpdater.checkOnResume(this);
+        // v3.4.6.i — the AnantPlayInstaller auto-resume: the moment the
+        // "Install unknown apps" grant lands for OUR package while an
+        // official-APP install is parked waiting for it, the real HTTPS
+        // download (0% → 100%) restarts by itself — never stuck on
+        // `0 · needs-permission` / `0 · busy`.
+        AnantPlayInstaller.resumeIfWaiting(this);
         // the official APK handed to PackageInstaller leaves a cache copy
         // behind when the user cancels the 1-tap sheet — sweep it on resume.
         if (AnantPlayInstaller.anantplayInstalled(this)) {
@@ -970,7 +976,11 @@ public class MainActivity extends FlutterActivity {
             } else if ("overlayGranted".equals(m)) {
                 result.success(Settings.canDrawOverlays(this));
             } else if ("openOverlay".equals(m)) {
-                Miui.openOverlay(this);
+                // v3.4.6.i — the XRECORDER-STYLE GUIDE: the MANAGE_OVERLAY page
+                // opens with the translucent animated step-card floating on
+                // top of it (video_1 00:06–00:20); the legacy unguided launch
+                // stays as the fallback.
+                PermissionGuideActivity.openOverlayWithGuide(this);
                 result.success(true);
             } else if ("notifGranted".equals(m)) {
                 result.success(Miui.notifGranted(this));
@@ -994,12 +1004,18 @@ public class MainActivity extends FlutterActivity {
                 result.success(officialInstalled());
             } else if ("officialVersion".equals(m)) {
                 result.success(AnantPlayInstaller.anantplayVersion(this));
+            } else if ("officialUpdateFacts".equals(m)) {
+                // v3.4.6.i — the official-AnantPlay update pill facts:
+                // {installed, latest, updateAvailable} — the installed
+                // me.champdev.weblock versionName vs the latest
+                // github.com/AnantPlay/android/releases/latest tag (zero
+                // GitHub-REST calls; 10-minute async cache so the pill
+                // never hammers the network per frame).
+                result.success(AnantPlayInstaller.officialUpdateFacts(this));
             } else if ("onboardingStatus".equals(m)) {
                 // v3.4.6.b — the on-demand permission/install snapshot (the
                 // same blob resume pushes; the wizard's initState re-query).
                 result.success(onboardingStatusMap());
-            } else if ("officialVersion".equals(m)) {
-                result.success(AnantPlayInstaller.anantplayVersion(this));
             } else if ("openOfficial".equals(m)) {
                 Miui.openAnantPlay(this);
                 result.success(true);
@@ -1045,7 +1061,12 @@ public class MainActivity extends FlutterActivity {
             } else if ("canRequestPackageInstalls".equals(m)) {
                 result.success(AnantPlayInstaller.canRequestPackageInstalls(this));
             } else if ("openUnknownSources".equals(m)) {
-                result.success(AnantPlayInstaller.openUnknownSources(this));
+                // v3.4.6.i — the unknown-sources page opens WITH the
+                // translucent guide card (the animated 'Allow from this source'
+                // toggle mockup + the Xiaomi note); the legacy lane remains
+                // the fallback inside the helper.
+                result.success(
+                        PermissionGuideActivity.openUnknownSourcesWithGuide(this));
             } else if ("installOfficialAnantPlay".equals(m)) {
                 // v3.4.6.b — Slide 2's in-app installer: resolve the official
                 // release → stream with live percent events → PackageInstaller
@@ -1074,7 +1095,9 @@ public class MainActivity extends FlutterActivity {
             } else if ("openBatteryOptimization".equals(m)) {
                 // v3.4.6.b — the universal background-stability deep link (every
                 // device), with the OEM-aware page Miui already resolves.
-                Miui.requestBattery(this);
+                // v3.4.6.i — now WITH the translucent guide card (the mock list
+                // highlighting 'No restrictions ✓').
+                PermissionGuideActivity.openBatteryWithGuide(this);
                 result.success(true);
             } else if ("oemName".equals(m)) {
                 result.success(String.valueOf(Build.MANUFACTURER));
@@ -1090,10 +1113,12 @@ public class MainActivity extends FlutterActivity {
             } else if ("openNotificationSettings".equals(m)) {
                 // v3.4.6.d — the fallback lane: the app's own notification
                 // settings page (the one Android 16's per-app toggle lives on).
+                // v3.4.6.i — WITH the translucent 'Show notifications' guide.
                 try {
                     Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                             .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
-                    startActivity(i);
+                    PermissionGuideActivity.stackedLaunch(this, i,
+                            PermissionGuideActivity.GUIDE_NOTIFICATIONS);
                 } catch (Throwable t) {
                     Diag.w("cast", "notif settings: " + t);
                     Miui.openAppDetails(this);
@@ -1183,10 +1208,9 @@ public class MainActivity extends FlutterActivity {
             }
         }
         // Permanently denied (or pre-33 with notifications off): the settings lane.
+        // v3.4.6.i — WITH the translucent 'Show notifications' guide card.
         try {
-            Intent i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
-            startActivity(i);
+            PermissionGuideActivity.openNotificationsWithGuide(this);
         } catch (Throwable t) {
             Diag.w("cast", "notif settings: " + t);
             Miui.openAppDetails(this);
@@ -1455,6 +1479,55 @@ public class MainActivity extends FlutterActivity {
                 } else {
                     result.success(false);
                 }
+            } else if ("applyBrowserTheme".equals(call.method)) {
+                // v3.4.6.i — the Browser tab re-applies the themed background
+                // (#FFFFFF light / #0F172A dark), the live user-agent (the
+                // Desktop-site toggle) and the page color-scheme hint whenever
+                // it (re)builds — the WebView is long-lived inside the shell.
+                WebBrowserView v = browserView;
+                if (v != null) v.applyTheme();
+                result.success(v != null);
+            } else if ("openHome".equals(call.method)) {
+                // v3.4.6.i — the Browser bar's home button: HOME_URL (the
+                // never-blank bootstrap also used on the headless lane's
+                // first construction).
+                WebBrowserView v = browserView;
+                if (v != null) v.load(WebBrowserView.HOME_URL);
+                result.success(v != null);
+            } else if ("fetchUrl".equals(call.method)) {
+                // v3.4.6.i — the Sources Hub's index.json reader: an https-only
+                // GET with a 6 s hard deadline and a 256 KiB body cap, run OFF
+                // the main thread (the Dart side parses the JSON itself with
+                // dart:convert). Zero GitHub-REST calls — it feeds straight
+                // index feeds (raw.githubusercontent.com / workers.dev) into
+                // the in-app Sources Hub. The channel reply is posted back on
+                // the main looper (the embedding's @UiThread contract).
+                final String url = call.argument("url");
+                // v3.4.6.i — the SSRF guard: https:// AND a public host only
+                // (loopback / private / link-local / CGNAT / ULA / metadata and
+                // every non-https scheme are refused before a socket opens).
+                if (url == null || !SelfUpdateCore.safeRemoteUrl(url)) {
+                    Diag.w("browser", "fetchUrl refused (SSRF guard): non-https or non-public host");
+                    result.success("");
+                    return;
+                }
+                final MethodChannel.Result r = result;
+                new Thread(() -> {
+                    String b = "";
+                    try {
+                        b = SelfUpdateCore.httpGetDeadline(url, 4000, 6000, 6000);
+                        if (b != null && b.length() > 256 * 1024) {
+                            b = b.substring(0, 256 * 1024);
+                        }
+                    } catch (Throwable t) {
+                        Diag.w("browser", "fetchUrl: " + t);
+                        b = "";
+                    }
+                    final String body = b == null ? "" : b;
+                    main.post(() -> {
+                        try { r.success(body); } catch (Throwable ignored) { }
+                    });
+                }, "fetch-url").start();
             } else {
                 markNotImplemented(call.method);
                 result.notImplemented();
@@ -1671,16 +1744,33 @@ public class MainActivity extends FlutterActivity {
 
     private static String orEmpty(Object o) { return o == null ? "" : String.valueOf(o); }
 
-    /** The exact BACKUP_KEYS surface v3.4.5 exported (typed readers). */
+    /**
+     * v3.4.6.i — THE RAW-MIRROR LAW (the FAIL 68 / snap-back kill).
+     *
+     * <p>The v3.4.6.h hand-maintained whitelist NEVER included the keys the
+     * Flutter UI actually writes — aspectMode, fontFamily, accentHex, autoZip,
+     * autoTranslateNonSi, continueWatching, homeTipDismissed, a probe's
+     * round-trip string — so {@code AppState._optimistic} refreshed the mirror
+     * from this map right after every write and each of those settings
+     * SNAPPED BACK to its default on the very next frame (probe 68's
+     * {@code string ✗} is exactly this: the write lands in SharedPreferences,
+     * the read-back goes through the whitelist and the key is missing).
+     *
+     * <p>The fix: start from the FULL live {@link SharedPreferences#getAll()}
+     * map — every key any surface ever wrote is now visible to the Dart
+     * mirror — and then OVERLAY the normalized typed readers so known keys
+     * are healed/canonicalized exactly like the backup surface (a corrupt
+     * stored value still repairs on read; a Long key still reads a Long).
+     * SettingsBackup.export() filters through BACKUP_KEYS itself, so the
+     * backup surface is unchanged; unknown keys simply ride along in the live
+     * mirror where nothing reads them.
+     */
     private Map<String, Object> gatherSettings() {
-        Map<String, Object> m = new LinkedHashMap<>();
+        Map<String, Object> m = new LinkedHashMap<>(prefs.getAll());
         // v3.4.6.b — THE FINISH-BUTTON ROOT CAUSE FIX: the shell decides
         // Onboarding vs Home from this map, and onboardingDone/onboardingStage
         // were NEVER included (deliberately kept out of the BACKUP surface —
         // but gatherSettings() is the LIVE mirror, not the backup export!).
-        // The wizard tapped Finish → putBool persisted the flag → refresh()
-        // re-read this map → the key was still missing → ShellRoot kept
-        // rendering OnboardingScreen forever (the "dead Finish" lockout).
         // Live values are read through AppPrefs' own typed readers so a
         // corrupt stored value is normalized exactly like every other key.
         m.put(AppPrefs.K_ONBOARDING_DONE, AppPrefs.onboardingDone(prefs));
@@ -1692,7 +1782,8 @@ public class MainActivity extends FlutterActivity {
         m.put(AppPrefs.K_DYNAMIC_COLOR, AppPrefs.dynamicColor(prefs));
         m.put(AppPrefs.K_ACCENT, AppPrefs.accent(prefs));
         m.put(AppPrefs.K_UI_LANG, AppPrefs.uiLang(prefs));
-        m.put(AppPrefs.K_DENSITY, AppPrefs.compact(prefs) ? AppPrefs.DENSITY_COMPACT : AppPrefs.DENSITY_COMFORTABLE);
+        // v3.4.6.i — the FULL density string (spacious no longer collapses).
+        m.put(AppPrefs.K_DENSITY, AppPrefs.density(prefs));
         m.put(AppPrefs.K_SHOW_WEB_TAB, AppPrefs.showWebTab(prefs));
         m.put(AppPrefs.K_DEFAULT_LANG, prefs.getString(AppPrefs.K_DEFAULT_LANG, Langs.DEFAULT));
         String reg = prefs.getString(AppPrefs.K_REGISTER, null);
@@ -1741,7 +1832,10 @@ public class MainActivity extends FlutterActivity {
         m.put(AppPrefs.K_SUB_SHADOW, prefs.getBoolean(AppPrefs.K_SUB_SHADOW, false));
         m.put(AppPrefs.K_OMNIBAR_POS, prefs.getString(AppPrefs.K_OMNIBAR_POS, "bottom"));
         m.put(AppPrefs.K_SPEEDDIAL_COLS, AppPrefs.safeGetInt(prefs, AppPrefs.K_SPEEDDIAL_COLS, 3));
-        m.put(AppPrefs.K_SEARCH_ENGINE, prefs.getString(AppPrefs.K_SEARCH_ENGINE, "ddg"));
+        // v3.4.6.i — the search-engine default is google on BOTH shores now
+        // (the AppPrefs reader already defaulted to google; the raw read here
+        // used 'ddg', so a fresh install's mirror disagreed with the engine).
+        m.put(AppPrefs.K_SEARCH_ENGINE, AppPrefs.searchEngine(prefs));
         m.put(AppPrefs.K_WEB_CUSTOM_UA, prefs.getString(AppPrefs.K_WEB_CUSTOM_UA, ""));
         m.put(AppPrefs.K_READER_DARK, prefs.getBoolean(AppPrefs.K_READER_DARK, true));
         m.put(AppPrefs.K_FAVICONS, prefs.getBoolean(AppPrefs.K_FAVICONS, true));

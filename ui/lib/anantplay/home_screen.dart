@@ -42,66 +42,97 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: scheme.surface,
       body: SafeArea(
         bottom: false,
-        child: CustomScrollView(
-          slivers: [
-            SliverAppBar.large(
-              title: const Text('AnantPlay Player'),
-              backgroundColor: scheme.scrim.withValues(alpha: 0.2),
-              surfaceTintColor: Colors.transparent,
-              expandedHeight: 128,
-              pinned: true,
-              // v3.4.6.c — complaint #1/#2 fix: Settings is ALWAYS 1-tap
-              // reachable from Home's own top bar, in ADDITION to the tab.
-              actions: [
-                IconButton(
-                  tooltip: 'Check for update',
-                  icon: const Icon(Icons.system_update_rounded),
-                  onPressed: () => checkForUpdateWithFeedback(context),
-                ),
-                IconButton(
-                  tooltip: 'Settings',
-                  icon: const Icon(Icons.settings_rounded),
-                  onPressed: () =>
-                      ShellRootState.of(context).selectTab(2),
-                ),
-                const SizedBox(width: 4),
-              ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // v3.4.6.i — THE FIXED MORNYE LARGE HEADER (the clipped-title kill
+            // caught on video_3/video_4): a plain pinned header row above the
+            // scroll view — 28sp / w700 / −0.3 tracking, NEVER vertically
+            // clipped under the status bar (SafeArea wraps it directly; the
+            // old SliverAppBar.large could half-cut itself on edge-to-edge
+            // insets). The actions stay 1-tap reachable beside the title.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 6, 12, 2),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'AnantPlay Player',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: scheme.onSurface,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ),
+                  // v3.4.6.c — complaint #1/#2 fix: Settings is ALWAYS 1-tap
+                  // reachable from Home's own top bar, in ADDITION to the tab.
+                  IconButton(
+                    tooltip: 'Check for update',
+                    icon: const Icon(Icons.system_update_rounded),
+                    onPressed: () => checkForUpdateWithFeedback(context),
+                  ),
+                  IconButton(
+                    tooltip: 'Settings',
+                    icon: const Icon(Icons.settings_rounded),
+                    onPressed: () =>
+                        ShellRootState.of(context).selectTab(2),
+                  ),
+                ],
+              ),
             ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // v3.4.6.b — the Mornye entry reveal (upstream Home's
-                    // StaggeredListItem): 0.2 s spatial spring per section,
-                    // 40 ms stagger. animate:false is never needed here — the
-                    // widget itself skips on scrolled/reduced-motion.
-                    StaggeredListItem(
-                      index: 0,
-                      duration: const Duration(milliseconds: 250),
-                      staggerDelay: const Duration(milliseconds: 40),
-                      child: _UpdateCard(event: state.updaterEvent),
+            Expanded(
+              child: CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // v3.4.6.b — the Mornye entry reveal (upstream Home's
+                          // StaggeredListItem): 0.2 s spatial spring per section,
+                          // 40 ms stagger. animate:false is never needed here — the
+                          // widget itself skips on scrolled/reduced-motion.
+                          StaggeredListItem(
+                            index: 0,
+                            duration: const Duration(milliseconds: 250),
+                            staggerDelay: const Duration(milliseconds: 40),
+                            child: _UpdateCard(event: state.updaterEvent),
+                          ),
+                          // v3.4.6.i — the OFFICIAL ANANTPLAY UPDATE PILL: when
+                          // the installed me.champdev.weblock is behind the latest
+                          // github.com/AnantPlay/android release, a sleek 1-tap
+                          // update pill sits above the receiver hero.
+                          StaggeredListItem(
+                            index: 1,
+                            child: _OfficialAnantPlayUpdatePill(),
+                          ),
+                          const SizedBox(height: 16),
+                          StaggeredListItem(
+                            index: 2,
+                            child: _ReceiverHero(status: state.castStatus),
+                          ),
+                          const SizedBox(height: 16),
+                          StaggeredListItem(
+                            index: 3,
+                            child: _QuickStartCard(settings: state.settings),
+                          ),
+                          StaggeredListItem(index: 4, child: const _QuickActions()),
+                          const SizedBox(height: 20),
+                          StaggeredListItem(
+                            index: 5,
+                            child: _ContinueWatching(history: state.history),
+                          ),
+                          const SizedBox(height: 28),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    StaggeredListItem(
-                      index: 1,
-                      child: _ReceiverHero(status: state.castStatus),
-                    ),
-                    const SizedBox(height: 16),
-                    StaggeredListItem(
-                      index: 2,
-                      child: _QuickStartCard(settings: state.settings),
-                    ),
-                    StaggeredListItem(index: 3, child: const _QuickActions()),
-                    const SizedBox(height: 20),
-                    StaggeredListItem(
-                      index: 4,
-                      child: _ContinueWatching(history: state.history),
-                    ),
-                    const SizedBox(height: 28),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -299,13 +330,31 @@ class _UpdateCard extends StatelessWidget {
 /// who already dismissed it sees it again), (b) collapses with a real spring
 /// animation (AnimatedSize), and (c) carries a `Watch Tour` pill that opens
 /// the revamped Interactive Visual Setup & Value Guide.
-class _QuickStartCard extends StatelessWidget {
+///
+/// v3.4.6.i — THE DEAD `Got it` KILL (video_3 04:01, video_4 01:15): the tap
+/// now flips an OPTIMISTIC in-memory `_tipDismissed` AND persists
+/// `homeTipDismissed=true` through the raw-mirror putBool lane, so the very
+/// first tap collapses the card — and with gatherSettings() now returning the
+/// FULL prefs map, the flag SURVIVES the optimistic refresh (the v3.4.6.h
+/// whitelist dropped `homeTipDismissed`, so the banner snapped back after
+/// every mirror refresh). The button itself is an OPAQUE 44dp tap target.
+class _QuickStartCard extends StatefulWidget {
   const _QuickStartCard({required this.settings});
 
   final SettingsMirror settings;
 
+  @override
+  State<_QuickStartCard> createState() => _QuickStartCardState();
+}
+
+class _QuickStartCardState extends State<_QuickStartCard> {
+  /// v3.4.6.i — the optimistic one-tap collapse (set the frame the tap lands).
+  bool _tipDismissed = false;
+
   bool get _dismissed =>
-      settings.b('homeTipDismissed', false) || settings.quickstartDone;
+      _tipDismissed ||
+      widget.settings.b('homeTipDismissed', false) ||
+      widget.settings.quickstartDone;
 
   @override
   Widget build(BuildContext context) {
@@ -358,7 +407,7 @@ class _QuickStartCard extends StatelessWidget {
                       TextButton(
                         style: TextButton.styleFrom(
                           padding: const EdgeInsets.symmetric(horizontal: 8),
-                          minimumSize: const Size(64, 32),
+                          minimumSize: const Size(64, 44),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           textStyle: const TextStyle(fontSize: 12),
                         ),
@@ -367,16 +416,24 @@ class _QuickStartCard extends StatelessWidget {
                       ),
                       TextButton(
                         style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          minimumSize: const Size(56, 32),
+                          // v3.4.6.i — an OPAQUE 44dp tap target: the very
+                          // first tap ALWAYS registers (the v3.4.6.h 32dp-high
+                          // label could miss the finger on the video).
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          minimumSize: const Size(64, 44),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          textStyle: const TextStyle(fontSize: 12),
+                          textStyle: const TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w700),
                         ),
-                        // v3.4.6.g — persists homeTipDismissed=true (the
-                        // K_HOME_TIP_DISMISSED round-trip probe G4 audits).
-                        onPressed: () => AppState.of(context)
-                            .scope
-                            .putBool('homeTipDismissed', true),
+                        // v3.4.6.i — optimistic in-memory flip + the persistent
+                        // write through the raw-mirror lane (probe G4 audits
+                        // the round-trip; the whitelist used to drop it).
+                        onPressed: () {
+                          setState(() => _tipDismissed = true);
+                          AppState.of(context)
+                              .scope
+                              .putBool('homeTipDismissed', true);
+                        },
                         child: const Text('Got it'),
                       ),
                     ],
@@ -393,6 +450,83 @@ class _QuickStartCard extends StatelessWidget {
       builder: (_) => const OnboardingScreen(),
       fullscreenDialog: true,
     ));
+  }
+}
+
+// ── v3.4.6.i — the OFFICIAL ANANTPLAY UPDATE PILL ──────────────────────────
+
+/// Sleek Home pill: `AnantPlay Update Available (vX → vY) — Update Now`.
+/// The facts come from the native officialUpdateFacts check (the installed
+/// me.champdev.weblock versionName vs the latest AnantPlay/android release
+/// tag — zero api.github.com calls, 10-minute async cache), and Update Now
+/// rides the FIXED AnantPlayInstaller (real asset discovery + auto-resume).
+class _OfficialAnantPlayUpdatePill extends StatefulWidget {
+  const _OfficialAnantPlayUpdatePill();
+
+  @override
+  State<_OfficialAnantPlayUpdatePill> createState() =>
+      _OfficialAnantPlayUpdatePillState();
+}
+
+class _OfficialAnantPlayUpdatePillState extends State<_OfficialAnantPlayUpdatePill> {
+  OfficialAnantPlayUpdate? _facts;
+
+  @override
+  void initState() {
+    super.initState();
+    AnantPlay.instance.officialUpdateFacts().then((facts) {
+      if (mounted) setState(() => _facts = facts);
+    }).catchError((Object _) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final facts = _facts;
+    if (facts == null || !facts.updateAvailable) {
+      return const SizedBox(width: double.infinity);
+    }
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Material(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => AnantPlay.instance.installOfficialAnantPlay(),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+            child: Row(
+              children: [
+                Icon(Icons.upgrade_rounded,
+                    color: theme.colorScheme.primary, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'AnantPlay Update Available (${facts.installed} → ${facts.latest}) — Update Now',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(72, 44),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () => AnantPlay.instance.installOfficialAnantPlay(),
+                  child: const Text('Update Now'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

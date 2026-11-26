@@ -413,6 +413,29 @@ class OfficialVersionEvent {
   final String version;
 }
 
+/// v3.4.6.i — the official-AnantPlay update facts for the Home/Settings
+/// pill: the installed me.champdev.weblock versionName ("" when absent),
+/// the latest AnantPlay/android release tag ("" when the network refused),
+/// and whether a strictly newer official release exists.
+class OfficialAnantPlayUpdate {
+  const OfficialAnantPlayUpdate({
+    required this.installed,
+    required this.latest,
+    required this.updateAvailable,
+  });
+
+  factory OfficialAnantPlayUpdate.fromMap(Map<dynamic, dynamic> map) =>
+      OfficialAnantPlayUpdate(
+        installed: (map['installed'] as String?) ?? '',
+        latest: (map['latest'] as String?) ?? '',
+        updateAvailable: map['updateAvailable'] == true,
+      );
+
+  final String installed;
+  final String latest;
+  final bool updateAvailable;
+}
+
 /// v3.4.6.c — the native texture session Media3TextureBridge.open returns:
 /// the live textureId (a Flutter Texture renders it) + the first video
 /// geometry (updated live on the frames stream).
@@ -801,6 +824,14 @@ class AnantPlay {
   Future<void> installOfficialAnantPlay() =>
       _cast.invokeMethod('installOfficialAnantPlay');
 
+  /// v3.4.6.i — the official-AnantPlay update facts for the Home/Settings
+  /// pill: {installed, latest, updateAvailable} (the installed
+  /// me.champdev.weblock versionName vs the latest AnantPlay/android tag;
+  /// the native side caches for 10 minutes and refreshes asynchronously).
+  Future<OfficialAnantPlayUpdate> officialUpdateFacts() async =>
+      OfficialAnantPlayUpdate.fromMap(
+          await _cast.invokeMethod('officialUpdateFacts'));
+
   /// Slide 5's universal background stability entry (OEM-aware page).
   Future<void> openBatteryOptimization() => _cast.invokeMethod('openBatteryOptimization');
 
@@ -963,6 +994,21 @@ class AnantPlay {
   Future<void> openNativeWeb(String url) =>
       _browser.invokeMethod('loadNative', {'url': url});
 
+  /// v3.4.6.i — re-apply the themed WebView background (#FFFFFF light /
+  /// #0F172A dark), the live user-agent and the page color-scheme hint to the
+  /// attached browser PlatformView (idempotent; called when the Browser tab
+  /// builds or the theme flips).
+  Future<void> applyBrowserTheme() =>
+      _browser.invokeMethod('applyBrowserTheme');
+
+  /// v3.4.6.i — the Browser bar's home button: HOME_URL (never blank).
+  Future<void> openBrowserHome() => _browser.invokeMethod('openHome');
+
+  /// v3.4.6.i — the Sources Hub's index.json reader: an https-only GET with
+  /// a 6 s hard deadline and a 256 KiB cap (returns '' when refused/offline).
+  Future<String> fetchUrl(String url) async =>
+      (await _browser.invokeMethod('fetchUrl', {'url': url})) as String? ?? '';
+
   // ── anantplay/settings ───────────────────────────────────────────────────
 
   Future<SettingsMirror> loadSettings() async {
@@ -989,6 +1035,19 @@ class AnantPlay {
 
   Future<bool> getBool(String key, {bool def = false}) async =>
       await _settings.invokeMethod('getBool', {'key': key, 'def': def});
+
+  /// v3.4.6.i — the RAW typed readers (the Java handlers have existed since
+  /// v3.4.6.h; the Dart half was never wired, so every string round-trip had
+  /// to go through the whitelisted `getAll` mirror — probe 68's `string ✗`).
+  /// A string (or int) now reads RAW from SharedPreferences like the bool leg,
+  /// independent of the mirror's key coverage.
+  Future<String> getString(String key, {String def = ''}) async =>
+      (await _settings.invokeMethod('getString', {'key': key, 'def': def}))
+          as String? ?? def;
+
+  Future<int> getInt(String key, {int def = 0}) async =>
+      (await _settings.invokeMethod('getInt', {'key': key, 'def': def}))
+          as int? ?? def;
 
   Future<String> exportBackup() async => await _settings.invokeMethod('exportBackup');
 

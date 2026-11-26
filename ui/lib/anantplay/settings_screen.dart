@@ -17,6 +17,7 @@ import 'package:material_ui/material_ui.dart' hide Icons;
 import 'package:material_ui/material_ui.dart' as mi show Icons;
 
 import 'package:anantplay_ui/mornye_ui/theme/app_tokens.dart';
+import 'package:anantplay_ui/mornye_ui/theme/mornye_icons.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/settings_group.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/app_switch.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_chrome.dart';
@@ -117,12 +118,24 @@ class SettingsScreen extends StatelessWidget {
                   SettingsMirror.kContinueWatching, v),
             ),
           ]),
+          // v3.4.6.i — PERMANENT LAW #1: the Auto-update ON/OFF switch is
+          // GONE (auto-updating is mandatory, users can never turn it off);
+          // only the honest manual "Check for update now" row remains.
           SettingsGroup(children: [
+            // v3.4.6.i — the Midnight dimmer is a Dark/AMOLED feature (the
+            // buildAppTheme dim overlay only arms when brightness == dark).
+            // In Light mode it used to sit as a dead no-op switch that looked
+            // broken when tapped; now it shows a CLEAN disabled state with an
+            // explicit caption, and the Dim amount slider goes inert too.
             _SwitchRow(
               title: 'Midnight night dimmer',
               value: s.b(SettingsMirror.kMidnightDimmer, false),
               onChanged: (v) =>
                   scope.putBool(SettingsMirror.kMidnightDimmer, v),
+              enabled: Theme.of(context).brightness == Brightness.dark,
+              subtitle: Theme.of(context).brightness == Brightness.dark
+                  ? null
+                  : 'Active in Dark & AMOLED modes',
             ),
             _SliderRow(
               title: 'Dim amount',
@@ -131,11 +144,7 @@ class SettingsScreen extends StatelessWidget {
               onChanged: (v) => scope.putInt(
                   SettingsMirror.kMidnightDimPct,
                   (v * 70).round().clamp(10, 70)),
-            ),
-            _SwitchRow(
-              title: 'Auto-update',
-              value: s.autoUpdate,
-              onChanged: (v) => scope.putBool(SettingsMirror.kAutoUpdate, v),
+              enabled: Theme.of(context).brightness == Brightness.dark,
             ),
             _ActionRow(
               title: 'Check for update now',
@@ -200,7 +209,7 @@ class SettingsScreen extends StatelessWidget {
   Future<void> _licenses(BuildContext context) async {
     // v3.4.6.h — the LIVE installed version (the v3.4.6.g page carried a
     // stale '3.4.6.d' literal through three releases).
-    String version = '3.4.6.h';
+    String version = '3.4.6.i';
     try {
       final info = await AnantPlay.instance.appInfo();
       if (info.versionName.isNotEmpty) version = info.versionName;
@@ -491,9 +500,10 @@ class _SubtitleStudioRows extends StatelessWidget {
         // v3.4.6.h — ALL FOUR shipped faces (Cinema Bold was missing from
         // the v3.4.6.g selector) — every choice is a distinct TextStyle via
         // the SHARED resolveSubtitleTextStyle the player overlay uses.
-        labels: const [
-          'Noto Sinhala', 'System', 'Serif', 'Cinema Bold'
-        ],
+        // v3.4.6.i — SHORTENED labels (Noto / System / Serif / Bold) so the
+        // four-segment control can never ellipsize or overlap on a narrow
+        // phone; the full names stay in the row subtitle below the control.
+        labels: const ['Noto', 'System', 'Serif', 'Bold'],
         selected: kSubtitleFontChoices
             .indexOf(s.s(SettingsMirror.kFontFamily, 'noto'))
             .clamp(0, 3),
@@ -570,6 +580,10 @@ class _AnantPlayRows extends StatelessWidget {
     final state = AppState.of(context);
     final s = state.settings;
     return Column(children: [
+      // v3.4.6.i — the OFFICIAL ANANTPLAY UPDATE PILL (Settings side): the
+      // installed me.champdev.weblock vs the latest AnantPlay/android release,
+      // 1-tap Update Now through the fixed in-app installer.
+      const _OfficialAnantPlayUpdateRow(),
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
         child: Align(
@@ -609,6 +623,82 @@ class _AnantPlayRows extends StatelessWidget {
         onTap: () => AppState.of(context).scope.rerunOnboarding(),
       ),
     ]);
+  }
+}
+
+/// v3.4.6.i — the Settings-side official-AnantPlay update pill: loads the
+/// native officialUpdateFacts once, and when a strictly newer official
+/// release exists renders the sleek `AnantPlay Update Available (vX → vY) —
+/// Update Now` row (1 tap rides the fixed installer).
+class _OfficialAnantPlayUpdateRow extends StatefulWidget {
+  const _OfficialAnantPlayUpdateRow();
+
+  @override
+  State<_OfficialAnantPlayUpdateRow> createState() =>
+      _OfficialAnantPlayUpdateRowState();
+}
+
+class _OfficialAnantPlayUpdateRowState
+    extends State<_OfficialAnantPlayUpdateRow> {
+  OfficialAnantPlayUpdate? _facts;
+
+  @override
+  void initState() {
+    super.initState();
+    AnantPlay.instance.officialUpdateFacts().then((facts) {
+      if (mounted) setState(() => _facts = facts);
+    }).catchError((Object _) {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final facts = _facts;
+    if (facts == null || !facts.updateAvailable) {
+      return const SizedBox(width: double.infinity);
+    }
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      child: Material(
+        color: scheme.primaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => AnantPlay.instance.installOfficialAnantPlay(),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+            child: Row(
+              children: [
+                Icon(mi.Icons.upgrade_rounded,
+                    color: scheme.primary, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'AnantPlay Update Available (${facts.installed} → ${facts.latest})',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(72, 44),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () =>
+                      AnantPlay.instance.installOfficialAnantPlay(),
+                  child: const Text('Update Now'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -695,7 +785,10 @@ class _BrowserRows extends StatelessWidget {
         title: 'Search engine',
         // v3.4.6.d — GOOGLE IS THE DEFAULT (the v3.4.6.c default 'ddg'
         // resolves to Google too through AppPrefs.normalizeSearchEngine).
-        labels: const ['Google', 'DuckDuckGo', 'Startpage', 'Brave'],
+        // v3.4.6.i — SHORTENED engine labels (Google / DDG / Start / Brave)
+        // so four choices never ellipsize on a narrow phone; the full names
+        // ride in the row subtitle.
+        labels: const ['Google', 'DDG', 'Start', 'Brave'],
         selected: ['google', 'ddg', 'startpage', 'brave']
             .indexOf(s.s(SettingsMirror.kSearchEngine, 'google'))
             .clamp(0, 3),
@@ -987,7 +1080,11 @@ class _ExpandableGroupState extends State<_ExpandableGroup> {
             iconColor: scheme.onSurfaceVariant,
             title: Row(
               children: [
-                Icon(widget.icon, size: 20, color: scheme.primary),
+                // v3.4.6.i — PERMANENT LAW #3: the group glyphs ride the crisp
+                // Mornye/Cupertino remap (mornyeIconFor) — zero mismatched
+                // boxy Material icons on Settings.
+                Icon(mornyeIconFor(widget.icon),
+                    size: 20, color: scheme.primary),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(widget.title,
@@ -1486,12 +1583,17 @@ class _SliderRow extends StatelessWidget {
     required this.value,
     required this.label,
     required this.onChanged,
+    this.enabled = true,
   });
 
   final String title;
   final double value;
   final String label;
   final ValueChanged<double> onChanged;
+
+  /// v3.4.6.i — inert-but-visible slider (the Midnight dim amount in Light
+  /// mode): the control stays on screen in its clean disabled color.
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -1512,7 +1614,7 @@ class _SliderRow extends StatelessWidget {
             flex: 2,
             child: Slider(
               value: value.clamp(0.0, 1.0),
-              onChanged: onChanged,
+              onChanged: enabled ? onChanged : null,
               activeColor: scheme.primary,
               inactiveColor:
                   scheme.onSurface.withValues(alpha: 0.12),
@@ -1532,11 +1634,24 @@ class _SliderRow extends StatelessWidget {
 }
 
 class _SwitchRow extends StatelessWidget {
-  const _SwitchRow({required this.title, required this.value, required this.onChanged});
+  const _SwitchRow({
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+    this.enabled = true,
+  });
 
   final String title;
   final bool value;
   final ValueChanged<bool> onChanged;
+
+  /// v3.4.6.i — an optional caption under the title (the disabled-state
+  /// explanation row) and an [enabled] flag so a setting that is a no-op in
+  /// the current mode can show a CLEAN disabled state instead of a dead
+  /// no-op switch that looks broken when tapped.
+  final String? subtitle;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -1546,7 +1661,11 @@ class _SwitchRow extends StatelessWidget {
     // settings pages place their switches.
     return SettingsItem(
       title: title,
-      trailing: AppSwitch(value: value, onChanged: onChanged),
+      subtitle: subtitle,
+      trailing: AppSwitch(
+        value: value,
+        onChanged: enabled ? onChanged : null,
+      ),
     );
   }
 }
@@ -1632,10 +1751,10 @@ class _VersionFooter extends StatelessWidget {
     // v3.4.6.g footer said 3.4.6.g inside every later release).
     return FutureBuilder<AppBuildInfo>(
       future: AnantPlay.instance.appInfo(),
-      initialData: const AppBuildInfo(versionName: '3.4.6.h', versionCode: 30414),
+      initialData: const AppBuildInfo(versionName: '3.4.6.i', versionCode: 30415),
       builder: (context, snap) {
         final info = snap.data ??
-            const AppBuildInfo(versionName: '3.4.6.h', versionCode: 30414);
+            const AppBuildInfo(versionName: '3.4.6.i', versionCode: 30415);
         return Padding(
           padding: const EdgeInsets.only(top: 18, bottom: 6),
           child: Center(

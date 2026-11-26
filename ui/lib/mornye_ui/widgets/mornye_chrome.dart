@@ -589,6 +589,8 @@ class MornyeTabBar extends ConsumerWidget {
     this.hiddenIconIndices = const {},
     this.contentOpacity = const AlwaysStoppedAnimation(1),
     this.fold = const AlwaysStoppedAnimation(0),
+    this.docked = false,
+    this.showLabels = true,
   });
 
   /// Side of the circle the glass folds into.
@@ -600,6 +602,15 @@ class MornyeTabBar extends ConsumerWidget {
   final bool blurEnabled;
   final bool liquidGlass;
   final Set<int> hiddenIconIndices;
+
+  /// v3.4.6.i — the Settings ⭆ Bottom bar contract: `docked` renders the
+  /// full-width edge-to-edge bar (Settings ⭆ Bottom bar = Docked), while the
+  /// default floating capsule stays a rounded glass pill with margins.
+  final bool docked;
+
+  /// v3.4.6.i — `showLabels: false` hides the text labels under the four
+  /// navigation icons (Settings ⭆ Tab labels = OFF). Icons stay untouched.
+  final bool showLabels;
 
   /// Fade only the foreground so the backdrop can keep sampling the page.
   final Animation<double> contentOpacity;
@@ -627,12 +638,13 @@ class MornyeTabBar extends ConsumerWidget {
     final contrastBlocked = ref.watch(
       mornyeGlassContrastBlockedProvider(MediaQuery.highContrastOf(context)),
     );
-    final floating = usesLiquidGlass(
-      context,
-      blurEnabled: blurEnabled,
-      liquidGlass: liquidGlass,
-      contrastBlocked: contrastBlocked,
-    );
+    final floating = !docked &&
+        usesLiquidGlass(
+          context,
+          blurEnabled: blurEnabled,
+          liquidGlass: liquidGlass,
+          contrastBlocked: contrastBlocked,
+        );
     return Padding(
       padding: EdgeInsets.symmetric(vertical: floating ? 8 : 0),
       child: MornyeSelectionPill(
@@ -645,7 +657,7 @@ class MornyeTabBar extends ConsumerWidget {
         selectedIndex: selectedIndex,
         onChanged: onSelected,
         padding: EdgeInsets.symmetric(
-          horizontal: floating ? 6 : 5,
+          horizontal: floating ? 6 : (docked ? 4 : 5),
           vertical: 5,
         ),
         interactionBuilder: (context, progress, child) => Stack(
@@ -716,19 +728,23 @@ class MornyeTabBar extends ConsumerWidget {
                           ),
                   ),
                 ),
-                const SizedBox(height: 2),
-                MornyeSelectionForeground(
-                  child: Text(
-                    destinations[index].label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      fontSize: floating ? 11 : null,
-                      fontWeight: FontWeight.w600,
-                      color: selected ? scheme.primary : scheme.onSurface,
+                // v3.4.6.i — Tab labels OFF hides the text under the icons
+                // (the Semantics label below keeps accessibility).
+                if (showLabels) ...[
+                  const SizedBox(height: 2),
+                  MornyeSelectionForeground(
+                    child: Text(
+                      destinations[index].label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontSize: floating ? 11 : null,
+                        fontWeight: FontWeight.w600,
+                        color: selected ? scheme.primary : scheme.onSurface,
+                      ),
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
