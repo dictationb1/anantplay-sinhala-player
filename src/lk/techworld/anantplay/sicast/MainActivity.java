@@ -2184,14 +2184,22 @@ public class MainActivity extends FlutterActivity {
             }
             @Override public boolean receiverUp() { return ReceiverService.isUp(); }
             @Override public boolean armReceiver() {
-                ReceiverService.arm(ctx, "deep-probe");
-                for (int i = 0; i < 20 && !ReceiverService.isUp(); i++) {
-                    try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                // v3.4.6.h — THE RE-ARM RETRY (live Android 36): a start handed
+                // to a service instance that was still tearing down needs one
+                // more kick after the destroy completes. Two bounded attempts,
+                // each verified by BOTH isUp() and a published port; an instance
+                // that truly cannot arm still returns false (an honest FAIL).
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    ReceiverService.arm(ctx, "deep-probe");
+                    for (int i = 0; i < 40 && !ReceiverService.isUp(); i++) {
+                        try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                    }
+                    // v3.4.6.g — "up" is not yet "serving": wait for the published
+                    // port too, so B1/B3/B4 read a receiver that can answer HTTP.
+                    if (ReceiverService.isUp() && awaitPort() > 0) return true;
+                    try { Thread.sleep(300); } catch (InterruptedException ignored) { }
                 }
-                // v3.4.6.g — "up" is not yet "serving": wait for the published
-                // port too, so B1/B3/B4 read a receiver that can answer HTTP.
-                awaitPort();
-                return ReceiverService.isUp();
+                return ReceiverService.isUp() && ReceiverService.port() > 0;
             }
             @Override public boolean stopReceiver() {
                 ReceiverService.requestStop(ctx);

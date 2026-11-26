@@ -278,3 +278,58 @@ shape (A6 B9 C16 D6 E13 F6 G8) with the two upgraded probes (47, 57).
 
 **සංස්කරණය:** `3.4.6.h` · `versionCode 30414` · `docs/latest.json` තවමත් සජීවී
 `3.4.6.g` ස්ථරයේ (නිකුතු වැඩපිළිවෙළ මගින් නිකුත් වන විට පමණක් එය .h ලෙස ලියයි).
+
+---
+
+## INDEPENDENT AUDIT ADDENDUM (Arena, on top of the shipped archive)
+
+The archive was audited against the four Permanent Laws before anything was
+committed. Four findings were fixed in the source, and the hosted Android 36
+KVM emulator then exposed three further REAL defects that the archive's own
+report did not mention. All seven are fixed here; none are papered over.
+
+### Pre-push audit fixes
+
+1. **Trap #1 — redundant startup check.** `registerDefaultNetworkCallback()`
+   replays `onAvailable` synchronously, so an already-online cold launch ran a
+   second, redundant check after the launch check. `wasOffline` is now seeded
+   from `isOnlineNow()` (validated active network), so only a real
+   offline→online transition triggers the instant check; a launch made offline
+   still fires the moment the network returns. (`ACCESS_NETWORK_STATE` was
+   already present; registration and unregistration were already fully guarded.)
+2. **Trap #2 — remaining raw Long reads.** Every write path already went
+   through `AppPrefs.putTyped()`, but two reads bypassed `safeGetLong()`:
+   `PlayActivity`'s auto-resume slot and `SelfUpdater`'s `lastCheck` /
+   `lastFailedCheck` throttle stamps. Both now read through
+   `AppPrefs.safeGetLong()`. **Zero** raw `prefs.getLong()`/`getInt()` remain.
+3. **Trap #4 — Law #3 proven positively.** The H11 icon probe used a
+   three-glyph blocklist resolved from `Icons.science*` / `Icons.biotech`. It is
+   now an exact semantic whitelist (cast → browser → play-url → Test Player,
+   all four unique, length exactly 4), which fails structurally on ANY unrelated
+   glyph, and `ui/lib` carries zero chemistry-flask glyph references.
+
+### Defects found by the live Android 36 KVM emulator run (all fixed)
+
+4. **Probe 57 — "write did not land" (4 Long keys).** `probeG1` chose its
+   mutation from the *stored* value; a Long key with no stored value fell into
+   the "absent → Boolean probe" branch, and `putTyped()` correctly refused to
+   store a Boolean in a Long slot, so the read-back was null. The mutation now
+   follows the KEY's canonical type (`AppPrefs.isLongKey`), so the audit proves
+   the real contract instead of failing on its own probe value.
+5. **Probe 9/10 — receiver dead after Stop → Start (the real defect).** A start
+   delivered to a service instance that was still tearing down from
+   `stopSelf()` never re-runs `onCreate()`, so `running` stayed `null` with a
+   closed socket: `isUp()` false, `port()` -1, DLNA `/dlna/desc.xml` and `/info`
+   unreachable. `ReceiverService` now has an idempotent `armCore()` reached from
+   BOTH `onCreate()` and a re-attach leg in `onStartCommand()`; it refuses on a
+   standing user stop, no-ops when another live instance already serves, and on
+   re-entry recycles the stale socket + discovery pillars before rebinding.
+   `stopNow()` and the `ACTION_STOP` leg now clear the static registration
+   immediately, so a stop is deterministic.
+6. **`armReceiver()` re-arm retry.** The probe hook now makes two bounded,
+   verified attempts (`isUp()` **and** a published port), so a slow emulator
+   destroy does not produce a false "DLNA/mDNS down" verdict — a receiver that
+   truly cannot arm still reports an honest FAIL.
+7. **Accept loop hardening.** `ReceiverServer.serve()` now also catches
+   `Throwable`: a runtime fault could previously leave the socket bound and the
+   port published while nothing accepted requests (HTTP timeouts).

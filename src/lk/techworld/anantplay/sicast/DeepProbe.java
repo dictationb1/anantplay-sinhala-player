@@ -1283,7 +1283,16 @@ public final class DeepProbe {
                 // a type-matched mutation: bool → flipped; int/long → 31416;
                 // string → a probe string (enum normalizers repair it to the
                 // default — that repair IS the contract being proven).
-                Object junk = before instanceof Boolean
+                // v3.4.6.h — THE CANONICAL-TYPE MUTATION (the "write did not
+                // land" defect probes 57 caught live on Android 36): a Long key
+                // with NO stored value used to fall into the "absent → bool
+                // probe" branch, and putTyped() then CORRECTLY refused to store
+                // a Boolean in a Long slot — so the read-back was null and the
+                // audit reported a false "write did not land". The mutation must
+                // follow the KEY's canonical type, never the (absent) value's.
+                Object junk = AppPrefs.isLongKey(key)
+                        ? Long.valueOf(31416L)             // Long slot → always a Long
+                        : before instanceof Boolean
                         ? (Boolean.TRUE.equals(before) ? Boolean.FALSE : Boolean.TRUE)
                         : before instanceof Integer ? Integer.valueOf(31416)
                         : before instanceof Long ? Long.valueOf(31416L)

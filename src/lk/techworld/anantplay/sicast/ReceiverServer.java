@@ -198,6 +198,11 @@ public final class ReceiverServer {
                 t.start();
             } catch (IOException e) {
                 if (running) Diag.w("server", "accept: " + e.getMessage());
+            } catch (Throwable t) {
+                // v3.4.6.h — NOTHING may kill the accept loop: a runtime fault
+                // here used to leave the socket bound and the port published but
+                // silently unserved (HTTP timeouts, probes 9/10).
+                if (running) Diag.w("server", "accept (unexpected): " + t);
             }
         }
     }
