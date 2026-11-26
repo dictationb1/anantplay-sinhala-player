@@ -27,6 +27,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
+import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_notification.dart';
 import 'package:anantplay_ui/mornye_ui/theme/mornye_icons.dart';
 
 import 'action_feedback.dart';
@@ -93,7 +94,8 @@ class _HelpScreenState extends State<HelpScreen> {
         final ms = (outcome['ms'] as num?)?.toInt() ?? 0;
         _upsertFeed(id,
             '${pass ? '✓' : '✗'} #$id ${pass ? 'PASS' : 'FAIL'} ($ms ms)',
-            done: true);
+            done: true,
+            name: ((outcome['name'] ?? '') as String));
       }
     });
     // v3.4.6.g — the START frames: "▶ Checking #34 Security hardening flags…"
@@ -101,7 +103,7 @@ class _HelpScreenState extends State<HelpScreen> {
       if (!mounted || _running != true) return;
       final id = (frame['id'] as num?)?.toInt() ?? 0;
       final name = (frame['name'] ?? '') as String;
-      _upsertFeed(id, '▶ Checking #$id $name…', done: false);
+      _upsertFeed(id, '▶ Checking #$id $name…', done: false, name: name);
     });
   }
 
@@ -112,23 +114,33 @@ class _HelpScreenState extends State<HelpScreen> {
   // feature being verified live under the progress bar.
   final List<int> _feedIds = <int>[];
   final List<String> _feedLines = <String>[];
+  /// v3.4.6.j — the per-probe NAME ledger (index-aligned with [_feedIds]):
+  /// the Mornye status row shows the probe's own title on the done row too,
+  /// even though its Checking line was replaced in place.
+  final List<String> _feedNames = <String>[];
   final ScrollController _feedScroll = ScrollController();
   StreamSubscription<Map<dynamic, dynamic>>? _startSub;
 
-  void _upsertFeed(int id, String line, {required bool done}) {
+  void _upsertFeed(int id, String line, {required bool done, String name = ''}) {
     if (!mounted) return;
     setState(() {
       final i = _feedIds.indexOf(id);
       if (i >= 0) {
         _feedLines[i] = line;
+        // v3.4.6.j — the done row keeps its probe NAME: the Checking line it
+        // was looked up from is REPLACED in place by the done line, so the
+        // name rides its own ledger (never a post-hoc regex over the lines).
+        if (name.isNotEmpty) _feedNames[i] = name;
       } else {
         _feedIds.add(id);
         _feedLines.add(line);
+        _feedNames.add(name);
       }
       // cap the ledger (the run is bounded; keep the newest 128 lines).
       if (_feedLines.length > 128) {
         _feedIds.removeRange(0, _feedIds.length - 128);
         _feedLines.removeRange(0, _feedLines.length - 128);
+        _feedNames.removeRange(0, _feedNames.length - 128);
       }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -229,14 +241,16 @@ class _HelpScreenState extends State<HelpScreen> {
     final failed = all.length - passed;
     // v3.4.6.i — the ONE completion banner: shown ONLY at the very end of
     // the FULL run (the intermediate native-layer landing passes silent).
+    // v3.4.6.j — the completion banner rides the TOP floating glass pill
+    // (the SnackBar is dead — Law #2). The honest PASS/FAIL counts stay.
     if (mounted && !silent) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
+      showMornyeGlassNotification(
+        context,
+        message:
             '$passed/${all.length} PASS · $failed FAIL — honest report '
-            'auto-copied ✓${failed > 0 ? ' (see every FAIL at the top)' : ''}'),
-        backgroundColor: failed > 0 ? const Color(0xFF46201E) : const Color(0xFF1E4634),
-        duration: const Duration(seconds: 5),
-      ));
+            'auto-copied ✓${failed > 0 ? ' (see every FAIL at the top)' : ''}',
+        error: failed > 0,
+      );
     }
   }
 
@@ -265,6 +279,7 @@ class _HelpScreenState extends State<HelpScreen> {
       _done = 0;   // the live counter restarts with the run
       _feedIds.clear();
       _feedLines.clear();   // v3.4.6.g — the ticker restarts with the run
+      _feedNames.clear();   // v3.4.6.j — the name ledger restarts too
     });
     try {
       await AnantPlay.instance.runDeepProbe();
@@ -297,8 +312,7 @@ class _HelpScreenState extends State<HelpScreen> {
       await AnantPlay.instance.copyToClipboard(report);
     } catch (_) {}
     if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Report copied')));
+      showMornyeGlassNotification(context, message: 'Report copied');
     }
   }
 
@@ -312,8 +326,7 @@ class _HelpScreenState extends State<HelpScreen> {
     if (report.isEmpty) return;
     await AnantPlay.instance.shareText(report);
     if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Sharing the report…')));
+      showMornyeGlassNotification(context, message: 'Sharing the report…');
     }
   }
 
@@ -423,33 +436,17 @@ class _HelpScreenState extends State<HelpScreen> {
                         controller: _feedScroll,
                         shrinkWrap: true,
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
+                            horizontal: 8, vertical: 8),
                         itemCount: _feedLines.length,
                         itemBuilder: (context, i) {
                           final line = _feedLines[i];
-                          final pass = line.startsWith('✓');
-                          final fail = line.startsWith('✗');
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 1.5),
-                            child: Text(
-                              line,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                fontFamily: 'RobotoMono',
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures()
-                                ],
-                                color: fail
-                                    ? const Color(0xFFFF8A9B)
-                                    : pass
-                                        ? const Color(0xFF7CE38B)
-                                        : scheme.onSurfaceVariant,
-                                fontWeight: fail ? FontWeight.w700 : FontWeight.w500,
-                              ),
-                            ),
-                          );
+                          // v3.4.6.j — the row carries the probe's OWN name
+                          // from the ledger (the Checking line was replaced
+                          // in place when it flipped, so a regex lookup over
+                          // the remaining lines would find nothing).
+                          final name =
+                              i < _feedNames.length ? _feedNames[i] : '';
+                          return _ProbeStatusRow(line: line, name: name);
                         },
                       ),
                     ),
@@ -595,8 +592,91 @@ class _ActionCard extends StatelessWidget {
   }
 }
 
+/// v3.4.6.j — ONE LIVE FEED ROW (video_2 02:20–02:45): the raw
+/// `✓ #84 PASS (0 ms)` ASCII clutter is replaced on screen by a sleek Mornye
+/// status row — a crisp circular green/red VECTOR badge, the probe number +
+/// its running title, and a compact pill with the duration. The structured
+/// `✓/✗` text itself still feeds the auto-copied clipboard report (Law #5).
+class _ProbeStatusRow extends StatelessWidget {
+  const _ProbeStatusRow({required this.line, this.name = ''});
+
+  final String line;
+
+  /// v3.4.6.j — the probe's own title (from its Checking line).
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final pass = line.startsWith('✓');
+    final fail = line.startsWith('✗');
+    final checking = line.startsWith('▶');
+    final id = RegExp(r'#(\d+)').firstMatch(line)?.group(1) ?? '';
+    final ms = RegExp(r'\((\d+) ms\)').firstMatch(line)?.group(1) ?? '';
+    final title = name.isNotEmpty ? name : (checking ? line : '');
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          // the crisp circular vector badge (never a raw ASCII glyph)
+          Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: pass
+                  ? const Color(0xFF63D668).withValues(alpha: 0.18)
+                  : (fail
+                      ? scheme.error.withValues(alpha: 0.18)
+                      : scheme.primary.withValues(alpha: 0.12)),
+            ),            child: Icon(
+              pass
+                  ? Icons.check_rounded
+                  : (fail ? Icons.close_rounded : Icons.autorenew_rounded),
+              size: 12,
+              color: pass
+                  ? const Color(0xFF63D668)
+                  : (fail ? scheme.error : scheme.primary),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              title.isEmpty
+                  ? 'Probe #$id'
+                  : (checking ? 'Checking #$id — $title' : ' #$id · $title'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 11.5,
+                fontWeight: fail ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+          if (ms.isNotEmpty)
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: scheme.onSurface.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text('$ms ms',
+                  style: TextStyle(
+                      color: scheme.onSurfaceVariant,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// One domain's collapsible card: header (code · title · n/n PASS) + the
-/// probe rows (PASS ✓ / FAIL ✗ + ms + the detail line).
+/// probe rows (the Mornye vector badges + ms + the detail line).
 class _DomainCard extends StatelessWidget {
   const _DomainCard({
     required this.domain,

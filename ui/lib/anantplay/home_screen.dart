@@ -22,6 +22,7 @@ import 'package:anantplay_ui/mornye_ui/widgets/animation_utils.dart';
 import 'action_feedback.dart';
 import 'app_state.dart';
 import 'bridge.dart';
+import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_notification.dart';
 import 'package:anantplay_ui/main.dart';
 import 'settings_mirror.dart';
 import 'onboarding_screen.dart';
@@ -681,10 +682,9 @@ class _QuickActions extends StatelessWidget {
                     onPressed: () {
                       final url = controller.text.trim();
                       if (!url.startsWith('http')) {
-                        ScaffoldMessenger.of(sheetContext).showSnackBar(
-                            const SnackBar(
-                                content: Text(
-                                    'Paste a http(s) link first')));
+                        showMornyeGlassNotification(sheetContext,
+                            message: 'Paste a http(s) link first',
+                            error: true);
                         return;
                       }
                       Navigator.pop(sheetContext);
@@ -897,6 +897,13 @@ class _ContinueWatching extends StatelessWidget {
         ),
       );
     }
+    // v3.4.6.j — THE HISTORY VIEW (video_2 05:20): 'list' renders the
+    // full-width rows exactly as before; 'grid' reflows the same rows into
+    // a 2-column poster-grid (the exact Mornye History View pattern).
+    final bool grid =
+        AppState.of(context).settings.s(SettingsMirror.kHistoryView, 'list') ==
+            'grid';
+    final shown = history.take(6).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -924,17 +931,32 @@ class _ContinueWatching extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        for (final it in history.take(6))
-          _HistoryRow(item: it),
+        if (grid)
+          // the grid: 2 columns of compact poster cards
+          GridView.count(
+            crossAxisCount: 2,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            childAspectRatio: 1.55,
+            physics: const NeverScrollableScrollPhysics(),
+            shrinkWrap: true,
+            children: [for (final it in shown) _HistoryRow(item: it, grid: true)],
+          )
+        else
+          for (final it in shown) _HistoryRow(item: it),
       ],
     );
   }
 }
 
 class _HistoryRow extends StatelessWidget {
-  const _HistoryRow({required this.item});
+  const _HistoryRow({required this.item, this.grid = false});
 
   final HistoryItem item;
+
+  /// v3.4.6.j — the History-view mode this row renders in (grid compacts
+  /// the same content into a poster-card shape).
+  final bool grid;
 
   @override
   Widget build(BuildContext context) {
@@ -1000,17 +1022,20 @@ class _HistoryRow extends StatelessWidget {
                 else
                   Icon(Icons.replay_rounded,
                       color: scheme.onSurfaceVariant, size: 16),
-                // v3.4.6.c — per-row delete (Dismissible-style tap target).
-                IconButton(
-                  tooltip: 'Remove',
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(Icons.close_rounded,
-                      size: 16, color: scheme.onSurfaceVariant),
-                  onPressed: () {
-                    AnantPlay.instance.removeHistory(item.key);
-                    AppState.of(context).scope.refresh();
-                  },
-                ),
+                // v3.4.6.c — per-row delete (Dismissible-style tap target;
+                // hidden in the compact grid card — the list view owns the
+                // per-row delete surface).
+                if (!grid)
+                  IconButton(
+                    tooltip: 'Remove',
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(Icons.close_rounded,
+                        size: 16, color: scheme.onSurfaceVariant),
+                    onPressed: () {
+                      AnantPlay.instance.removeHistory(item.key);
+                      AppState.of(context).scope.refresh();
+                    },
+                  ),
               ],
             ),
           ),

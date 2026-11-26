@@ -1652,7 +1652,11 @@ public final class DeepProbe {
             && dart.contains("ZERO-DOUBLE-DOWNLOAD")
             && !dart.contains("if (!pending.pending) {\n      await AnantPlay.instance.checkForUpdate();")
             && dart.contains("'Install Downloaded Update'")
-            && dart.contains("'Open Installer Again'");
+            // v3.4.6.j — the installer handoff contract: 'Installer Open…'
+            // (3 s disabled) → 'Install Downloaded Update' (the < 50 ms
+            // cached-APK re-open; the red 'Update Now' flash is dead).
+            && dart.contains("'Installer Open…'")
+            && !dart.contains("'Open Installer Again'");
         boolean cacheReuse = upd.contains("cached APK already matches SHA-256");
         o.pass = handoffSurvives && dartNoRecheck && cacheReuse;
         o.detail = "handoff keeps cache+metadata " + (handoffSurvives ? "✓" : "✗")
@@ -1755,16 +1759,19 @@ public final class DeepProbe {
      * I6 — THE BROWSER NEVER-BLANK CONTRACT: the headless WebView boots to
      * HOME_URL (https://www.google.com/) when no last-URL and no creation
      * URL exist, and the container/WebView colors follow the live theme
-     * (#FFFFFF light / #0F172A dark). (Pure-engine lab: source contracts.)
+     * (#FFFFFF light / #0F172A dark). v3.4.6.j — the bootstrap lane is now
+     * ENGINE-AWARE: the home URL is homeUrlFor(prefs) (google/ddg/startpage/
+     * brave, the instant switch), still falling back to HOME_URL — never a
+     * blank WebView. (Pure-engine lab: source contracts.)
      */
     static Outcome probeI6(Listener l) {
         Outcome o = new Outcome(0, "I", "");
         String src = readOrEmpty("src/lk/techworld/anantplay/sicast/WebBrowserView.java");
         boolean boot = sourceProvable(src)
-            && src.contains("load(bootstrapUrl(last))")
-            && src.contains("static String bootstrapUrl(String last)")
             && src.contains("HOME_URL = \"https://www.google.com/\"")
-            && src.contains("return last != null && !last.isEmpty() ? last : HOME_URL;");
+            && src.contains("static String homeUrlFor(")
+            && src.contains("return last != null && !last.isEmpty() ? last : HOME_URL;")
+            && src.contains("load(last != null && !last.isEmpty() ? last : homeUrlFor(prefs))");
         boolean themed = src.contains("themedBackground()")
             && src.contains("0xFFFFFFFF") && src.contains("0xFF0F172A");
         String dart = readOrEmpty("ui/lib/anantplay/browser_screen.dart");

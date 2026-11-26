@@ -275,12 +275,24 @@ void main() {
     });
   });
 
+  /// v3.4.6.j — the Accent row (the # Color Studio + the Material You toggle)
+  /// lives on the Appearance sub-page: open it and scroll the accent row
+  /// into the viewport (the sub-page list is lazy).
+  Future<void> toAccentRow(WidgetTester tester) async {
+    await tester.tap(find.text('Appearance'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('#'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.text('#'));
+    await tester.pumpAndSettle();
+  }
+
   group('v3.4.6.g # Custom Color Studio', () {
     testWidgets('tapping the # button opens the studio with grid + hex + Apply Color',
         (tester) async {
       await tester.pumpWidget(quiet(const SettingsScreen()));
       await tester.pump();
-      await tester.ensureVisible(find.text('#'));
+      await toAccentRow(tester);
       await tester.tap(find.text('#'), warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(find.text('Color Studio'), findsOneWidget);
@@ -293,7 +305,7 @@ void main() {
       settingsPuts.clear();
       await tester.pumpWidget(quiet(const SettingsScreen()));
       await tester.pump();
-      await tester.ensureVisible(find.text('#'));
+      await toAccentRow(tester);
       await tester.tap(find.text('#'), warnIfMissed: false);
       await tester.pumpAndSettle();
       // tap the first swatch in the grid (a bare circle inside the sheet).
@@ -313,7 +325,7 @@ void main() {
       settingsPuts.clear();
       await tester.pumpWidget(quiet(const SettingsScreen()));
       await tester.pump();
-      await tester.ensureVisible(find.text('#'));
+      await toAccentRow(tester);
       await tester.tap(find.text('#'), warnIfMissed: false);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Use preset'), warnIfMissed: false);
@@ -331,6 +343,14 @@ void main() {
       await tester.pumpAndSettle();
       // switch to the Settings tab through the REAL tab bar
       await tester.tap(find.text('Settings'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      // v3.4.6.j — the Material You section lives on the Appearance
+      // sub-page: open it and scroll the accent row into view.
+      await tester.tap(find.text('Appearance'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('#'), 200,
+          scrollable: find.byType(Scrollable).first);
+      await tester.ensureVisible(find.text('#'));
       await tester.pumpAndSettle();
     }
 
@@ -362,7 +382,9 @@ void main() {
       await tester.pumpWidget(quiet(const HelpScreen()));
       await tester.pump();
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
-      await tester.pump();
+      // v3.4.6.j — the staggered entrance + the tap gesture both need a
+      // couple of frames before _run() has armed the feed listeners.
+      await tester.pump(const Duration(milliseconds: 300));
       // A start frame: "▶ Checking #47 Worker /health + /api/resolve live…"
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'anantplay/troubleshoot/events',
@@ -375,7 +397,11 @@ void main() {
         (ByteData? data) {},
       );
       await tester.pump(const Duration(milliseconds: 60));
-      expect(find.textContaining('▶ Checking #47'), findsOneWidget);
+      // v3.4.6.j — the live feed row is the Mornye status card now: the
+      // circular spinner badge + 'Checking #47 — Worker /health + …' (the
+      // raw '▶ Checking #47 …' ASCII line lives in the auto-copied
+      // clipboard report — Law #5 — not on screen).
+      expect(find.textContaining('Checking #47'), findsOneWidget);
       // Its done frame flips the line in place to ✓/✗.
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'anantplay/troubleshoot/events',
@@ -391,7 +417,12 @@ void main() {
         (ByteData? data) {},
       );
       await tester.pump(const Duration(milliseconds: 60));
-      expect(find.textContaining('✗ #47 FAIL (8 ms)'), findsOneWidget);
+      // The done frame flips the row in place: the name carries over (looked
+      // up from its own Checking line), the red badge + the 8 ms pill land.
+      expect(find.textContaining('Checking #47'), findsNothing,
+          reason: 'the done frame flips the checking row in place');
+      expect(find.textContaining('#47 · Worker /health'), findsOneWidget);
+      expect(find.text('8 ms'), findsOneWidget);
     });
   });
 

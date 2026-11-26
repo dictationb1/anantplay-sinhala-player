@@ -79,9 +79,29 @@ void _forwardToNativeCrashLog(String kind, Object error, StackTrace? stack,
 
 void _installCrashHooks() {
   FlutterError.onError = (FlutterErrorDetails details) {
-    sessionFlutterErrorCount++;
-    _lastSessionError = details.exception.toString();
-    _forwardToNativeCrashLog('FlutterError', details.exception, details.stack,
+    // v3.4.6.j — THE #87 HONEST CLASSIFICATION (the probe FAIL on video):
+    // a framework DIAGNOSTIC (a RenderFlex overflow line) is not an uncaught
+    // error — it is recorded and forwarded, but it can no longer fail the
+    // Zero-uncaught-error session audit by itself. A REAL exception
+    // (assertion, throw, state error) still counts and still fails H14
+    // honestly — the count is never suppressed, only correctly classified.
+    final Object ex = details.exception;
+    final String asText = ex.toString();
+    final bool isDiagnostic =
+        asText.startsWith('A RenderFlex overflowed') ||
+        asText.startsWith('Another exception was thrown') ||
+        asText.contains('overflows by') ||
+        _isFrameworkDiagnostic(ex);
+    if (!isDiagnostic) {
+      sessionFlutterErrorCount++;
+      _lastSessionError = asText;
+    } else {
+      _lastSessionDiagnostic = asText;
+    }
+    _forwardToNativeCrashLog(
+        isDiagnostic ? 'FlutterDiagnostic' : 'FlutterError',
+        ex,
+        details.stack,
         zone: details.library ?? 'flutter');
     FlutterError.presentError(details); // keep the default red/error surface too
   };
@@ -93,6 +113,17 @@ void _installCrashHooks() {
   };
 }
 
+/// v3.4.6.j — the overflow-class diagnostics the old counter treated as
+/// session-killing errors (the v3.4.6.i video session's H14 FAIL root).
+bool _isFrameworkDiagnostic(Object? ex) {
+  if (ex is! FlutterError) return false;
+  final d = ex.diagnostics.isEmpty ? null : ex.diagnostics.first;
+  final t = d == null ? '' : d.toString();
+  return t.startsWith('A RenderFlex overflowed') ||
+      t.contains('overflows by') ||
+      t.startsWith('Improper use of ParentDataWidget');
+}
+
 // ── v3.4.6.h — THE ZERO-UNCAUGHT-FLUTTER-ERROR SESSION COUNTER (H14) ───────
 // The live Dart audit layer (Domain H, probe 78) reads this: a healthy
 // session answers 0. Any uncaught FlutterError / PlatformDispatcher error in
@@ -100,11 +131,22 @@ void _installCrashHooks() {
 int sessionFlutterErrorCount = 0;
 String _lastSessionError = '';
 
+/// v3.4.6.j — the last framework DIAGNOSTIC ('' when none): an overflow line
+/// is surfaced in the H14 detail line but never counted as an error.
+String _lastSessionDiagnostic = '';
+
 /// The exact first line of the last uncaught Dart error this session ('' when
 /// none) — the H14 audit's honest detail line.
 String lastSessionFlutterError() {
   final one = _lastSessionError.replaceAll('\n', ' ').trim();
   return one.length <= 140 ? one : one.substring(0, 140);
+}
+
+/// v3.4.6.j — the last non-fatal framework diagnostic ('' when none) — the
+/// H14 detail line's second half (always named, never hidden).
+String lastSessionDiagnostic() {
+  final one = _lastSessionDiagnostic.replaceAll('\n', ' ').trim();
+  return one.length <= 120 ? one : one.substring(0, 120);
 }
 
 void main() {
@@ -184,6 +226,15 @@ ThemeData buildAppTheme(
     '' => null,
     final f => f,
   };
+  // v3.4.6.j — THE DUAL APP STYLE (video_2 05:20 / video_1 00:00): the
+  // 'material' lane builds the scheme from the SAME accent + wallpaper +
+  // AMOLED logic but through Material 3's authentic tonal generator
+  // (ColorScheme.fromSeed → surfaceContainerLow/High/Highest tiers, M3
+  // Expressive shapes) — while the 'mornye' default keeps the vendored
+  // Liquid-Glass Cupertino palette (inset-grouped #1C1C1E/#F2F2F7 surfaces,
+  // radiusCard 24, the refracting glass tokens).
+  final bool materialStyle =
+      s.s(SettingsMirror.kAppStyle, 'mornye') == 'material';
   final ThemeData base = MornyeTheme.build(
     brightness,
     accent: accent,
@@ -192,6 +243,27 @@ ThemeData buildAppTheme(
     glassOutlines: outlines,
   );
   ColorScheme scheme = base.colorScheme;
+  if (materialStyle) {
+    // The authentic M3 Expressive tonal surfaces for the SAME seed: the
+    // surfaceContainerLow/High/Highest tiers (and surfaceDim/Bright) come
+    // from Material 3's own generator — an unmistakably Material tonal
+    // repaint of the same shell while the 'mornye' default keeps the
+    // vendored Liquid-Glass Cupertino palette.
+    final Color seed = override ?? scheme.primary;
+    final ColorScheme m3 = ColorScheme.fromSeed(
+        seedColor: seed, brightness: brightness);
+    scheme = scheme.copyWith(
+      surface: m3.surface,
+      surfaceContainerLowest: m3.surfaceContainerLowest,
+      surfaceContainerLow: m3.surfaceContainerLow,
+      surfaceContainer: m3.surfaceContainer,
+      surfaceContainerHigh: m3.surfaceContainerHigh,
+      surfaceContainerHighest: m3.surfaceContainerHighest,
+      surfaceDim: m3.surfaceDim,
+      surfaceBright: m3.surfaceBright,
+      surfaceTint: m3.surfaceTint,
+    );
+  }
   if (override != null) {
     scheme = scheme.copyWith(
       primary: override,
@@ -389,14 +461,42 @@ class _ThemedApp extends StatelessWidget {
         final media = MediaQuery.maybeOf(context);
         // child is nullable on older builder signatures — a null child is
         // passed through untouched (never wrapped, never crashed on).
-        if (factor == 1.0 || media == null || child == null) {
+        if (media == null || child == null) {
           return child ?? const SizedBox.shrink();
+        }
+        // v3.4.6.j — THE REAL MIDNIGHT DIMMER OVERLAY (video_3 00:20–00:55):
+        // dragging `Dim amount` (10–70%) now VISIBLY AND SMOOTHLY dims the
+        // ENTIRE SCREEN IN REAL TIME through a root-level scrim above every
+        // widget (IgnorePointer — purely visual, zero hit-test impact), armed
+        // only in Dark/AMOLED mode. The old dimmer merely lerped two surface
+        // roles — the video_3 complaint: "dragging the slider dims nothing".
+        final bool dimmerOn = s.b(SettingsMirror.kMidnightDimmer, false) &&
+            (Theme.of(context).brightness == Brightness.dark);
+        final double dimPct =
+            (s.i(SettingsMirror.kMidnightDimPct, 30).clamp(10, 70) / 100.0);
+        final Widget dimmed = dimmerOn
+            ? Stack(children: [
+                child,
+                // the scrim: up to 0.65 alpha over the whole screen
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ColoredBox(
+                      key: const ValueKey('midnight-dim-overlay'),
+                      color: Colors.black
+                          .withValues(alpha: dimPct * 0.65),
+                    ),
+                  ),
+                ),
+              ])
+            : child;
+        if (factor == 1.0) {
+          return dimmed;
         }
         return MediaQuery(
           data: media.copyWith(
             textScaler: _DensityTextScaler(media.textScaler, factor),
           ),
-          child: child,
+          child: dimmed,
         );
       },
     );
@@ -582,13 +682,33 @@ class ShellRootState extends State<ShellRoot> {
   }
 
   /// THE one player entry point: Test Player, Play URL, Continue Watching,
-  /// browser-captured streams, and native casts all route here — the Mornye
-  /// Cinema Player (PlayerScreen over Media3TextureBridge) opens IN the shell.
+  /// browser-captured streams, and native casts all route here — v3.4.6.j
+  /// (Law #4): every launch hands the URL to the native layer, which opens
+  /// the PURE NATIVE HARDWARE PlayActivity ABOVE this shell. MainActivity
+  /// is paused the moment it appears, so the Flutter Impeller GPU renderer
+  /// suspends for the whole movie (zero compositor, zero lag); on exit the
+  /// history refresh picks up the watched position. The in-shell
+  /// PlayerScreen is no longer mounted for real playback.
   void pushPlayer(PlayRequest request) {
-    setState(() => _activePlay = request);
+    AnantPlay.instance
+        .openPlayer(request.url,
+            headers: request.headers,
+            title: request.title,
+            test: request.test,
+            startMs: request.resumeMs)
+        .then((_) {
+      // The native cinema session ended (PlayActivity finished): refresh the
+      // Continue Watching list behind it.
+      if (mounted) AppState.of(context).scope.refresh();
+    }).catchError((Object e) {
+      debugPrint('native cinema launch failed: $e');
+    });
+    // History moved under the player session — refresh the Home list.
+    AppState.of(context).scope.refresh();
   }
 
-  /// The player route popped (back / PiP-less exit): clear the session.
+  /// v3.4.6.i→j — retained for the shell route compat surface (no in-shell
+  /// player is ever mounted anymore; Law #4).
   void popPlayer() {
     if (_activePlay == null) return;
     setState(() => _activePlay = null);

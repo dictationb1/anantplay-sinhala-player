@@ -22,10 +22,12 @@ import 'package:anantplay_ui/anantplay/home_screen.dart';
 import 'package:anantplay_ui/anantplay/settings_screen.dart';
 import 'package:anantplay_ui/anantplay/help_screen.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/settings_group.dart';
+import 'package:anantplay_ui/mornye_ui/widgets/app_switch.dart';
 import 'package:anantplay_ui/mornye_ui/theme/mornye_theme.dart';
 import 'package:anantplay_ui/anantplay/browser_screen.dart';
 import 'package:anantplay_ui/anantplay/player_screen.dart';
 import 'package:anantplay_ui/main.dart' as shell;
+import 'package:anantplay_ui/main.dart' show PlayRequest;
 import 'package:anantplay_ui/anantplay/force_update_screen.dart';
 
 void main() {
@@ -36,10 +38,22 @@ void main() {
   bool onboardingDone = false;
   int onboardingVersion = 0;
   final settingsPuts = <String, Object>{};
+  // v3.4.6.j — the anantplay/player 'open' call counter (the native-cinema
+  // launch assertions read it).
+  int playerOpens = 0;
+
+  /// v3.4.6.j — the mock's 'open' reply lane: true (default) = the native
+  /// handoff reply {'textureId': -1, 'native': true} (Law #4 — the real
+  /// device always gets the native PlayActivity); false = an in-shell texture
+  /// session, so the still-shipped compat PlayerScreen's HUD/cue contract
+  /// stays provable in a widget test.
+  bool playerNativeLane = true;
 
   setUp(() {
     onboardingDone = false;
     onboardingVersion = 0;
+    playerOpens = 0;
+    playerNativeLane = true;
     settingsPuts.clear();
     mock.setMockMethodCallHandler(const MethodChannel('anantplay/settings'), (call) async {
       switch (call.method) {
@@ -109,7 +123,18 @@ void main() {
     mock.setMockMethodCallHandler(const MethodChannel('anantplay/player'), (call) async {
       switch (call.method) {
         case 'open':
-          return <String, Object>{'textureId': 5, 'videoWidth': 1280, 'videoHeight': 720};
+          // v3.4.6.j — count the native-cinema launches (Law #4: 'open' now
+          // hands the URL to the native PlayActivity lane). The reply follows
+          // the harness flag: the native handoff shape by default, an
+          // in-shell texture session when a test drives the compat surface.
+          playerOpens++;
+          return playerNativeLane
+              ? <String, Object>{'textureId': -1, 'native': true}
+              : <String, Object>{
+                  'textureId': 7,
+                  'videoWidth': 1280,
+                  'videoHeight': 720,
+                };
         case 'tracks':
           return <Object>[
             <String, Object>{
@@ -232,7 +257,11 @@ void main() {
       await tester.pump();
       expect(find.text('Welcome'), findsOneWidget);
       expect(find.text('Get started'), findsOneWidget);
-      expect(find.text('Skip'), findsOneWidget);
+      // v3.4.6.j — THE MANDATORY FIRST-TIME WIZARD (video_4 00:30): there is
+      // NO Skip at all on a first-time launch (the top-right Close exists
+      // ONLY on a voluntary re-run from Settings/Help).
+      expect(find.text('Skip'), findsNothing);
+      expect(find.text('Close'), findsNothing);
       // v3.4.6.i — the red-pen layout: the bottom-right Next button is GONE
       // (each slide owns ONE full-width primary action above the dots); the
       // concise 1–2 line subtitle rides under the title.
@@ -380,7 +409,14 @@ void main() {
           warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(find.byType(SettingsScreen), findsOneWidget);
+      // v3.4.6.j — the Settings tab is the searchable hub; the live preview
+      // card rides the Appearance sub-page one row down.
+      expect(find.text('Search settings'), findsOneWidget);
+      await tester.tap(find.text('Appearance').first, warnIfMissed: false);
+      await tester.pumpAndSettle();
       expect(find.text('Live preview'), findsOneWidget);
+      await tester.tap(find.byTooltip('Back'), warnIfMissed: false);
+      await tester.pumpAndSettle();
 
       // Help tab — the troubleshoot hub.
       await tester.tap(
@@ -427,7 +463,7 @@ void main() {
     });
 
     testWidgets(
-        'Test Player opens the MORNYE CINEMA PLAYER (not the Java PlayActivity)',
+        'Test Player launches the PURE NATIVE HARDWARE cinema (Law #4, zero Flutter compositor)',
         (tester) async {
       onboardingDone = true;
       onboardingVersion = 2;
@@ -439,17 +475,18 @@ void main() {
       await tester.tap(find.text('Test Player'), warnIfMissed: false);
       await tester.pumpAndSettle();
 
-      // THE complaint #3 assertion: PlayerScreen (the Mornye Liquid-Glass
-      // cinema player over the Media3 texture bridge) is on screen.
-      expect(find.byType(PlayerScreen), findsOneWidget);
-      // the video Texture is bound to the mocked textureId
-      expect(find.byType(Texture), findsOneWidget);
-      // the fixed 5-icon dock: Subtitles · Tracks · Fit · 1.0× · Search
-      expect(find.text('Subtitles'), findsOneWidget);
-      expect(find.text('Tracks'), findsOneWidget);
-      expect(find.text('Fit'), findsOneWidget);
-      expect(find.text('1.0×'), findsOneWidget);
-      expect(find.text('Search'), findsOneWidget);
+      // v3.4.6.j — THE LAW #4 assertion: the tap rides the anantplay/player
+      // 'open' channel, the native layer launches PlayActivity (a separate
+      // opaque Activity above the shell — MainActivity.onPause() suspends
+      // the Flutter Impeller renderer while the movie plays), and NO
+      // in-compositor PlayerScreen is EVER mounted (zero GPU compositor).
+      expect(playerOpens, greaterThanOrEqualTo(1));
+      expect(find.byType(PlayerScreen), findsNothing);
+      expect(find.byType(Texture), findsNothing);
+      // the shell stays rendered underneath (the native activity is opaque
+      // ON TOP of it in the real app; in the test host only the channel
+      // fires) — the Home tab content is still alive.
+      expect(find.byType(HomeScreen), findsOneWidget);
     });
 
     testWidgets('the Browser tile switches the shell to the live Browser tab', (tester) async {
@@ -482,7 +519,10 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Play'), warnIfMissed: false);
       await tester.pumpAndSettle();
-      expect(find.byType(PlayerScreen), findsOneWidget);
+      // v3.4.6.j — Law #4: the valid URL rides the 'open' channel to the
+      // native hardware cinema (PlayActivity); no in-shell player mounts.
+      expect(playerOpens, greaterThanOrEqualTo(1));
+      expect(find.byType(PlayerScreen), findsNothing);
     });
 
     testWidgets('Start Receiver arms the native receiver (the arm call fires)',
@@ -579,21 +619,45 @@ void main() {
 
   group('SettingsScreen (every customization is real)', () {
     testWidgets('renders the studio sections + live preview + version footer', (tester) async {
+      // v3.4.6.j — THE SETTINGS HUB: the searchable hub + the 8 connected
+      // nav rows, then the Appearance sub-page (live preview + glass rows).
       await tester.pumpWidget(quiet(const SettingsScreen()));
       await tester.pump();
-      expect(find.text('QUICK SETTINGS'), findsOneWidget);
-      expect(find.text('Glass clarity'), findsOneWidget);
+      expect(find.text('Search settings'), findsOneWidget);
+      expect(find.text('Appearance'), findsOneWidget);
+      expect(find.text('Playback & Subtitles'), findsOneWidget);
+      expect(find.text('AnantPlay & Sources'), findsOneWidget);
+      expect(find.text('Browser & Privacy'), findsOneWidget);
+      expect(find.text('Cast & Network'), findsOneWidget);
+      expect(find.text('Storage & Cache'), findsOneWidget);
+      expect(find.text('Backup & Restore'), findsOneWidget);
+      expect(find.text('About & Licenses'), findsOneWidget);
+      await tester.tap(find.text('Appearance'), warnIfMissed: false);
+      await tester.pumpAndSettle();
       expect(find.text('Live preview'), findsOneWidget);
-      await tester.scrollUntilVisible(
-          find.text('AnantPlay Sinhala Player v3.4.6.h (30414)'), 240,
+      expect(find.text('App style'), findsOneWidget);
+      // the lower appearance rows ride the page's lazy ListView
+      await tester.scrollUntilVisible(find.text('Glass clarity'), 200,
           scrollable: find.byType(Scrollable).first);
-      expect(find.text('AnantPlay Sinhala Player v3.4.6.h (30414)'), findsOneWidget);
-      expect(find.text('ADVANCED'), findsOneWidget);
+      expect(find.text('Glass clarity'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('History view'), 200,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text('History view'), findsOneWidget);
+      // back to the hub: the search catalog live-filters every setting
+      await tester.tap(find.byTooltip('Back'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const ValueKey('settings-search')), 'cache');
+      await tester.pump();
+      expect(find.textContaining('settings match'), findsOneWidget);
     });
+
 
     testWidgets('a theme card writes the themeMode pref through the bridge', (tester) async {
       await tester.pumpWidget(quiet(const SettingsScreen()));
       await tester.pump();
+      await tester.tap(find.text('Appearance'), warnIfMissed: false);
+      await tester.pumpAndSettle();
       await tester.tap(find.text('AMOLED'), warnIfMissed: false);
       await tester.pump();
       expect(settingsPuts['themeMode'], 'amoled');
@@ -602,15 +666,25 @@ void main() {
     testWidgets('the Glass outlines switch writes the pref', (tester) async {
       await tester.pumpWidget(quiet(const SettingsScreen()));
       await tester.pump();
-      await tester.ensureVisible(find.text('Glass outlines'));
+      await tester.tap(find.text('Appearance'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      // v3.4.6.j — the sub-page list builds its rows lazily: scroll the
+      // Appearance list until the row materializes, then drive the lane.
+      await tester.scrollUntilVisible(find.text('Glass outlines'), 200,
+          scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();
       final row = find.ancestor(
           of: find.text('Glass outlines'), matching: find.byType(SettingsItem));
       expect(row, findsOneWidget);
-      final sw = find.descendant(of: row, matching: find.byType(Switch));
+      // v3.4.6.j — the trailing control is the Mornye AppSwitch (which may
+      // render as an M3E/custom switch — never a raw material Switch): read
+      // its value + callback off the widget itself, the exact lane a real
+      // tap drives.
+      final sw = find.descendant(of: row, matching: find.byType(AppSwitch));
       expect(sw, findsOneWidget);
-      final before = (tester.widget(sw) as Switch).value;
-      await tester.tap(sw, warnIfMissed: false);
+      final w = tester.widget(sw) as AppSwitch;
+      final before = w.value;
+      w.onChanged!(!before);
       await tester.pumpAndSettle();
       expect(settingsPuts['glassOutlines'], !before);
     });
@@ -618,26 +692,57 @@ void main() {
     testWidgets('the Midnight dimmer switch + Check for update row are wired', (tester) async {
       await tester.pumpWidget(quiet(const SettingsScreen()));
       await tester.pump();
-      await tester.scrollUntilVisible(find.text('Midnight night dimmer'), 200,
-          scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.text('Appearance'), warnIfMissed: false);
       await tester.pumpAndSettle();
+      // v3.4.6.j — the Midnight dimmer rows sit below the fold on the
+      // Appearance sub-page (lazy list): the gesture drag dies in the slider
+      // rows' arena, so scroll the list programmatically (jumpTo — the same
+      // deterministic lane the v3.4.6.h audits use).
+      await scrollFromTop(tester, find.text('Midnight night dimmer'));
       expect(find.text('Midnight night dimmer'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('Check for update now'), 200,
-          scrollable: find.byType(Scrollable).first);
+      expect(find.text('Dim amount'), findsOneWidget);
+      // 'Check for update now' lives on the About & Licenses sub-page.
+      await tester.tap(find.byTooltip('Back'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      // the eighth hub row sits at the fold: scroll the hub list to it and
+      // bring it INTO the viewport, THEN open the sub-page (a borderline
+      // tap is swallowed).
+      await scrollFromTop(tester, find.text('About & Licenses'));
+      await tester.ensureVisible(find.text('About & Licenses'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('About & Licenses'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      await scrollFromTop(tester, find.text('Check for update now'));
       expect(find.text('Check for update now'), findsOneWidget);
     });
 
     testWidgets('Run setup guide re-arms the wizard (version stamp drops)', (tester) async {
       await tester.pumpWidget(quiet(const SettingsScreen()));
       await tester.pump();
-      await tester.scrollUntilVisible(find.text('Run setup guide'), 240,
-          scrollable: find.byType(Scrollable).first);
+      // v3.4.6.j — scroll the hub list programmatically (jumpTo — the
+      // gesture drag dies in the arena), open the About sub-page, then
+      // scroll ITS list to the row (both lists are lazy).
+      await scrollFromTop(tester, find.text('About & Licenses'));
+      // the lazy list builds the row ~250 px below the fold: bring it INTO
+      // the viewport before the tap (a borderline tap is swallowed).
+      await tester.ensureVisible(find.text('About & Licenses'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('About & Licenses'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      await scrollFromTop(tester, find.text('Run setup guide'));
       expect(find.text('Run setup guide'), findsOneWidget);
     });
 
     // ── v3.4.6.f GAP #1: the live repaint contract ─────────────────────────
     ThemeData shellTheme(WidgetTester tester) =>
         Theme.of(tester.element(find.byType(SettingsScreen)));
+
+    /// v3.4.6.j — the theme lookup that works ON a pushed sub-page too (the
+    /// flat SettingsScreen AND the shell root are offstage behind the
+    /// route): read the theme from the onstage 'Glass clarity' row itself —
+    /// the same theme object the sub-page inherits.
+    ThemeData appTheme(WidgetTester tester) =>
+        Theme.of(tester.element(find.text('Glass clarity')));
 
     testWidgets('tapping Light / AMOLED repaints MaterialApp on the next frame',
         (tester) async {
@@ -673,10 +778,16 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Settings').first, warnIfMissed: false);
       await tester.pumpAndSettle();
+      // v3.4.6.j — the glass rows live on the Appearance sub-page now.
+      await tester.tap(find.text('Appearance').first, warnIfMissed: false);
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(find.text('Glass clarity'), 240,
           scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();
-      final before = shellTheme(tester).extension<MornyeTheme>()!.glassClarity;
+      // v3.4.6.j — the flat SettingsScreen is offstage behind the pushed
+      // sub-page route: read the theme off the MaterialApp itself (the same
+      // object the sub-page inherits).
+      final before = appTheme(tester).extension<MornyeTheme>()!.glassClarity;
       expect(before, closeTo(0.75, 0.01));
 
       // Drive the same onChanged lane the real Slider uses: widget-test
@@ -686,7 +797,7 @@ void main() {
       final widget = slider.evaluate().single.widget as Slider;
       widget.onChanged!(0.25);
       await tester.pumpAndSettle();
-      final after = shellTheme(tester).extension<MornyeTheme>()!.glassClarity;
+      final after = appTheme(tester).extension<MornyeTheme>()!.glassClarity;
       expect(after, lessThan(before),
           reason: 'the glass slider must repaint the app on the next frame');
       expect(settingsPuts['glassClarity'], isNotNull);
@@ -874,14 +985,18 @@ void main() {
     // assertion can never silently pass on an empty string.
     testWidgets('the subtitle pill obeys the compact cinema contract (82% / 3 lines / 1.25)',
         (tester) async {
-      onboardingDone = true;
-      onboardingVersion = 2;
-      await tester.pumpWidget(upToDateApp());
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Test Player'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Test Player'), warnIfMissed: false);
-      await tester.pumpAndSettle();
+      // v3.4.6.j — Law #4: playback routes to the native hardware cinema, so
+      // the HUD contract is proven by constructing the (still-shipped)
+      // PlayerScreen widget directly — the class carries the compact cinema
+      // constants the live audits read. The mock replies with an in-shell
+      // texture session (hasVideo true) so the cue pill's contract renders.
+      playerNativeLane = false;
+      await tester.pumpWidget(quiet(PlayerScreen(
+        request: const PlayRequest(url: 'https://test/x.m3u8', title: 'Test'),
+        onExit: () {},
+      )));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
       expect(find.byType(PlayerScreen), findsOneWidget);
 
       // The Sinhala cue: the ZWJ conjunct in ක්‍රියාත්මකයි is carried verbatim.
@@ -929,14 +1044,12 @@ void main() {
     });
 
     testWidgets('the 5-icon dock + all sheet headers render (HUD contract)', (tester) async {
-      onboardingDone = true;
-      onboardingVersion = 2;
-      await tester.pumpWidget(upToDateApp());
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Test Player'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Test Player'), warnIfMissed: false);
-      await tester.pumpAndSettle();
+      await tester.pumpWidget(quiet(PlayerScreen(
+        request: const PlayRequest(url: 'https://test/x.m3u8', title: 'Test'),
+        onExit: () {},
+      )));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
       expect(find.byType(PlayerScreen), findsOneWidget);
 
       // The HUD contract renders: all 5 dock buttons + the lock button.
@@ -951,25 +1064,49 @@ void main() {
       expect(find.byTooltip('Picture in picture'), findsOneWidget);
     });
 
-    testWidgets('play/pause toggles through the bridge and Back returns to the shell',
+    testWidgets('play/pause toggles through the bridge and Back pops the route',
         (tester) async {
-      onboardingDone = true;
-      onboardingVersion = 2;
-      await tester.pumpWidget(upToDateApp());
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Test Player'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Test Player'), warnIfMissed: false);
-      await tester.pumpAndSettle();
+      // v3.4.6.j — the compat PlayerScreen proven on a swap-out host: the
+      // play/pause tap drives the anantplay/player bridge lane, and Back
+      // fires onExit — the host then unmounts the screen exactly the way the
+      // shell's route does on a real device. (The bare quiet() tree has no
+      // Navigator route to pop, and the decorative HUD tickers only settle
+      // under the shell's disabled TickerMode — so the host swaps and a
+      // bounded pump window replaces the never-settling pumpAndSettle.)
+      final bridge = <String>[];
+      mock.setMockMethodCallHandler(const MethodChannel('anantplay/player'), (call) async {
+        if (call.method == 'open') {
+          playerOpens++;
+          return <String, Object>{'textureId': -1, 'native': true};
+        }
+        if (call.method == 'play' || call.method == 'pause') {
+          bridge.add(call.method);
+        }
+        return true;
+      });
+      bool exited = false;
+      await tester.pumpWidget(quiet(_SwapHost(
+        onExit: () => exited = true,
+      )));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
+      // v3.4.6.j — the whole viewport registers a double-tap seek recognizer,
+      // so a single tap must outlive the 300 ms double-tap window before the
+      // gesture arena releases it: pump 600 ms after the tap.
       await tester.tap(find.byIcon(mi.Icons.play_arrow_rounded).last,
           warnIfMissed: false);
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(bridge, contains('play'),
+          reason: 'the play tap must ride the anantplay/player bridge');
 
       await tester.tap(find.byTooltip('Back'), warnIfMissed: false);
-      await tester.pumpAndSettle();
+      // the same double-tap window applies to the Back tap.
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
       expect(find.byType(PlayerScreen), findsNothing);
-      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(exited, isTrue);
     });
   });
 
@@ -980,19 +1117,24 @@ void main() {
       await tester.pumpWidget(upToDateApp());
       await tester.pumpAndSettle();
 
-      await tester.tap(
-          find.descendant(
-              of: find.byType(shell.ShellRoot),
-              matching: find.text('Settings')).first,
-          warnIfMissed: false);
+      await tester.tap(find.text('Settings').first, warnIfMissed: false);
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('Run setup guide'), 300,
-          scrollable: find.byType(Scrollable).first);
+      // v3.4.6.j — the eighth hub row sits at the fold (lazy list): scroll
+      // the hub to it, bring it INTO the viewport, then open the sub-page.
+      await scrollFromTop(tester, find.text('About & Licenses'));
+      await tester.ensureVisible(find.text('About & Licenses'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('About & Licenses').first, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      await scrollFromTop(tester, find.text('Run setup guide'));
+      await tester.ensureVisible(find.text('Run setup guide'));
+      await tester.pumpAndSettle();
+      // v3.4.6.j — drive the REAL row: it pops the sub-page route FIRST,
+      // then re-arms the wizard (the pop-first rule — the wizard must never
+      // render behind a pushed settings page).
       onboardingDone = false;
       onboardingVersion = 0;
-      await AppState.of(tester.element(find.byType(SettingsScreen)))
-          .scope
-          .rerunOnboarding();
+      await tester.tap(find.text('Run setup guide'), warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(find.byType(OnboardingScreen), findsOneWidget,
           reason: 'Run Setup Guide must reopen the wizard from any tab');
@@ -1110,9 +1252,11 @@ void main() {
         (ByteData? data) {},
       );
       await tester.pump(const Duration(milliseconds: 120));
-      // v3.4.6.i — the status line + the disabled button BOTH say it now
-      // (the button reads 'Opening installer…' for its first 2 s).
-      expect(find.textContaining('Opening installer'), findsWidgets);
+      // v3.4.6.j — the status line + the disabled button BOTH say it now
+      // (the button reads 'Installer Open…' for its first 3 s — never a
+      // red 'Update Now' flash; at ≥ 3 s it becomes 'Install Downloaded
+      // Update', the < 50 ms cached-APK re-open).
+      expect(find.textContaining('Installer Open'), findsWidgets);
     });
 
     // v3.4.6.e — THE FAILURE SURFACE, asserted on the gate itself. The shell
@@ -1688,4 +1832,32 @@ void main() {
           reason: 'the card opens the REAL install-unknown-apps settings page');
     });
   });
+}
+
+/// v3.4.6.j — the swap-out host for the compat PlayerScreen tests: renders
+/// the player until [onExit] fires, then a placeholder — exactly what the
+/// shell's route pop does on a real device.
+class _SwapHost extends StatefulWidget {
+  const _SwapHost({required this.onExit});
+
+  final VoidCallback onExit;
+
+  @override
+  State<_SwapHost> createState() => _SwapHostState();
+}
+
+class _SwapHostState extends State<_SwapHost> {
+  bool _gone = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_gone) return const SizedBox.shrink();
+    return PlayerScreen(
+      request: const PlayRequest(url: 'https://test/x.m3u8', title: 'Test'),
+      onExit: () {
+        widget.onExit();
+        if (mounted) setState(() => _gone = true);
+      },
+    );
+  }
 }

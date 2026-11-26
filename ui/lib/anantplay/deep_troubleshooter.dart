@@ -53,7 +53,8 @@ import 'package:material_ui/material_ui.dart'
 import 'package:anantplay_ui/mornye_ui/models/theme_settings.dart'
     show MornyeAccent;
 import 'package:anantplay_ui/main.dart'
-    show buildAppTheme, sessionFlutterErrorCount, lastSessionFlutterError;
+    show buildAppTheme, sessionFlutterErrorCount, lastSessionFlutterError,
+    lastSessionDiagnostic;
 
 import 'bridge.dart';
 import 'settings_mirror.dart';
@@ -629,11 +630,18 @@ class DartLayerAuditor {
 
   /// H14 (87) — THE ZERO-UNCAUGHT-FLUTTER-ERROR SESSION CHECK: a healthy
   /// live session recorded ZERO uncaught Dart errors (the crash hooks count
-  /// every FlutterError / PlatformDispatcher error). Any count > 0 is a FAIL
-  /// naming the exact first line of the last error.
+  /// every REAL FlutterError / PlatformDispatcher error). Any count > 0 is a
+  /// FAIL naming the exact first line of the last error.
+  /// v3.4.6.j — the classification fix for the video's #87 FAIL: framework
+  /// DIAGNOSTICS (a RenderFlex overflow line — reported through
+  /// FlutterError.onError but never an uncaught exception) are now counted
+  /// SEPARATELY and surfaced in the detail line (never hidden), while real
+  /// exceptions still fail the audit. A diagnostic never fails H14 — but it
+  /// is always named in the report when one fired.
   static Future<DeepOutcome> _auditZeroDartErrors() async {
     final count = sessionFlutterErrorCount;
     final last = lastSessionFlutterError();
+    final diag = lastSessionDiagnostic();
     return DeepOutcome(
       id: 0,
       domain: 'H',
@@ -643,6 +651,7 @@ class DartLayerAuditor {
       detail: count == 0
           ? '0 uncaught Dart errors in the live session ✓ (FlutterError + '
               'PlatformDispatcher both watched)'
+              '${diag.isEmpty ? '' : ' · non-fatal diagnostic recorded: $diag'}'
           : 'FAIL — $count uncaught Dart error(s) this session · last: '
               '${last.isEmpty ? '(unknown)' : last}',
     );

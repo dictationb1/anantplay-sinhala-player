@@ -306,6 +306,9 @@ class _SourcesHubSheetState extends State<_SourcesHubSheet> {
   /// URL → parsed feed (name + sources list). One fetch per URL, cached.
   final Map<String, Map<String, dynamic>?> _feeds = {};
   final Map<String, String> _errors = {};
+
+  /// v3.4.6.j — the URLs the jsDelivr mirror lane delivered (badged).
+  final Set<String> _mirrors = {};
   bool _hideOffline = true;
 
   List<IndexPreset> get _presets => kBuiltInIndexPresets;
@@ -326,18 +329,27 @@ class _SourcesHubSheetState extends State<_SourcesHubSheet> {
   Future<void> _loadFeed(String url) async {
     if (_feeds.containsKey(url)) return;
     setState(() => _feeds[url] = null); // loading sentinel
-    final body = await AnantPlay.instance.fetchUrl(url);
+    // v3.4.6.j — THE EXACT-REASON FETCH (video_4 03:30–04:05): the native
+    // lane follows redirects, decodes gzip, honors a 10 s deadline / 1 MiB
+    // cap and falls back to the jsDelivr mirror — the hub shows the REAL
+    // error ('HTTP 404' · 'UnknownHostException: …' · 'deadline 10 s') and a
+    // mirror badge, never the vague 'unreachable (offline ok)'.
+    final result = await AnantPlay.instance.fetchUrl(url);
     if (!mounted) return;
-    if (body.isEmpty) {
-      setState(() => _errors[url] = 'unreachable (offline ok)');
+    if (result.body.isEmpty) {
+      setState(() => _errors[url] =
+          result.error.isEmpty ? 'unreachable' : result.error);
       return;
     }
     try {
-      final parsed = jsonDecode(body);
+      final parsed = jsonDecode(result.body);
       if (parsed is Map<String, dynamic> &&
           parsed['sources'] is List &&
           (parsed['name'] is String || parsed['sources'].isNotEmpty)) {
         setState(() => _feeds[url] = parsed);
+        if (result.viaMirror) {
+          setState(() => _mirrors.add(url));
+        }
       } else {
         setState(() => _errors[url] = 'not an index feed');
       }

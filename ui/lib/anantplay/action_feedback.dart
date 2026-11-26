@@ -1,23 +1,26 @@
-// AnantPlay Sinhala Player v3.4.6.f — GAP #2: visible feedback for the
+// AnantPlay Sinhala Player v3.4.6.j — GAP #2: visible feedback for the
 // actions that used to fire-and-forget. Every action shows an immediate
-// "working" snack and then a crisp, HONEST result (no fake PASS on HTTP 0).
+// "working" pill and then a crisp, HONEST result (no fake PASS on HTTP 0) —
+// v3.4.6.j: every one of these rides the TOP FLOATING MORNYE LIQUID-GLASS
+// NOTIFICATION (video_1 05:10–05:45, Law #2) — ZERO bottom SnackBars.
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart' hide Icons;
+import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_notification.dart';
 
 import 'app_state.dart';
 import 'bridge.dart';
 
 /// The installed identity used in the "Up to date" reply. Kept as a literal
 /// ONLY for this user-facing label; the updater's gate itself reads appInfo.
-const String kVisibleVersion = 'v3.4.6.i';
+const String kVisibleVersion = 'v3.4.6.j';
 
 void _say(BuildContext context, String message) {
+  // v3.4.6.j — THE TOP FLOATING GLASS PILL (the SnackBar is dead): slides
+  // down below the status bar, auto-dismisses in 2.5 s, swipe-up to
+  // dismiss — never covers the bottom tab bar.
   if (!context.mounted) return;
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  messenger
-    ?..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 3)));
+  showMornyeGlassNotification(context, message: message);
 }
 
 /// Check now: Checking… → the REAL gate reply (up to date / available /

@@ -66,9 +66,10 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
   /// the button is disabled (a double-tap can never queue a second resolve
   /// → download cycle).
   bool _tapBusy = false;
-  /// v3.4.6.i — the PackageInstaller handoff started at this time; 2 s
-  /// later the button re-enables as 'Open Installer Again' (the user
-  /// dismissed the Android sheet and wants it back).
+  /// v3.4.6.j — the PackageInstaller handoff started at this time; 3 s
+  /// later the button re-enables as `Install Downloaded Update` (the cached
+  /// APK is verified — a tap re-opens the installer in < 50 ms; the red
+  /// `Update Now` flash from video_6 03:20 is dead).
   DateTime? _installerHandoffAt;
   Timer? _reenableTimer;
   StreamSubscription<UpdateGateEvent>? _gateSub;
@@ -167,11 +168,12 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
           _phase = _GatePhase.idle;
       }
     });
-    // v3.4.6.i — re-enable the button 2 s after the installer handoff as
-    // 'Open Installer Again' (the user dismissed the Android confirm sheet).
+    // v3.4.6.j — re-enable the button 3 s after the installer handoff as
+    // 'Install Downloaded Update' (the verified cached APK re-opens the
+    // installer in < 50 ms — never a red 'Update Now').
     if (e.gate == 'installer') {
       _reenableTimer?.cancel();
-      _reenableTimer = Timer(const Duration(seconds: 2), () {
+      _reenableTimer = Timer(const Duration(seconds: 3), () {
         if (mounted && _phase == _GatePhase.installer) {
           setState(() {});
         }
@@ -245,14 +247,17 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
       : ' · ${(_bytes / 1048576).toStringAsFixed(1)} MB'
           '${_total > 0 ? ' / ${(_total / 1048576).toStringAsFixed(1)} MB' : ''}';
 
-  /// v3.4.6.i — the button's honest label:
+  /// v3.4.6.j — the button's honest label (video_6 03:20 — the red
+  /// `Update Now` flash is DEAD):
   /// · failed → `Retry Update`;
   /// · a verified cached APK (idle) → `Install Downloaded Update` (never a
   ///   re-download);
-  /// · the first 2 s of the PackageInstaller handoff → disabled
-  ///   `Opening installer…`;
-  /// · ≥ 2 s into the handoff → `Open Installer Again` (the user dismissed
-  ///   the Android confirm sheet);
+  /// · the first 3 s of the PackageInstaller handoff → disabled
+  ///   `Installer Open…` (the Android confirm sheet is on top; a double
+  ///   tap can never queue a second handoff);
+  /// · ≥ 3 s into the handoff → `Install Downloaded Update` — the cached
+  ///   APK is verified on disk, so a tap re-opens the installer in < 50 ms
+  ///   (ZERO re-download, and the button NEVER flashes red `Update Now`);
   /// · otherwise → `Update Now`.
   String get _buttonLabel {
     if (_phase == _GatePhase.failed) return 'Retry Update';
@@ -260,17 +265,17 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
       final heldFor = _installerHandoffAt == null
           ? const Duration()
           : DateTime.now().difference(_installerHandoffAt!);
-      return heldFor >= const Duration(seconds: 2)
-          ? 'Open Installer Again'
-          : 'Opening installer…';
+      return heldFor >= const Duration(seconds: 3)
+          ? 'Install Downloaded Update'
+          : 'Installer Open…';
     }
     if (_cachedApkReady) return 'Install Downloaded Update';
     return 'Update Now';
   }
 
-  /// v3.4.6.i — the button is disabled while a tap, download, verification or
-  /// the first 2 s of the installer handoff is in flight (a double-tap can
-  /// never queue a second resolve → download cycle).
+  /// v3.4.6.j — the button is disabled while a tap, download, verification or
+  /// the first 3 s of the installer handoff is in flight (a double-tap can
+  /// never queue a second resolve → handoff cycle).
   bool get _buttonBusy =>
       _tapBusy ||
       _phase == _GatePhase.downloading ||
@@ -278,7 +283,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
       (_phase == _GatePhase.installer &&
           (_installerHandoffAt == null ||
               DateTime.now().difference(_installerHandoffAt!) <
-                  const Duration(seconds: 2)));
+                  const Duration(seconds: 3)));
 
   @override
   Widget build(BuildContext context) {
@@ -384,7 +389,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
                             'Downloading update — $_percent%$_mb',
                           _GatePhase.verifying => 'Verifying SHA-256…',
                           _GatePhase.installer =>
-                            'Opening installer… (tap Update on the system sheet)',
+                            'Installer Open… (tap Update on the system sheet)',
                           _ => '',
                         },
                         textAlign: TextAlign.center,
@@ -423,7 +428,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen>
                       const SizedBox(height: 14),
                     ],
                     // ── THE ONLY BUTTON: Update Now / Install Downloaded
-                    // Update / Open Installer Again / Retry Update ────────
+                    // Update / Installer Open… / Retry Update ─────────
                     MornyeUpdateButton(
                       label: _buttonLabel,
                       busy: _buttonBusy,

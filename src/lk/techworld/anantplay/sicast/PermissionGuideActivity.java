@@ -351,16 +351,35 @@ public class PermissionGuideActivity extends Activity {
                 item.setText(items[i] + (selected ? "  ✓" : ""));
                 setBody(item, selected ? GREEN : TEXT_DIM, 13f, selected);
                 if (selected) {
+                    // v3.4.6.j — crisp, high-contrast selection (the old
+                    // 15%-alpha green was invisible against the dark card).
                     GradientDrawable hl = new GradientDrawable();
-                    hl.setColor(0x2663D668);
+                    hl.setColor(0x663FBF69);
+                    hl.setStroke(dp(2), GREEN);
                     hl.setCornerRadius(dp(10));
                     row.setBackground(hl);
+                    item.setTextColor(0xFFD8FFD9);
                 }
                 row.setPadding(dp(10), dp(8), dp(10), dp(8));
                 scene.addView(row, new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                 if (i < items.length - 1) scene.addView(spacer(2));
             }
+            // A second, unmistakable visual ON state: the same crisp switch
+            // used by the overlay/install guides, labelled for this scenario.
+            LinearLayout state = new LinearLayout(this);
+            state.setOrientation(LinearLayout.HORIZONTAL);
+            state.setGravity(Gravity.CENTER_VERTICAL);
+            state.setPadding(dp(10), dp(6), dp(10), dp(4));
+            TextView stateLabel = new TextView(this);
+            stateLabel.setText("Battery optimization: OFF");
+            setBody(stateLabel, 0xFFD8FFD9, 12.5f, true);
+            state.addView(stateLabel, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            state.addView(animatedToggle("No restrictions is ON"));
+            scene.addView(state, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
         }
         return scene;
     }

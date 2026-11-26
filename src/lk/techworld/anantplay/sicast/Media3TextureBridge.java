@@ -237,12 +237,24 @@ final class Media3TextureBridge
                     String t = call.argument("title");
                     boolean test = Boolean.TRUE.equals(call.argument("test"));
                     Long startMs = call.argument("startMs");
-                    open(u == null ? "" : u, h, t, test,
+                    // ══ v3.4.6.j — THE NATIVE HARDWARE CINEMA LANE (Law #4) ═════
+                    // 'open' (Test Player, Play URL, Continue Watching, the
+                    // browser's Play in Cinema) now launches the PURE NATIVE
+                    // PlayActivity — a full-screen opaque Activity above
+                    // MainActivity, so Android's onPause() suspends the Flutter
+                    // Impeller GPU renderer for the whole movie. The old
+                    // in-compositor texture player was the video_2 lag + heat
+                    // (>50% battery/2 h) source. The texture engine below stays
+                    // wired as the cast /status mirror + the API-compat lane
+                    // (tests, fallbacks); no real playback rides it anymore.
+                    PlayActivity.launchNative(host, test ? TEST_URL : (u == null ? "" : u),
+                            t == null ? "" : t, h == null ? "" : h, test,
                             startMs == null ? 0L : startMs);
                     Map<String, Object> out = new HashMap<>();
-                    out.put("textureId", textureId);
-                    out.put("videoWidth", videoW);
-                    out.put("videoHeight", videoH);
+                    out.put("textureId", -1);
+                    out.put("native", true);
+                    out.put("videoWidth", 0);
+                    out.put("videoHeight", 0);
                     result.success(out);
                     break;
                 }
@@ -1092,9 +1104,26 @@ final class Media3TextureBridge
      *  names the still-working lanes (Browser subtitle sites, a local .srt,
      *  the free on-device translator) instead of killing the pipeline. */
     private void workerOutage(int myGen, String reason) {
-        finishSubs(myGen, "worker unreachable (" + reason + ") — "
+        // v3.4.6.j — the reason is SANITIZED (no raw exception class names on
+        // the HUD — the video_2 01:30 "worker unreachable (HttpExcept…)"
+        // paint): a short human lane, never the stack's own words.
+        String clean = sanitizeOutageReason(reason);
+        finishSubs(myGen, "worker unreachable (" + clean + ") — "
                 + "Browser උපසිරැසි අඩවි හෝ local .srt — free පරිවර්තකයෙන් සිංහල වේ · "
                 + "use a Browser sub site or a local .srt; the free keyless translator translates it");
+    }
+
+    /** v3.4.6.j — collapse any Throwable text to a short, non-leaking lane. */
+    private static String sanitizeOutageReason(String reason) {
+        if (reason == null || reason.trim().isEmpty()) return "network";
+        String r = reason.trim();
+        // strip the exception-class prefixes the JDK/HttpURLConnection emits
+        for (String cut : new String[]{"java.net.", "javax.net.", "android.", "BridgeApi$"}) {
+            int i = r.indexOf(cut);
+            if (i >= 0) r = r.substring(i + cut.length());
+        }
+        if (r.length() > 42) r = r.substring(0, 42) + "…";
+        return r.replace('\n', ' ');
     }
 
     private boolean loadSubsFromUrl(String su) {

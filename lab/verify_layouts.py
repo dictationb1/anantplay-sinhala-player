@@ -50,6 +50,14 @@ FRAME_LIKE = {'FrameLayout', 'ScrollView', 'HorizontalScrollView'}
 LINEAR_LIKE = {'LinearLayout'}
 ANY_LIKE = {'ViewGroup', 'View', 'Object'}
 
+# v3.4.6.j — THE SYSTEM-WINDOW LANE (AnantPlayCoachService's floating overlay):
+# WindowManager.addView(view, WindowManager.LayoutParams) is its own type-safe
+# API contract (the system measures the window, never a widget parent's
+# onMeasure) — the gate proves the LayoutParams is WindowManager.LayoutParams
+# and the container is a WindowManager, and rejects any other pairing.
+WINDOW_LIKE = {'WindowManager'}
+LP_WM = 'WindowManager.LayoutParams'
+
 LP_FRAME = 'FrameLayout.LayoutParams'
 LP_LINEAR = 'LinearLayout.LayoutParams'
 LP_VG = 'ViewGroup.LayoutParams'
@@ -69,13 +77,16 @@ ASSIGN_CALL = re.compile(r'\b([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*\(')
 GETPARENT_ALIAS = re.compile(r'\b([A-Za-z_]\w*)\s*=\s*\(\s*ViewGroup\s*\)\s*'
                              r'([A-Za-z_]\w*)\s*\.\s*getParent\s*\(\s*\)')
 
-LP_DECL = re.compile(r'\b((?:FrameLayout|LinearLayout|ViewGroup)\.LayoutParams)\s+([A-Za-z_]\w*)\s*(?==|;|,|\))')
+LP_DECL = re.compile(r'\b((?:FrameLayout|LinearLayout|ViewGroup|WindowManager)\.LayoutParams)\s+([A-Za-z_]\w*)\s*(?==|;|,|\))')
 LP_BARE_DECL = re.compile(r'\bLayoutParams\s+([A-Za-z_]\w*)\s*(?==|;|,|\))')
-LP_NEW = re.compile(r'\b([A-Za-z_]\w*)\s*=\s*new\s+((?:FrameLayout|LinearLayout|ViewGroup)\.LayoutParams)\s*\(')
+LP_NEW = re.compile(r'\b([A-Za-z_]\w*)\s*=\s*new\s+((?:FrameLayout|LinearLayout|ViewGroup|WindowManager)\.LayoutParams)\s*\(')
 LP_BARE_NEW = re.compile(r'\b([A-Za-z_]\w*)\s*=\s*new\s+LayoutParams\s*\(')
 
+# v3.4.6.j — `WindowManager wm = ...` declarations resolve as window containers.
+WM_DECL = re.compile(r'\b(WindowManager)\s+([A-Za-z_]\w*)\s*(?==|;|,)')
+
 METHOD = re.compile(r'\b(FrameLayout|LinearLayout|ScrollView|HorizontalScrollView|ViewGroup|View|'
-                    r'(?:FrameLayout|LinearLayout|ViewGroup)\.LayoutParams)\s+([A-Za-z_]\w*)\s*\(')
+                    r'(?:FrameLayout|LinearLayout|ViewGroup|WindowManager)\.LayoutParams)\s+([A-Za-z_]\w*)\s*\(')
 CLASS_EXT = re.compile(r'\b(?:class|interface)\s+([A-Za-z_]\w*)\s+extends\s+'
                        r'(?:android\.widget\.)?(FrameLayout|LinearLayout|ScrollView|HorizontalScrollView|ViewGroup)\b')
 ADDVIEW = re.compile(r'\b([A-Za-z_]\w*|this)\s*\.\s*addView\s*\(')
@@ -200,6 +211,9 @@ def analyse(path, super_map, fails, stats):
     # ── container declarations / assignments ────────────────────────────────
     for m in DECL.finditer(text):
         sc.add(sc.events, m.start(2), m.group(2), norm(m.group(1)))
+    # v3.4.6.j — the system-window containers (AnantPlayCoachService's overlay).
+    for m in WM_DECL.finditer(text):
+        sc.add(sc.events, m.start(2), m.group(2), m.group(1))
     for m in NEWT.finditer(text):
         sc.add(sc.events, m.start(1), m.group(1), norm(m.group(2)))
     for m in ASSIGN_CALL.finditer(text):
@@ -223,7 +237,7 @@ def analyse(path, super_map, fails, stats):
 
     def lp_of(expr, pos):
         e = expr.strip()
-        m = re.search(r'new\s+((?:FrameLayout|LinearLayout|ViewGroup)\.LayoutParams)\s*\(', e)
+        m = re.search(r'new\s+((?:FrameLayout|LinearLayout|ViewGroup|WindowManager)\.LayoutParams)\s*\(', e)
         if m:
             return m.group(1)
         if re.search(r'new\s+LayoutParams\s*\(', e):
@@ -268,6 +282,10 @@ def analyse(path, super_map, fails, stats):
     def compatible(container, lp):
         if container in ANY_LIKE:
             return True
+        # v3.4.6.j — the system-window lane: a WindowManager container takes
+        # exactly WindowManager.LayoutParams (its API contract).
+        if container in WINDOW_LIKE:
+            return lp == LP_WM
         if lp == LP_VG:
             return True
         if container in FRAME_LIKE:

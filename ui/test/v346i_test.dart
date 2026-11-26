@@ -82,7 +82,13 @@ void main() {
     test('ForceUpdateScreen: honest labels + no follow-up network check', () {
       final dart = repo('lib/anantplay/force_update_screen.dart');
       expect(dart.contains("'Install Downloaded Update'"), isTrue);
-      expect(dart.contains("'Open Installer Again'"), isTrue);
+      // v3.4.6.j — the installer handoff label contract: 'Installer Open…'
+      // (disabled 3 s) → 'Install Downloaded Update' (< 50 ms cached-APK
+      // re-open; the red 'Update Now' flash from video_6 03:20 is dead).
+      expect(dart.contains("'Installer Open…'"), isTrue);
+      expect(dart.contains("'Open Installer Again'"), isFalse);
+      expect(dart.contains("'Opening installer…'"), isFalse,
+          reason: 'v3.4.6.j: the label is Installer Open… (3 s disabled)');
       expect(dart.contains('ZERO-DOUBLE-DOWNLOAD'), isTrue);
       expect(dart.contains('if (!pending.pending) {\n      await AnantPlay.instance.checkForUpdate();'), isFalse,
           reason: 'the v3.4.6.h follow-up checkForUpdate network leg is dead');
@@ -185,9 +191,15 @@ void main() {
     test('the headless WebView boots to HOME_URL (never blank)', () {
       final view =
           repo('../src/lk/techworld/anantplay/sicast/WebBrowserView.java');
-      expect(view.contains('load(bootstrapUrl(last))'), isTrue);
-      expect(view.contains('static String bootstrapUrl(String last)'), isTrue);
+      // v3.4.6.j — the boot lane now resolves through the LIVE engine home
+      // (homeUrlFor): google / duckduckgo / startpage / brave per the
+      // Settings switch, HOME_URL the never-blank fallback.
+      expect(view.contains('homeUrlFor(prefs))'), isTrue);
+      expect(view.contains('static String homeUrlFor('), isTrue);
       expect(view.contains('HOME_URL = "https://www.google.com/"'), isTrue);
+      expect(view.contains('https://duckduckgo.com/'), isTrue);
+      expect(view.contains('https://www.startpage.com/'), isTrue);
+      expect(view.contains('https://search.brave.com/'), isTrue);
     });
 
     test('the theme-aware container paints #FFFFFF light / #0F172A dark', () {
@@ -345,25 +357,28 @@ void main() {
   });
 
   group('v3.4.6.i — version identity', () {
-    test('pubspec is 3.4.6+30415 (pure integer build)', () {
+    test('pubspec is 3.4.6+30416 (pure integer build)', () {
       final pubspec = repo('pubspec.yaml');
       expect(
-          RegExp(r'^version: 3\.4\.6\+30415$', multiLine: true)
+          RegExp(r'^version: 3\.4\.6\+30416$', multiLine: true)
               .hasMatch(pubspec),
           isTrue);
     });
 
-    test('AppInfo declares 3.4.6.i / 30415', () {
+    test('AppInfo declares 3.4.6.j / 30416', () {
       final appInfo =
           repo('../src/lk/techworld/anantplay/sicast/AppInfo.java');
-      expect(appInfo.contains('"3.4.6.i"'), isTrue);
-      expect(appInfo.contains('30415'), isTrue);
+      expect(appInfo.contains('"3.4.6.j"'), isTrue);
+      expect(appInfo.contains('30416'), isTrue);
     });
 
-    test('docs/latest.json stays at the LIVE 3.4.6.h / 30414 tier', () {
+    test('docs/latest.json stays at the LIVE 3.4.6.i / 30415 tier', () {
       final latest = repo('../docs/latest.json');
-      expect(latest.contains('"version":"3.4.6.h"'), isTrue);
-      expect(latest.contains('"code":30414'), isTrue);
+      expect(latest.contains('"version":"3.4.6.i"'), isTrue);
+      // v3.4.6.j — the LIVE tier is 3.4.6.i / 30415 (this branch NEVER
+      // touches latest.json; the release workflow rewrites it to .j / 30416
+      // only when v3.4.6.j ships).
+      expect(latest.contains('"code":30415'), isTrue);
     });
 
     test('the bridge exposes the raw getString/getInt lanes', () {

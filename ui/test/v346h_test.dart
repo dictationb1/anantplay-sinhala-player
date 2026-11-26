@@ -431,16 +431,16 @@ void main() {
   });
 
   group('v3.4.6.h version identity', () {
-    test('pubspec carries 3.4.6+30415 (pure integer build number)', () {
+    test('pubspec carries 3.4.6+30416 (pure integer build number)', () {
       final pubspec = File('pubspec.yaml').readAsStringSync();
-      expect(RegExp(r'^version: 3\.4\.6\+30415$', multiLine: true).hasMatch(pubspec), isTrue);
+      expect(RegExp(r'^version: 3\.4\.6\+30416$', multiLine: true).hasMatch(pubspec), isTrue);
       expect(pubspec.contains('3.4.6.h+30414'), isFalse,
           reason: 'pub-semver forbids the 4-part core in the version field');
     });
 
-    test('the visible version literal matches the release identity', () {
+    test('the visible version literal matches the 3.4.6.j release identity', () {
       final feedback = File('lib/anantplay/action_feedback.dart').readAsStringSync();
-      expect(feedback.contains("kVisibleVersion = 'v3.4.6.i'"), isTrue);
+      expect(feedback.contains("kVisibleVersion = 'v3.4.6.j'"), isTrue);
     });
   });
 }

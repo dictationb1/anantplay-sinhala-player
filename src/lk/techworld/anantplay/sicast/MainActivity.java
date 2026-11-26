@@ -9,6 +9,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -105,9 +107,19 @@ public class MainActivity extends FlutterActivity {
     // renders the PlayerScreen (or switches to the Browser tab) from it.
     private static MainActivity instance;
 
-    /** Push a route blob into the Flutter shell and bring the task forward. */
+    /** Push a route blob into the Flutter shell and bring the task forward.
+     *  v3.4.6.j — route type 'play' is intercepted HERE and routed into the
+     *  PURE NATIVE HARDWARE PlayActivity (Law #4: playback never runs inside
+     *  Flutter's Impeller compositor anymore — MainActivity is paused while
+     *  the movie plays, the GPU renderer idles at 0%). Only 'web' routes
+     *  still push into the shell. */
     static void shellRoute(android.content.Context c, String type, String url,
                            String title, String headers, boolean test, long startMs) {
+        if ("play".equals(type)) {
+            // v3.4.6.j — the single native Cinema lane (every caller shares it).
+            PlayActivity.launchNative(c, url, title, headers, test, startMs);
+            return;
+        }
         MainActivity a = instance;
         if (a != null && a.shellResumed) {
             // The shell is ON SCREEN: the in-app fast path — push the route
@@ -947,6 +959,102 @@ public class MainActivity extends FlutterActivity {
         if (s != null) s.success(onboardingStatusMap());
     }
 
+    // ── v3.4.6.j — THE INSTANT OFFICIAL-INSTALL DETECTION (video_6 05:00) ────
+    // Slide 2 used to stick at `100% · 0 · confirm` while the Android
+    // PackageInstaller sheet sat on top of a PAUSED Flutter activity: the
+    // install completed off-screen and nothing fired until the next resume.
+    // Now a dynamic ACTION_PACKAGE_ADDED / PACKAGE_REPLACED receiver watching
+    // me.champdev.weblock PLUS a 1 s poll while the confirm state is active
+    // detect the EXACT install instant and emit {installed, version} on the
+    // cast events channel — Slide 2 flips to glowing green and auto-advances.
+
+    /** The package-added/replaced receiver (null while not registered). */
+    private android.content.BroadcastReceiver packageInstallReceiver;
+
+    /** The 1 s confirm-state poller (null while parked). */
+    private Runnable officialInstallPoll;
+    private int officialInstallPollTicks;
+
+    /** Arm the instant-detection watch (idempotent). */
+    private void startOfficialInstallWatch() {
+        // 1 — the dynamic receiver (the OS-broadcast lane)
+        if (packageInstallReceiver == null) {
+            try {
+                packageInstallReceiver = new android.content.BroadcastReceiver() {
+                    @Override public void onReceive(android.content.Context c, android.content.Intent i) {
+                        String pkg = i.getData() == null ? "" : String.valueOf(i.getData().getSchemeSpecificPart());
+                        if (!AnantPlayInstaller.PKG.equals(pkg)) return;
+                        Diag.i("install", "official AnantPlay package event: " + i.getAction());
+                        announceOfficialInstalled();
+                    }
+                };
+                android.content.IntentFilter f = new android.content.IntentFilter();
+                f.addAction(android.content.Intent.ACTION_PACKAGE_ADDED);
+                f.addAction(android.content.Intent.ACTION_PACKAGE_REPLACED);
+                f.addDataScheme("package");
+                // v3.4.6.j — targeting SDK 36 (Android 16): a dynamically
+                // registered receiver MUST carry the export flag on API 33+,
+                // else the register itself throws SecurityException and the
+                // instant-install watcher dies silently. PACKAGE_* broadcasts
+                // are system-protected → RECEIVER_NOT_EXPORTED; on API 26–32
+                // the flag bits are undefined and 0 (the legacy exported
+                // registration) is the only correct shape — the same int-flags
+                // overload exists since API 26, so ONE call covers all APIs.
+                registerReceiver(packageInstallReceiver, f,
+                        android.os.Build.VERSION.SDK_INT >= 33
+                                ? android.content.Context.RECEIVER_NOT_EXPORTED
+                                : 0);
+            } catch (Throwable t) {
+                Diag.w("install", "receiver register: " + t);
+                packageInstallReceiver = null;
+            }
+        }
+        // 2 — the 1 s poll (the backgrounded-activity lane: broadcasts reach a
+        //     paused process, but the poll guarantees detection even when an
+        //     OEM delays/reorders them; bounded at 15 minutes).
+        if (officialInstallPoll == null) {
+            officialInstallPollTicks = 0;
+            officialInstallPoll = new Runnable() {
+                @Override public void run() {
+                    if (officialInstallPoll != this) return;
+                    if (AnantPlayInstaller.anantplayInstalled(MainActivity.this)) {
+                        announceOfficialInstalled();
+                        return;
+                    }
+                    if (++officialInstallPollTicks > 900) {   // 15 min bounded
+                        stopOfficialInstallWatch();
+                        return;
+                    }
+                    main.postDelayed(this, 1000);
+                }
+            };
+            main.postDelayed(officialInstallPoll, 1000);
+        }
+    }
+
+    /** Disarm the watch (install seen, or bounded lifetime). */
+    private void stopOfficialInstallWatch() {
+        if (packageInstallReceiver != null) {
+            try { unregisterReceiver(packageInstallReceiver); } catch (Throwable ignored) { }
+            packageInstallReceiver = null;
+        }
+        officialInstallPoll = null;
+    }
+
+    /** The EXACT-instant announcement: Slide 2 flips to `Installed ✓`. */
+    private void announceOfficialInstalled() {
+        stopOfficialInstallWatch();
+        String v = AnantPlayInstaller.anantplayVersion(this);
+        Diag.i("install", "official AnantPlay installed (v" + v + ")");
+        Troubleshooter.record("INSTALL", "official AnantPlay install detected instantly · v" + v);
+        // the Dart InstallEvent {t:'installed', v:'0', x:'<version>'}
+        pushInstallEvent("installed", 0, v);
+        // the pill + auto-advance paths re-read the live state
+        pushOnboardingStatus();
+        pushOfficialVersion();
+        try { AnantPlayInstaller.sweepCache(this); } catch (Throwable ignored) { }
+    }
+
     // ── anantplay/cast ────────────────────────────────────────────────────────
 
     private void onCastCall(MethodCall call, MethodChannel.Result result) {
@@ -1019,10 +1127,27 @@ public class MainActivity extends FlutterActivity {
             } else if ("openOfficial".equals(m)) {
                 Miui.openAnantPlay(this);
                 result.success(true);
+            } else if ("openOfficialWithCoach".equals(m)) {
+                // v3.4.6.j — THE GUIDED ANANTPLAY SETUP COACH (video_5): start
+                // the floating overlay (System Alert Window — ZERO
+                // AccessibilityService) AND launch official AnantPlay in one
+                // tap. The draggable glass card walks all 6 steps with 1-tap
+                // Copy buttons; Finish Setup ✓ removes it cleanly.
+                AnantPlayCoachService.start(this);
+                Miui.openAnantPlay(this);
+                result.success(true);
+            } else if ("stopCoach".equals(m)) {
+                // v3.4.6.j — leaving the guided setup early removes the overlay.
+                AnantPlayCoachService.stop(this);
+                result.success(true);
             } else if ("testPlayer".equals(m)) {
-                // v3.4.6.c — the MORNYE CINEMA PLAYER (in-shell), not the raw
-                // Java PlayActivity (real-phone complaint #3).
-                pushShellRoute("play", "", "Sinhala Player Test", "", true, 0L);
+                // v3.4.6.j — the PURE NATIVE HARDWARE CINEMA PLAYER (Law #4):
+                // the Test tap launches PlayActivity directly — a full-screen
+                // opaque Activity whose arrival pauses MainActivity and
+                // suspends the Flutter Impeller GPU renderer for the whole
+                // playback session (zero compositor, zero lag, ~10% / 2 h).
+                PlayActivity.launchNative(this, PlayActivity.TEST_URL,
+                        "Sinhala Player Test", "", true, 0L);
                 result.success(true);
             } else if ("shareText".equals(m)) {
                 // v3.4.6.c — Help's 1-tap Share (the system ACTION_SEND sheet).
@@ -1071,6 +1196,11 @@ public class MainActivity extends FlutterActivity {
                 // v3.4.6.b — Slide 2's in-app installer: resolve the official
                 // release → stream with live percent events → PackageInstaller
                 // 1-tap sheet. Progress arrives on this channel's EventChannel.
+                // v3.4.6.j — the INSTANT-install watch arms here: the
+                // package-added/replaced receiver + the 1 s confirm-state poll
+                // emit {installed, version} the moment the OS finishes — Slide
+                // 2 can never stick at `100% · 0 · confirm` again.
+                startOfficialInstallWatch();
                 AnantPlayInstaller.installOfficial(this, new AnantPlayInstaller.Listener() {
                     @Override public void onProgress(final int percent, final String version) {
                         main.post(() -> pushInstallEvent("installProgress", percent, version));
@@ -1079,6 +1209,11 @@ public class MainActivity extends FlutterActivity {
                         main.post(() -> pushInstallEvent("installState", 0, state));
                     }
                 });
+                result.success(true);
+            } else if ("watchOfficialInstall".equals(m)) {
+                // v3.4.6.j — Slide 2's confirm-state watcher arm (the Dart side
+                // calls this while the PackageInstaller sheet is visible).
+                startOfficialInstallWatch();
                 result.success(true);
             } else if ("copyToClipboard".equals(m)) {
                 // v3.4.6.b — Slide 6's 1-tap Copy Index URL (the Sources &
@@ -1125,12 +1260,24 @@ public class MainActivity extends FlutterActivity {
                 }
                 result.success(true);
             } else if ("watchOverlayGrant".equals(m)) {
-                // v3.4.6.d — the 30-second overlay return-watcher: the user is
-                // heading into ACTION_MANAGE_OVERLAY_PERMISSION; we poll
-                // canDrawOverlays every 500 ms while paused and the INSTANT it
-                // flips true we bring MainActivity back to the front (REORDER_TO
-                // _FRONT | SINGLE_TOP) so the user glides straight back in.
-                watchOverlayGrant();
+                // v3.4.6.j — THE 90-SECOND BOUNDED OVERLAY RETURN-WATCHER
+                // (400 ms poll): the user is heading into
+                // ACTION_MANAGE_OVERLAY_PERMISSION; the INSTANT it flips true
+                // we snap MainActivity back to the front through the BAL-allowed
+                // PendingIntent lane — the ESET-style instant auto-return.
+                watchPermissionGrant("overlay");
+                result.success(true);
+            } else if ("watchInstallPermission".equals(m)) {
+                // v3.4.6.j — the same 90 s / 400 ms watcher for the
+                // unknown-sources install grant (the HyperOS Danger-warning
+                // countdown comfortably fits in 90 s).
+                watchPermissionGrant("installs");
+                result.success(true);
+            } else if ("watchBatteryGrant".equals(m)) {
+                // v3.4.6.j — NEW: the battery-unrestricted watcher (slide 5's
+                // "No restrictions ✓" flip) with the identical 90 s / 400 ms /
+                // BAL snap-back contract.
+                watchPermissionGrant("battery");
                 result.success(true);
             } else if ("enterPip".equals(m)) {
                 // v3.4.6.d — THE DEAD-CHANNEL FIX #1: the player's PiP button
@@ -1227,53 +1374,70 @@ public class MainActivity extends FlutterActivity {
         }
     }
 
-    /** The bounded overlay watcher (polls while paused; null when idle). */
-    private Runnable overlayWatcher;
-    private int overlayWatchTicks;
+    // ══ v3.4.6.j — THE 90-SECOND PERMISSION AUTO-RETURN WATCHERS ═════════════
+    // (video_6 01:40–02:55 / video_4 01:30, the ESET-style instant return).
+    // The old 30 s / 500 ms watcher died mid-countdown under Xiaomi HyperOS's
+    // 10-second Danger warning (users landed back in the app a minute later
+    // with the toggle ON but the wizard stuck). The new contract, shared by
+    // all three permissions:
+    //   · 90 s bounded lifetime (225 ticks) — survives the full HyperOS
+    //     warning + toggle round trip with margin;
+    //   · 400 ms polling — the EXACT millisecond flip is caught in-budget;
+    //   · the return relaunch rides the BAL-ALLOWED PendingIntent lane
+    //     (MODE_BACKGROUND_ACTIVITY_START_ALLOWED, API 34+) with
+    //     NEW_TASK | SINGLE_TOP | REORDER_TO_FRONT — the same ESET-style
+    //     instant foreground snap the cast auto-open uses;
+    //   · ZERO AccessibilityService (the permanent law).
 
-    /**
-     * v3.4.6.d — the 30-second bounded overlay return-watcher: every 500 ms
-     * while the app is paused, re-check Settings.canDrawOverlays. The moment
-     * it flips true, bring MainActivity back to the front and push the fresh
-     * onboarding status. Cancelled cleanly on destroy / grant / 30 s timeout
-     * (60 ticks) so it can never leak a handler.
-     */
-    private void watchOverlayGrant() {
+    /** The one shared watcher (one permission at a time, the live one). */
+    private Runnable permissionWatcher;
+    private int permissionWatchTicks;
+
+    /** Which permission the live watcher polls. */
+    private String watchKind;
+
+    private boolean readWatchState(String kind) {
+        switch (kind == null ? "" : kind) {
+            case "overlay":  try { return Settings.canDrawOverlays(this); } catch (Throwable t) { return false; }
+            case "installs": return AnantPlayInstaller.canRequestPackageInstalls(this);
+            case "battery":  return Miui.batteryUnrestricted(this);
+            default: return false;
+        }
+    }
+
+    /** Arm the bounded watcher for one permission kind (overlay/installs/battery). */
+    private void watchPermissionGrant(String kind) {
         stopOverlayWatcher();
-        overlayWatchTicks = 0;
-        overlayWatcher = new Runnable() {
+        watchKind = kind;
+        permissionWatchTicks = 0;
+        permissionWatcher = new Runnable() {
             @Override public void run() {
-                if (overlayWatcher != this) return;   // superseded or stopped
-                overlayWatchTicks++;
-                boolean granted = false;
-                try { granted = Settings.canDrawOverlays(MainActivity.this); } catch (Throwable ignored) { }
-                if (granted) {
+                if (permissionWatcher != this) return;   // superseded or stopped
+                permissionWatchTicks++;
+                if (readWatchState(watchKind)) {
                     stopOverlayWatcher();
-                    // Glide straight back into the app (the wizard auto-advances
-                    // from the pushed status — the v3.4.6.c complaint: users
-                    // were stranded in Android settings after flipping the toggle).
-                    try {
-                        Intent i = new Intent(MainActivity.this, MainActivity.class)
-                                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                        startActivity(i);
-                    } catch (Throwable t) {
-                        Diag.w("cast", "overlay return: " + t);
-                    }
+                    Diag.i("perm", watchKind + " grant observed in "
+                            + (permissionWatchTicks * 400 / 1000f) + " s — BAL snap-back");
+                    Troubleshooter.record("PERM", watchKind + " granted — instant auto-return fired");
+                    // THE ESET-STYLE SNAP-BACK: the BAL-allowed PendingIntent
+                    // relaunch (NEW_TASK | SINGLE_TOP | REORDER_TO_FRONT).
+                    shellLaunchBal(MainActivity.this, "permission-granted-" + watchKind);
                     pushOnboardingStatus();
                     return;
                 }
-                if (overlayWatchTicks >= 60) {        // 30 s bounded lifetime
+                if (permissionWatchTicks >= 225) {       // 90 s bounded lifetime
                     stopOverlayWatcher();
                     return;
                 }
-                main.postDelayed(this, 500);
+                main.postDelayed(this, 400);
             }
         };
-        main.postDelayed(overlayWatcher, 500);
+        main.postDelayed(permissionWatcher, 400);
     }
 
     private void stopOverlayWatcher() {
-        overlayWatcher = null;
+        permissionWatcher = null;
+        watchKind = null;
     }
 
     /** v3.4.6.d — real Picture-in-Picture on the Flutter host. */
@@ -1488,44 +1652,49 @@ public class MainActivity extends FlutterActivity {
                 if (v != null) v.applyTheme();
                 result.success(v != null);
             } else if ("openHome".equals(call.method)) {
-                // v3.4.6.i — the Browser bar's home button: HOME_URL (the
-                // never-blank bootstrap also used on the headless lane's
-                // first construction).
+                // v3.4.6.j — the Browser bar's home button: the LIVE engine
+                // home (the search engine's own page — the Settings switch
+                // takes effect immediately, never a stale google.com).
                 WebBrowserView v = browserView;
-                if (v != null) v.load(WebBrowserView.HOME_URL);
+                if (v != null) v.load(WebBrowserView.homeUrlFor(prefs));
                 result.success(v != null);
             } else if ("fetchUrl".equals(call.method)) {
-                // v3.4.6.i — the Sources Hub's index.json reader: an https-only
-                // GET with a 6 s hard deadline and a 256 KiB body cap, run OFF
-                // the main thread (the Dart side parses the JSON itself with
-                // dart:convert). Zero GitHub-REST calls — it feeds straight
-                // index feeds (raw.githubusercontent.com / workers.dev) into
-                // the in-app Sources Hub. The channel reply is posted back on
-                // the main looper (the embedding's @UiThread contract).
+                // v3.4.6.j — THE SOURCES-HUB INDEX READER (video_4 03:30–04:05
+                // fix): the 1 MiB / 10 s / redirect-following / gzip-aware /
+                // jsDelivr-mirror lane (SelfUpdateCore.fetchIndexFeed), run OFF
+                // the main thread. The reply carries the body AND, on failure,
+                // the EXACT sanitized reason (e.g. "HTTP 404",
+                // "UnknownHostException: raw.githubusercontent.com") — never a
+                // vague "unreachable (offline ok)". Zero GitHub-REST calls.
                 final String url = call.argument("url");
-                // v3.4.6.i — the SSRF guard: https:// AND a public host only
-                // (loopback / private / link-local / CGNAT / ULA / metadata and
-                // every non-https scheme are refused before a socket opens).
-                if (url == null || !SelfUpdateCore.safeRemoteUrl(url)) {
-                    Diag.w("browser", "fetchUrl refused (SSRF guard): non-https or non-public host");
-                    result.success("");
-                    return;
-                }
                 final MethodChannel.Result r = result;
                 new Thread(() -> {
-                    String b = "";
+                    String body = "";
+                    String error = "";
+                    boolean mirror = false;
                     try {
-                        b = SelfUpdateCore.httpGetDeadline(url, 4000, 6000, 6000);
-                        if (b != null && b.length() > 256 * 1024) {
-                            b = b.substring(0, 256 * 1024);
+                        SelfUpdateCore.IndexFetch f = SelfUpdateCore.fetchIndexFeed(url);
+                        body = f.ok() ? f.body : "";
+                        error = f.ok() ? "" : f.error;
+                        mirror = f.viaMirror;
+                        if (!f.ok()) {
+                            Diag.w("browser", "fetchUrl failed: " + f.error);
                         }
                     } catch (Throwable t) {
                         Diag.w("browser", "fetchUrl: " + t);
-                        b = "";
+                        error = String.valueOf(t);
                     }
-                    final String body = b == null ? "" : b;
+                    final String b = body;
+                    final String e = error;
+                    final boolean m = mirror;
                     main.post(() -> {
-                        try { r.success(body); } catch (Throwable ignored) { }
+                        try {
+                            Map<String, Object> out = new LinkedHashMap<>();
+                            out.put("body", b);
+                            out.put("error", e);
+                            out.put("mirror", m);
+                            r.success(out);
+                        } catch (Throwable ignored) { }
                     });
                 }, "fetch-url").start();
             } else {
@@ -1541,6 +1710,18 @@ public class MainActivity extends FlutterActivity {
 
     /** The one attached browser view (null while the Browser tab is offstage). */
     private WebBrowserView browserView;
+
+    /** v3.4.6.j — main-thread home reload after a search-engine change. */
+    private void syncBrowserEngineHome() {
+        main.post(() -> {
+            try {
+                WebBrowserView v = browserView;
+                if (v != null) v.applySearchEngineHome();
+            } catch (Throwable t) {
+                Diag.w("browser", "engine home sync: " + t);
+            }
+        });
+    }
 
     /**
      * v3.4.6.c — the PlatformView factory hosting the hardened WebBrowserView
@@ -1638,9 +1819,29 @@ public class MainActivity extends FlutterActivity {
         try {
             if ("getAll".equals(m)) {
                 result.success(gatherSettings());
+            } else if ("cacheStats".equals(m)) {
+                // v3.4.6.j — Storage & Cache: the LIVE real-bytes breakdown
+                // (app cache & WebView · subtitle cache · update cache · watch
+                // history) the new sub-page renders.
+                result.success(cacheStatsMap());
+            } else if ("clearCache".equals(m)) {
+                // v3.4.6.j — Clear all cache (app+WebView+subs+updates; the
+                // history has its own row). Reply = the freed bytes.
+                final MethodChannel.Result r = result;
+                new Thread(() -> {
+                    final long freed = clearAllCache();
+                    main.post(() -> {
+                        try { r.success(freed); } catch (Throwable ignored) { }
+                    });
+                }, "clear-cache").start();
             } else if ("putString".equals(m)) {
-                prefs.edit().putString(call.<String>argument("key"),
+                final String key = call.<String>argument("key");
+                prefs.edit().putString(key,
                         orEmpty(call.argument("value"))).apply();
+                // v3.4.6.j — the Search engine switch takes effect IMMEDIATELY:
+                // reload the live Browser tab onto the newly chosen engine's
+                // own home instead of waiting for a restart.
+                if (AppPrefs.K_SEARCH_ENGINE.equals(key)) syncBrowserEngineHome();
                 result.success(true);
             } else if ("putBool".equals(m)) {
                 prefs.edit().putBoolean(call.<String>argument("key"),
@@ -1782,6 +1983,10 @@ public class MainActivity extends FlutterActivity {
         m.put(AppPrefs.K_DYNAMIC_COLOR, AppPrefs.dynamicColor(prefs));
         m.put(AppPrefs.K_ACCENT, AppPrefs.accent(prefs));
         m.put(AppPrefs.K_UI_LANG, AppPrefs.uiLang(prefs));
+        // v3.4.6.j — THE DUAL APP STYLE ('mornye' default | 'material') + the
+        // history presentation: both round-trip through the live mirror.
+        m.put(AppPrefs.K_APP_STYLE, AppPrefs.appStyle(prefs));
+        m.put(AppPrefs.K_HISTORY_VIEW, AppPrefs.historyView(prefs));
         // v3.4.6.i — the FULL density string (spacious no longer collapses).
         m.put(AppPrefs.K_DENSITY, AppPrefs.density(prefs));
         m.put(AppPrefs.K_SHOW_WEB_TAB, AppPrefs.showWebTab(prefs));
@@ -1870,6 +2075,11 @@ public class MainActivity extends FlutterActivity {
                 WatchHistory.save(prefs, WatchHistory.remove(WatchHistory.load(prefs),
                         call.<String>argument("key")));
                 result.success(true);
+            } else if ("clear".equals(call.method)) {
+                // v3.4.6.j — Storage & Cache: clear the whole Continue Watching
+                // list (its own row; the cache clear never touches it).
+                WatchHistory.save(prefs, new ArrayList<WatchHistory.Item>());
+                result.success(true);
             } else {
                 markNotImplemented(call.method);
                 result.notImplemented();
@@ -1877,6 +2087,86 @@ public class MainActivity extends FlutterActivity {
         } catch (Throwable t) {
             result.error("history", String.valueOf(t), null);
         }
+    }
+
+    // ══ v3.4.6.j — STORAGE & CACHE (video_1 00:50, the real MB breakdown) ════
+
+    /** A directory's total size (bytes; 0 when missing/unreadable). */
+    private static long dirSize(File dir) {
+        if (dir == null || !dir.isDirectory()) return 0;
+        long total = 0;
+        try {
+            File[] files = dir.listFiles();
+            if (files == null) return 0;
+            for (File f : files) {
+                total += f.isDirectory() ? dirSize(f) : Math.max(0, f.length());
+            }
+        } catch (Throwable ignored) { }
+        return total;
+    }
+
+    /** The live Storage & Cache breakdown (bytes): app cache & WebView,
+     *  subtitle cache, update cache, watch history. */
+    private Map<String, Object> cacheStatsMap() {
+        File cacheDir = getCacheDir();
+        long appCache = Math.max(0, dirSize(cacheDir) - dirSize(new File(cacheDir, "updates")));
+        long subs = dirSize(new File(getFilesDir(), "subs"));
+        long updates = dirSize(new File(cacheDir, "updates"));
+        long history = 0;
+        try {
+            String h = prefs.getString(WatchHistory.K_HISTORY, "[]");
+            history = h == null ? 0 : h.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        } catch (Throwable ignored) { }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("t", "cacheStats");
+        m.put("appCache", appCache);
+        m.put("subs", subs);
+        m.put("updates", updates);
+        m.put("history", history);
+        m.put("total", appCache + subs + updates + history);
+        return m;
+    }
+
+    /** v3.4.6.j — Clear all cache: the app/WebView cache, the subtitle cache
+     *  and the update cache in one tap (the watch history NEVER — it has its
+     *  own row). Returns the freed bytes. */
+    private long clearAllCache() {
+        long freed = 0;
+        File cacheDir = getCacheDir();
+        try {
+            File[] files = cacheDir.listFiles();
+            if (files != null) {
+                for (File f : files) freed += deleteTree(f);
+            }
+        } catch (Throwable t) {
+            Diag.w("storage", "app cache clear: " + t);
+        }
+        try {
+            freed += deleteTree(new File(getFilesDir(), "subs"));
+        } catch (Throwable t) {
+            Diag.w("storage", "subs clear: " + t);
+        }
+        Diag.i("storage", "clear all cache freed " + (freed / 1024) + " KiB");
+        Troubleshooter.record("STORAGE", "clear all cache freed "
+                + (freed / 1024) + " KiB (app+WebView+subs+updates)");
+        return freed;
+    }
+
+    /** Delete a file or tree, returning the bytes actually removed. */
+    private static long deleteTree(File f) {
+        if (f == null || !f.exists()) return 0;
+        long size = 0;
+        try {
+            if (f.isDirectory()) {
+                File[] children = f.listFiles();
+                if (children != null) {
+                    for (File c : children) size += deleteTree(c);
+                }
+            }
+            long len = Math.max(0, f.length());
+            if (f.delete()) size += len;
+        } catch (Throwable ignored) { }
+        return size;
     }
 
     // ── anantplay/updater ────────────────────────────────────────────────────
@@ -2592,6 +2882,7 @@ public class MainActivity extends FlutterActivity {
     protected void onDestroy() {
         instance = null;
         stopOverlayWatcher();          // v3.4.6.d — never leak the 500 ms poll
+        stopOfficialInstallWatch();    // v3.4.6.j — never leak the install watcher
         unregisterOnlineTrigger();     // v3.4.6.h — never leak the network callback
         if (playerBridge != null) playerBridge.dispose();
         SelfUpdater.setUiListener(null);

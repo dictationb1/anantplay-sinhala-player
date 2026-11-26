@@ -26,6 +26,7 @@ import 'package:material_ui/material_ui.dart' hide Icons;
 import 'package:material_ui/material_ui.dart' as mi show Icons;
 
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_chrome.dart';
+import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_notification.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/app_bottom_sheet.dart';
 
 import 'app_state.dart';
@@ -985,17 +986,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final url = 'http://127.0.0.1:$port/subs/current.srt';
     await Clipboard.setData(ClipboardData(text: url));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('External subtitle URL copied: $url'),
-        duration: const Duration(seconds: 3),
-      ));
+      showMornyeGlassNotification(context,
+          message: 'External subtitle URL copied: $url');
     }
   }
 
   void _showLockHint() {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Locked — tap the unlock button'),
-        duration: Duration(milliseconds: 1200)));
+    showMornyeGlassNotification(context,
+        message: 'Locked — tap the unlock button');
   }
 
   Future<void> _rotate() async {
@@ -1174,9 +1172,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           .loadSubtitleUrl(urlController.text.trim());
                       if (sheet.mounted) Navigator.pop(sheet);
                       if (ok && mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('Subtitles attached')));
+                        showMornyeGlassNotification(context,
+                            message: 'Subtitles attached');
                       }
                     },
                     child: const Text('Load'),

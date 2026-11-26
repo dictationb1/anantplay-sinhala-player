@@ -172,8 +172,8 @@ version_pins = {
     "build.sh": buildsh,
 }
 for name, text in version_pins.items():
-    # v3.4.6.i — the pinned release identity.
-    check("%s carries 3.4.6.i + 30415" % name, "3.4.6.i" in text and "30415" in text)
+    # v3.4.6.j — the pinned release identity.
+    check("%s carries 3.4.6.j + 30416" % name, "3.4.6.j" in text and "30416" in text)
 check("the manifest no longer carries the AGP-9-obsolete package attribute",
       'package="lk.techworld' not in manifest)
 # v3.4.6 — AGP 9 rejects <uses-sdk>; the SDK levels are owned by the Gradle host
@@ -226,10 +226,10 @@ check("the flutter extension points at the module (ui/, lib/main.dart)",
 
 # ── G5: the Flutter module contract ──────────────────────────────────────────
 pubspec = read("ui/pubspec.yaml")
-check("pubspec carries the 3.4.6.i / 30415 identity in a pub-semver-VALID, Gradle-integer build number",
-      re.search(r"^version: 3\.4\.6\+30415$", pubspec, re.M) is not None
-      and "3.4.6.i" in pubspec
-      and "3.4.6.h+30415" not in pubspec
+check("pubspec carries the 3.4.6.j / 30416 identity in a pub-semver-VALID, Gradle-integer build number",
+      re.search(r"^version: 3\.4\.6\+30416$", pubspec, re.M) is not None
+      and "3.4.6.j" in pubspec
+      and "3.4.6.i+30416" not in pubspec
       and re.search(r"^version: .*\.\w+$", pubspec, re.M) is None)
 check("pubspec declares the add-to-app module block", re.search(r"^  module:", pubspec, re.M) is not None)
 _asset_dirs = re.findall(r"^\s+- (mornye/[A-Za-z0-9_.-]+|assets/[A-Za-z0-9_/.-]+/)$", pubspec, re.M)

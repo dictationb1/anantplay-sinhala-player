@@ -744,31 +744,38 @@ public final class SelfUpdater {
         return "installing " + version;
     }
 
-    /** v3.4.6.f — LAW #3 Step 1: the bounded 30-second install-permission
+    /** v3.4.6.j — LAW #3 Step 1: the bounded 90-second install-permission
      *  watcher. Started the moment the Unknown-Sources settings page opens
      *  from the Update Now flow; polls canRequestPackageInstalls() every
-     *  500 ms off the main thread for at most 30 s, and the INSTANT the
-     *  grant lands it flips PENDING_AWAITING_PERMISSION off and resumes the
-     *  install — no manual re-tap, no dead waiting. Idempotent: a second
-     *  start while one watcher is live is a no-op. */
+     *  400 ms off the main thread for at most 90 s (225 ticks — the whole
+     *  HyperOS Danger-warning countdown fits with margin), and the INSTANT
+     *  the grant lands it flips PENDING_AWAITING_PERMISSION off, snaps the
+     *  app back to the front through the BAL-allowed lane (the ESET-style
+     *  instant return), and resumes the install — no manual re-tap, no dead
+     *  waiting. Idempotent: a second start while one watcher is live is a
+     *  no-op. */
     private static volatile boolean installWatcherActive;
 
     static void watchInstallPermission(Context c) {
         if (installWatcherActive) return;
         installWatcherActive = true;
         final Context app = c.getApplicationContext();
-        final long deadline = System.currentTimeMillis() + 30_000L;
+        final long deadline = System.currentTimeMillis() + 90_000L;
         new Thread(() -> {
             try {
                 while (System.currentTimeMillis() < deadline) {
                     if (app.getSharedPreferences("selfupdate", Context.MODE_PRIVATE)
                             .getBoolean(PENDING_AWAITING_PERMISSION, false)
                             && canRequestInstalls(app)) {
-                        Diag.i("selfupd", "install permission granted inside the 30 s watch — resuming install");
+                        Diag.i("selfupd", "install permission granted inside the 90 s watch — resuming install");
+                        // v3.4.6.j — the ESET-style instant return: the app
+                        // snaps back to the front through the BAL-allowed
+                        // PendingIntent lane the moment the grant lands.
+                        MainActivity.shellLaunchBal(app, "install-permission-granted");
                         resumePendingInstall(app);
                         break;
                     }
-                    Thread.sleep(500);
+                    Thread.sleep(400);
                 }
             } catch (Throwable t) {
                 Diag.w("selfupd", "install watcher: " + t);
