@@ -141,6 +141,13 @@
         <service android:name=".ReceiverService" android:exported="false"
             android:foregroundServiceType="connectedDevice"/>
 
+        <!-- v3.4.6.j — THE FLOATING ANANTPLAY SETUP COACH overlay: the draggable
+             glass card that walks the 6-step guided setup over official AnantPlay
+             using ONLY the already-granted SYSTEM_ALERT_WINDOW permission (ZERO
+             AccessibilityService). exported=false: nothing outside the app can
+             start or bind it. -->
+        <service android:name=".AnantPlayCoachService" android:exported="false"/>
+
         <!-- v2.4.0: the built-in GitHub self-updater (check on launch + every 6 h) -->
         <service android:name=".SelfUpdater$CheckJob"
             android:permission="android.permission.BIND_JOB_SERVICE"

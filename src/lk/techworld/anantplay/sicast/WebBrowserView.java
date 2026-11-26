@@ -206,11 +206,37 @@ public class WebBrowserView extends FrameLayout {
 
     /**
      * v3.4.6.i — THE BOOTSTRAP CONTRACT (probe-audited): the URL a headless
-     * view boots to. `last` when there is one, otherwise HOME_URL — a first
-     * EVER Browser tab open can never sit as a blank panel.
+     * view boots to. `last` when there is one, otherwise the engine home —
+     * a first EVER Browser tab open can never sit as a blank panel.
      */
     static String bootstrapUrl(String last) {
         return last != null && !last.isEmpty() ? last : HOME_URL;
+    }
+
+    /**
+     * v3.4.6.j — THE LIVE ENGINE HOME (the search-engine switch): picking
+     * google / duckduckgo / startpage / brave in Settings → Browser flips the
+     * Browser home URL IMMEDIATELY — the next Home tap (and every fresh
+     * bootstrap) opens the chosen engine's own page, never a stale
+     * google.com while the setting says otherwise.
+     */
+    static String homeUrlFor(android.content.SharedPreferences prefs) {
+        String engine = AppPrefs.searchEngine(prefs);
+        if (AppPrefs.SEARCH_DDG.equals(engine)) return "https://duckduckgo.com/";
+        if (AppPrefs.SEARCH_STARTPAGE.equals(engine)) return "https://www.startpage.com/";
+        if (AppPrefs.SEARCH_BRAVE.equals(engine)) return "https://search.brave.com/";
+        return HOME_URL;
+    }
+
+    /**
+     * v3.4.6.j — LIVE SEARCH-ENGINE SYNC: Settings → Browser home is not a
+     * stale snapshot. Called on the main thread the instant `searchEngine`
+     * is written; the WebView navigates to the newly chosen engine's own
+     * page and that URL becomes the persisted last/home page.
+     */
+    public void applySearchEngineHome() {
+        final String home = homeUrlFor(prefs);
+        load(home);
     }
 
     /**
@@ -659,8 +685,9 @@ public class WebBrowserView extends FrameLayout {
         if (headless) {
             // the Flutter side hands the initial URL through creationParams;
             // restore the last page so tab switches keep the position — and
-            // when neither exists, HOME_URL (the never-blank guarantee).
-            load(bootstrapUrl(last));
+            // when neither exists, the ENGINE home (the never-blank guarantee,
+            // v3.4.6.j: the chosen search engine's own page).
+            load(last != null && !last.isEmpty() ? last : homeUrlFor(prefs));
         } else if (last != null && !last.isEmpty()) {
             load(last);
         } else {

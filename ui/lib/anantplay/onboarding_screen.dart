@@ -25,6 +25,7 @@ import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_press.dart';
 
 import 'app_state.dart';
 import 'bridge.dart';
+import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_notification.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -75,6 +76,28 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     });
     _installSub = AnantPlay.instance.installEvents().listen((e) {
       if (!mounted) return;
+      // v3.4.6.j — THE INSTANT INSTALL DETECTION (video_6 05:00–05:45): the
+      // native package-added/replaced receiver + 1 s confirm poll emit
+      // {t:'installed', x:'<version>'} the EXACT instant the OS finishes —
+      // Slide 2 flips to the glowing green Installed badge and auto-advances,
+      // never sticking at `100% · 0 · confirm`.
+      if (e.type == 'installed') {
+        setState(() {
+          _officialInstalledLive = true;
+          if (e.extra.isNotEmpty) _officialVersionLive = e.extra;
+          _installRunning = false;
+          _installPercent = 100;
+          _installState = '';
+        });
+        _confirmAndAdvance();
+        return;
+      }
+      // v3.4.6.j — the confirm state arms the native watcher (the receiver +
+      // the 1 s poll keep watching while the PackageInstaller sheet is up).
+      if (e.type == 'installState' &&
+          (e.value.contains('confirm') || e.extra.contains('confirm'))) {
+        AnantPlay.instance.watchOfficialInstall();
+      }
       setState(() {
         if (e.type == 'installProgress') {
           _installPercent = e.percent;
@@ -201,17 +224,13 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
-    // v3.4.6.i — SMART FIRST-TIME PROGRESSION: on a FIRST-TIME launch (the
-    // wizard gate, never a re-run) the slides gently guide each permission
-    // (the Continue button de-emphasizes until the grant lands — the flip
-    // auto-advance already glides on); the top-right Skip stays the explicit
-    // accessibility escape. A re-run (Settings / Help / Watch Tour) keeps
-    // the plain free Skip. Both paths still persist onboardingDone + version
-    // 2 through the one completeOnboarding lane.
+    // v3.4.6.j — THE MANDATORY FIRST-TIME WIZARD (video_4 00:30–01:10): a
+    // first-time launch (onboardingCurrent == false) has NO Skip at all —
+    // every slide is completed properly before the next one. A voluntary
+    // re-run (Settings → Run setup guide / Help → Watch Tour) gets the clean
+    // top-right Close instead. The last slide keeps its own Finish action.
     final bool firstTimeLaunch = !AppState.of(context).settings.onboardingCurrent;
-    // (kept: the wizard-instance flag — the accessibility escape label reads
-    // 'Skip' on a first-time launch and 'Skip tour' on a voluntary re-run.)
-    final String skipLabel = firstTimeLaunch ? 'Skip' : 'Skip tour';
+    final String? closeLabel = firstTimeLaunch ? null : 'Close';
     return Scaffold(
       backgroundColor: const Color(0xFF0F2E30),
       body: SafeArea(
@@ -223,19 +242,20 @@ class _OnboardingScreenState extends State<OnboardingScreen>
               minHeight: (media.size.height - 96).clamp(120.0, 10000.0)),
           child: Column(
             children: [
-              // the subtle top-right Skip (any slide but the last)
+              // the top-right Close (a voluntary re-run only — NEVER on a
+              // mandatory first-time launch; any slide but the last)
               Align(
                 alignment: Alignment.centerRight,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: _page < _pageCount - 1
+                  child: _page < _pageCount - 1 && closeLabel != null
                       ? TextButton(
                           onPressed: _skip,
                           style: TextButton.styleFrom(
                             foregroundColor: const Color(0x99F2F7F7),
                             textStyle: const TextStyle(fontSize: 13),
                           ),
-                          child: Text(skipLabel),
+                          child: Text(closeLabel),
                         )
                       : const SizedBox(height: 44),
                 ),
@@ -425,8 +445,17 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         _StabilityCard(
           batteryGranted: _status.battery,
           installsGranted: _status.installs,
-          onBattery: () => AnantPlay.instance.openBatteryOptimization(),
-          onInstalls: () => AnantPlay.instance.openUnknownSources(),
+          onBattery: () {
+            // v3.4.6.j — the 90 s / 400 ms bounded watcher + the BAL snap-back
+            // fire with the deep link (the ESET-style instant return).
+            AnantPlay.instance.openBatteryOptimization();
+            AnantPlay.instance.watchBatteryGrant();
+          },
+          onInstalls: () {
+            // v3.4.6.j — the same watcher contract for the install grant.
+            AnantPlay.instance.openUnknownSources();
+            AnantPlay.instance.watchInstallPermission();
+          },
         ),
         const SizedBox(height: 10),
         _pill(label: 'Continue', onTap: () => _go(5), prominent: true),
@@ -536,8 +565,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           onTap: () async {
             await AnantPlay.instance.copyToClipboard(url);
             if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Index URL copied')));
+              showMornyeGlassNotification(context,
+                  message: 'Index URL copied');
             }
           },
           icon: mi.Icons.copy_rounded,
@@ -831,12 +860,14 @@ class _WelcomeHeroState extends State<_WelcomeHero>
   static const List<String> _beatTitles = <String>[
     '1. Pick movie in AnantPlay',
     '2. Auto Sinhala Subtitles',
-    '3. Cool Cinema Player',
+    // v3.4.6.j — crisp natural copy (the awkward "උණුසුම් නැති සිනමා
+    // වේදිකාව" is gone — video_6 04:20).
+    '3. Smooth, Cool Cinema Player',
   ];
   static const List<String> _beatSubs = <String>[
     'ඔබේ චිත්‍රපටිය AnantPlay තුළ තෝරන්න',
     'සිංහල උපසිරැසි ස්වයංක්‍රීයවම',
-    'උණුසුම් නැති සිනමා වේදිකාව',
+    'සිංහල උපසිරැසි සිනමා ධාවකය',
   ];
 
   int get _beat => (_story.value * 3).floor().clamp(0, 2);
@@ -1153,7 +1184,7 @@ class _WelcomeHeroState extends State<_WelcomeHero>
                     border: Border.all(color: const Color(0x997CE38B)),
                   ),
                   child: const Text(
-                    '5–6 පැයක් · උණුසුමක් නැති · marathon-cool',
+                    '5–6 පැයක් · සිසිල් · marathon-cool',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 8, color: Color(0xFFE4FFE9)),
                   ),

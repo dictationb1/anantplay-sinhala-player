@@ -1463,9 +1463,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v346i upd: versionCode 30415 strictly > 30414 (v3.4.6.h) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30415 && AppInfo.VERSION_CODE > 30414 && AppInfo.VERSION_CODE < 40000
-              && "3.4.6.i".equals(AppInfo.VERSION_NAME));
+        check("v346j upd: versionCode 30416 strictly > 30415 (v3.4.6.i) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30416 && AppInfo.VERSION_CODE > 30415 && AppInfo.VERSION_CODE < 40000
+              && "3.4.6.j".equals(AppInfo.VERSION_NAME));
         // v3.4.6.b — THE ALPHABETICAL LADDER is proven by execution, not assertion:
         // the updater must order 3.4.6 < .a < .b < .c < .d < 3.4.7 and never throw.
         try {
@@ -1565,9 +1565,9 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v346i pipe: build.sh defaults match the shipped version (3.4.6.i / 30415 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.i}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30415}")
+        check("v346j pipe: build.sh defaults match the shipped version (3.4.6.j / 30416 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.j}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30416}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -2776,8 +2776,8 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346i sec: workflows and manifest enforce versionCode 30415 / 3.4.6.i",
-            buildYml.contains("30415") && buildYml.contains("3.4.6.i") && relYml.contains("3.4.6.i"));
+        check("v346j sec: workflows and manifest enforce versionCode 30416 / 3.4.6.j",
+            buildYml.contains("30416") && buildYml.contains("3.4.6.j") && relYml.contains("3.4.6.j"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
@@ -2787,12 +2787,12 @@ public class ReceiverLab {
         // in android/app/build.gradle; the manifest no longer carries a package
         // attribute, and build.sh passes --version-code/--version-name to aapt2.
         String hostGradle = readRepoFile("android/app/build.gradle");
-        check("v346i pipe: android/app/build.gradle declares the shipped 30415 / 3.4.6.i identity",
+        check("v346j pipe: android/app/build.gradle declares the shipped 30416 / 3.4.6.j identity",
             hostGradle.contains("applicationId = \"lk.techworld.anantplay.sicast\"")
-                && hostGradle.contains("versionCode = 30415")
-                && hostGradle.contains("versionName = \"3.4.6.i\"")
-                && "30415".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.6.i".equals(AppInfo.VERSION_NAME));
+                && hostGradle.contains("versionCode = 30416")
+                && hostGradle.contains("versionName = \"3.4.6.j\"")
+                && "30416".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.6.j".equals(AppInfo.VERSION_NAME));
         // v3.4.6 — AGP 9 forbids <uses-sdk> in the manifest: the SDK levels are
         // owned by android/app/build.gradle (and by build.sh's aapt2 flags).
         check("v346 pipe: the manifest drops BOTH the package attribute and <uses-sdk> (AGP 9)",
@@ -4399,17 +4399,17 @@ public class ReceiverLab {
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
         String hostAppGradle = readRepoFile("android/app/build.gradle");
-        check("v346i parity: android/app/build.gradle says 3.4.6.i / 30415",
-            hostAppGradle.contains("versionCode = 30415") && hostAppGradle.contains("versionName = \"3.4.6.i\"")
+        check("v346j parity: android/app/build.gradle says 3.4.6.j / 30416",
+            hostAppGradle.contains("versionCode = 30416") && hostAppGradle.contains("versionName = \"3.4.6.j\"")
                 && hostAppGradle.contains("targetSdk = 36") && !manifest.contains("android:minSdkVersion"));
-        check("v346i parity: AppInfo says 3.4.6.i / 30415",
-            "3.4.6.i".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30415);
-        check("v346i parity: 30415 strictly > 30414 — an in-place update over v3.4.6.h, no downgrade",
-            AppInfo.VERSION_CODE == 30415 && AppInfo.VERSION_CODE > 30414);
+        check("v346j parity: AppInfo says 3.4.6.j / 30416",
+            "3.4.6.j".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30416);
+        check("v346j parity: 30416 strictly > 30415 — an in-place update over v3.4.6.i, no downgrade",
+            AppInfo.VERSION_CODE == 30416 && AppInfo.VERSION_CODE > 30415);
         String build = readRepoFile("build.sh");
-        check("v346i parity: build.sh defaults to 3.4.6.i / 30415 (previous 30414)",
-            build.contains("VERSION_NAME:-3.4.6.i") && build.contains("VERSION_CODE:-30415")
-                && build.contains("PREV_VERSION_CODE:-30413"));
+        check("v346j parity: build.sh defaults to 3.4.6.j / 30416 (previous 30415)",
+            build.contains("VERSION_NAME:-3.4.6.j") && build.contains("VERSION_CODE:-30416")
+                && build.contains("PREV_VERSION_CODE:-30415"));
         String latest = readRepoFile("docs/latest.json");
         boolean latestPrevious = latest.contains("\"version\":\"3.4.4\"")
             && latest.contains("\"code\":30404")
@@ -4471,22 +4471,33 @@ public class ReceiverLab {
             && latest.contains("\"code\":30415")
             && latest.contains("/download/v3.4.6.i/AnantPlay-Sinhala-Player-v3.4.6.i.apk")
             && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*");
+        // v3.4.6.j lab: THIS branch keeps docs/latest.json at the LIVE
+        // v3.4.6.i / 30415 tier (the release workflow rewrites it to .j only
+        // when v3.4.6.j ships) — the widened gate accepts BOTH 3.4.6.i and
+        // 3.4.6.j as the current tier.
+        boolean latestJ = latest.contains("\"version\":\"3.4.6.j\"")
+            && latest.contains("\"code\":30416")
+            && latest.contains("/download/v3.4.6.j/AnantPlay-Sinhala-Player-v3.4.6.j.apk")
+            && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*");
         check("v346c parity: latest.json is a valid previous or current signed release",
-            (latestPrevious || latestCurrent || latestRelease || latestHotfix || latestA || latestPrevC || latestD || latestE || latestF || latestG || latestH || latestI)
+            (latestPrevious || latestCurrent || latestRelease || latestHotfix || latestA || latestPrevC || latestD || latestE || latestF || latestG || latestH || latestI || latestJ)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
+        check("v346j parity: latest.json still names the LIVE 3.4.6.i / 30415 tier (never touched on this branch)",
+            latestI);
         String readme = readRepoFile("README.md");
         String setupSi = readRepoFile("SETUP-SI.md");
-        check("v346g parity: README and Sinhala setup guide announce 3.4.6.g",
-            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.6.i")
-                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.i)"));
+        check("v346j parity: README and Sinhala setup guide announce 3.4.6.j",
+            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.6.j")
+                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.j)"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346g parity: build-apk.yml resolves and verifies the shared 3.4.6.g identity",
-            buildWf.contains("test \"$VERSION\" = \"3.4.6.i\"")
-                && buildWf.contains("test \"$CODE\" = \"30415\"")
+        check("v346j parity: build-apk.yml resolves and verifies the shared 3.4.6.j identity",
+            buildWf.contains("test \"$VERSION\" = \"3.4.6.j\"")
+                && buildWf.contains("test \"$CODE\" = \"30416\"")
                 && buildWf.contains("steps.app-version.outputs.version"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v346g parity: release workflow defaults to 3.4.6.g and publishes its computed checksum",
-            relWf.contains("default: '3.4.6.i'")
+        check("v346j parity: release workflow defaults to 3.4.6.j and publishes its computed checksum",
+            relWf.contains("default: '3.4.6.j'")
+                || relWf.contains("default: \"3.4.6.j\"")
                 && relWf.contains("SHA=$(cut -d' ' -f1 dist/SHA256SUMS.txt)")
                 && relWf.contains("docs/latest.json"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
@@ -4929,13 +4940,13 @@ public class ReceiverLab {
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v346i A11: the Gradle host declares 30415 / 3.4.6.i (AGP 9 owns the identity)",
-        readRepoFile("android/app/build.gradle").contains("versionCode = 30415")
-            && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.i\"")
+        check("v346j A11: the Gradle host declares 30416 / 3.4.6.j (AGP 9 owns the identity)",
+        readRepoFile("android/app/build.gradle").contains("versionCode = 30416")
+            && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.j\"")
                 && readRepoFile("android/app/build.gradle").contains("targetSdk = 36")
                 && !manifest340.contains("android:minSdkVersion"));
-        check("v346i A11: AppInfo is 3.4.6.i / 30415",
-            "3.4.6.i".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30415);
+        check("v346j A11: AppInfo is 3.4.6.j / 30416",
+            "3.4.6.j".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30416);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -5447,8 +5458,8 @@ public class ReceiverLab {
                 && relYml.contains("3.4.6.e must derive exactly 30411")
                 && relYml.contains("3.4.6.f must derive exactly 30412"),
             "no derived code may sit at or below 30412 (except the pinned .e/.f tiers)");
-        check("v346i LAW: build-apk.yml carries the 3.4.6.i / 30415 lock (the shipping identity)",
-        buildYml.contains("test \"$VERSION\" = \"3.4.6.i\"") && buildYml.contains("test \"$CODE\" = \"30415\""));
+        check("v346i LAW: build-apk.yml carries the 3.4.6.j / 30416 lock (the shipping identity)",
+        buildYml.contains("test \"$VERSION\" = \"3.4.6.j\"") && buildYml.contains("test \"$CODE\" = \"30416\""));
         check("v346d LAW: the lab itself proves the whole alphabet by execution (no ceiling in the lab)",
             readRepoFile("lab/ReceiverLab.java").contains("for (char ch = 'a'; ch < 'z'; ch++)")
                 && readRepoFile("lab/ReceiverLab.java").contains("the full a→z sweep is strictly increasing"));
@@ -5976,20 +5987,21 @@ public class ReceiverLab {
         String releaseWorkflow = readRepoFile(".github/workflows/release-apk.yml");
 
         // v3.4.6 — AGP 9 owns the app identity in android/app/build.gradle.
-        check("v346i identity: the Gradle host declares app version 3.4.6.i / code 30415",
-            readRepoFile("android/app/build.gradle").contains("versionCode = 30415") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.i\"")
+        check("v346i identity: the Gradle host declares app version 3.4.6.j / code 30416",
+            readRepoFile("android/app/build.gradle").contains("versionCode = 30416") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.j\"")
                 && readRepoFile("android/app/build.gradle").contains("targetSdk = 36"));
         check("v346i identity: AppInfo matches the manifest",
-            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6.i\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30415"));
-        check("v346i identity: build.sh defaults and downgrade floor use 3.4.6.i / 30415",
-            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6.i") && readRepoFile("build.sh").contains("VERSION_CODE:-30415") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30413"));
+            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6.j\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30416"));
+        check("v346i identity: build.sh defaults and downgrade floor use 3.4.6.j / 30416",
+            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6.j") && readRepoFile("build.sh").contains("VERSION_CODE:-30416") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30415"));
         check("v346i identity: CI validates the manifest and emits dynamic version outputs",
-            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6.i\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30415\""));
+            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6.j\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30416\""));
         check("v344 identity: CI artifact names use the resolved version",
             buildWorkflow.contains("AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}.apk")
                 && buildWorkflow.contains("name: AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}-apk"));
-        check("v346i identity: release dispatch defaults to 3.4.6.i",
-            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6.i'"));
+        check("v346i identity: release dispatch defaults to 3.4.6.j",
+            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6.j'")
+                || readRepoFile(".github/workflows/release-apk.yml").contains("default: \"3.4.6.j\""));
 
         check("v346 home: the visible app title is fixed to AnantPlay Player",
             readRepoFile("ui/lib/anantplay/home_screen.dart").contains("AnantPlay Player"));
@@ -6288,8 +6300,20 @@ public class ReceiverLab {
             play.contains("new FrameLayout.LayoutParams(-2, -2,\n            Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL)"));
         check("v342 player: the subtitle view never sets Gravity.CENTER as its own gravity",
             !play.contains("subView.setGravity(Gravity.CENTER);"));
-        check("v342 player: the cinema bottom margin is 5% landscape / 8% portrait",
-            play.contains("stored == 10 ? (land ? 5 : 8)"));
+        // v3.4.6.j — THE SUBTITLE HUD-DOCK ANCHOR replaces the old 5%/8%-of-
+        // height pair: HUD-visible → dp(136) portrait / dp(116) landscape
+        // (cleanly above the seekbar + the fixed 5-icon dock — the video_2
+        // 00:50 overlap kill); HUD-hidden → the compact dp(28) anchor.
+        check("v346j player: the subtitle HUD-lift anchor is dp(136) portrait / dp(116) landscape above the dock",
+            play.contains("land ? dp(116) : dp(136)") && play.contains("hiddenAnchor = dp(28)"));
+        check("v346j player: the hidden compact anchor is dp(28) (never a % of the height)",
+            play.contains("final int hiddenAnchor = dp(28);")
+                && !play.contains("stored == 10 ? (land ? 5 : 8)"));
+        check("v346j player: the lift is a smooth animated glide (animate().translationY), never a hard jump",
+            play.contains("sv.animate().translationY(0f)")
+                && play.contains("anchorSubToHud()"));
+        check("v346j player: the dock math keeps the line above the ~84dp dock stack",
+            play.contains("dp(108)") && play.contains("Math.max(base + dp(108), liftMargin)"));
         check("v342 player: the subtitle margin is capped at 20% (never mid-screen)",
             play.contains("Math.min(20, stored)"));
 
@@ -7366,8 +7390,13 @@ public class ReceiverLab {
         check("v346f law3: the download single-flight + the cached-APK reuse exist",
             upd.contains("downloadInFlight.compareAndSet(false, true)")
                 && upd.contains("matchesSha256(apk, rel.sha256Expected)"));
-        check("v346f law3: the bounded 30 s install-permission watcher exists",
-            upd.contains("30_000L") && upd.contains("watchInstallPermission"));
+        String mainAct90 = new String(java.nio.file.Files.readAllBytes(
+            new java.io.File("src/lk/techworld/anantplay/sicast/MainActivity.java").toPath()),
+            StandardCharsets.UTF_8);
+        check("v346f law3: the bounded 90 s install-permission watcher exists (v3.4.6.j upgrade)",
+            mainAct90.contains("permissionWatchTicks >= 225")
+                && mainAct90.contains("watchPermissionGrant(\"installs\")")
+                && mainAct90.contains("postDelayed(this, 400)"));
         // ── the source atlas seam ────────────────────────────────────────────
         check("v346e env: DeepProbe exposes a settable source base (atlas)",
             DeepProbe.sourceBase() == null || DeepProbe.sourceBase().isDirectory());
@@ -7522,21 +7551,21 @@ public class ReceiverLab {
     }
 
     static void v346fVersionIdentityChecks() throws Exception {
-        check("v346i id: AppInfo is 3.4.6.i / 30415",
-            "3.4.6.i".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30415);
+        check("v346i id: AppInfo is 3.4.6.j / 30416",
+            "3.4.6.j".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30416);
         check("v346e id: the alphabetical ladder places .e strictly above .d",
             UpdateChecker.isNewer("3.4.6.e", "3.4.6.d") && !UpdateChecker.isNewer("3.4.6.d", "3.4.6.e"));
         String buildSh = readRepoFile("build.sh");
-        check("v346i id: build.sh defaults to 3.4.6.i / 30415 (prev 30413)",
-            buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.i}")
-            && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30415}")
-            && buildSh.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30413}"));
+        check("v346i id: build.sh defaults to 3.4.6.j / 30416 (prev 30415)",
+            buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.j}")
+            && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30416}")
+            && buildSh.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30415}"));
         String gradle = readRepoFile("android/app/build.gradle");
-        check("v346i id: gradle declares 30415 / \"3.4.6.i\"",
-            gradle.contains("versionCode = 30415") && gradle.contains("versionName = \"3.4.6.i\""));
+        check("v346i id: gradle declares 30416 / \"3.4.6.j\"",
+            gradle.contains("versionCode = 30416") && gradle.contains("versionName = \"3.4.6.j\""));
         String pubspec = readRepoFile("ui/pubspec.yaml");
-        check("v346i id: ui/pubspec.yaml is 3.4.6+30415 (pure integer build)",
-            pubspec.contains("version: 3.4.6+30415"));
+        check("v346i id: ui/pubspec.yaml is 3.4.6+30416 (pure integer build)",
+            pubspec.contains("version: 3.4.6+30416"));
         // docs/latest.json — THE TWO-LEG CONTRACT, WITHOUT A HARDCODED VERSION.
         // On a release branch it still points at the PREVIOUS live release (the
         // post-merge release job is the only writer). On main, after that job
@@ -7565,13 +7594,13 @@ public class ReceiverLab {
             latest.contains("/releases/download/v" + liveV + "/AnantPlay-Sinhala-Player-v" + liveV + ".apk"),
             "url does not derive from " + liveV);
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
-        check("v346i id: the release workflow defaults to 3.4.6.i and derives 30415",
-            relYml.contains("default: '3.4.6.i'")
+        check("v346i id: the release workflow defaults to 3.4.6.j and keeps the monotonic ladder",
+            (relYml.contains("default: '3.4.6.j'") || relYml.contains("default: \"3.4.6.j\""))
             && relYml.contains("3.4.6.f must derive exactly 30412"));
         String buildApkYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346i id: build-apk.yml locks 3.4.6.i / 30415",
-            buildApkYml.contains("test \"$VERSION\" = \"3.4.6.i\"")
-            && buildApkYml.contains("test \"$CODE\" = \"30415\""));
+        check("v346i id: build-apk.yml locks 3.4.6.j / 30416",
+            buildApkYml.contains("test \"$VERSION\" = \"3.4.6.j\"")
+            && buildApkYml.contains("test \"$CODE\" = \"30416\""));
     }
 
     /** The compact cinema subtitle contract (the oversized fix). */

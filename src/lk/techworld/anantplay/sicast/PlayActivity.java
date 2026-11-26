@@ -56,6 +56,8 @@ import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.ResolvingDataSource;
+import androidx.media3.exoplayer.DefaultLoadControl;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 
@@ -158,20 +160,41 @@ public class PlayActivity extends Activity {
     static boolean bridgeSessionLive() { return bridgeTitle != null; }
 
     /**
-     * v3.4.6.c — THE TRAMPOLINE. A cast /play, a DLNA SetAVTransportURI, an
-     * ACTION_VIEW/SEND share or a Test tap now routes INTO the Flutter
-     * shell's Mornye Cinema Player (PlayerScreen over Media3TextureBridge).
-     * The payload is handed to ShellRoot through the anantplay/shell/events
-     * EventChannel and the MainActivity task is brought forward — see
-     * MainActivity.shellRoute. PlayActivity's own engine remains the
-     * fallback ONLY for a failed bridge texture creation.
+     * v3.4.6.j — THE PURE NATIVE HARDWARE CINEMA ROUTER. Every playback
+     * launch (cast /play, DLNA SetAVTransportURI, ACTION_VIEW/SEND, the Test
+     * tap, Play URL, Continue Watching, the browser's Play in Cinema) now
+     * lands on THIS full-screen opaque Activity: Android calls
+     * MainActivity.onPause() the moment we come forward, which SUSPENDS the
+     * Flutter Impeller GPU renderer (0% CPU / 0% GPU) for the whole movie —
+     * the video_2 lag-and-heat fix (Law #4: the marathon engine).
+     *
+     * (v3.4.6.d had inverted this: the activity trampolined INTO the Flutter
+     * shell's in-compositor player and finished. The user's video_2 00:40–
+     * 02:15 showed exactly what that costs: continuous SurfaceFlinger layer
+     * compositing at 120 Hz, subtitle/dock overlap, >50% battery in 2 hours.)
      */
     static void trampolineToShell(android.content.Context c, String url, String title,
                                   String headersJson, boolean test) {
+        launchNative(c, url, title, headersJson, test, 0L);
+    }
+
+    /** v3.4.6.j — the one native Cinema launch lane every caller shares. */
+    static void launchNative(android.content.Context c, String url, String title,
+                             String headersJson, boolean test, long startMs) {
         try {
-            MainActivity.shellRoute(c, "play", url, title, headersJson, test, 0L);
+            android.content.Intent i = new android.content.Intent(c, PlayActivity.class)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                            | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    .putExtra("url", url == null ? "" : url)
+                    .putExtra("title", title == null ? "" : title)
+                    .putExtra("headers", headersJson == null ? "" : headersJson)
+                    .putExtra("startMs", startMs);
+            if (test) i.putExtra("test", true);
+            c.startActivity(i);
+            Diag.i("player", "native hardware cinema launch (zero-Flutter-compositor)");
         } catch (Throwable t) {
-            Diag.w("player", "trampoline: " + t);
+            Diag.w("player", "native launch: " + t);
         }
     }
 
@@ -450,6 +473,15 @@ public class PlayActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         currentInstance = this;
+        // v3.4.6.j — THE CAST WATCHDOG SIGNAL (TRAP #2): this Activity IS the
+        // native player now (no Media3TextureBridge router), so the 5-second
+        // ReceiverService /play watchdog is signalled the instant we open,
+        // before engine warm-up. A cast can never falsely report
+        // "player did not open despite the overlay grant".
+        try {
+            ReceiverService.markPlayerOpened(getIntent() == null
+                    ? null : getIntent().getStringExtra("url"));
+        } catch (Throwable ignored) { }
         snapshot = ReceiverServer.loadingJson();
         prefs = getSharedPreferences("sicast", MODE_PRIVATE);
         // v3.4.3 — the player's chrome follows the UI language too (zero Sinhala leaks).
@@ -463,27 +495,17 @@ public class PlayActivity extends Activity {
         siFontSemi = UiTokens.si(this, true);
         parseIntent();
 
-        // ══ v3.4.6.d — THE PURE ZERO-UI ROUTER ════════════════════════════════
-        // ONE UNIFIED PLAYER: every external entry (ACTION_VIEW / ACTION_SEND
-        // / castJson / test) forwards straight into the Flutter shell's MORNYE
-        // CINEMA PLAYER through MainActivity's shell-route pump, and this
-        // activity FINISHES immediately — the old raw Java player UI never
-        // appears again (the v3.4.6.c "two video players" defect). The shell
-        // owns /status through adoptBridgeSession; the legacy engine below is
-        // unreachable dead code kept only for the structural verifiers.
-        try {
-            String forwardTitle = title;
-            if (forwardTitle == null || forwardTitle.isEmpty()) forwardTitle = url;
-            if (forwardTitle == null) forwardTitle = "";
-            String headersJson = getIntent() == null ? null : getIntent().getStringExtra("headers");
-            trampolineToShell(this, url == null ? "" : url, forwardTitle,
-                headersJson == null ? "" : headersJson, testMode);
-            Diag.i("player", "routed to the Mornye shell player (zero-UI router)");
-        } catch (Throwable t) {
-            Diag.w("player", "router handoff: " + t);
-        }
-        finish();
-        return;
+        // ══ v3.4.6.j — THE SINGLE ZERO-LAG CINEMA PLAYER (LAW #4) ════════════
+        // The v3.4.6.d "zero-UI router" (which forwarded into the Flutter
+        // shell's in-compositor player and finished) is GONE: playback runs
+        // HERE, in a pure native hardware SurfaceView Activity with ZERO
+        // Impeller compositor running while the movie plays. MainActivity
+        // receives onPause() when we open, suspending the Flutter GPU
+        // renderer for the whole session; /status, WatchHistory and the cast
+        // remote are driven from THIS timeline (the field-proven v3.4.2–
+        // 3.4.4 engine, revived as THE player).
+        Diag.i("player", "pure native hardware cinema (Impeller suspended · "
+                + launchSource() + ")");
     }
 
     /** v3.1.2 — the structured launch source for the Troubleshooter timeline. */
@@ -861,12 +883,37 @@ public class PlayActivity extends Activity {
             // and a progressive .mp4 must not be handed to the wrong parser.
             mime = StreamHint.mime(url, mime, dashFlag);
 
+            // ══ v3.4.6.j — THE MARATHON HARDWARE ENGINE (Law #4) ════════════════
+            //   · DefaultRenderersFactory(EXTENSION_RENDERER_MODE_OFF): hardware
+            //     MediaCodec decoders FIRST — zero software/ffmpeg extension lane;
+            //     decoder fallback is enabled ONLY for a codec that cannot
+            //     initialize at all (Android 16 KVM / unusual 10-bit or AV1
+            //     streams), so a movie never dies with DecoderInitializationException;
+            //   · setVideoChangeFrameRateStrategy(ONLY_IF_SEAMLESS): Android 16
+            //     drops the display refresh from 120 Hz to the VIDEO's native
+            //     24/25/30/60 Hz while playback is seamless — HWC scanout at
+            //     the movie's own cadence, the single biggest idle-power win;
+            //   · DefaultLoadControl 30–60 s buffer: a long streaming buffer
+            //     means a handful of network wakeups per minute instead of a
+            //     15 s drumbeat, and the radio returns to idle between them;
+            //   · WAKE_MODE_LOCAL: the wake lock rides the player exactly
+            //     while playing (released on pause/stop — never held during
+            //     idle HUD browsing).
+            DefaultRenderersFactory hardwareRenderers = new DefaultRenderersFactory(this)
+                    .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+                    .setEnableDecoderFallback(true);
             player = new ExoPlayer.Builder(this)
+                .setRenderersFactory(hardwareRenderers)
+                .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
+                .setLoadControl(new DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(30_000, 60_000, 2_500, 5_000)
+                    .build())
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(data))
                 .setHandleAudioBecomingNoisy(true)
                 .setAudioAttributes(new AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
                 .build();
+            player.setWakeMode(C.WAKE_MODE_LOCAL);
             player.setVideoSurfaceView(surface);
             player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build());   // our cues first, like AnantPlay
@@ -883,7 +930,10 @@ public class PlayActivity extends Activity {
                 }
                 @Override public void onIsPlayingChanged(boolean p) {
                     setPlayPauseIcon(p);
-                    if (p) scheduleHudHide();
+                    if (p) {
+                        scheduleHudHide();
+                        startTicker();   // v3.4.6.j — re-arm the pump the instant play resumes (0 Hz → live rate)
+                    }
                     updateSnapshot();
                 }
                 @Override public void onVideoSizeChanged(VideoSize vs) {
@@ -1385,18 +1435,27 @@ public class PlayActivity extends Activity {
                 setState("error", "subtitles did not become ready — try Refetch", myGen);
                 fallbackEnglishTrack();
             } catch (BridgeApi.HttpException he) {
-                // 429 (quota) / 5xx / 401 — v3.2.0: the FREE keyless translator is
-                // tried BEFORE the English fallback paints the screen
+                // v3.4.6.j — THE ALWAYS-TRANSLATE LADDER (video_2 01:30, the
+                // "worker unreachable (HttpException)" HUD complaint): ANY worker
+                // HTTP failure — 429 quota, 5xx, 401, 403, 404, 0 — routes
+                // THROUGH the free keyless on-device translator BEFORE an error
+                // is ever painted. The raw exception class NEVER reaches the
+                // HUD; only a genuinely total failure shows the honest line
+                // (with the still-working lanes named).
                 Diag.e("subs", "worker HTTP " + he.status + ": " + BridgeApi.brief(he.body, 300));
-                if ((he.status == 429 || he.status >= 500) && freeTranslateCurrentCues(null, myGen, "free-fallback (worker " + he.status + ")")) return;
+                if (freeTranslateCurrentCues(null, myGen, "free-fallback (worker " + he.status + ")")) return;
                 setState("error", BridgeApi.explain(he.status) + " · " + BridgeApi.brief(he.body, 90), myGen);
                 fallbackEnglishTrack();
             } catch (java.io.IOException io) {
                 Diag.w("subs", "network: " + io);
+                // v3.4.6.j — the offline worker degrades to the free lane too
+                // (a cached translation may still be on disk).
+                if (freeTranslateCurrentCues(null, myGen, "free-fallback (offline)")) return;
                 setState("error", BridgeApi.explain(io), myGen);
                 fallbackEnglishTrack();
             } catch (Exception ex) {
                 Diag.e("subs", "fetch: " + ex);
+                if (freeTranslateCurrentCues(null, myGen, "free-fallback (exception)")) return;
                 setState("error", BridgeApi.explain(ex), myGen);
                 fallbackEnglishTrack();
             } finally {
@@ -1832,13 +1891,15 @@ public class PlayActivity extends Activity {
     }
 
     // ───────────────────────────────────────────────────────────────────────────
-    // the native renderer — our cues against the player's own position, 4 Hz
+    // the native renderer — our cues against the player's own position
     // ───────────────────────────────────────────────────────────────────────────
 
     private final Runnable ticker = new Runnable() {
-        int tick;                                   // 4 Hz — Auto-Resume saves at ~1 Hz
+        int tick;   // legacy 4 Hz counter (Auto-Resume cadence guard below)
         @Override public void run() {
             if (finished) return;
+            boolean playing = false;
+            try { playing = player != null && player.isPlaying(); } catch (Throwable ignored) { }
             if (player != null && !enFallbackOn) {
                 long pos = player.getCurrentPosition() - subDelayMs;
                 Cue hit = null;
@@ -1890,12 +1951,53 @@ public class PlayActivity extends Activity {
                     timeNow.setText(ReceiverServer.clock(player.getCurrentPosition()));
                     if (!dragging) seek.setPosition(Math.max(0, player.getCurrentPosition()));
                 }
-                if (++tick % 4 == 0) saveResumePoint();   // v3.1.0: Auto-Resume
+                // v3.4.6.j — the Auto-Resume cadence is now WALL-CLOCK guarded
+                // (~1 s), independent of the pump rate below.
+                long now = SystemClock.elapsedRealtime();
+                if (now - lastResumeSave >= 1000) {
+                    lastResumeSave = now;
+                    saveResumePoint();
+                }
             }
             updateSnapshot();
-            main.postDelayed(this, 250);
+            // ══ v3.4.6.j — THE THERMAL TICK DISCIPLINE (Law #4) ═══════════════
+            //   · HUD visible + playing  → 4 Hz (the live seekbar/times pump);
+            //   · HUD hidden + playing   → 1 Hz (the lightweight cue check —
+            //     a movie without subtitles parks at a 1 s heartbeat);
+            //   · paused                 → 0 Hz (PARKED — zero CPU wakeups on a
+            //     paused screen; onIsPlayingChanged re-arms the pump the
+            //     instant play resumes, and a paused seek re-paints the cue
+            //     through paintCueOnce()).
+            if (!playing) return;               // parked: no repost while paused
+            long interval = hudVisible ? 250 : 1000;
+            main.postDelayed(this, interval);
         }
     };
+
+    /** The monotonic Auto-Resume guard (v3.4.6.j). */
+    private long lastResumeSave;
+
+    /** v3.4.6.j — one cue pass while PARKED (a paused seek still re-renders the
+     *  active subtitle line without waking the pump). */
+    private void paintCueOnce() {
+        if (player == null || enFallbackOn) return;
+        try {
+            long pos = player.getCurrentPosition() - subDelayMs;
+            Cue hit = null;
+            for (Cue c : cues) {
+                if (pos >= c.t0 && pos < c.t1) { hit = c; break; }
+                if (c.t0 > pos) break;
+            }
+            if (hit != null) {
+                String text = hit.si == null || hit.si.isEmpty() ? hit.en : hit.si;
+                subView.setText(text == null ? "" : text);
+                subView.setVisibility(View.VISIBLE);
+            } else {
+                subView.setVisibility(View.GONE);
+            }
+            updateSnapshot();
+        } catch (Throwable ignored) { }
+    }
 
     private void startTicker() { main.post(ticker); }
 
@@ -2298,6 +2400,11 @@ public class PlayActivity extends Activity {
             @Override public void onScrubEnd(long positionMs) {
                 dragging = false;
                 if (player != null) { player.seekTo(positionMs); updateSnapshot(); }
+                // v3.4.6.j — a paused seek still re-paints the cue once (the pump
+                // is PARKED at 0 Hz while paused).
+                boolean playing = false;
+                try { playing = player != null && player.isPlaying(); } catch (Throwable ignored) { }
+                if (!playing) paintCueOnce();
             }
         });
         hudBottomBar.addView(seek, new LinearLayout.LayoutParams(-1, -2));
@@ -3054,11 +3161,15 @@ public class PlayActivity extends Activity {
      *  re-calls applyLangStyle() so a studio BOLD flip lands immediately. */
     private void applyStudioStyle() {
         if (subView == null) return;
-        // v3.3.0 — the balanced cinema size: 18 sp portrait / 20 sp landscape
-        // (v3.2.0's 22 sp default is what the field screenshots called oversized).
+        // v3.4.6.j — the compact cinema size: 14 sp portrait / 15 sp landscape
+        // base (fontSpFor), clamped into the 10..28 studio range.
         subView.setTextSize(AppPrefs.fontSpFor(prefs,
             getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE));
-        subView.setMaxWidth(Math.round(getResources().getDisplayMetrics().widthPixels * 0.88f));
+        // v3.4.6.j — the compact cinema width/lines contract (Dart parity:
+        // compactSubWidthRatio 0.82 · maxLines 3): the line never covers more
+        // than 82% of the width and never stacks past 3 lines above the dock.
+        subView.setMaxWidth(Math.round(getResources().getDisplayMetrics().widthPixels * 0.82f));
+        subView.setMaxLines(3);
         subView.setLineSpacing(dp(2), AppPrefs.subLineSpacing(prefs) / 100f);   // 100..150 % studio spacing
         subView.setTextColor(AppPrefs.subColorArgb(prefs));
         subView.setShadowLayer(dp(Math.max(1, AppPrefs.subOutline(prefs))), 0, 0, 0xFF000000);
@@ -3078,6 +3189,7 @@ public class PlayActivity extends Activity {
         subView.setVisibility(subView.getVisibility());
         FrameLayout.LayoutParams sl = subLayoutParams();
         subView.setLayoutParams(sl);
+        lastSubBottomMargin = sl.bottomMargin;   // the v3.4.6.j glide base
     }
 
     /**
@@ -3097,12 +3209,54 @@ public class PlayActivity extends Activity {
         boolean land = getResources().getConfiguration().orientation
             == Configuration.ORIENTATION_LANDSCAPE;
         int stored = AppPrefs.subBottomPct(prefs);
-        // 10 is the untouched default → use the clean cinema pair (5% / 8%).
-        int pct = stored == 10 ? (land ? 5 : 8) : Math.min(20, stored);
-        sl.bottomMargin = Math.round(h * pct / 100f);
+        // ══ v3.4.6.j — THE SUBTITLE HUD-DOCK ANCHOR (video_2 00:50, the overlap
+        // kill): while the bottom HUD is visible (seekbar + the fixed 5-icon
+        // dock Subtitles|Tracks|Aspect|1.0×|Search) the line rides at
+        // dp(136) portrait / dp(116) landscape — CLEANLY ABOVE it; when the HUD
+        // hides it returns to the compact dp(28) cinema anchor. The studio's
+        // custom position slider (stored != 10) keeps overriding the base, with
+        // the same HUD lift stacked on top so it can never collide either.
+        final int hiddenAnchor = dp(28);
+        final int liftMargin = land ? dp(116) : dp(136);
+        int base = stored == 10
+            ? hiddenAnchor
+            : Math.round(h * Math.min(20, stored) / 100f) + dp(6);
+        sl.bottomMargin = hudVisible ? Math.max(base + dp(108), liftMargin) : base;
         sl.leftMargin = sl.rightMargin = dp(8);
         return sl;
     }
+
+    /** v3.4.6.j — re-anchor the subtitle for the CURRENT HUD state with the
+     *  smooth animated glide (the video_2 00:50 fix: the line lifts ABOVE the
+     *  dock when the HUD shows and glides back down when it hides — never a
+     *  hard jump, never a collision). */
+    private void anchorSubToHud() {
+        final TextView sv = subView;
+        if (sv == null) return;
+        // The previously applied anchor (tracked, never re-cast from
+        // getLayoutParams — the container-provable contract the layout
+        // auditor requires).
+        final int before = lastSubBottomMargin;
+        final FrameLayout.LayoutParams lp = subLayoutParams();
+        sv.setLayoutParams(lp);
+        lastSubBottomMargin = lp.bottomMargin;
+        final int delta = lp.bottomMargin - before;
+        if (delta == 0) return;
+        // animate the visual ride from the old anchor to the new one (300 ms,
+        // decelerate glide), then land exactly on the new margin
+        try {
+            sv.setTranslationY(-delta);
+            sv.animate().translationY(0f)
+                .setDuration(300)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.3f))
+                .start();
+        } catch (Throwable t) {
+            sv.setTranslationY(0f);
+        }
+    }
+
+    /** The last bottomMargin actually applied to subView (the glide's base). */
+    private int lastSubBottomMargin;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // v3.4.2 — HUD plates, immersive fullscreen, orientation, speed boost,
@@ -3660,6 +3814,7 @@ public class PlayActivity extends Activity {
         hudVisible = true;
         hud.setVisibility(View.VISIBLE);
         applyImmersive(false);          // v3.4.2 — bars come back with the HUD
+        anchorSubToHud();               // v3.4.6.j — the line glides up above the dock
         scheduleHudHide();
     }
 
@@ -3670,6 +3825,7 @@ public class PlayActivity extends Activity {
             hudVisible = false;
             hud.setVisibility(View.GONE);
             applyImmersive(true);       // v3.4.2 — TRUE fullscreen once the HUD is gone
+            anchorSubToHud();           // v3.4.6.j — the line glides back to the compact anchor
         } else showControls();
     }
 
@@ -3833,6 +3989,7 @@ public class PlayActivity extends Activity {
                 hudVisible = false;
                 hud.setVisibility(View.GONE);
                 applyImmersive(true);   // v3.4.2 — hide status + navigation bars too
+                anchorSubToHud();       // v3.4.6.j — the auto-hide glides the line back down
             }
         }
     };

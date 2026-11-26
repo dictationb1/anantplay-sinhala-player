@@ -100,6 +100,16 @@ class SettingsMirror {
   static const kSurfaceStyle = 'surfaceStyle';
   static const kBottomBarStyle = 'bottomBarStyle';
   static const kBottomBarLabels = 'bottomBarLabels';
+  /// v3.4.6.j — THE DUAL APP STYLE ('mornye' default | 'material'): the
+  /// whole shell's theme + widget language flips on this key (AppPrefs'
+  /// Java twin + buildAppTheme both read it).
+  static const kAppStyle = 'appStyle';
+  /// v3.4.6.j — the Continue Watching presentation ('list' | 'grid').
+  static const kHistoryView = 'historyView';
+  /// v3.4.6.j — the per-category backup toggles (Backup & Restore page).
+  static const kBackupAppSettings = 'backupAppSettings';
+  static const kBackupHistory = 'backupHistory';
+  static const kBackupIndexes = 'backupIndexes';
   static const kOnboardingDone = 'onboardingDone';
   static const kOnboardingStage = 'onboardingStage';
   static const kOnboardingVersion = 'onboardingVersion';

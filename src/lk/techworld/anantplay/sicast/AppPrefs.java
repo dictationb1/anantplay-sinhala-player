@@ -131,6 +131,12 @@ public final class AppPrefs {
     public static final String K_BORDER_ALPHA = "borderAlpha";          // 0..60
     /** Bottom navigation shape: docked full-width bar or a floating pill. */
     public static final String K_BOTTOM_BAR_STYLE = "bottomBarStyle";   // docked|floating
+    /** v3.4.6.j — THE DUAL APP STYLE: 'mornye' (Apple Liquid-Glass, default)
+     *  or 'material' (Material 3 Expressive / Material You). The whole shell
+     *  (theme + widget shapes) flips on this one key. */
+    public static final String K_APP_STYLE = "appStyle";                 // mornye|material
+    /** v3.4.6.j — the Continue Watching presentation: a list or a grid. */
+    public static final String K_HISTORY_VIEW = "historyView";           // list|grid
     /** Show the text label under each bottom-bar icon. */
     public static final String K_BOTTOM_BAR_LABELS = "bottomBarLabels"; // bool
     /** Show the Troubleshoot tab. */
@@ -354,6 +360,8 @@ public final class AppPrefs {
         K_AD_BLOCK, K_WEB_LINKS, K_FREE_TRANSLATOR,
         // v3.4.0 - every new customization surface, so Backup & Restore stays lossless.
         K_SURFACE_STYLE, K_BORDER_ALPHA, K_BOTTOM_BAR_STYLE, K_BOTTOM_BAR_LABELS,
+        // v3.4.6.j — the dual App Style + the history presentation round-trip too.
+        K_APP_STYLE, K_HISTORY_VIEW,
         K_SHOW_TROUBLE_TAB, K_MOTION, K_ACCENT_GLOW,
         K_GLASS_CLARITY, K_GLASS_OUTLINES, K_ICON_GLASS, K_UI_FONT,
         K_SUB_COLOR_HEX, K_SUB_OUTLINE, K_SUB_SHADOW,
@@ -606,6 +614,8 @@ public final class AppPrefs {
     // ── v3.4.0 value vocabularies ────────────────────────────────────────────
     public static final String SURFACE_FLAT = "flat", SURFACE_GLASS = "glass";
     public static final String BAR_DOCKED = "docked", BAR_FLOATING = "floating";
+    public static final String APP_STYLE_MORNYE = "mornye", APP_STYLE_MATERIAL = "material";
+    public static final String HISTORY_LIST = "list", HISTORY_GRID = "grid";
     public static final String OMNIBAR_TOP = "top", OMNIBAR_BOTTOM = "bottom";
     public static final String SEARCH_DDG = "ddg", SEARCH_GOOGLE = "google",
         SEARCH_STARTPAGE = "startpage", SEARCH_BRAVE = "brave";
@@ -620,6 +630,16 @@ public final class AppPrefs {
     }
     public static String normalizeBottomBarStyle(String v) {
         return BAR_FLOATING.equals(v) ? BAR_FLOATING : BAR_DOCKED;
+    }
+
+    /** v3.4.6.j — the dual App Style ('material' | anything else = 'mornye'). */
+    public static String normalizeAppStyle(String v) {
+        return APP_STYLE_MATERIAL.equals(v) ? APP_STYLE_MATERIAL : APP_STYLE_MORNYE;
+    }
+
+    /** v3.4.6.j — the history presentation ('grid' | anything else = 'list'). */
+    public static String normalizeHistoryView(String v) {
+        return HISTORY_GRID.equals(v) ? HISTORY_GRID : HISTORY_LIST;
     }
     public static String normalizeOmnibarPos(String v) {
         return OMNIBAR_TOP.equals(v) ? OMNIBAR_TOP : OMNIBAR_BOTTOM;
@@ -748,6 +768,8 @@ public final class AppPrefs {
                 // ── v3.4.0 ────────────────────────────────────────────────
                 case K_SURFACE_STYLE: return normalizeSurfaceStyle(String.valueOf(raw));
                 case K_BOTTOM_BAR_STYLE: return normalizeBottomBarStyle(String.valueOf(raw));
+                case K_APP_STYLE: return normalizeAppStyle(String.valueOf(raw));
+                case K_HISTORY_VIEW: return normalizeHistoryView(String.valueOf(raw));
                 case K_OMNIBAR_POS: return normalizeOmnibarPos(String.valueOf(raw));
                 case K_SEARCH_ENGINE: return normalizeSearchEngine(String.valueOf(raw));
                 case K_ORIENTATION: return normalizeOrientation(String.valueOf(raw));
@@ -946,6 +968,8 @@ public final class AppPrefs {
     public static boolean iconGlass(SharedPreferences p) { return p.getBoolean(K_ICON_GLASS, true); }
     public static String uiFont(SharedPreferences p) { return normalizeUiFont(p.getString(K_UI_FONT, UI_FONT_MODERN)); }
     public static String bottomBarStyle(SharedPreferences p) { return normalizeBottomBarStyle(p.getString(K_BOTTOM_BAR_STYLE, BAR_FLOATING)); }
+    public static String appStyle(SharedPreferences p) { return normalizeAppStyle(p.getString(K_APP_STYLE, APP_STYLE_MORNYE)); }
+    public static String historyView(SharedPreferences p) { return normalizeHistoryView(p.getString(K_HISTORY_VIEW, HISTORY_LIST)); }
     public static boolean floatingBar(SharedPreferences p) { return BAR_FLOATING.equals(bottomBarStyle(p)); }
     public static boolean bottomBarLabels(SharedPreferences p) { return p.getBoolean(K_BOTTOM_BAR_LABELS, true); }
     public static boolean showTroubleTab(SharedPreferences p) { return p.getBoolean(K_SHOW_TROUBLE_TAB, true); }

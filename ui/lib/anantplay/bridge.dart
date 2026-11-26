@@ -283,6 +283,45 @@ class InstallEvent {
   int get percent => int.tryParse(value) ?? 0;
 }
 
+/// v3.4.6.j — one Sources-Hub index fetch: the body, the exact sanitized
+/// error reason (never a vague 'unreachable'), and whether the jsDelivr
+/// mirror lane delivered it.
+class IndexFeedResult {
+  const IndexFeedResult(
+      {required this.body, required this.error, required this.viaMirror});
+
+  final String body;
+  final String error;
+  final bool viaMirror;
+
+  bool get ok => body.isNotEmpty;
+}
+
+/// v3.4.6.j — the LIVE Storage & Cache breakdown (real bytes from the native
+/// side: app cache & WebView · subtitle cache · update cache · watch history).
+class CacheStats {
+  const CacheStats({
+    required this.appCache,
+    required this.subs,
+    required this.updates,
+    required this.history,
+  });
+
+  factory CacheStats.fromMap(Map<dynamic, dynamic> map) => CacheStats(
+        appCache: (map['appCache'] as num?)?.toInt() ?? 0,
+        subs: (map['subs'] as num?)?.toInt() ?? 0,
+        updates: (map['updates'] as num?)?.toInt() ?? 0,
+        history: (map['history'] as num?)?.toInt() ?? 0,
+      );
+
+  final int appCache;
+  final int subs;
+  final int updates;
+  final int history;
+
+  int get total => appCache + subs + updates + history;
+}
+
 /// One continue-watching row (WatchHistory.Item, JSON-decoded).
 class HistoryItem {
   const HistoryItem({
@@ -847,6 +886,33 @@ class AnantPlay {
   Future<String> saveIndexUrl(String url) async =>
       await _cast.invokeMethod('saveIndexUrl', {'url': url});
 
+  /// v3.4.6.j — THE 90-SECOND PERMISSION AUTO-RETURN WATCHERS (the ESET-style
+  /// instant snap-back): the native side polls the permission every 400 ms for
+  /// 90 s and relaunches the app to the front through the BAL-allowed
+  /// PendingIntent lane the INSTANT it flips true.
+  Future<void> watchInstallPermission() =>
+      _cast.invokeMethod('watchInstallPermission');
+
+  /// v3.4.6.j — NEW: the battery-unrestricted watcher (slide 5's
+  /// `No restrictions ✓` flip), same 90 s / 400 ms / BAL contract.
+  Future<void> watchBatteryGrant() => _cast.invokeMethod('watchBatteryGrant');
+
+  /// v3.4.6.j — start the floating AnantPlay Setup Coach overlay over the
+  /// official app (SYSTEM_ALERT_WINDOW — ZERO AccessibilityService) and launch
+  /// official AnantPlay in one tap.
+  Future<void> openOfficialWithCoach() =>
+      _cast.invokeMethod('openOfficialWithCoach');
+
+  /// v3.4.6.j — remove the floating setup coach (leaving the guided setup).
+  Future<void> stopCoach() => _cast.invokeMethod('stopCoach');
+
+  /// v3.4.6.j — arm the INSTANT official-install watcher (the package-added/
+  /// replaced receiver + the 1 s confirm-state poll on the native side): the
+  /// moment me.champdev.weblock lands, `{t:'installed', x:'<version>'}` fires on
+  /// the install events stream — Slide 2 flips green and auto-advances.
+  Future<void> watchOfficialInstall() =>
+      _cast.invokeMethod('watchOfficialInstall');
+
   // ── anantplay/player ─────────────────────────────────────────────────────
 
   /// v3.4.6.c — THE REAL TEXTURE PLAYER SURFACE. `open` builds a hardware
@@ -1004,12 +1070,42 @@ class AnantPlay {
   /// v3.4.6.i — the Browser bar's home button: HOME_URL (never blank).
   Future<void> openBrowserHome() => _browser.invokeMethod('openHome');
 
-  /// v3.4.6.i — the Sources Hub's index.json reader: an https-only GET with
-  /// a 6 s hard deadline and a 256 KiB cap (returns '' when refused/offline).
-  Future<String> fetchUrl(String url) async =>
-      (await _browser.invokeMethod('fetchUrl', {'url': url})) as String? ?? '';
+  /// v3.4.6.j — THE SOURCES-HUB INDEX FEED RESULT: the native lane returns
+  /// `{body, error, mirror}` — the body on success (1 MiB cap, redirects
+  /// followed, gzip decoded), the EXACT sanitized reason on failure (never a
+  /// vague 'unreachable'), and whether the jsDelivr mirror lane delivered it.
+  Future<IndexFeedResult> fetchUrl(String url) async {
+    final reply = await _browser.invokeMethod('fetchUrl', {'url': url});
+    if (reply is Map) {
+      return IndexFeedResult(
+        body: (reply['body'] as String?) ?? '',
+        error: (reply['error'] as String?) ?? '',
+        viaMirror: reply['mirror'] == true,
+      );
+    }
+    // the legacy plain-string reply (older host): keep compatibility.
+    final body = reply is String ? reply : '';
+    return IndexFeedResult(
+        body: body, error: body.isEmpty ? 'unreachable' : '', viaMirror: false);
+  }
 
   // ── anantplay/settings ───────────────────────────────────────────────────
+
+  /// v3.4.6.j — the LIVE Storage & Cache real-bytes breakdown.
+  Future<CacheStats> cacheStats() async {
+    final map = await _settings.invokeMethod('cacheStats');
+    return map is Map
+        ? CacheStats.fromMap(map)
+        : const CacheStats(appCache: 0, subs: 0, updates: 0, history: 0);
+  }
+
+  /// v3.4.6.j — Clear all cache (app+WebView+subtitle+update; the watch
+  /// history NEVER — it has its own row). Reply: the freed bytes.
+  Future<int> clearCache() async =>
+      (await _settings.invokeMethod('clearCache') as num?)?.toInt() ?? 0;
+
+  /// v3.4.6.j — clear the whole Continue Watching list.
+  Future<void> clearHistory() => _history.invokeMethod('clear');
 
   Future<SettingsMirror> loadSettings() async {
     final map = await _settings.invokeMethod('getAll');

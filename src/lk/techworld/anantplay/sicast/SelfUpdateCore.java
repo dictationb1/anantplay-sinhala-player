@@ -731,6 +731,162 @@ final class SelfUpdateCore {
         return runWithDeadline(() -> httpGet(url, connectMs, readMs), deadlineMs, url);
     }
 
+    // ═══ v3.4.6.j — THE SOURCES-HUB INDEX FETCHER (video_4 03:30–04:05) ══════
+    // The old fetchUrl lane (6 s / 256 KiB / no redirects / no gzip / no mirror)
+    // reported the Sri Lanka IPTV + Sinhala Subs Bridge feeds as a vague
+    // "unreachable (offline ok)". The new contract:
+    //   · 10 s hard deadline, 1 MiB body cap;
+    //   · HTTP 301/302/307/308 redirects followed (≤ 5 hops, every hop https);
+    //   · gzip Content-Encoding decoded;
+    //   · a clean standard browser User-Agent (never a bare Java bot string
+    //     that CDNs 403);
+    //   · the automatic jsDelivr mirror fallback: a failing
+    //     raw.githubusercontent.com/<owner>/<repo>/<branch>/<path> retries as
+    //     https://cdn.jsdelivr.net/gh/<owner>/<repo>@<branch>/<path> (the ISP
+    //     DNS/connect block kill);
+    //   · the EXACT sanitized reason on failure (e.g. "HTTP 404",
+    //     "UnknownHostException: raw.githubusercontent.com", "deadline 10 s") —
+    //     never a vague "unreachable (offline ok)".
+
+    /** The index-fetch result: the body when ok; otherwise the exact reason. */
+    public static final class IndexFetch {
+        public final String body;
+        public final String error;
+        public final boolean viaMirror;
+        IndexFetch(String body, String error, boolean viaMirror) {
+            this.body = body; this.error = error; this.viaMirror = viaMirror;
+        }
+        public boolean ok() { return body != null; }
+    }
+
+    /** The Sources Hub's reader (run off the main thread). */
+    public static IndexFetch fetchIndexFeed(String url) {
+        if (url == null || url.trim().isEmpty()) return new IndexFetch(null, "empty URL", false);
+        String u = url.trim();
+        if (!safeRemoteUrl(u)) return new IndexFetch(null, "refused: non-https or non-public host", false);
+        IndexFetch direct = fetchFeedOnce(u, FEED_DEADLINE_MS);
+        if (direct.ok()) return direct;
+        // The jsDelivr mirror lane: raw.githubusercontent.com/<o>/<r>/<b>/<path>
+        // → cdn.jsdelivr.net/gh/<o>/<r>@<b>/<path>
+        String mirror = jsdelivrMirrorOf(u);
+        if (mirror != null) {
+            Diag.i("browser", "feed mirror retry: " + hostOf(u) + " → cdn.jsdelivr.net");
+            IndexFetch mirrored = fetchFeedOnce(mirror, FEED_DEADLINE_MS);
+            if (mirrored.ok()) return new IndexFetch(mirrored.body, null, true);
+            return new IndexFetch(null,
+                direct.error + " · mirror " + mirrored.error, false);
+        }
+        return direct;
+    }
+
+    /** The v3.4.6.j feed deadline (10 s — a slow cold CDN edge still answers). */
+    static final long FEED_DEADLINE_MS = 10_000L;
+
+    /** The v3.4.6.j feed body cap (1 MiB of index.json is ~40 feeds deep). */
+    static final int FEED_MAX_BYTES = 1024 * 1024;
+
+    /** One redirect-following, gzip-aware GET under the deadline + cap.
+     *  The callable returns "OK<US>\n<body>" on success or "ERR<US>\n<exact
+     *  sanitized reason>" on failure — never an ambiguous shape. */
+    private static IndexFetch fetchFeedOnce(final String url, final long deadlineMs) {
+        String outcome = runWithDeadline(() -> {
+            try {
+                String current = url;
+                for (int hop = 0; hop <= 5; hop++) {
+                    // v3.4.6.j — TRAP #4: a 302 to https://127.0.0.1 (or a
+                    // .local/metadata host) must be refused just like the
+                    // initial URL. Validate EVERY hop with the full SSRF
+                    // predicate, not merely the scheme.
+                    if (!safeRemoteUrl(current)) return "ERR\nrefused: non-public hop";
+                    HttpURLConnection c = openConnection(current);
+                    c.setConnectTimeout(4000);
+                    c.setReadTimeout(8000);
+                    c.setInstanceFollowRedirects(false);   // manual: every hop must stay https
+                    c.setRequestProperty("User-Agent",
+                        "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137 Mobile Safari/537.36");
+                    c.setRequestProperty("Accept", "application/json, text/plain, */*");
+                    c.setRequestProperty("Accept-Encoding", "gzip");
+                    int code = c.getResponseCode();
+                    if (code == HttpURLConnection.HTTP_MOVED_PERM        // 301
+                            || code == HttpURLConnection.HTTP_MOVED_TEMP  // 302
+                            || code == 307 || code == 308) {
+                        String loc = c.getHeaderField("Location");
+                        c.disconnect();
+                        if (loc == null || loc.isEmpty()) return "ERR\nredirect without Location";
+                        current = loc.startsWith("http") ? loc
+                                : new java.net.URL(new java.net.URL(current), loc).toString();
+                        continue;
+                    }
+                    if (code != 200) {
+                        c.disconnect();
+                        return "ERR\nHTTP " + code;
+                    }
+                    InputStream in = c.getInputStream();
+                    if ("gzip".equalsIgnoreCase(c.getContentEncoding())) {
+                        in = new java.util.zip.GZIPInputStream(in);
+                    }
+                    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                    byte[] buf = new byte[16384];
+                    int total = 0;
+                    for (int n; (n = in.read(buf)) > 0; ) {
+                        total += n;
+                        if (total > FEED_MAX_BYTES) {
+                            in.close(); c.disconnect();
+                            return "ERR\nbody over 1 MiB cap";
+                        }
+                        out.write(buf, 0, n);
+                    }
+                    in.close();
+                    c.disconnect();
+                    return "OK\n" + new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+                }
+                return "ERR\ntoo many redirects (5+)";
+            } catch (java.net.UnknownHostException uh) {
+                return "ERR\nUnknownHostException: " + hostOf(url);
+            } catch (java.net.ConnectException ce) {
+                return "ERR\nConnectException: " + hostOf(url);
+            } catch (java.net.SocketTimeoutException st) {
+                return "ERR\nSocketTimeoutException: " + hostOf(url);
+            } catch (javax.net.ssl.SSLException se) {
+                return "ERR\nSSLException: " + hostOf(url);
+            } catch (Throwable t) {
+                String n = t.getClass().getSimpleName();
+                return "ERR\n" + (n == null || n.isEmpty() ? "Exception" : n) + ": " + hostOf(url);
+            }
+        }, deadlineMs, url);
+        // deadline-miss → null body → the exact "deadline N s" reason
+        if (outcome == null) return new IndexFetch(null, "deadline " + (deadlineMs / 1000) + " s", false);
+        if (outcome.startsWith("ERR\n")) {
+            String reason = outcome.substring(4).trim();
+            return new IndexFetch(null, reason.isEmpty() ? "unreachable" : reason, false);
+        }
+        if (outcome.startsWith("OK\n")) return new IndexFetch(outcome.substring(3), null, false);
+        // unreachable shape (never expected): a defensive error, never a fake body
+        return new IndexFetch(null, "unreachable: unexpected lane", false);
+    }
+
+    /**
+     * v3.4.6.j — the jsDelivr mirror of a raw.githubusercontent.com path:
+     * raw.githubusercontent.com/&lt;o&gt;/&lt;r&gt;/&lt;b&gt;/&lt;p&gt; →
+     * https://cdn.jsdelivr.net/gh/&lt;o&gt;/&lt;r&gt;@&lt;b&gt;/&lt;p&gt;,
+     * or null when the URL is not a raw GitHub path.
+     */
+    static String jsdelivrMirrorOf(String url) {
+        try {
+            java.net.URL u = new java.net.URL(url);
+            if (!"raw.githubusercontent.com".equalsIgnoreCase(u.getHost())) return null;
+            String p = u.getPath();        // /<owner>/<repo>/<branch>/<path...>
+            if (p == null || !p.startsWith("/")) return null;
+            String[] parts = p.substring(1).split("/", 4);
+            if (parts.length < 4 || parts[0].isEmpty() || parts[1].isEmpty()
+                    || parts[2].isEmpty() || parts[3].isEmpty()) return null;
+            return "https://cdn.jsdelivr.net/gh/"
+                    + parts[0] + "/" + parts[1] + "@" + parts[2] + "/" + parts[3];
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     /** The hard-deadline tier-1 redirect resolve (null on a deadline miss). */
     static String resolveTagDeadline(String url, int connectMs, int readMs, long deadlineMs) {
         return runWithDeadline(() -> resolveLatestTagByRedirect(url, connectMs, readMs), deadlineMs, url);

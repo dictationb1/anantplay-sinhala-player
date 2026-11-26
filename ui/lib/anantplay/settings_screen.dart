@@ -1,18 +1,24 @@
-// AnantPlay Sinhala Player v3.4.6.c — the full Mornye v5.4.0 Customization
-// Studio: a LIVE interactive preview card pinned at the top (instantly
-// reflecting theme, accent, glass clarity, outlines, subtitle size, subtitle
-// color, subtitle background and the midnight dimmer), then Quick Settings
-// (theme cards, 7 Mornye accent swatches + custom hex + dynamic color, glass
-// clarity/outlines/force-blur/motion sliders & switches, subtitle size, auto
-// Sinhala subs, continue watching, midnight dimmer + dim %, auto-update +
-// Check Now) and the expandable connected ADVANCED groups (Appearance &
-// Navigation · Cinema Player & Subtitle Studio · AnantPlay & Sources ·
-// Browser & Privacy · Cast & Network · Backup & Restore · About/Licenses).
+// AnantPlay Sinhala Player v3.4.6.j — THE MORNYE-STYLE SETTINGS HUB.
 //
-// v3.4.6.c — complaint #2 fix: this screen is reachable BOTH from the
-// always-visible bottom tab bar AND Home's top-right gear, and every control
-// writes through the real `anantplay/settings` bridge (nothing decorative).
-import 'package:flutter/services.dart' show FilteringTextInputFormatter;
+// v3.4.6.j (video_2 03:40 / video_1 00:30–01:25): the ONE GIANT SCROLL WALL
+// is GONE. The Settings tab is now a clean connected hub:
+//   · a live `Search settings` field at the top (filters every setting
+//     across every page as you type — the exact Mornye pattern);
+//   · eight crisp navigation rows pushing dedicated sub-pages
+//     (Cupertino/M3 spring transitions): Appearance · Playback & Subtitles ·
+//     AnantPlay & Sources · Browser & Privacy · Cast & Network ·
+//     Storage & Cache (NEW) · Backup & Restore (upgraded) · About &
+//     Licenses;
+//   · the page-level quick overflow (Backup/Reset/Engine pickers) rides the
+//     Apple-style liquid-glass popover (showMornyeContextMenu).
+//
+// v3.4.6.c legacy structure retained underneath: the LIVE interactive
+// preview card, theme cards, accent studio, glass sliders, the subtitle
+// studio, the sources/installer rows, browser/privacy rows, cast rows and
+// backup rows — every control still writes through the real
+// `anantplay/settings` bridge (nothing decorative).
+import 'package:flutter/services.dart'
+    show FilteringTextInputFormatter, Clipboard, ClipboardData;
 import 'package:material_ui/material_ui.dart' hide Icons;
 import 'package:material_ui/material_ui.dart' as mi show Icons;
 
@@ -21,6 +27,8 @@ import 'package:anantplay_ui/mornye_ui/theme/mornye_icons.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/settings_group.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/app_switch.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_chrome.dart';
+import 'package:anantplay_ui/mornye_ui/widgets/mornye_context_menu.dart';
+import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_notification.dart';
 
 import 'action_feedback.dart';
 import 'app_state.dart';
@@ -36,180 +44,814 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = AppState.of(context);
-    final scope = state.scope;
-    final s = state.settings;
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: scheme.surface,
       appBar: AppBar(
-        title: const Text('Customize'),
+        title: const Text('Settings'),
         backgroundColor: scheme.scrim.withValues(alpha: 0.2),
         surfaceTintColor: Colors.transparent,
+        actions: [
+          // v3.4.6.j — the Apple-style liquid-glass overflow popover (the
+          // Mornye context menu): Backup / Reset / Update-check quick picks.
+          IconButton(
+            icon: const Icon(mi.Icons.more_vert_rounded),
+            tooltip: 'Quick actions',
+            onPressed: () => _settingsOverflow(context),
+          ),
+        ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
-        children: [
-          // ── THE LIVE PREVIEW CARD (pinned first — instant feedback) ──────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-            child: const _LivePreviewCard(),
-          ),
+      body: const _SettingsHub(),
+    );
+  }
 
-          _SectionHeader('Quick settings'),
-          SettingsGroup(children: [
-            _ThemeCards(current: s.themeMode),
-            const SizedBox(height: 14),
-            _AccentRow(current: s.accent, hex: s.accentHex),
-            const SizedBox(height: 4),
-          ]),
-          SettingsGroup(children: [
-            _SliderRow(
-              title: 'Glass clarity',
-              value: s.glassClarity / 100.0,
-              label: '${s.glassClarity}%',
-              onChanged: (v) => scope.putInt(
-                  SettingsMirror.kGlassClarity, (v * 100).round().clamp(10, 95)),
+  Future<void> _settingsOverflow(BuildContext context) {
+    // v3.4.6.j — the Apple-style liquid-glass popover (the vendored Mornye
+    // context menu): Backup / Reset / Update-check quick picks.
+    return showMornyeContextMenu<void>(
+      context: context,
+      builder: (menuContext) => MornyeContextMenu(
+        dense: true,
+        groups: [
+          [
+            MornyeMenuAction(
+              icon: mi.Icons.backup_rounded,
+              label: 'Export backup',
+              onPressed: () {
+                Navigator.pop(menuContext);
+                _exportBackup(context);
+              },
             ),
-            _SwitchRow(
-              title: 'Glass outlines',
-              value: s.glassOutlines,
-              onChanged: (v) =>
-                  scope.putBool(SettingsMirror.kGlassOutlines, v),
+            MornyeMenuAction(
+              icon: mi.Icons.restore_rounded,
+              label: 'Import backup',
+              onPressed: () {
+                Navigator.pop(menuContext);
+                _importBackup(context);
+              },
             ),
-            _SwitchRow(
-              title: 'Force liquid blur',
-              value: s.b(SettingsMirror.kSurfaceStyle, true),
-              onChanged: (v) => scope.putString(
-                  SettingsMirror.kSurfaceStyle, v ? 'glass' : 'flat'),
+            MornyeMenuAction(
+              icon: mi.Icons.update_rounded,
+              label: 'Check for update now',
+              onPressed: () {
+                Navigator.pop(menuContext);
+                checkForUpdateWithFeedback(context);
+              },
             ),
-            _SliderRow(
-              title: 'Animation speed',
-              value: (s.b(SettingsMirror.kMotion, true) ? 1.0 : 0.0),
-              label: s.b(SettingsMirror.kMotion, true) ? 'Full' : 'Reduced',
-              onChanged: (v) => scope.putBool(
-                  SettingsMirror.kMotion, v >= 0.5),
-            ),
-          ]),
-          SettingsGroup(children: [
-            _SliderRow(
-              title: 'Subtitle size',
-              value: ((s.i(SettingsMirror.kFontSpKey, 16)) - 12) / 24.0,
-              label: '${s.i(SettingsMirror.kFontSpKey, 16)}sp',
-              onChanged: (v) => scope.putInt(
-                  SettingsMirror.kFontSpKey, (12 + v * 24).round().clamp(12, 36)),
-            ),
-            _SwitchRow(
-              title: 'Auto Sinhala subtitles',
-              value: s.b(SettingsMirror.kAutoFetch, true),
-              onChanged: (v) =>
-                  scope.putBool(SettingsMirror.kAutoFetch, v),
-            ),
-            _SwitchRow(
-              title: 'On-device translator',
-              value: s.b(SettingsMirror.kFreeTranslator, true),
-              onChanged: (v) =>
-                  scope.putBool(SettingsMirror.kFreeTranslator, v),
-            ),
-            _SwitchRow(
-              title: 'Continue watching',
-              value: s.b(SettingsMirror.kContinueWatching, true),
-              onChanged: (v) => scope.putBool(
-                  SettingsMirror.kContinueWatching, v),
-            ),
-          ]),
-          // v3.4.6.i — PERMANENT LAW #1: the Auto-update ON/OFF switch is
-          // GONE (auto-updating is mandatory, users can never turn it off);
-          // only the honest manual "Check for update now" row remains.
-          SettingsGroup(children: [
-            // v3.4.6.i — the Midnight dimmer is a Dark/AMOLED feature (the
-            // buildAppTheme dim overlay only arms when brightness == dark).
-            // In Light mode it used to sit as a dead no-op switch that looked
-            // broken when tapped; now it shows a CLEAN disabled state with an
-            // explicit caption, and the Dim amount slider goes inert too.
-            _SwitchRow(
-              title: 'Midnight night dimmer',
-              value: s.b(SettingsMirror.kMidnightDimmer, false),
-              onChanged: (v) =>
-                  scope.putBool(SettingsMirror.kMidnightDimmer, v),
-              enabled: Theme.of(context).brightness == Brightness.dark,
-              subtitle: Theme.of(context).brightness == Brightness.dark
-                  ? null
-                  : 'Active in Dark & AMOLED modes',
-            ),
-            _SliderRow(
-              title: 'Dim amount',
-              value: s.i(SettingsMirror.kMidnightDimPct, 30) / 70.0,
-              label: '${s.i(SettingsMirror.kMidnightDimPct, 30)}%',
-              onChanged: (v) => scope.putInt(
-                  SettingsMirror.kMidnightDimPct,
-                  (v * 70).round().clamp(10, 70)),
-              enabled: Theme.of(context).brightness == Brightness.dark,
-            ),
-            _ActionRow(
-              title: 'Check for update now',
-              subtitle: 'Checking… → Up to date ($kVisibleVersion)',
-              onTap: () => checkForUpdateWithFeedback(context),
-            ),
-          ]),
-
-          // ── the expandable connected ADVANCED groups ──────────────────────
-          const SizedBox(height: 10),
-          _SectionHeader('Advanced'),
-          _ExpandableGroup(
-            title: 'Appearance & Navigation',
-            icon: mi.Icons.palette_rounded,
-            children: (ctx) => const _AppearanceNavRows(),
-          ),
-          _ExpandableGroup(
-            title: 'Cinema Player & Subtitle Studio',
-            icon: mi.Icons.movie_rounded,
-            children: (ctx) => const _SubtitleStudioRows(),
-          ),
-          _ExpandableGroup(
-            title: 'AnantPlay & Sources',
-            icon: mi.Icons.cast_rounded,
-            children: (ctx) => const _AnantPlayRows(),
-          ),
-          _ExpandableGroup(
-            title: 'Browser & Privacy',
-            icon: mi.Icons.public_rounded,
-            children: (ctx) => const _BrowserRows(),
-          ),
-          _ExpandableGroup(
-            title: 'Cast & Network',
-            icon: mi.Icons.wifi_rounded,
-            children: (ctx) => const _CastRows(),
-          ),
-          _ExpandableGroup(
-            title: 'Backup & Restore',
-            icon: mi.Icons.backup_rounded,
-            children: (ctx) => const _BackupRows(),
-          ),
-
-          const SizedBox(height: 10),
-          _SectionHeader('About'),
-          SettingsGroup(children: [
-            _ActionRow(
-              title: 'Open-source licenses (LGPL-3.0-only)',
-              onTap: () => _licenses(context),
-            ),
-            _ActionRow(
-              title: 'Run setup guide',
-              subtitle: 'Replay the 6-slide first-launch wizard',
-              onTap: () => AppState.of(context).scope.rerunOnboarding(),
-            ),
-            const _VersionFooter(),
-          ]),
+          ],
         ],
       ),
     );
   }
 
-  Future<void> _licenses(BuildContext context) async {
-    // v3.4.6.h — the LIVE installed version (the v3.4.6.g page carried a
-    // stale '3.4.6.d' literal through three releases).
-    String version = '3.4.6.i';
+  Future<void> _exportBackup(BuildContext context) async {
+    try {
+      final text = await AnantPlay.instance.exportBackup();
+      await Clipboard.setData(ClipboardData(text: text));
+      if (!context.mounted) return;
+      showMornyeGlassNotification(context,
+          message: 'Backup copied to the clipboard');
+    } catch (e) {
+      if (!context.mounted) return;
+      showMornyeGlassNotification(context,
+          message: 'Export failed · $e', error: true);
+    }
+  }
+
+  Future<void> _importBackup(BuildContext context) async {
+    final data = await Clipboard.getData('text/plain');
+    final text = data?.text ?? '';
+    if (!context.mounted) return;
+    if (text.trim().isEmpty) {
+      showMornyeGlassNotification(context,
+          message: 'Clipboard is empty — copy a backup first', error: true);
+      return;
+    }
+    await importBackupWithFeedback(context, text);
+  }
+}
+
+/// v3.4.6.j — THE HUB: the searchable, connected settings surface (video_2
+/// 03:40 / video_1 00:30–01:25). An empty query shows the eight navigation
+/// rows; typing filters EVERY setting across every page inline.
+class _SettingsHub extends StatefulWidget {
+  const _SettingsHub();
+
+  @override
+  State<_SettingsHub> createState() => _SettingsHubState();
+}
+
+class _SettingsHubState extends State<_SettingsHub> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final state = AppState.of(context);
+    final s = state.settings;
+    final matched =
+        _query.trim().isEmpty ? const <SettingEntry>[] : _search(_query);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
+      children: [
+        // ── THE SEARCH FIELD (live-filtering every setting) ──────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: TextField(
+            key: const ValueKey('settings-search'),
+            onChanged: (v) => setState(() => _query = v),
+            decoration: InputDecoration(
+              hintText: 'Search settings',
+              prefixIcon: const Icon(mi.Icons.search_rounded),
+              isDense: true,
+              filled: true,
+              fillColor: scheme.surfaceContainerHigh.withValues(alpha: 0.6),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+
+        if (matched.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
+            child: Text('${matched.length} settings match "${_query.trim()}"',
+                style: TextStyle(
+                    fontSize: 12.5, color: scheme.onSurfaceVariant)),
+          ),
+          SettingsGroup(children: [
+            for (final entry in matched)
+              _ActionRow(
+                title: entry.title,
+                subtitle: entry.subtitle,
+                onTap: () => _pushPage(context, entry.page),
+              ),
+          ]),
+        ] else ...[
+          // ── THE EIGHT CONNECTED NAVIGATION ROWS ─────────────────────────
+          SettingsGroup(children: [
+            _NavRow(
+              title: 'Appearance',
+              subtitle: _appStyleLabel(s),
+              icon: mi.Icons.palette_rounded,
+              page: const _AppearanceSettingsPage(),
+            ),
+            _NavRow(
+              title: 'Playback & Subtitles',
+              subtitle: 'Subtitle studio · gestures · cinema player',
+              icon: mi.Icons.movie_rounded,
+              page: const _PlaybackSubtitlesPage(),
+            ),
+            _NavRow(
+              title: 'AnantPlay & Sources',
+              subtitle: 'Indexes · official app · guided setup',
+              icon: mi.Icons.cast_rounded,
+              page: const _AnantPlaySourcesPage(),
+            ),
+            _NavRow(
+              title: 'Browser & Privacy',
+              subtitle: 'Search engine · ad block · reader',
+              icon: mi.Icons.public_rounded,
+              page: const _BrowserPrivacyPage(),
+            ),
+            _NavRow(
+              title: 'Cast & Network',
+              subtitle: 'DLNA · mDNS · worker ping',
+              icon: mi.Icons.wifi_rounded,
+              page: const _CastNetworkPage(),
+            ),
+            _NavRow(
+              title: 'Storage & Cache',
+              subtitle: 'Clear cache · real MB usage',
+              icon: mi.Icons.storage_rounded,
+              page: const _StorageCachePage(),
+            ),
+            _NavRow(
+              title: 'Backup & Restore',
+              subtitle: 'Backup categories · reset',
+              icon: mi.Icons.backup_rounded,
+              page: const _BackupRestorePage(),
+            ),
+            _NavRow(
+              title: 'About & Licenses',
+              subtitle: 'Version $kVisibleVersion · update check',
+              icon: mi.Icons.info_rounded,
+              page: const _AboutPage(),
+            ),
+          ]),
+          const _VersionFooter(),
+        ],
+      ],
+    );
+  }
+
+  String _appStyleLabel(SettingsMirror s) {
+    final style = s.s(SettingsMirror.kAppStyle, 'mornye');
+    return style == 'material'
+        ? 'App style: Material · theme · accent · glass'
+        : 'App style: Mornye · theme · accent · glass';
+  }
+
+  void _pushPage(BuildContext context, Widget page) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => page,
+        // v3.4.6.j — the Mornye springy slide-up + fade the reference app's
+        // sub-pages use (Material's own transitions follow the app style).
+        fullscreenDialog: false,
+      ),
+    );
+  }
+
+  List<SettingEntry> _search(String query) {
+    final q = query.toLowerCase().trim();
+    if (q.isEmpty) return const [];
+    return kSettingCatalog
+        .where((e) =>
+            e.title.toLowerCase().contains(q) ||
+            e.keywords.toLowerCase().contains(q))
+        .toList();
+  }
+}
+
+/// One searchable settings entry (the catalog the hub filters).
+class SettingEntry {
+  const SettingEntry(this.title, this.subtitle, this.keywords, this.page);
+  final String title;
+  final String subtitle;
+  final String keywords;
+  final Widget page;
+}
+
+/// The full searchable settings catalog (one entry per high-value setting,
+/// each pushing the page it lives on).
+const List<SettingEntry> kSettingCatalog = [
+  SettingEntry('App style (Material / Mornye)',
+      'Switch the whole shell between the two design languages',
+      'appstyle material mornye theme design', _AppearanceSettingsPage()),
+  SettingEntry('Theme', 'System · Light · Dark · AMOLED',
+      'theme dark light amoled mode', _AppearanceSettingsPage()),
+  SettingEntry('Accent color', 'Presets, # hex Color Studio, Material You',
+      'accent color hex dynamic material you', _AppearanceSettingsPage()),
+  SettingEntry('Glass clarity', 'Live slider with the percentage bubble',
+      'glass clarity blur transparency', _AppearanceSettingsPage()),
+  SettingEntry('Midnight night dimmer', 'Dim the whole screen at night',
+      'midnight dimmer night dim brightness', _AppearanceSettingsPage()),
+  SettingEntry('Interface size', '85% – 115% with the live bubble',
+      'interface size scale font', _AppearanceSettingsPage()),
+  SettingEntry('History view', 'Continue Watching as a list or a grid',
+      'history grid list continue watching', _AppearanceSettingsPage()),
+  SettingEntry('Subtitle size / font / color',
+      'The live Sinhala subtitle studio',
+      'subtitle size font color bold background opacity position',
+      _PlaybackSubtitlesPage()),
+  SettingEntry('Auto Sinhala subtitles', 'Fetch & translate automatically',
+      'auto sinhala translate subtitles fetch', _PlaybackSubtitlesPage()),
+  SettingEntry('Sync step', 'Subtitle timing nudge ±0.25 s / ±1 s',
+      'sync step subtitle timing offset', _PlaybackSubtitlesPage()),
+  SettingEntry('Search engine', 'Google · DuckDuckGo · Startpage · Brave',
+      'search engine browser google duckduckgo startpage brave home',
+      _BrowserPrivacyPage()),
+  SettingEntry('Ad block', 'The browser ad blocker',
+      'ad block ads browser privacy', _BrowserPrivacyPage()),
+  SettingEntry('Ping worker', 'The subtitle worker latency check',
+      'ping worker network cloudflare cast', _CastNetworkPage()),
+  SettingEntry('Clear all cache', 'App · WebView · subtitles · updates',
+      'storage cache clear free space mb', _StorageCachePage()),
+  SettingEntry('Create backup file', 'Export the settings document',
+      'backup restore export import reset', _BackupRestorePage()),
+  SettingEntry('Check for update now', 'The honest release check',
+      'update version check', _AboutPage()),
+  SettingEntry('Run setup guide', 'Replay the 6-slide wizard',
+      'setup guide onboarding wizard', _AboutPage()),
+];
+
+/// One connected navigation row (the Mornye inset-grouped row: icon plate +
+/// title + subtitle + the chevron).
+class _NavRow extends StatelessWidget {
+  const _NavRow({required this.title, required this.subtitle, required this.icon, required this.page});
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Widget page;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ListTile(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => page),
+        );
+      },
+      leading: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: scheme.primary.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(icon, size: 20, color: scheme.primary),
+      ),
+      title: Text(title,
+          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
+      subtitle: Text(subtitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+              fontSize: 11.5, color: scheme.onSurfaceVariant)),
+      trailing: const Icon(mi.Icons.chevron_right_rounded, size: 20),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// v3.4.6.j — THE EIGHT SETTINGS SUB-PAGES
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// The shared sub-page scaffold (the Mornye inset-grouped layout).
+class _SettingsSubPage extends StatelessWidget {
+  const _SettingsSubPage({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Scaffold(
+      backgroundColor: scheme.surface,
+      appBar: AppBar(
+        title: Text(title),
+        backgroundColor: scheme.scrim.withValues(alpha: 0.2),
+        surfaceTintColor: Colors.transparent,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
+        children: children,
+      ),
+    );
+  }
+}
+
+/// PAGE 1 — Appearance: the dual App Style, theme, accent, glass, fonts,
+/// interface size, animation speed, history view, midnight dimmer.
+class _AppearanceSettingsPage extends StatelessWidget {
+  const _AppearanceSettingsPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppState.of(context);
+    final scope = state.scope;
+    final s = state.settings;
+    final scheme = Theme.of(context).colorScheme;
+    return _SettingsSubPage(
+      title: 'Appearance',
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: const _LivePreviewCard(),
+        ),
+        SettingsGroup(children: [
+          // v3.4.6.j — THE DUAL APP STYLE (video_2 05:20 / video_1 00:00):
+          // 'mornye' = the Apple Liquid-Glass engine (default), 'material' =
+          // Material 3 Expressive / Material You. The whole shell's theme
+          // flips on this one key (main.dart's buildAppTheme reads it live).
+          _SegmentedRow(
+            title: 'App style',
+            labels: const ['Mornye', 'Material'],
+            selected: s.s(SettingsMirror.kAppStyle, 'mornye') == 'mornye' ? 0 : 1,
+            onChanged: (i) => scope.putString(
+                SettingsMirror.kAppStyle, i == 0 ? 'mornye' : 'material'),
+          ),
+          _ThemeCards(current: s.themeMode),
+          const SizedBox(height: 14),
+          _AccentRow(current: s.accent, hex: s.accentHex),
+          const SizedBox(height: 4),
+        ]),
+        SettingsGroup(children: [
+          _SliderRow(
+            title: 'Glass clarity',
+            value: s.glassClarity / 100.0,
+            label: '${s.glassClarity}%',
+            onChanged: (v) => scope.putInt(
+                SettingsMirror.kGlassClarity, (v * 100).round().clamp(10, 95)),
+          ),
+          _SwitchRow(
+            title: 'Glass outlines',
+            value: s.glassOutlines,
+            onChanged: (v) =>
+                scope.putBool(SettingsMirror.kGlassOutlines, v),
+          ),
+          _SwitchRow(
+            title: 'Force liquid blur',
+            value: s.b(SettingsMirror.kSurfaceStyle, true),
+            onChanged: (v) => scope.putString(
+                SettingsMirror.kSurfaceStyle, v ? 'glass' : 'flat'),
+          ),
+          _SliderRow(
+            title: 'Animation speed',
+            value: (s.b(SettingsMirror.kMotion, true) ? 1.0 : 0.0),
+            label: s.b(SettingsMirror.kMotion, true) ? 'Full' : 'Reduced',
+            onChanged: (v) => scope.putBool(
+                SettingsMirror.kMotion, v >= 0.5),
+          ),
+          // v3.4.6.j — Interface size (85–115%) with the live bubble, riding
+          // the fontSp lane (the same studio value the player reads).
+          _SliderRow(
+            title: 'Interface size',
+            value: (s.i(SettingsMirror.kFontSpKey, 14) - 12) / 8.0,
+            label: '${s.i(SettingsMirror.kFontSpKey, 14) == 14 ? '100' : ((s.i(SettingsMirror.kFontSpKey, 14) / 14 * 100).round())}%',
+            onChanged: (v) => scope.putInt(
+                SettingsMirror.kFontSpKey, (12 + v * 8).round().clamp(12, 20)),
+          ),
+          _SegmentedRow(
+            title: 'History view',
+            labels: const ['List', 'Grid'],
+            selected: s.s(SettingsMirror.kHistoryView, 'list') == 'list' ? 0 : 1,
+            onChanged: (i) => scope.putString(
+                SettingsMirror.kHistoryView, i == 0 ? 'list' : 'grid'),
+          ),
+        ]),
+        _SectionHeader('Navigation'),
+        SettingsGroup(children: const [_AppearanceNavRows()]),
+        _SectionHeader('Midnight dimmer'),
+        SettingsGroup(children: [
+          _SwitchRow(
+            title: 'Midnight night dimmer',
+            value: s.b(SettingsMirror.kMidnightDimmer, false),
+            onChanged: (v) =>
+                scope.putBool(SettingsMirror.kMidnightDimmer, v),
+            enabled: Theme.of(context).brightness == Brightness.dark,
+            subtitle: Theme.of(context).brightness == Brightness.dark
+                ? null
+                : 'Active in Dark & AMOLED modes',
+          ),
+          _SliderRow(
+            title: 'Dim amount',
+            value: s.i(SettingsMirror.kMidnightDimPct, 30) / 70.0,
+            label: '${s.i(SettingsMirror.kMidnightDimPct, 30)}%',
+            onChanged: (v) => scope.putInt(
+                SettingsMirror.kMidnightDimPct,
+                (v * 70).round().clamp(10, 70)),
+            enabled: Theme.of(context).brightness == Brightness.dark,
+          ),
+        ]),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+          child: Text(
+            // v3.4.6.j — the live style preview caption.
+            'App style: ${s.s(SettingsMirror.kAppStyle, 'mornye') == 'material' ? 'Material 3 Expressive · Material You dynamic color' : 'Mornye Liquid Glass · refracting surfaces'}',
+            style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// PAGE 2 — Playback & Subtitles: the subtitle studio + playback rows.
+class _PlaybackSubtitlesPage extends StatelessWidget {
+  const _PlaybackSubtitlesPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppState.of(context);
+    final scope = state.scope;
+    final s = state.settings;
+    return _SettingsSubPage(
+      title: 'Playback & Subtitles',
+      children: [
+        SettingsGroup(children: [
+          _SliderRow(
+            title: 'Subtitle size',
+            value: ((s.i(SettingsMirror.kFontSpKey, 14)) - 12) / 24.0,
+            label: '${s.i(SettingsMirror.kFontSpKey, 14)}sp',
+            onChanged: (v) => scope.putInt(
+                SettingsMirror.kFontSpKey, (12 + v * 24).round().clamp(12, 36)),
+          ),
+          _SwitchRow(
+            title: 'Auto Sinhala subtitles',
+            value: s.b(SettingsMirror.kAutoFetch, true),
+            onChanged: (v) =>
+                scope.putBool(SettingsMirror.kAutoFetch, v),
+          ),
+          _SwitchRow(
+            title: 'On-device translator',
+            value: s.b(SettingsMirror.kFreeTranslator, true),
+            onChanged: (v) =>
+                scope.putBool(SettingsMirror.kFreeTranslator, v),
+          ),
+          _SwitchRow(
+            title: 'Continue watching',
+            value: s.b(SettingsMirror.kContinueWatching, true),
+            onChanged: (v) => scope.putBool(
+                SettingsMirror.kContinueWatching, v),
+          ),
+        ]),
+        _SectionHeader('Subtitle studio'),
+        SettingsGroup(children: const [_SubtitleStudioRows()]),
+      ],
+    );
+  }
+}
+
+/// PAGE 3 — AnantPlay & Sources: the multi-index manager + official app.
+class _AnantPlaySourcesPage extends StatelessWidget {
+  const _AnantPlaySourcesPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsSubPage(
+      title: 'AnantPlay & Sources',
+      children: [
+        _SectionHeader('Official AnantPlay'),
+        SettingsGroup(children: const [
+          _AnantPlayRows(),
+          _OfficialAnantPlayUpdateRow(),
+        ]),
+        _SectionHeader('Guided setup'),
+        SettingsGroup(children: [
+          _ActionRow(
+            title: 'Guided AnantPlay Setup',
+            subtitle: 'The floating coach walks all 6 steps over AnantPlay',
+            onTap: () => AnantPlay.instance.openOfficialWithCoach(),
+          ),
+          const _IndexUrlField(initial: ''),
+        ]),
+      ],
+    );
+  }
+}
+
+/// PAGE 4 — Browser & Privacy.
+class _BrowserPrivacyPage extends StatelessWidget {
+  const _BrowserPrivacyPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsSubPage(
+      title: 'Browser & Privacy',
+      children: [
+        SettingsGroup(children: const [_BrowserRows()]),
+      ],
+    );
+  }
+}
+
+/// PAGE 5 — Cast & Network.
+class _CastNetworkPage extends StatelessWidget {
+  const _CastNetworkPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsSubPage(
+      title: 'Cast & Network',
+      children: [
+        SettingsGroup(children: const [_CastRows()]),
+      ],
+    );
+  }
+}
+
+/// PAGE 6 — Storage & Cache (video_1 00:50): the LIVE real-MB breakdown +
+/// Clear all cache + Refresh stats.
+class _StorageCachePage extends StatefulWidget {
+  const _StorageCachePage();
+
+  @override
+  State<_StorageCachePage> createState() => _StorageCachePageState();
+}
+
+class _StorageCachePageState extends State<_StorageCachePage> {
+  CacheStats? _stats;
+  bool _clearing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final stats = await AnantPlay.instance.cacheStats();
+      if (mounted) setState(() => _stats = stats);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _stats = const CacheStats(
+            appCache: 0, subs: 0, updates: 0, history: 0));
+      }
+    }
+  }
+
+  Future<void> _clearAll() async {
+    if (_clearing) return;
+    setState(() => _clearing = true);
+    try {
+      final freed = await AnantPlay.instance.clearCache();
+      await _refresh();
+      if (!mounted) return;
+      showMornyeGlassNotification(context,
+          message: 'Freed ${_mb(freed)} of cache');
+    } catch (e) {
+      if (!mounted) return;
+      showMornyeGlassNotification(context,
+          message: 'Clear failed · $e', error: true);
+    } finally {
+      if (mounted) setState(() => _clearing = false);
+    }
+  }
+
+  static String _mb(int bytes) {
+    if (bytes <= 0) return '0 MB';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final stats = _stats;
+    return _SettingsSubPage(
+      title: 'Storage & Cache',
+      children: [
+        SettingsGroup(children: [
+          _StorageRow(
+              title: 'App cache & WebView',
+              bytes: stats?.appCache ?? 0),
+          _StorageRow(title: 'Subtitle cache', bytes: stats?.subs ?? 0),
+          _StorageRow(title: 'Update cache', bytes: stats?.updates ?? 0),
+          _StorageRow(title: 'Watch history', bytes: stats?.history ?? 0),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+            child: Text(
+              'Total ${_mb(stats?.total ?? 0)}',
+              key: const ValueKey('storage-total'),
+              style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurface),
+            ),
+          ),
+        ]),
+        SettingsGroup(children: [
+          _ActionRow(
+            title: 'Clear all cache',
+            key: const ValueKey('clear-all-cache'),
+            subtitle: _clearing ? 'Clearing…' : 'App · WebView · subtitles · updates',
+            onTap: _clearAll,
+          ),
+          _ActionRow(
+            title: 'Refresh stats',
+            subtitle: 'Re-read the live byte counts',
+            onTap: _refresh,
+          ),
+          _ActionRow(
+            title: 'Clear watch history',
+            subtitle: 'Removes every Continue Watching row',
+            onTap: () async {
+              await AnantPlay.instance.clearHistory();
+              if (!context.mounted) return;
+              await AppState.of(context).scope.refresh();
+              if (!context.mounted) return;
+              showMornyeGlassNotification(context,
+                  message: 'Watch history cleared');
+            },
+          ),
+        ]),
+      ],
+    );
+  }
+}
+
+/// One real-MB storage row (the honest byte counts, never placeholders).
+class _StorageRow extends StatelessWidget {
+  const _StorageRow({required this.title, required this.bytes});
+
+  final String title;
+  final int bytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(title,
+                style: const TextStyle(
+                    fontSize: 13.5, fontWeight: FontWeight.w600)),
+          ),
+          Text(
+            _StorageCachePageState._mb(bytes),
+            key: ValueKey('storage-$title'),
+            style: TextStyle(
+                fontSize: 12.5,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// PAGE 7 — Backup & Restore (video_1 01:20): per-category toggles +
+/// create/restore/reset.
+class _BackupRestorePage extends StatelessWidget {
+  const _BackupRestorePage();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppState.of(context);
+    final scope = state.scope;
+    final s = state.settings;
+    return _SettingsSubPage(
+      title: 'Backup & Restore',
+      children: [
+        SettingsGroup(children: [
+          // v3.4.6.j — the per-category backup toggles (video_1 01:20):
+          // App settings · Watch history · Custom index sources.
+          _SwitchRow(
+            title: 'App settings',
+            value: s.b(SettingsMirror.kBackupAppSettings, true),
+            onChanged: (v) =>
+                scope.putBool(SettingsMirror.kBackupAppSettings, v),
+          ),
+          _SwitchRow(
+            title: 'Watch history',
+            value: s.b(SettingsMirror.kBackupHistory, true),
+            onChanged: (v) =>
+                scope.putBool(SettingsMirror.kBackupHistory, v),
+          ),
+          _SwitchRow(
+            title: 'Custom index sources',
+            value: s.b(SettingsMirror.kBackupIndexes, true),
+            onChanged: (v) =>
+                scope.putBool(SettingsMirror.kBackupIndexes, v),
+          ),
+        ]),
+        SettingsGroup(children: const [_BackupRows()]),
+      ],
+    );
+  }
+}
+
+/// PAGE 8 — About & Licenses.
+class _AboutPage extends StatelessWidget {
+  const _AboutPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsSubPage(
+      title: 'About & Licenses',
+      children: [
+        SettingsGroup(children: [
+          // v3.4.6.i — PERMANENT LAW #1: the Auto-update ON/OFF switch is
+          // GONE (auto-updating is mandatory); only the honest manual
+          // "Check for update now" row remains.
+          _ActionRow(
+            title: 'Check for update now',
+            subtitle: 'Checking… → Up to date ($kVisibleVersion)',
+            onTap: () => checkForUpdateWithFeedback(context),
+          ),
+          _ActionRow(
+            title: 'Run setup guide',
+            subtitle: 'Replay the 6-slide first-launch wizard',
+            // v3.4.6.j — THE SUB-PAGE POP-FIRST RULE: this row lives on a
+            // PUSHED sub-page route; re-arming the wizard without popping
+            // first would render the wizard BEHIND this route (the shell
+            // rebuilds underneath the pushed page — the user sees nothing).
+            // Pop the sub-page, then rerun (the scope is captured before the
+            // pop because the row's element is gone after it).
+            onTap: () {
+              final scope = AppState.of(context).scope;
+              Navigator.of(context).pop();
+              scope.rerunOnboarding();
+            },
+          ),
+        ]),
+        _SectionHeader('Licenses'),
+        SettingsGroup(children: [
+          _ActionRow(
+            title: 'Open-source licenses (LGPL-3.0-only)',
+            onTap: () => _aboutPageLicenses(context),
+          ),
+          const _VersionFooter(),
+        ]),
+      ],
+    );
+  }
+
+  Future<void> _aboutPageLicenses(BuildContext context) async {
+    // v3.4.6.h — the LIVE installed version (never a stale literal).
+    String version = '3.4.6.j';
     try {
       final info = await AnantPlay.instance.appInfo();
       if (info.versionName.isNotEmpty) version = info.versionName;
@@ -255,11 +897,10 @@ String applyManualAccent(
 
 /// One crisp feedback line under the accent row (the interlock's visible
 /// confirmation — a silent repaint is indistinguishable from a dead button).
+/// v3.4.6.j — rides the TOP floating glass pill (the SnackBar is dead).
 void _sayAccentFeedback(BuildContext context, String message) {
-  final messenger = ScaffoldMessenger.maybeOf(context);
-  messenger?.hideCurrentSnackBar();
-  messenger?.showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
+  if (!context.mounted) return;
+  showMornyeGlassNotification(context, message: message);
 }
 
 // ── THE LIVE PREVIEW CARD ────────────────────────────────────────────────────
@@ -922,17 +1563,16 @@ class _BackupRows extends StatelessWidget {
   }
 
   Future<void> _export(BuildContext context) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Exporting backup…')));
+    showMornyeGlassNotification(context, message: 'Exporting backup…');
     try {
       final json = await AnantPlay.instance.exportBackup();
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Backup exported · ${json.length} bytes ✓')));
+      showMornyeGlassNotification(context,
+          message: 'Backup exported · ${json.length} bytes ✓');
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Export failed · $error')));
+        showMornyeGlassNotification(context,
+            message: 'Export failed · $error', error: true);
       }
     }
   }
@@ -967,8 +1607,8 @@ class _BackupRows extends StatelessWidget {
     final json = controller.text.trim();
     if (json.isEmpty) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Import failed · empty backup')));
+        showMornyeGlassNotification(context,
+            message: 'Import failed · empty backup', error: true);
       }
       return;
     }
@@ -976,15 +1616,15 @@ class _BackupRows extends StatelessWidget {
       final preview = await AnantPlay.instance.importPreview(json);
       if (!context.mounted) return;
       if (!preview.ok) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Import failed · ${preview.error}')));
+        showMornyeGlassNotification(context,
+            message: 'Import failed · ${preview.error}', error: true);
         return;
       }
       await importBackupWithFeedback(context, json);
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Import failed · $error')));
+        showMornyeGlassNotification(context,
+            message: 'Import failed · $error', error: true);
       }
     }
   }
@@ -1712,6 +2352,7 @@ class _SegmentedRow extends StatelessWidget {
 
 class _ActionRow extends StatelessWidget {
   const _ActionRow({
+    super.key,
     required this.title,
     required this.onTap,
     this.subtitle,
