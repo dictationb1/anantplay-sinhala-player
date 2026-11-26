@@ -111,6 +111,52 @@ final class SelfUpdateCore {
     static final int CHECK_CONNECT_MS = 5000;
     static final int CHECK_READ_MS = 8000;
 
+    // ══ v3.4.6.h — GUARANTEE #4: THE 4-SECOND HARD WALL-CLOCK FAST LANE ══════
+    // The v3.4.6.g gate could take 5 s connect + 8 s read per tier (and the
+    // SHA fetch after it) before the ForceUpdateScreen appeared. The CHECK
+    // lane now carries an ABSOLUTE 4-second wall-clock deadline per tier:
+    // tier-1 releases/latest 302 (4 s) → immediate fallback → tier-2
+    // docs/latest.json (4 s) — zero GitHub-REST calls, and the SHA leg runs
+    // only in the user's Update Now download path.
+    static final int FAST_CONNECT_MS = 4000;
+    static final int FAST_READ_MS = 4000;
+    static final long FAST_DEADLINE_MS = 4000L;
+
+    /**
+     * v3.4.6.h — THE SUB-SECOND-OR-4s VERSION RESOLVE (GUARANTEE #4):
+     * tier-1's releases/latest 302 redirect behind an ABSOLUTE 4 s
+     * wall-clock, immediate fallback to tier-2's docs/latest.json (4 s).
+     * Returns the newest release VERSION string ("3.4.6.h"), or null when
+     * both tiers failed. ZERO GitHub-REST calls, zero SHA round trips —
+     * the caller arms + persists the gate the moment this answers.
+     */
+    static String fetchVersionFast() {
+        try {
+            String tag = resolveTagDeadline("https://github.com/" + REPO + "/releases/latest",
+                FAST_CONNECT_MS, FAST_READ_MS, FAST_DEADLINE_MS);
+            if (tag != null) {
+                String v = stripV(tag);
+                if (v.matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?")) return v;
+            }
+        } catch (Throwable t) {
+            Diag.w("selfupd", "fast tier-1: " + t);
+        }
+        try {
+            String body = httpGetDeadline(rawLatestJsonUrl(),
+                FAST_CONNECT_MS, FAST_READ_MS, FAST_DEADLINE_MS);
+            if (body != null && !body.trim().isEmpty()) {
+                Object root = MiniJson.parse(body);
+                if (root instanceof Map) {
+                    String v = stripV(String.valueOf(((Map<?, ?>) root).get("version")));
+                    if (v.matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?")) return v;
+                }
+            }
+        } catch (Throwable t) {
+            Diag.w("selfupd", "fast tier-2: " + t);
+        }
+        return null;
+    }
+
     /** The app-open success cooldown: automatic checks run at most every 5 min. */
     static final long MIN_CHECK_INTERVAL_MS = 5 * 60 * 1000L;
     /** THE FAILURE BACKOFF: after a failed/offline check, automatic re-checks
@@ -181,9 +227,13 @@ final class SelfUpdateCore {
      * setInstanceFollowRedirects(false) makes the redirect OBSERVABLE instead
      * of followed: one request, zero quota, and both asset URLs are derived
      * deterministically from the tag. `connect` is seam-injectable for the lab
-     * (a mock github.com that serves the exact 302). */
+     * (a mock github.com that serves the exact 302).
+     * v3.4.6.h — GUARANTEE #4: the resolve runs behind the 4-second HARD
+     * wall-clock fast-lane deadline (a stalled DNS or a multi-address connect
+     * can never delay the gate beyond it). */
     static Release fetchViaWebRedirect() throws Exception {
-        String tag = resolveLatestTagByRedirect("https://github.com/" + REPO + "/releases/latest");
+        String tag = resolveLatestTagByRedirect("https://github.com/" + REPO + "/releases/latest",
+            FAST_CONNECT_MS, FAST_READ_MS);
         if (tag == null || tag.isEmpty()) return null;
         Release r = new Release();
         r.version = stripV(tag);
@@ -232,9 +282,11 @@ final class SelfUpdateCore {
         return tag.isEmpty() ? null : tag;
     }
 
-    /** Route 2 — docs/latest.json written by the release workflow. */
+    /** Route 2 — docs/latest.json written by the release workflow.
+     *  v3.4.6.h — GUARANTEE #4: the GET rides the 4-second hard deadline. */
     static Release fetchViaRawJson() throws Exception {
-        Release r = fetchViaRawJsonBody(httpGet(rawLatestJsonUrl()));
+        String body = httpGetDeadline(rawLatestJsonUrl(), FAST_CONNECT_MS, FAST_READ_MS, FAST_DEADLINE_MS);
+        Release r = fetchViaRawJsonBody(body);
         if (r == null) return null;
         String sumsSha = fetchExpectedSha(derivedSumsUrl("v" + r.version), apkAssetName(r.version));
         if (sumsSha == null) return null;
@@ -280,10 +332,11 @@ final class SelfUpdateCore {
     }
 
     /** GET the SHA256SUMS.txt asset and pick the apk's line (soft: null when the
-     *  fetch or the line is missing — the installer refuses on null). */
+     *  fetch or the line is missing — the installer refuses on null).
+     *  v3.4.6.h — the sums fetch rides the 4-second hard deadline too. */
     static String fetchExpectedSha(String sumsUrl, String apkFile) {
         try {
-            String sums = httpGet(sumsUrl);
+            String sums = httpGetDeadline(sumsUrl, FAST_CONNECT_MS, FAST_READ_MS, FAST_DEADLINE_MS);
             return pickShaLine(sums, apkFile);
         } catch (Throwable t) {
             Diag.w("selfupd", "sha fetch: " + t);

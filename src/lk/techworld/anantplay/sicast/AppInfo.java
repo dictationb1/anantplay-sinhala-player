@@ -31,8 +31,8 @@ final class AppInfo {
     // v3.4.6.e→v3.4.6.e self-lock, the background multi-download, the
     // `No active stream to cancel` EventChannel collision, and the fake
     // PASSes in the deep troubleshooter (Probe 47's HTTP 0 lie).
-    static final String VERSION_NAME = "3.4.6.g";
-    static final int VERSION_CODE = 30413;
+    static final String VERSION_NAME = "3.4.6.h";
+    static final int VERSION_CODE = 30414;
     static final String NAME = "AnantPlay Sinhala Player";
     private AppInfo() { }
 }

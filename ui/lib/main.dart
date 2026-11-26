@@ -79,14 +79,32 @@ void _forwardToNativeCrashLog(String kind, Object error, StackTrace? stack,
 
 void _installCrashHooks() {
   FlutterError.onError = (FlutterErrorDetails details) {
+    sessionFlutterErrorCount++;
+    _lastSessionError = details.exception.toString();
     _forwardToNativeCrashLog('FlutterError', details.exception, details.stack,
         zone: details.library ?? 'flutter');
     FlutterError.presentError(details); // keep the default red/error surface too
   };
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    sessionFlutterErrorCount++;
+    _lastSessionError = error.toString();
     _forwardToNativeCrashLog('PlatformError', error, stack);
     return true; // handled — the app stays alive
   };
+}
+
+// ── v3.4.6.h — THE ZERO-UNCAUGHT-FLUTTER-ERROR SESSION COUNTER (H14) ───────
+// The live Dart audit layer (Domain H, probe 78) reads this: a healthy
+// session answers 0. Any uncaught FlutterError / PlatformDispatcher error in
+// the LIVE session is a FAIL with the exact first line — never hidden.
+int sessionFlutterErrorCount = 0;
+String _lastSessionError = '';
+
+/// The exact first line of the last uncaught Dart error this session ('' when
+/// none) — the H14 audit's honest detail line.
+String lastSessionFlutterError() {
+  final one = _lastSessionError.replaceAll('\n', ' ').trim();
+  return one.length <= 140 ? one : one.substring(0, 140);
 }
 
 void main() {
@@ -142,6 +160,130 @@ final ValueNotifier<bool> wallpaperSchemeAvailable = ValueNotifier<bool>(false);
 /// #000000 lanes) — an unmistakable full-app transformation. With the toggle
 /// OFF, or when the OS returns null (caption shown), the app reverts cleanly
 /// to Mornye's Cupertino/custom-accent palette.
+/// v3.4.6.h — THE ONE PUBLIC THEME BUILDER (extracted from _ThemedApp so the
+/// LIVE Domain-H visual-integrity audits (H6 Light / H7 AMOLED) and the
+/// widget tests build the EXACT ThemeData the app paints with — never a
+/// near-copy that could drift). Same contract as before:
+///   · `amoled` paints #000000 surfaces ONLY when brightness == dark;
+///   · v3.4.6.h: the Midnight dimmer ALSO applies only in dark mode — the
+///     v3.4.6.g bug had it lerping LIGHT surfaces toward black ("Light Mode
+///     is completely black"), which is exactly what H6 hard-asserts against;
+///   · a custom hex / preset accent seeds the scheme; a REAL wallpaper
+///     ColorScheme (Material You ON) overrides every role.
+ThemeData buildAppTheme(
+  SettingsMirror s,
+  Brightness brightness, {
+  required MornyeAccent accent,
+  Color? override,
+  double clarity = 0.75,
+  bool outlines = true,
+  bool amoled = false,
+  ColorScheme? wallpaper,
+}) {
+  final String? font = switch (s.s(SettingsMirror.kUiFont, '')) {
+    '' => null,
+    final f => f,
+  };
+  final ThemeData base = MornyeTheme.build(
+    brightness,
+    accent: accent,
+    fontFamily: font,
+    glassClarity: clarity,
+    glassOutlines: outlines,
+  );
+  ColorScheme scheme = base.colorScheme;
+  if (override != null) {
+    scheme = scheme.copyWith(
+      primary: override,
+      onPrimary: override.computeLuminance() < 0.179
+          ? Colors.white
+          : Colors.black,
+      secondary: override,
+      onSecondary: Colors.white,
+    );
+  }
+  // v3.4.6.g — THE FULL WALLPAPER TRANSFORMATION: the OS's real scheme takes
+  // over EVERY role — primary/secondary/tertiary + their containers, every
+  // surface tier, onSurfaceVariant, outlines. Cards, sliders, switches, the
+  // nav pill and text all derive from these in Material 3, so toggling the
+  // switch produces an UNMISTAKABLE full-app Material You repaint.
+  if (wallpaper != null) {
+    scheme = scheme.copyWith(
+      primary: wallpaper.primary,
+      onPrimary: wallpaper.onPrimary,
+      primaryContainer: wallpaper.primaryContainer,
+      onPrimaryContainer: wallpaper.onPrimaryContainer,
+      secondary: wallpaper.secondary,
+      onSecondary: wallpaper.onSecondary,
+      secondaryContainer: wallpaper.secondaryContainer,
+      onSecondaryContainer: wallpaper.onSecondaryContainer,
+      tertiary: wallpaper.tertiary,
+      onTertiary: wallpaper.onTertiary,
+      tertiaryContainer: wallpaper.tertiaryContainer,
+      onTertiaryContainer: wallpaper.onTertiaryContainer,
+      surface: wallpaper.surface,
+      onSurface: wallpaper.onSurface,
+      surfaceContainerLowest: wallpaper.surfaceContainerLowest,
+      surfaceContainerLow: wallpaper.surfaceContainerLow,
+      surfaceContainer: wallpaper.surfaceContainer,
+      surfaceContainerHigh: wallpaper.surfaceContainerHigh,
+      surfaceContainerHighest: wallpaper.surfaceContainerHighest,
+      onSurfaceVariant: wallpaper.onSurfaceVariant,
+      outline: wallpaper.outline,
+      outlineVariant: wallpaper.outlineVariant,
+    );
+  }
+  if (amoled && brightness == Brightness.dark) {
+    scheme = scheme.copyWith(
+      surface: Colors.black,
+      surfaceContainerLowest: Colors.black,
+      surfaceContainerLow: const Color(0xFF080808),
+      surfaceContainer: const Color(0xFF101010),
+      surfaceContainerHigh: const Color(0xFF161616),
+      surfaceContainerHighest: const Color(0xFF1C1C1C),
+    );
+  }
+  // v3.4.6.h — THE LIGHT-MODE-BLACK KILL: the Midnight dimmer dims ONLY the
+  // dark theme. The v3.4.6.g bug lerped LIGHT surfaces toward black too, so a
+  // night-dimmer user who switched to Light Mode got a pitch-black "light"
+  // app. The light lane NEVER dims (the H6 audit asserts luminance > 0.70).
+  if (s.b(SettingsMirror.kMidnightDimmer, false) &&
+      brightness == Brightness.dark) {
+    final double dim = (s.i(SettingsMirror.kMidnightDimPct, 30) / 100.0)
+        .clamp(0.10, 0.70);
+    scheme = scheme.copyWith(
+      surface: Color.lerp(scheme.surface, Colors.black, dim) ?? scheme.surface,
+      surfaceContainerLowest:
+          Color.lerp(scheme.surfaceContainerLowest, Colors.black, dim) ??
+              scheme.surfaceContainerLowest,
+    );
+  }
+  final AppTokens tokens = base.extension<AppTokens>() ?? AppTokens.standard;
+  final String density = s.s(SettingsMirror.kDensity, 'comfortable');
+  final String radius = s.s('cardRadius', 'rounded');
+  final bool motion = s.motionEnabled;
+  final AppTokens liveTokens = tokens.copyWith(
+    radiusCard: radius == 'sharp'
+        ? 4
+        : (radius == 'apple-pill' ? 30 : tokens.radiusCard),
+    rowPaddingV: density == 'compact'
+        ? 10
+        : (density == 'spacious' ? 20 : tokens.rowPaddingV),
+    rowPaddingVCompact: density == 'compact' ? 6 : tokens.rowPaddingVCompact,
+    motionFast: motion ? tokens.motionFast : Duration.zero,
+    motionMedium: motion ? tokens.motionMedium : Duration.zero,
+    motionSlow: motion ? tokens.motionSlow : Duration.zero,
+  );
+  return base.copyWith(
+    colorScheme: scheme,
+    scaffoldBackgroundColor: scheme.surface,
+    extensions: [
+      for (final ThemeExtension<dynamic> e in base.extensions.values)
+          if (e is AppTokens) liveTokens else e,
+    ],
+  );
+}
+
 class _ThemedApp extends StatelessWidget {
   const _ThemedApp();
 
@@ -198,13 +340,34 @@ class _ThemedApp extends StatelessWidget {
         s.s(SettingsMirror.kSurfaceStyle, 'glass') == 'flat';
     final bool outlines = flat ? false : s.glassOutlines;
 
-    final ThemeData light = _themeFor(
-      s, Brightness.light, accent, override, clarity, outlines,
+    final ThemeData light = buildAppTheme(
+      s, Brightness.light,
+      accent: accent, override: override, clarity: clarity, outlines: outlines,
       amoled: false, wallpaper: lightWall,
     );
-    final ThemeData dark = _themeFor(
-      s, Brightness.dark, accent, override, clarity, outlines,
+    final ThemeData dark = buildAppTheme(
+      s, Brightness.dark,
+      accent: accent, override: override, clarity: clarity, outlines: outlines,
       amoled: amoled, wallpaper: darkWall,
+    );
+    // v3.4.6.h — THE SYSTEM-BAR INTERLOCK: Light Mode gets DARK status/nav
+    // icons (readable on the bright #F2F2F7 surface); Dark/AMOLED get LIGHT
+    // icons. The v3.4.6.g build left light icons on a light background —
+    // the "unreadable notification bar" half of the black-Light-Mode bug.
+    SystemChrome.setSystemUIOverlayStyle(
+      mode == ThemeMode.light
+          ? const SystemUiOverlayStyle(
+              statusBarIconBrightness: Brightness.dark,
+              statusBarBrightness: Brightness.light,
+              systemNavigationBarIconBrightness: Brightness.dark,
+              systemNavigationBarColor: Color(0xFFF2F2F7),
+            )
+          : const SystemUiOverlayStyle(
+              statusBarIconBrightness: Brightness.light,
+              statusBarBrightness: Brightness.dark,
+              systemNavigationBarIconBrightness: Brightness.light,
+              systemNavigationBarColor: Color(0xFF000000),
+            ),
     );
     return MaterialApp(
       title: 'AnantPlay Player',
@@ -213,115 +376,6 @@ class _ThemedApp extends StatelessWidget {
       theme: light,
       darkTheme: dark,
       home: const ShellRoot(),
-    );
-  }
-
-  static ThemeData _themeFor(
-    SettingsMirror s,
-    Brightness brightness,
-    MornyeAccent accent,
-    Color? override,
-    double clarity,
-    bool outlines, {
-    required bool amoled,
-    ColorScheme? wallpaper,
-  }) {
-    final String? font = switch (s.s(SettingsMirror.kUiFont, '')) {
-      '' => null,
-      final f => f,
-    };
-    final ThemeData base = MornyeTheme.build(
-      brightness,
-      accent: accent,
-      fontFamily: font,
-      glassClarity: clarity,
-      glassOutlines: outlines,
-    );
-    ColorScheme scheme = base.colorScheme;
-    if (override != null) {
-      scheme = scheme.copyWith(
-        primary: override,
-        onPrimary: override.computeLuminance() < 0.179
-            ? Colors.white
-            : Colors.black,
-        secondary: override,
-        onSecondary: Colors.white,
-      );
-    }
-    // v3.4.6.g — THE FULL WALLPAPER TRANSFORMATION: the OS's real scheme takes
-    // over EVERY role — primary/secondary/tertiary + their containers, every
-    // surface tier, onSurfaceVariant, outlines. Cards, sliders, switches, the
-    // nav pill and text all derive from these in Material 3, so toggling the
-    // switch produces an UNMISTAKABLE full-app Material You repaint.
-    if (wallpaper != null) {
-      scheme = scheme.copyWith(
-        primary: wallpaper.primary,
-        onPrimary: wallpaper.onPrimary,
-        primaryContainer: wallpaper.primaryContainer,
-        onPrimaryContainer: wallpaper.onPrimaryContainer,
-        secondary: wallpaper.secondary,
-        onSecondary: wallpaper.onSecondary,
-        secondaryContainer: wallpaper.secondaryContainer,
-        onSecondaryContainer: wallpaper.onSecondaryContainer,
-        tertiary: wallpaper.tertiary,
-        onTertiary: wallpaper.onTertiary,
-        tertiaryContainer: wallpaper.tertiaryContainer,
-        onTertiaryContainer: wallpaper.onTertiaryContainer,
-        surface: wallpaper.surface,
-        onSurface: wallpaper.onSurface,
-        surfaceContainerLowest: wallpaper.surfaceContainerLowest,
-        surfaceContainerLow: wallpaper.surfaceContainerLow,
-        surfaceContainer: wallpaper.surfaceContainer,
-        surfaceContainerHigh: wallpaper.surfaceContainerHigh,
-        surfaceContainerHighest: wallpaper.surfaceContainerHighest,
-        onSurfaceVariant: wallpaper.onSurfaceVariant,
-        outline: wallpaper.outline,
-        outlineVariant: wallpaper.outlineVariant,
-      );
-    }
-    if (amoled && brightness == Brightness.dark) {
-      scheme = scheme.copyWith(
-        surface: Colors.black,
-        surfaceContainerLowest: Colors.black,
-        surfaceContainerLow: const Color(0xFF080808),
-        surfaceContainer: const Color(0xFF101010),
-        surfaceContainerHigh: const Color(0xFF161616),
-        surfaceContainerHighest: const Color(0xFF1C1C1C),
-      );
-    }
-    if (s.b(SettingsMirror.kMidnightDimmer, false)) {
-      final double dim = (s.i(SettingsMirror.kMidnightDimPct, 30) / 100.0)
-          .clamp(0.10, 0.70);
-      scheme = scheme.copyWith(
-        surface: Color.lerp(scheme.surface, Colors.black, dim) ?? scheme.surface,
-        surfaceContainerLowest:
-            Color.lerp(scheme.surfaceContainerLowest, Colors.black, dim) ??
-                scheme.surfaceContainerLowest,
-      );
-    }
-    final AppTokens tokens = base.extension<AppTokens>() ?? AppTokens.standard;
-    final String density = s.s(SettingsMirror.kDensity, 'comfortable');
-    final String radius = s.s('cardRadius', 'rounded');
-    final bool motion = s.motionEnabled;
-    final AppTokens liveTokens = tokens.copyWith(
-      radiusCard: radius == 'sharp'
-          ? 4
-          : (radius == 'apple-pill' ? 30 : tokens.radiusCard),
-      rowPaddingV: density == 'compact'
-          ? 10
-          : (density == 'spacious' ? 20 : tokens.rowPaddingV),
-      rowPaddingVCompact: density == 'compact' ? 6 : tokens.rowPaddingVCompact,
-      motionFast: motion ? tokens.motionFast : Duration.zero,
-      motionMedium: motion ? tokens.motionMedium : Duration.zero,
-      motionSlow: motion ? tokens.motionSlow : Duration.zero,
-    );
-    return base.copyWith(
-      colorScheme: scheme,
-      scaffoldBackgroundColor: scheme.surface,
-      extensions: [
-        for (final ThemeExtension<dynamic> e in base.extensions.values)
-          if (e is AppTokens) liveTokens else e,
-      ],
     );
   }
 }

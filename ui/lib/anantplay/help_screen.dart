@@ -5,7 +5,10 @@
 // Customizations · D Browser · E Cinema Player & Subtitles · F Permissions &
 // Privacy · G the v3.4.6.g real-phone fix contracts — 64 live probes) with
 // live progress, PLUS the Dart layer (H — 8 live Flutter UI audits executed
-// inside Dart against the live AppState & AnantPlayBridge hubs, ids 65–72).
+// inside Dart against the live AppState & AnantPlayBridge hubs, ids 65–78 —
+// v3.4.6.h grew the Dart layer from 8 to 14 audits: live Light/AMOLED theme
+// integrity, the Material You interlock, the 4 subtitle fonts, the semantic
+// icon registry and the zero-uncaught-error session check).
 // The merged run is 72 unique sequential ids (1..72) across 8 domains — the
 // v3.4.6.g Domain/ID collision fix (the Dart layer used to be G/57–64 and
 // collided with the native G1–G8). The merged verdict highlights EVERY
@@ -44,7 +47,7 @@ class _HelpScreenState extends State<HelpScreen> {
   String _report = '';
   StreamSubscription<dynamic>? _probeSub;
   StreamSubscription<Map<dynamic, dynamic>>? _progressSub;
-  /// The live progress counter (n of 72 probes — 64 native + 8 Dart — in flight).
+  /// The live progress counter (n of 78 probes — 64 native + 14 Dart — in flight).
   int _done = 0;
   final Map<String, bool> _expanded = {};
   /// v3.4.6.e — the watchdog Timer (owned; cancelled in dispose).
@@ -141,7 +144,7 @@ class _HelpScreenState extends State<HelpScreen> {
     // The native layer is COMPLETE: render its domain cards + auto-copy the
     // report IMMEDIATELY (the native verdict already stands and must never be
     // gated behind the Dart round-trips), THEN run the 8 live Dart audits
-    // (Domain H, ids 65–72) and merge them in as they land.
+    // (Domain H, ids 65–78) and merge them in as they land.
     if (!mounted) return;
     setState(() {
       _results = nativeOutcomes;
@@ -153,7 +156,7 @@ class _HelpScreenState extends State<HelpScreen> {
       final scope = AppState.of(context).scope;
       // v3.4.6.g — the Dart layer streams into the SAME live step-by-step feed
       // as the native probes, so the ticker covers all 72 unique sequential ids
-      // (▶ Checking #65 … → ✓ #65 PASS) and the counter climbs 64 → 72. Zero
+      // (▶ Checking #65 … → ✓ #65 PASS) and the counter climbs 64 → 78. Zero
       // duplicate ids, zero overwritten rows.
       dartLayer = await DartLayerAuditor.run(
         scope,
@@ -359,13 +362,13 @@ class _HelpScreenState extends State<HelpScreen> {
             child: _ActionCard(
               icon: Icons.health_and_safety_rounded,
               title: _running
-                  ? 'Running 72 deep feature probes… $_done/72'
+                  ? 'Running 78 deep feature probes… $_done/78'
                   : _ranOnce || total > 0
                       ? 'Run full app troubleshoot again'
                       : 'Run full app troubleshoot',
               subtitle: _running
                   ? 'Live audit of every feature — settings are restored after.'
-                  : 'Every feature · 64 native + 8 Dart-layer probes · 8 domains · honest results.',
+                  : 'Every feature · 64 native + 14 Dart-layer probes · 8 domains · honest results.',
               onTap: _running ? null : _run,
             ),
           ),

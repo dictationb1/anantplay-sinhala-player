@@ -76,19 +76,40 @@ public final class SelfUpdater {
      *  re-checks are locked out for 15 minutes (the anti-hammer contract).
      *  A manual "Check now" always bypasses it — the user asked. */
     static final long FAILURE_BACKOFF_MS = 15 * 60 * 1000L;
-    /** v3.4.6.f — LAW #2: THE 60-SECOND IN-PROCESS CHECK DEDUPE. The
+    /** v3.4.6.f — LAW #2: the 60-second in-process check dedupe. The
      *  v3.4.6.e timeline captured SEVEN updater checks inside 12 seconds
      *  (launch + resume + Dart-side checkNow storms all firing inside one
-     *  minute). Every entry point except an explicit Update Now download leg
-     *  passes through this gate: at most ONE actual network check per
-     *  process per minute, on top of the persisted cooldowns. */
+     *  minute). v3.4.6.h — THE TRAP IS DEAD: this gate now applies ONLY to
+     *  repeated ALREADY-UP-TO-DATE resume checks inside the same process
+     *  while the network never changed (see resumeAllows). Manual checks,
+     *  cold-start launch checks and offline→online transitions NEVER pass
+     *  through it — the v3.4.6.g "Update Now vanished after reopen" defect
+     *  was exactly this gate eating the one check that mattered. */
     static final long PROCESS_DEDUPE_MS = 60 * 1000L;
+    /** v3.4.6.h — the manual-check anti-double-tap debounce (tiny, 3 s: a
+     *  rage-tap on Check for update fires ONE network check, but a user who
+     *  taps again 4 s later genuinely gets a fresh answer). */
+    static final long MANUAL_TAP_DEBOUNCE_MS = 3 * 1000L;
     /** v3.0.0 — the standing periodic check: every 4 hours (was 6 h). */
     static final long PERIODIC_MS = 4 * 60 * 60 * 1000L;
     static final int JOB_ID = 20400;
 
     /** v3.4.6.f — the last in-process network-check attempt (LAW #2 dedupe). */
     private static volatile long lastCheckAttemptAt;
+    /** v3.4.6.h — the conclusion of the last completed check in THIS process:
+     *  "uptodate" | "available" | "failed". Only an up-to-date conclusion
+     *  may be deduped by a resume; a failure or an available gate always
+     *  re-checks the moment the user or the network asks. */
+    private static volatile String lastCheckConclusion = "";
+    /** v3.4.6.h — the network generation: bumped on EVERY offline→online
+     *  transition (ConnectivityManager callback), so a resume check inside
+     *  the 60 s window still fires when the network CHANGED since the last
+     *  check. */
+    private static volatile int networkGeneration;
+    /** v3.4.6.h — the generation the last check attempt ran under. */
+    private static volatile int lastCheckGeneration;
+    /** v3.4.6.h — the last manual checkNow tap (the 3 s anti-double-tap). */
+    private static volatile long lastManualTapAt;
     /** v3.4.6.f — strict single-flight for the NETWORK CHECK leg. */
     private static final java.util.concurrent.atomic.AtomicBoolean checkInFlight =
         new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -337,6 +358,113 @@ public final class SelfUpdater {
             : "";
     }
 
+    // ══ v3.4.6.h — PERMANENT LAW #1 GUARANTEE #1: THE REOPEN-PROOF GATE ══════
+    //
+    // THE REAL-PHONE DEFECT (v3.4.6.g): the user saw Update Now, closed the
+    // app, reopened it — and the gate was GONE (and even manual Check for
+    // update answered nothing). Root cause: the gate existed only as a
+    // volatile in-process event; a reopen starts a NEW process whose
+    // cold-start check could be eaten by the persisted 15-minute FAILURE
+    // backoff left behind by the offline moments (checkOnLaunch returned
+    // BEFORE any network attempt), and the 60 s dedupe ate the manual check
+    // that followed. THE FIX: the FIRST moment ANY check sees a strictly
+    // newer release, that version is PERSISTED in the selfupdate prefs —
+    // and EVERY cold start re-arms the gate from that persisted fact on
+    // Frame 0, before any network reply, for as long as it stays strictly
+    // newer than the installed build.
+    static final String K_REQUIRED_UPDATE_VER = "required_update_version";
+
+    /** Persist `ver` as the mandatory-update floor IFF it is strictly newer
+     *  than the installed build (the instant any check discovers it). */
+    static void persistRequiredVer(Context c, String ver) {
+        if (c == null || ver == null || !validVersion(ver)) return;
+        if (!UpdateChecker.isNewer(ver, AppInfo.VERSION_NAME)) return;
+        android.content.SharedPreferences sp =
+            c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+        if (ver.equals(sp.getString(K_REQUIRED_UPDATE_VER, null))) return;
+        sp.edit().putString(K_REQUIRED_UPDATE_VER, ver).apply();
+        Diag.i("selfupd", "required update persisted: v" + AppInfo.VERSION_NAME
+            + " → v" + ver + " (closing/reopening can never bypass it)");
+        Troubleshooter.record("UPDATER", "required update persisted v" + ver
+            + " — reopen-proof gate armed");
+    }
+
+    /**
+     *  The persisted required version, verified STRICTLY newer than the
+     *  installed build. A stale/equal/older entry (the user already
+     *  installed it) is cleared here and "" is answered — the reopen-lock
+     *  can never become a v3.4.6.e-style self-lock.
+     */
+    static String requiredUpdateVer(Context c) {
+        if (c == null) return "";
+        android.content.SharedPreferences sp =
+            c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
+        String ver = sp.getString(K_REQUIRED_UPDATE_VER, "");
+        if (ver == null || ver.isEmpty()) return "";
+        if (!validVersion(ver) || !UpdateChecker.isNewer(ver, AppInfo.VERSION_NAME)) {
+            sp.edit().remove(K_REQUIRED_UPDATE_VER).apply();
+            return "";
+        }
+        return ver;
+    }
+
+    /**
+     *  GUARANTEE #1 — re-arm the mandatory gate from the PERSISTED required
+     *  version, no network needed: called on every cold start BEFORE the
+     *  network check. True when the gate was armed (Frame-0 lock: the user
+     *  who closes and reopens the app while an update is owed lands straight
+     *  on the ForceUpdateScreen, even offline).
+     */
+    static boolean armGateFromPersisted(Context c) {
+        String ver = requiredUpdateVer(c);
+        if (ver.isEmpty()) return false;
+        Diag.i("selfupd", "reopening lock: persisted required update v" + ver
+            + " > installed v" + AppInfo.VERSION_NAME + " — arming gate on frame 0");
+        gateAvailable(AppInfo.VERSION_NAME, ver);
+        return true;
+    }
+
+    /**
+     *  GUARANTEE #5 — THE HONEST GATE STATE (Probe 5's fix): the gate is
+     *  armed IFF a strictly-newer release is actually known — a persisted
+     *  required version OR a verified strictly-newer pending APK. The
+     *  v3.4.6.g probe reported "gate armed (update pending)" from a
+     *  non-null volatile blob (an uptodate/failed blob is not an armed
+     *  gate); this is the strictly-verified truth.
+     */
+    static boolean isGateArmed(Context c) {
+        if (requiredUpdateVer(c).length() > 0) return true;
+        String pending = pendingVersion(c);
+        return !pending.isEmpty() && UpdateChecker.isNewer(pending, AppInfo.VERSION_NAME);
+    }
+
+    /**
+     *  GUARANTEE #2 — THE OFFLINE→ONLINE INSTANT TRIGGER. MainActivity's
+     *  ConnectivityManager.NetworkCallback calls this the moment connectivity
+     *  returns: the stale failure stamp is cleared, the network generation
+     *  bumps (so every dedupe window is invalidated), and ONE single-flight
+     *  check fires immediately — the gate pops within ~1 s of Wi-Fi/Mobile
+     *  Data coming back, never on a 15-minute delay.
+     */
+    public static void noteNetworkTransition(Context c) {
+        try {
+            networkGeneration++;
+            Context app = c.getApplicationContext();
+            app.getSharedPreferences("selfupdate", Context.MODE_PRIVATE)
+                .edit().remove("lastFailedCheck").apply();
+            Diag.i("selfupd", "network transition — failure backoff cleared, single-flight check firing");
+            Troubleshooter.record("UPDATER", "offline→online transition — instant check (backoff cleared)");
+            if (!launchQueued.compareAndSet(false, true)) return;
+            checkExecutor.execute(() -> {
+                try { checkAndMaybeInstall(app, false, false); }
+                finally { launchQueued.set(false); }
+            });
+        } catch (Throwable t) {
+            Diag.w("selfupd", "network transition: " + t);
+            launchQueued.set(false);
+        }
+    }
+
     /** v3.4.6.f — LAW #1, THE STALE-PENDING SWEEP. Called from App.onCreate()
      *  AND the top of every check entry: pending metadata for a version that
      *  is NOT strictly newer than the installed build (equal, older, or junk
@@ -348,6 +476,11 @@ public final class SelfUpdater {
         try {
             // The isNewer() check inside pendingFile() performs the kill:
             // equal/older pending → metadata cleared + files swept.
+            // v3.4.6.h — the persisted K_REQUIRED_UPDATE_VER carries the same
+            // guarantee: requiredUpdateVer() clears it here on every cold
+            // start the moment the installed build caught up (or the entry is
+            // junk), so a completed install can never leave a ghost gate.
+            requiredUpdateVer(c);
             File pending = pendingFile(c);
             long freed = 0;
             if (pending == null) {
@@ -422,36 +555,33 @@ public final class SelfUpdater {
     }
 
     /**
-     * v3.4.6.f — THE ONLY LAUNCH CHECK (LAW #2): EXACTLY ONE lightweight,
-     * single-flight, 60-second-deduped version check. The check arms the
-     * gate when a strictly newer release exists and NEVER downloads — the
-     * download leg belongs to the user's Update Now tap alone. K_AUTO_UPDATE
-     * no longer gates the CHECK at all (it only mutes the periodic job): the
-     * mandatory ForceUpdateScreen must always be able to lock the app.
+     * v3.4.6.h — GUARANTEE #3: THE ONLY LAUNCH CHECK. EXACTLY ONE
+     * lightweight, single-flight version check per cold start, NEVER blocked
+     * by a stale 15-minute failure backoff or the 60-second dedupe (both
+     * v3.4.6.g traps: a previous offline moment left lastFailedCheck behind
+     * and the reopened app's one check was eaten before it started — the
+     * "Update Now vanished after reopen" defect). The persisted required
+     * version re-arms the gate FIRST (Frame 0, zero network), then the
+     * network check refreshes it. ZERO background download, always.
      */
     public static void checkOnLaunch(final Context c) {
         try {
             android.content.Context app = c.getApplicationContext();
             sweepStalePending(app);                     // LAW #1 (self-lock kill)
+            // GUARANTEE #1 — the reopen-proof Frame-0 arm, BEFORE any network.
+            armGateFromPersisted(app);
             if (pendingFile(app) != null) {
                 // A STRICTLY-NEWER verified APK is already cached: re-arm the
                 // gate (installed → pending) and wait for the Update Now tap.
                 gateAvailable(AppInfo.VERSION_NAME, pendingVersion(app));
+                persistRequiredVer(app, pendingVersion(app));
                 fire("Update ready — tap Update Now");
                 return;
             }
-            if (!processDedupeAllows(false)) return;   // LAW #2 (60 s dedupe)
-            android.content.SharedPreferences sp = app.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
-            long now = System.currentTimeMillis();
-            long lastFail = sp.getLong("lastFailedCheck", 0);
-            if (launchCheckedThisProcess) {
-                // A warm re-entry in the SAME process: the normal cooldowns.
-                if (!checkAllowed(now, sp.getLong("lastCheck", 0), lastFail, false)) return;
-            } else if (lastFail > 0 && now - lastFail < FAILURE_BACKOFF_MS) {
-                return;   // cold start, but the failure backoff still holds
-            }
+            if (resumeDedupeBlocks()) return;           // only an up-to-date + same-network repeat
             launchCheckedThisProcess = true;
             if (!launchQueued.compareAndSet(false, true)) return;
+            noteAttempt();
             fire("Checking…");
             checkExecutor.execute(() -> {
                 try { checkAndMaybeInstall(app, false, false); }
@@ -466,52 +596,57 @@ public final class SelfUpdater {
     /** True once a launch check has run in THIS process (warm re-entries cool down). */
     private static volatile boolean launchCheckedThisProcess;
 
-    /** v3.4.6.d — THE WARM-RESUME CADENCE: a resume re-checks only when more
-     *  than 5 minutes have passed since the last check attempt. v3.4.6.f —
-     *  the 60-second process dedupe applies on top (LAW #2), and a pending
-     *  strictly-newer APK re-arms the gate WITHOUT any download. */
+    /** v3.4.6.h — record a network-check attempt (timestamp + generation). */
+    private static void noteAttempt() {
+        lastCheckAttemptAt = System.currentTimeMillis();
+        lastCheckGeneration = networkGeneration;
+    }
+
+    /**
+     * v3.4.6.h — THE ONLY SURVIVING DEDUPE (GUARANTEE #3): a repeated resume
+     * check is skipped ONLY when the previous check in THIS process concluded
+     * up-to-date, ran under the SAME network generation, and less than 60 s
+     * ago. A failed check, an available gate, a cold start, a manual tap or
+     * any offline→online transition ALWAYS re-checks.
+     */
+    static boolean resumeDedupeBlocks() {
+        long last = lastCheckAttemptAt;
+        return last > 0
+            && "uptodate".equals(lastCheckConclusion)
+            && lastCheckGeneration == networkGeneration
+            && System.currentTimeMillis() - last < PROCESS_DEDUPE_MS;
+    }
+
+    /** v3.4.6.d — the historical warm-resume cadence (kept for the lab's
+     *  contract table; v3.4.6.h no longer gates resume checks on it — the
+     *  narrow up-to-date + same-network + 60 s dedupe above is the only
+     *  throttle, so a phone that comes back online re-checks immediately). */
     static final long RESUME_RECHECK_MS = 5 * 60 * 1000L;
 
     /**
-     * v3.4.6.d — WARM RESUME: called from MainActivity.onResume() on EVERY
-     * foreground return (including the return from the Unknown-Sources settings
-     * screen and from the installer sheet).
-     *
-     *   · > 5 min since the last attempt  → check now (a release published while
-     *     the phone sat on the home screen is picked up without a relaunch);
-     *   · a failed check within 15 min    → skipped entirely (the offline phone
-     *     never loops, never drains battery);
-     *   · an already-verified pending APK → NOT re-downloaded, the pending state
-     *     is re-armed so the gate renders again;
-     *   · Auto-update OFF never disables the CHECK (only the periodic job —
-     *     the mandatory gate must be able to lock the app for a newer release).
-     *
-     * Fully guarded: a resume path must never be able to crash the activity.
+     * WARM RESUME: called from MainActivity.onResume() on EVERY foreground
+     * return (including the return from the Unknown-Sources settings screen
+     * and from the installer sheet). A strictly-newer pending APK or the
+     * persisted required version re-arms the gate WITHOUT any download;
+     * otherwise exactly one deduped network check. Fully guarded: a resume
+     * path must never be able to crash the activity.
      */
     public static void checkOnResume(Context c) {
         try {
             android.content.Context app = c.getApplicationContext();
             sweepStalePending(app);                     // LAW #1 (self-lock kill)
+            // GUARANTEE #1 — the persisted arm first (a resume after the
+            // system killed the process mid-session re-locks instantly).
+            armGateFromPersisted(app);
             if (pendingFile(app) != null) {
                 launchCheckedThisProcess = true;
-                android.content.SharedPreferences psp =
-                        app.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
-                if (System.currentTimeMillis() - psp.getLong("lastCheck", 0) >= RESUME_RECHECK_MS) {
-                    // Re-arm the gate prompt (installed → pending — strictly newer).
-                    gateAvailable(AppInfo.VERSION_NAME, pendingVersion(app));
-                }
+                gateAvailable(AppInfo.VERSION_NAME, pendingVersion(app));
+                persistRequiredVer(app, pendingVersion(app));
                 return;
             }
-            android.content.SharedPreferences sp =
-                    app.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
-            long now = System.currentTimeMillis();
-            long lastCheck = sp.getLong("lastCheck", 0);
-            long lastFail = sp.getLong("lastFailedCheck", 0);
-            // the 15-minute offline backoff wins over any cadence
-            if (lastFail > 0 && now - lastFail < FAILURE_BACKOFF_MS) return;
-            if (lastCheck > 0 && now - lastCheck < RESUME_RECHECK_MS) return;
-            if (!processDedupeAllows(false)) return;   // LAW #2 (60 s dedupe)
+            if (resumeDedupeBlocks()) return;           // the ONE narrow dedupe
             if (!launchQueued.compareAndSet(false, true)) return;
+            noteAttempt();
             checkExecutor.execute(() -> {
                 try { checkAndMaybeInstall(app, false, false); }
                 finally { launchQueued.set(false); }
@@ -521,18 +656,31 @@ public final class SelfUpdater {
         }
     }
 
-    /** Manual checks bypass cooldowns and use the same REST-free release
-     *  resolver. v3.4.6.f — the 60-second in-process dedupe applies here too
-     *  (the Dart-side "Check for update" buttons must never form a storm);
-     *  a manual check NEVER downloads (LAW #2). */
+    /**
+     * Manual checks bypass every persisted cooldown (the user asked) and use
+     * ONLY a tiny 3-second anti-double-tap debounce — GUARANTEE #3: the
+     * v3.4.6.g 60-second dedupe ate this check right after a launch attempt
+     * and the user stared at "Checked just now" with a real update waiting.
+     * A manual check NEVER downloads (LAW #2).
+     */
     public static void checkNow(Context c) {
         Context app = c.getApplicationContext();
-        if (!processDedupeAllows(false)) {
-            fire("Checked just now");
+        long now = System.currentTimeMillis();
+        long last = lastManualTapAt;
+        if (last > 0 && now - last < MANUAL_TAP_DEBOUNCE_MS) {
+            fire("Checking…");
             return;
         }
+        lastManualTapAt = now;
+        // GUARANTEE #1 — even a manual tap re-arms from the persisted floor.
+        armGateFromPersisted(app);
         fire("Checking…");
-        checkExecutor.execute(() -> checkAndMaybeInstall(app, true, false));
+        if (!launchQueued.compareAndSet(false, true)) return;
+        noteAttempt();
+        checkExecutor.execute(() -> {
+            try { checkAndMaybeInstall(app, true, false); }
+            finally { launchQueued.set(false); }
+        });
     }
 
     /** A deliberate Update Now action (the user tapped the gate's ONLY button):
@@ -758,6 +906,8 @@ public final class SelfUpdater {
             // or overwritten; it re-arms the gate and waits for the tap.
             if (pendingFile(c) != null) {
                 gateAvailable(AppInfo.VERSION_NAME, pendingVersion(c));
+                persistRequiredVer(c, pendingVersion(c));
+                lastCheckConclusion = "available";
                 if (forceDownload) {
                     // The user tapped Update Now with a verified APK in cache:
                     // go straight to the permission + installer leg (no download).
@@ -770,30 +920,63 @@ public final class SelfUpdater {
             // (the outer `sp` is the single prefs handle for this run)
             if (!manualCheck) {
                 long now = System.currentTimeMillis();
-                if (!checkAllowed(now, sp.getLong("lastCheck", 0), sp.getLong("lastFailedCheck", 0), false)) {
+                // v3.4.6.h — TRAP #2 TYPE-SAFETY: the throttle stamps are read
+                // through safeGetLong() so a stray Integer in either slot can
+                // never throw ClassCastException out of the check entry point.
+                if (!checkAllowed(now, AppPrefs.safeGetLong(sp, "lastCheck", 0),
+                        AppPrefs.safeGetLong(sp, "lastFailedCheck", 0), false)) {
                     return "backoff";
                 }
                 sp.edit().putLong("lastCheck", now).apply();       // persisted BEFORE the network call
             }
             fire("Checking…");
+            // v3.4.6.h — GUARANTEE #4 (SUB-SECOND DETECTION): the CHECK leg
+            // resolves the VERSION first (tier-1 302, 4 s hard wall-clock →
+            // tier-2 latest.json, 4 s) and arms + PERSISTS the gate the
+            // moment a strictly-newer version is known — the SHA256SUMS leg
+            // only runs in the download path (the user's Update Now tap),
+            // so the ForceUpdateScreen appears as fast as the redirect
+            // itself, never behind a second network round trip.
+            String fastVersion = SelfUpdateCore.fetchVersionFast();
+            if (fastVersion != null && UpdateChecker.isNewer(fastVersion, AppInfo.VERSION_NAME)
+                    && !forceDownload) {
+                persistRequiredVer(c, fastVersion);
+                gateAvailable(AppInfo.VERSION_NAME, fastVersion);
+                fire("Update available: v" + AppInfo.VERSION_NAME + " → v" + fastVersion
+                    + " — tap Update Now");
+                Diag.i("selfupd", "fast lane: v" + fastVersion + " is newer — gate armed + persisted (" +
+                    "SHA resolves on the Update Now tap)");
+                Troubleshooter.record("UPDATER", "gate armed v" + AppInfo.VERSION_NAME
+                    + " → v" + fastVersion + " (fast lane; background download suppressed)");
+                lastCheckConclusion = "available";
+                return "available " + fastVersion;
+            }
             SelfUpdateCore.Release rel = SelfUpdateCore.fetchReleaseAny();
             if (rel == null) {
-                // Persist the failure so neither launch nor periodic jobs can
-                // turn an offline phone into a rapid retry loop.
+                // Persist the failure so the PERIODIC job alone can throttle
+                // (v3.4.6.h: launch/resume/manual/online-transition checks no
+                // longer read this stamp — an offline→online transition clears
+                // it and re-checks within ~1 s).
                 sp.edit().putLong("lastFailedCheck", System.currentTimeMillis()).apply();
-                Diag.w("selfupd", "check failed on both HTTPS routes — 15-min backoff engaged");
-                Troubleshooter.record("UPDATER", "check: no release info (both routes failed) — 15-min backoff engaged");
-                fire("Update check failed — retrying after the 15-minute cooldown");
+                Diag.w("selfupd", "check failed on both HTTPS routes — periodic job backs off");
+                Troubleshooter.record("UPDATER", "check: no release info (both routes failed)");
+                fire("Update check failed — will retry when you're back online");
+                lastCheckConclusion = "failed";
                 return "no release";
             }
             Diag.i("selfupd", "release resolved via tier: " + rel.tier + " → v" + rel.version);
             Troubleshooter.record("UPDATER", "release v" + rel.version + " resolved via " + rel.tier
-                + " (GitHub REST API calls: 0)");
+                + " (GitHub-REST calls: 0)");
             if (!UpdateChecker.isNewer(rel.version, AppInfo.VERSION_NAME)) {
                 Diag.i("selfupd", "up to date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
                 Troubleshooter.record("UPDATER", "check: up-to-date (" + AppInfo.VERSION_NAME + "; latest " + rel.version + ")");
                 fire("Up to date (v" + AppInfo.VERSION_NAME + ")");
                 pushGateEvent("uptodate", rel.version);            // the ONLY unlock
+                // v3.4.6.h — the persisted required floor clears with the same
+                // verdict: an installed update (or a yanked release) leaves NO
+                // ghost reopen-lock behind.
+                sp.edit().remove(K_REQUIRED_UPDATE_VER).apply();
+                lastCheckConclusion = "uptodate";
                 return "up-to-date";
             }
             // v3.4.6.f — LAW #1 + LAW #2: a STRICTLY newer release is known.
@@ -801,6 +984,7 @@ public final class SelfUpdater {
             // NOTIFICATIONS; the gate is armed BEFORE any preference), and —
             // for every non-download leg — WAIT for the user's Update Now
             // tap. NO background download, ever.
+            persistRequiredVer(c, rel.version);
             gateAvailable(AppInfo.VERSION_NAME, rel.version);
             fire("Update available: v" + AppInfo.VERSION_NAME + " → v" + rel.version
                 + " — tap Update Now");
@@ -809,6 +993,7 @@ public final class SelfUpdater {
                 Diag.i("selfupd", "new release " + rel.version + " — gate armed, WAITING for the user's Update Now tap (zero background download)");
                 Troubleshooter.record("UPDATER", "gate armed v" + AppInfo.VERSION_NAME
                     + " → v" + rel.version + " — background download suppressed (waits for Update Now)");
+                lastCheckConclusion = "available";
                 return "available " + rel.version;
             }
 
@@ -824,7 +1009,7 @@ public final class SelfUpdater {
 
             return downloadVerifyInstall(c, rel);
         } catch (Throwable t) {
-            // v3.2.0 — a thrown failure arms the SAME 15-minute backoff
+            // v3.2.0 — a thrown failure stamps the PERIODIC job's backoff
             try {
                 sp.edit().putLong("lastFailedCheck", System.currentTimeMillis()).apply();
             } catch (Throwable ignored) { }

@@ -37,7 +37,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.4.6.c — no leading v)'
         required: true
-        default: '3.4.6.g'
+        default: '3.4.6.h'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -121,7 +121,7 @@ jobs:
           # ── the global monotonic guarantee: never below the live 3.4.6.f ────
           # 3.4.6.f itself is 30412 (this release); everything after it must be
           # strictly higher, so no shipped build can ever be "updated" downward.
-          # v3.4.6.g: the previous live tier .f (30412) joins the pinned ladder.
+          # v3.4.6.h: the previous live tiers .f/.g (30412/30413) join the pinned ladder.
           if [ "$V" = "3.4.6.e" ]; then
             [ "$CODE" -eq 30411 ] || { echo "::error::3.4.6.e must derive exactly 30411 (got $CODE)"; exit 1; }
           elif [ "$V" = "3.4.6.f" ]; then

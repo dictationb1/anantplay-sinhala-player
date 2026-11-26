@@ -26,6 +26,7 @@ import 'app_state.dart';
 import 'home_screen.dart' show showInstallerSheet;
 import 'bridge.dart';
 import 'settings_mirror.dart';
+import 'subtitle_style.dart';
 import 'package:anantplay_ui/main.dart'
     show wallpaperSchemeAvailable, kWallpaperUnavailableCaption;
 
@@ -197,13 +198,59 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _licenses(BuildContext context) async {
+    // v3.4.6.h — the LIVE installed version (the v3.4.6.g page carried a
+    // stale '3.4.6.d' literal through three releases).
+    String version = '3.4.6.h';
+    try {
+      final info = await AnantPlay.instance.appInfo();
+      if (info.versionName.isNotEmpty) version = info.versionName;
+    } catch (_) {/* the honest fallback literal */ }
+    if (!context.mounted) return;
     showLicensePage(
       context: context,
       applicationName: 'AnantPlay Sinhala Player',
-      applicationVersion: '3.4.6.d',
+      applicationVersion: version,
       applicationIcon: const SizedBox(width: 48, height: 48),
     );
   }
+}
+
+// ── v3.4.6.h — THE MATERIAL YOU ↔ MANUAL ACCENT INTERLOCK (one shared path) ─
+
+/// THE SMART INTERLOCK, shared by the UI and the H8 live audit: picking ANY
+/// manual accent (a preset swatch or a #RRGGBB hex from the Color Studio)
+/// automatically turns OFF Material You dynamic color and repaints with the
+/// chosen accent — the v3.4.6.g settings silently fought each other (both
+/// ON, the toggle ignoring the user's tap). Returns the feedback line so
+/// both callers show the SAME crisp 1-line message.
+String applyManualAccent(
+  AppStateNotifier scope, {
+  int? preset,
+  String? hex,
+}) {
+  if (preset != null) {
+    scope
+      ..putBool(SettingsMirror.kDynamicColor, false)
+      ..putString(SettingsMirror.kAccentHex, '')
+      ..putInt(SettingsMirror.kAccent, preset);
+    return 'Switched to custom accent';
+  }
+  if (hex != null) {
+    scope
+      ..putBool(SettingsMirror.kDynamicColor, false)
+      ..putString(SettingsMirror.kAccentHex, hex);
+    return 'Switched to custom accent';
+  }
+  return '';
+}
+
+/// One crisp feedback line under the accent row (the interlock's visible
+/// confirmation — a silent repaint is indistinguishable from a dead button).
+void _sayAccentFeedback(BuildContext context, String message) {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  messenger?.hideCurrentSnackBar();
+  messenger?.showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
 }
 
 // ── THE LIVE PREVIEW CARD ────────────────────────────────────────────────────
@@ -293,8 +340,10 @@ class _LivePreviewCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 18),
-            // The live Sinhala subtitle line — size, color and background
-            // all react instantly to the Subtitle Studio settings.
+            // The live Sinhala subtitle line — v3.4.6.h: the FONT also
+            // reacts instantly (the SHARED resolver the PlayerScreen overlay
+            // paints with — noto | system | serif | cinema are all visibly
+            // distinct; size, color, background react as before).
             Center(
               child: Container(
                 padding:
@@ -306,15 +355,17 @@ class _LivePreviewCard extends StatelessWidget {
                 child: Text(
                   'ශ්‍රී ලංකාවේ සිනමා උපසිරැසි',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Noto Sans Sinhala',
-                    fontSize: fontSp.clamp(12.0, 36.0),
-                    height: 1.35,
-                    color: _subColor(s, scheme),
-                    fontWeight:
-                        s.b(SettingsMirror.kSubBold, false)
-                            ? FontWeight.w700
-                            : FontWeight.w500,
+                  style: resolveSubtitleTextStyle(
+                    s,
+                    base: TextStyle(
+                      fontSize: fontSp.clamp(12.0, 36.0),
+                      height: 1.35,
+                      color: _subColor(s, scheme),
+                      fontWeight:
+                          s.b(SettingsMirror.kSubBold, false)
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                    ),
                   ),
                 ),
               ),
@@ -328,6 +379,8 @@ class _LivePreviewCard extends StatelessWidget {
                     s.b(SettingsMirror.kMotion, true) ? 'Motion on' : 'Motion off'),
                 _pill(scheme.onSurfaceVariant, scheme,
                     s.b(SettingsMirror.kMidnightDimmer, false) ? 'Dimmed' : 'Bright'),
+                _pill(scheme.onSurfaceVariant, scheme,
+                    subtitleFontLabel(s.s(SettingsMirror.kFontFamily, 'noto'))),
               ],
             ),
           ],
@@ -435,12 +488,17 @@ class _SubtitleStudioRows extends StatelessWidget {
     return Column(children: [
       _SegmentedRow(
         title: 'Subtitle font',
-        labels: const ['Noto Sinhala', 'System', 'Serif'],
-        selected: ['noto', 'system', 'serif']
+        // v3.4.6.h — ALL FOUR shipped faces (Cinema Bold was missing from
+        // the v3.4.6.g selector) — every choice is a distinct TextStyle via
+        // the SHARED resolveSubtitleTextStyle the player overlay uses.
+        labels: const [
+          'Noto Sinhala', 'System', 'Serif', 'Cinema Bold'
+        ],
+        selected: kSubtitleFontChoices
             .indexOf(s.s(SettingsMirror.kFontFamily, 'noto'))
-            .clamp(0, 2),
-        onChanged: (i) => scope.putString(SettingsMirror.kFontFamily,
-            ['noto', 'system', 'serif'][i]),
+            .clamp(0, 3),
+        onChanged: (i) => scope.putString(
+            SettingsMirror.kFontFamily, kSubtitleFontChoices[i]),
       ),
       _SegmentedRow(
         title: 'Background style',
@@ -471,7 +529,13 @@ class _SubtitleStudioRows extends StatelessWidget {
         selected: [100, 250, 500]
             .indexOf(s.i(SettingsMirror.kSyncStepMs, 250))
             .clamp(0, 2),
-        onChanged: (i) => scope.putInt(
+        // v3.4.6.h — THE INTEGER→LONG CRASH KILLER'S DART HALF: this control
+        // is the EXACT v3.4.6.g poison writer (putInt('subSyncStepMs')) that
+        // crashed gatherSettings with ClassCastException and broke Settings,
+        // Backup, the rebuild and the search-engine probes 30/56/65/70. It
+        // now rides the canonical putLong lane (and Java canonicalizes every
+        // Number anyway — defense in depth on both shores).
+        onChanged: (i) => scope.putLong(
             SettingsMirror.kSyncStepMs, [100, 250, 500][i]),
       ),
       _SwitchRow(
@@ -1058,13 +1122,16 @@ class _AccentRow extends StatelessWidget {
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: () {
-                        // a preset tap also clears the custom hex — the preset
-                        // becomes the ACTIVE accent immediately (v3.4.6.g: the
-                        // old code could leave a stale custom hex overriding
-                        // the visually selected preset).
-                        AppState.of(context).scope
-                          ..putString(SettingsMirror.kAccentHex, '')
-                          ..putInt(SettingsMirror.kAccent, i);
+                        // v3.4.6.h — THE SMART INTERLOCK: a preset tap turns
+                        // OFF Material You dynamic color and repaints with the
+                        // preset IMMEDIATELY (the v3.4.6.g row silently
+                        // fought the toggle — both ON, the tap ignored). The
+                        // same shared path the H8 audit drives.
+                        _sayAccentFeedback(
+                            context,
+                            applyManualAccent(
+                                AppState.of(context).scope,
+                                preset: i));
                       },
                       child: Container(
                         width: 30,
@@ -1117,6 +1184,41 @@ class _AccentRow extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
+          // v3.4.6.h — THE INTERLOCK INDICATOR ON THE ACCENT ROW: while
+          // Material You is ON with a REAL OS scheme, the manual lane says so
+          // ("Wallpaper colors active") — the two lanes can never silently
+          // fight again; picking any swatch flips this off with feedback.
+          // (When the OS has no scheme the honest caption below the toggle is
+          // the single source of truth — no duplicate caption here.)
+          ValueListenableBuilder<bool>(
+            valueListenable: wallpaperSchemeAvailable,
+            builder: (context, available, _) {
+              final bool dynamicOn = AppState.of(context)
+                  .settings
+                  .b(SettingsMirror.kDynamicColor, false);
+              if (!dynamicOn || !available) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    Icon(
+                      mi.Icons.palette_rounded,
+                      size: 13,
+                      color: scheme.primary,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Wallpaper colors active — manual accents off',
+                      style: TextStyle(
+                          color: scheme.onSurfaceVariant,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
           // v3.4.6.c — Material You dynamic color toggle (K_DYNAMIC_COLOR).
           _SwitchRow(
             title: 'Material You dynamic color',
@@ -1331,12 +1433,17 @@ class _AccentRow extends StatelessWidget {
                         FilledButton.icon(
                           icon: const Icon(mi.Icons.check_rounded, size: 18),
                           // K_ACCENT_HEX — the persisted custom accent.
+                          // v3.4.6.h — Apply Color rides the SAME interlock
+                          // path: Material You turns OFF, the hex repaints
+                          // the whole app, and the user sees the 1-line
+                          // confirmation (never a silent no-op).
                           label: const Text('Apply Color'),
                           onPressed: live == null
                               ? null
                               : () {
-                                  scope.putString(
-                                      SettingsMirror.kAccentHex, live);
+                                  _sayAccentFeedback(
+                                      sheet,
+                                      applyManualAccent(scope, hex: live));
                                   Navigator.pop(sheet);
                                 },
                         ),
@@ -1521,13 +1628,24 @@ class _VersionFooter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(top: 18, bottom: 6),
-      child: Center(
-        child: Text('AnantPlay Sinhala Player v3.4.6.g (30413)',
-            style: TextStyle(
-                color: scheme.onSurfaceVariant, fontSize: 11.5)),
-      ),
+    // v3.4.6.h — the LIVE installed identity (never a stale literal: the
+    // v3.4.6.g footer said 3.4.6.g inside every later release).
+    return FutureBuilder<AppBuildInfo>(
+      future: AnantPlay.instance.appInfo(),
+      initialData: const AppBuildInfo(versionName: '3.4.6.h', versionCode: 30414),
+      builder: (context, snap) {
+        final info = snap.data ??
+            const AppBuildInfo(versionName: '3.4.6.h', versionCode: 30414);
+        return Padding(
+          padding: const EdgeInsets.only(top: 18, bottom: 6),
+          child: Center(
+            child: Text(
+                'AnantPlay Sinhala Player v${info.versionName} (${info.versionCode})',
+                style: TextStyle(
+                    color: scheme.onSurfaceVariant, fontSize: 11.5)),
+          ),
+        );
+      },
     );
   }
 }

@@ -199,6 +199,147 @@ public final class AppPrefs {
     public static final List<String> DEVICE_STATE_KEYS = Arrays.asList(
         K_ONBOARDING_DONE, K_ONBOARDING_STAGE, K_ONBOARDING_VERSION);
 
+    // ══ v3.4.6.h — THE TYPE-SAFETY LAW (the Integer→Long crash killer) ════════
+    //
+    // THE REAL-PHONE CRASH (v3.4.6.g, FAILs 30/56/65/70): the Subtitle Studio's
+    // "Sync step" control called the Dart putInt('subSyncStepMs', 250), Java
+    // stored an INTEGER — and the very next gatherSettings() ran
+    // prefs.getLong("subSyncStepMs", 250) →
+    //   java.lang.ClassCastException: java.lang.Integer cannot be cast to java.lang.Long
+    // which poisoned getAll (Settings dead), exportBackup (Backup dead), the
+    // AppStateScope rebuild and the Google search-engine probe — and the Dart
+    // crash reporter then recorded the PlatformException, failing the crash
+    // gate. ONE mistyped write broke four features.
+    //
+    // THE LAW: these four keys are LONGS by contract. safeGetLong()/safeGetInt()
+    // below read ANY Number without ever throwing and AUTO-HEAL a mismatched
+    // entry in place (an Integer in a Long slot is rewritten as a Long, and
+    // vice versa), and putTyped() is the ONLY canonical writer: a Long key can
+    // never again be written an Integer by ANY path (Dart bridge, backup
+    // import, deep probe, future code).
+
+    /** Every key whose canonical SharedPreferences type is Long (never Integer). */
+    public static final List<String> LONG_KEYS = Arrays.asList(
+        K_SYNC_STEP_MS, K_SEEK_STEP_MS, K_HUD_HIDE_MS, K_SLEEP_TIMER_MS);
+
+    /** True when the key's canonical stored type is Long. */
+    public static boolean isLongKey(String key) {
+        return key != null && LONG_KEYS.contains(key);
+    }
+
+    /**
+     * v3.4.6.h — THE TYPE-SAFE LONG READER. Reads key from the prefs map as a
+     * Number (never a blind getLong cast): a stored Integer/Short/Byte is
+     * widened to long AND the entry is AUTO-HEALED (rewritten through the
+     * canonical putLong) so the poison can never survive to a second read.
+     * Absent or non-numeric values answer the default. NEVER throws.
+     */
+    public static long safeGetLong(SharedPreferences p, String key, long def) {
+        if (p == null || key == null) return def;
+        try {
+            Object v = p.getAll().get(key);
+            if (v == null) return def;
+            if (v instanceof Long) return (Long) v;
+            if (v instanceof Number) {
+                long healed = ((Number) v).longValue();
+                // AUTO-HEAL: rewrite the entry with its canonical type.
+                p.edit().putLong(key, healed).apply();
+                Diag.i("prefs", "type-heal " + key + ": "
+                    + v.getClass().getSimpleName() + " → Long (" + healed + ")");
+                return healed;
+            }
+            return def;                       // a non-numeric junk value → the default
+        } catch (Throwable t) {
+            Diag.w("prefs", "safeGetLong(" + key + "): " + t);
+            return def;
+        }
+    }
+
+    /**
+     * v3.4.6.h — THE TYPE-SAFE INT READER: a stored Long (the mirror case — a
+     * backup restore or an old build) is narrowed to int and the entry is
+     * AUTO-HEALED to the canonical Integer. Absent or non-numeric → default.
+     * NEVER throws.
+     */
+    public static int safeGetInt(SharedPreferences p, String key, int def) {
+        if (p == null || key == null) return def;
+        try {
+            Object v = p.getAll().get(key);
+            if (v == null) return def;
+            if (v instanceof Integer) return (Integer) v;
+            if (v instanceof Number) {
+                int healed = ((Number) v).intValue();
+                p.edit().putInt(key, healed).apply();
+                Diag.i("prefs", "type-heal " + key + ": "
+                    + v.getClass().getSimpleName() + " → Integer (" + healed + ")");
+                return healed;
+            }
+            return def;
+        } catch (Throwable t) {
+            Diag.w("prefs", "safeGetInt(" + key + "): " + t);
+            return def;
+        }
+    }
+
+    /** True when the stored entry's runtime class is the canonical one for key. */
+    public static boolean storedTypeCanonical(SharedPreferences p, String key) {
+        if (p == null || key == null) return false;
+        try {
+            Object v = p.getAll().get(key);
+            if (v == null) return true;                    // absent is canonical
+            if (isLongKey(key)) return v instanceof Long;
+            if (v instanceof Long) return false;           // a Long in a non-Long slot
+            return true;                                   // Integer/Boolean/String/Float as stored
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * v3.4.6.h — THE ONE CANONICAL WRITER. Every programmatic settings write
+     * (the Dart bridge, SettingsBackup import, the deep probe) routes through
+     * here so the Java type stored for a key is ALWAYS its canonical type:
+     * a Long key gets putLong(longValue()) whatever Number arrived (an int
+     * from the Dart StandardMessageCodec, a Long from a restored backup);
+     * any other Number lands as putInt. Returns false (and writes nothing)
+     * when the value cannot be represented for the key — never a poison write.
+     */
+    public static boolean putTyped(SharedPreferences p, String key, Object value) {
+        if (p == null || key == null || value == null) return false;
+        try {
+            SharedPreferences.Editor ed = p.edit();
+            if (isLongKey(key)) {
+                Long asLong = asLong(value);
+                if (asLong == null) return false;          // unrepresentable → refuse
+                ed.putLong(key, asLong);
+            } else if (value instanceof Boolean) {
+                ed.putBoolean(key, (Boolean) value);
+            } else if (value instanceof Number) {
+                ed.putInt(key, ((Number) value).intValue());
+            } else if (value instanceof String) {
+                ed.putString(key, (String) value);
+            } else {
+                ed.putString(key, String.valueOf(value));
+            }
+            ed.apply();
+            return true;
+        } catch (Throwable t) {
+            Diag.w("prefs", "putTyped(" + key + "): " + t);
+            return false;
+        }
+    }
+
+    /** Long/Integer/Short/Byte/parsable-String → Long (else null). */
+    private static Long asLong(Object value) {
+        if (value instanceof Long) return (Long) value;
+        if (value instanceof Number) return ((Number) value).longValue();
+        if (value instanceof String) {
+            try { return Long.parseLong(((String) value).trim()); }
+            catch (NumberFormatException ignored) { return null; }
+        }
+        return null;
+    }
+
     public static final List<String> BACKUP_KEYS = Arrays.asList(
         K_THEME_MODE, K_DYNAMIC_COLOR, K_ACCENT, K_ACCENT_HEX, K_UI_LANG, K_DENSITY, K_CARD_RADIUS,
         K_SHOW_WEB_TAB, K_SHOW_QUICK_ACTIONS,
@@ -270,7 +411,7 @@ public final class AppPrefs {
 
     /** 10..70 percent of light removed by the dimmer. */
     public static int midnightDimPct(SharedPreferences p) {
-        return normalizeDimPct(p == null ? 40 : p.getInt(K_MIDNIGHT_DIM_PCT, 40));
+        return normalizeDimPct(p == null ? 40 : safeGetInt(p, K_MIDNIGHT_DIM_PCT, 40));
     }
 
     public static int normalizeDimPct(int v) { return v < 10 ? 10 : (v > 70 ? 70 : v); }
@@ -657,7 +798,7 @@ public final class AppPrefs {
 
     public static String themeMode(SharedPreferences p) { return normalizeThemeMode(p.getString(K_THEME_MODE, THEME_DARK)); }
     public static boolean dynamicColor(SharedPreferences p) { return p.getBoolean(K_DYNAMIC_COLOR, false); }
-    public static int accent(SharedPreferences p) { return normalizeAccent(p.getInt(K_ACCENT, 0)); }
+    public static int accent(SharedPreferences p) { return normalizeAccent(safeGetInt(p, K_ACCENT, 0)); }
     public static String accentHex(SharedPreferences p) { return normalizeAccentHex(p.getString(K_ACCENT_HEX, "")); }
     public static String uiLang(SharedPreferences p) { return normalizeUiLang(p.getString(K_UI_LANG, UI_EN)); }
     public static boolean spacious(SharedPreferences p) { return DENSITY_SPACIOUS.equals(normalizeDensity(p.getString(K_DENSITY, DENSITY_COMFORTABLE))); }
@@ -677,7 +818,7 @@ public final class AppPrefs {
      *  v3.4.6.b — the wizard grew to six slides (Welcome → Install official
      *  AnantPlay → Notifications → Overlay → Background → Sources/Finish). */
     public static int onboardingStage(SharedPreferences p) {
-        int s = p == null ? 0 : p.getInt(K_ONBOARDING_STAGE, 0);
+        int s = p == null ? 0 : safeGetInt(p, K_ONBOARDING_STAGE, 0);
         if (s < 0) return 0;
         return s > 5 ? 5 : s;
     }
@@ -706,7 +847,7 @@ public final class AppPrefs {
         if (!p.contains(K_ONBOARDING_VERSION)) {
             return p.getBoolean(K_ONBOARDING_DONE, false) ? 1 : 0;
         }
-        return p.getInt(K_ONBOARDING_VERSION, 0);
+        return safeGetInt(p, K_ONBOARDING_VERSION, 0);
     }
 
     public static void setOnboardingVersion(SharedPreferences p, int version) {
@@ -724,7 +865,7 @@ public final class AppPrefs {
     /** v3.4.6.e — the compact cinema default: 14 sp portrait / 15 sp landscape
      *  (fontSpFor's +1 in landscape), inside the 10..28 clamp so a user's 28
      *  never overflows the video window (82% maxWidth + 3 lines in the HUD). */
-    public static int fontSp(SharedPreferences p) { return normalizeFontSp(p.getInt(K_FONT_SP, 14)); }
+    public static int fontSp(SharedPreferences p) { return normalizeFontSp(safeGetInt(p, K_FONT_SP, 14)); }
 
     /** The size actually rendered: +1 sp in landscape (the cinema default 14 →
      *  15), still clamped to the 10..28 compact range. */
@@ -733,7 +874,7 @@ public final class AppPrefs {
         return normalizeFontSp(landscape ? base + 1 : base);
     }
     public static String fontFamily(SharedPreferences p) { return normalizeFontFamily(p.getString(K_FONT_FAMILY, FONT_NOTO)); }
-    public static int subColor(SharedPreferences p) { return normalizeSubColor(p.getInt(K_SUB_COLOR, 0)); }
+    public static int subColor(SharedPreferences p) { return normalizeSubColor(safeGetInt(p, K_SUB_COLOR, 0)); }
 
     /**
      * v3.4.0 - the subtitle colour actually rendered: the explicit hex wins, otherwise the
@@ -744,24 +885,24 @@ public final class AppPrefs {
         return hex != 0 ? hex : ThemeEngine.SUB_COLORS[subColor(p)];
     }
     public static String subBg(SharedPreferences p) { return normalizeSubBg(p.getString(K_SUB_BG, BG_PILL)); }
-    public static int subBgOpacity(SharedPreferences p) { return normalizeSubBgOpacity(p.getInt(K_SUB_BG_OPACITY, 55)); }
+    public static int subBgOpacity(SharedPreferences p) { return normalizeSubBgOpacity(safeGetInt(p, K_SUB_BG_OPACITY, 55)); }
     public static boolean subBold(SharedPreferences p) { return p.getBoolean(K_SUB_BOLD, true); }
     /** v3.4.6.e — the compact cinema anchor: 6% portrait / 4% landscape is the
      *  HUD default; the stored preference (2..35) still wins when set. */
-    public static int subBottomPct(SharedPreferences p) { return normalizeSubBottomPct(p.getInt(K_SUB_BOTTOM_PCT, 6)); }
-    public static int subLineSpacing(SharedPreferences p) { return normalizeSubLineSpacing(p.getInt(K_SUB_LINE_SPACING, 120)); }
+    public static int subBottomPct(SharedPreferences p) { return normalizeSubBottomPct(safeGetInt(p, K_SUB_BOTTOM_PCT, 6)); }
+    public static int subLineSpacing(SharedPreferences p) { return normalizeSubLineSpacing(safeGetInt(p, K_SUB_LINE_SPACING, 120)); }
     public static String subEngine(SharedPreferences p) { return normalizeSubEngine(p.getString(K_SUB_ENGINE, ENGINE_HUMAN_PA_FREE)); }
     public static boolean autoTranslateNonSi(SharedPreferences p) { return p.getBoolean(K_AUTO_TRANSLATE_NON_SI, true); }
     public static boolean autoZip(SharedPreferences p) { return p.getBoolean(K_AUTO_ZIP, true); }
-    public static long syncStepMs(SharedPreferences p) { return normalizeSyncStep(p.getLong(K_SYNC_STEP_MS, 250)); }
-    public static long seekStepMs(SharedPreferences p) { return normalizeSeekStep(p.getLong(K_SEEK_STEP_MS, 10000)); }
+    public static long syncStepMs(SharedPreferences p) { return normalizeSyncStep(safeGetLong(p, K_SYNC_STEP_MS, 250)); }
+    public static long seekStepMs(SharedPreferences p) { return normalizeSeekStep(safeGetLong(p, K_SEEK_STEP_MS, 10000)); }
     public static boolean gestures(SharedPreferences p) { return p.getBoolean(K_GESTURES, true); }
     public static boolean doubleTapSeek(SharedPreferences p) { return p.getBoolean(K_DOUBLE_TAP_SEEK, true); }
     public static boolean autoPip(SharedPreferences p) { return p.getBoolean(K_AUTO_PIP, true); }
     public static boolean keepScreenOn(SharedPreferences p) { return p.getBoolean(K_KEEP_SCREEN_ON, true); }
     public static boolean autoResume(SharedPreferences p) { return p.getBoolean(K_AUTO_RESUME, true); }
-    public static long hudHideMs(SharedPreferences p) { return normalizeHudHide(p.getLong(K_HUD_HIDE_MS, 4000)); }
-    public static int playSpeedPm(SharedPreferences p) { return normalizePlaySpeed(p.getInt(K_PLAY_SPEED, 100)); }
+    public static long hudHideMs(SharedPreferences p) { return normalizeHudHide(safeGetLong(p, K_HUD_HIDE_MS, 4000)); }
+    public static int playSpeedPm(SharedPreferences p) { return normalizePlaySpeed(safeGetInt(p, K_PLAY_SPEED, 100)); }
     public static String aspectMode(SharedPreferences p) { return normalizeAspectMode(p.getString(K_ASPECT_MODE, ASPECT_FIT)); }
     /** v3.3.0 — the gesture toggles (all ON by default: the VLC contract). */
     public static boolean swipeBrightness(SharedPreferences p) { return p.getBoolean(K_SWIPE_BRIGHTNESS, true); }
@@ -773,7 +914,7 @@ public final class AppPrefs {
     public static boolean dohDiag(SharedPreferences p) { return p.getBoolean(K_DOH_DIAG, true); }
     public static boolean cinemaPolish(SharedPreferences p) { return p.getBoolean(K_CINEMA_POLISH, true); }
     public static String receiverName(SharedPreferences p) { return normalizeReceiverName(p.getString(K_RECEIVER_NAME, null)); }
-    public static int receiverPort(SharedPreferences p) { return normalizeReceiverPort(p.getInt(K_RECEIVER_PORT, 8765)); }
+    public static int receiverPort(SharedPreferences p) { return normalizeReceiverPort(safeGetInt(p, K_RECEIVER_PORT, 8765)); }
     public static boolean dlnaEnabled(SharedPreferences p) { return p.getBoolean(K_DLNASTART, true); }
     public static boolean mdnsEnabled(SharedPreferences p) { return p.getBoolean(K_MDNS, true); }
     public static String workerUrl(SharedPreferences p) { return normalizeWorkerUrl(p.getString(K_WORKER_URL, BridgeApi.DEFAULT_WORKER_URL)); }
@@ -787,8 +928,8 @@ public final class AppPrefs {
     // ── v3.4.0 readers ───────────────────────────────────────────────────────
     public static String surfaceStyle(SharedPreferences p) { return normalizeSurfaceStyle(p.getString(K_SURFACE_STYLE, SURFACE_GLASS)); }
     public static boolean glass(SharedPreferences p) { return SURFACE_GLASS.equals(surfaceStyle(p)); }
-    public static int borderAlpha(SharedPreferences p) { return normalizeBorderAlpha(p.getInt(K_BORDER_ALPHA, 18)); }
-    public static int glassClarity(SharedPreferences p) { return normalizeGlassClarity(p.getInt(K_GLASS_CLARITY, 75)); }
+    public static int borderAlpha(SharedPreferences p) { return normalizeBorderAlpha(safeGetInt(p, K_BORDER_ALPHA, 18)); }
+    public static int glassClarity(SharedPreferences p) { return normalizeGlassClarity(safeGetInt(p, K_GLASS_CLARITY, 75)); }
     public static boolean glassOutlines(SharedPreferences p) { return p.getBoolean(K_GLASS_OUTLINES, true); }
     public static boolean iconGlass(SharedPreferences p) { return p.getBoolean(K_ICON_GLASS, true); }
     public static String uiFont(SharedPreferences p) { return normalizeUiFont(p.getString(K_UI_FONT, UI_FONT_MODERN)); }
@@ -799,11 +940,11 @@ public final class AppPrefs {
     public static boolean motionEnabled(SharedPreferences p) { return p.getBoolean(K_MOTION, true); }
     public static boolean accentGlow(SharedPreferences p) { return p.getBoolean(K_ACCENT_GLOW, true); }
     public static String subColorHex(SharedPreferences p) { return normalizeSubColorHex(p.getString(K_SUB_COLOR_HEX, "")); }
-    public static int subOutline(SharedPreferences p) { return normalizeSubOutline(p.getInt(K_SUB_OUTLINE, 0)); }
+    public static int subOutline(SharedPreferences p) { return normalizeSubOutline(safeGetInt(p, K_SUB_OUTLINE, 0)); }
     public static boolean subShadow(SharedPreferences p) { return p.getBoolean(K_SUB_SHADOW, true); }
     public static String omnibarPos(SharedPreferences p) { return normalizeOmnibarPos(p.getString(K_OMNIBAR_POS, OMNIBAR_BOTTOM)); }
     public static boolean omnibarBottom(SharedPreferences p) { return OMNIBAR_BOTTOM.equals(omnibarPos(p)); }
-    public static int speedDialCols(SharedPreferences p) { return normalizeSpeedDialCols(p.getInt(K_SPEEDDIAL_COLS, 4)); }
+    public static int speedDialCols(SharedPreferences p) { return normalizeSpeedDialCols(safeGetInt(p, K_SPEEDDIAL_COLS, 4)); }
     // v3.4.6.d — GOOGLE IS THE DEFAULT SEARCH ENGINE (the v3.4.6.c default
     // was DuckDuckGo; the user's explicit requirement flips it). DuckDuckGo,
     // Startpage and Brave remain one-tap choices in Settings → Browser.
@@ -814,8 +955,8 @@ public final class AppPrefs {
     public static boolean showBlockCount(SharedPreferences p) { return p.getBoolean(K_SHOW_BLOCK_COUNT, true); }
     public static String orientation(SharedPreferences p) { return normalizeOrientation(p.getString(K_ORIENTATION, ORIENT_AUTO)); }
     public static String externalPlayer(SharedPreferences p) { return normalizeExternalPlayer(p.getString(K_EXTERNAL_PLAYER, EXT_CHOOSER)); }
-    public static int volumeBoost(SharedPreferences p) { return normalizeVolumeBoost(p.getInt(K_VOLUME_BOOST, 100)); }
-    public static long sleepTimerMs(SharedPreferences p) { return normalizeSleepTimer(p.getLong(K_SLEEP_TIMER_MS, 0)); }
+    public static int volumeBoost(SharedPreferences p) { return normalizeVolumeBoost(safeGetInt(p, K_VOLUME_BOOST, 100)); }
+    public static long sleepTimerMs(SharedPreferences p) { return normalizeSleepTimer(safeGetLong(p, K_SLEEP_TIMER_MS, 0)); }
     public static String skipVersion(SharedPreferences p) { return normalizeSkipVersion(p.getString(K_SKIP_VERSION, "")); }
     public static java.util.List<String> webTabs(SharedPreferences p) { return parseTabs(p.getString(K_WEB_TABS, "")); }
 

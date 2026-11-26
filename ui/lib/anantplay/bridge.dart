@@ -976,6 +976,14 @@ class AnantPlay {
   Future<void> putInt(String key, int value) =>
       _settings.invokeMethod('putInt', {'key': key, 'value': value});
 
+  /// v3.4.6.h — THE EXPLICIT LONG WRITER (the v3.4.6.g Integer→Long crash
+  /// killer's Dart half): the Subtitle Studio's Sync-step control (and every
+  /// future millisecond-scale setting) rides this lane so the Java side
+  /// stores the canonical Long. The Java putInt canonicalizes any Number
+  /// too (defense in depth) — this is the explicit, self-documenting path.
+  Future<void> putLong(String key, int value) =>
+      _settings.invokeMethod('putLong', {'key': key, 'value': value});
+
   Future<void> putString(String key, String value) =>
       _settings.invokeMethod('putString', {'key': key, 'value': value});
 

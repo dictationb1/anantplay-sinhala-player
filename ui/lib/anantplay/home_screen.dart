@@ -398,6 +398,33 @@ class _QuickStartCard extends StatelessWidget {
 
 // ── quick actions ───────────────────────────────────────────────────────────
 
+// ── v3.4.6.h — PERMANENT LAW #3: THE SEMANTIC ICON REGISTRY ──────────────────
+// Every Home quick-action glyph, NAMED by its feature so the live H11 audit
+// (and the widget tests) can assert each icon semantically matches its tile.
+// The forbidden set (science, biotech, science_outlined…) can NEVER appear.
+const IconData kTestPlayerIcon = Icons.play_circle_rounded;
+const IconData kAnantPlayTileIcon = Icons.cast_rounded;
+const IconData kBrowserTileIcon = Icons.public_rounded;
+const IconData kPlayUrlTileIcon = Icons.link_rounded;
+
+/// The icons the four Home quick-action tiles actually paint with (audit H11).
+const List<IconData> kHomeQuickActionIcons = <IconData>[
+  kAnantPlayTileIcon,
+  kBrowserTileIcon,
+  kPlayUrlTileIcon,
+  kTestPlayerIcon,
+];
+
+/// The glyphs PERMANENT LAW #3 forbids anywhere in the app chrome (a flask is
+/// not a movie; a beaker is not a player).
+const List<String> kForbiddenIconNames = <String>[
+  'science',
+  'science_outlined',
+  'biotech',
+  'emoji_nature',
+  'pest_control',
+];
+
 class _QuickActions extends StatelessWidget {
   const _QuickActions();
 
@@ -442,7 +469,10 @@ class _QuickActions extends StatelessWidget {
           onTap: () => _openUrlSheet(context),
         ),
         _ActionTile(
-          icon: Icons.science_rounded,
+          // v3.4.6.h — PERMANENT LAW #3 (THE SEMANTIC ICON LAW): the cinema
+          // play glyph replaces the mismatched chemistry flask the v3.4.6.g
+          // Home tile carried — Test Player plays a demo MOVIE.
+          icon: kTestPlayerIcon,
           title: 'Test Player',
           subtitle: 'Demo movie',
           // v3.4.6.c — complaint #3 fix: the MORNYE CINEMA PLAYER in the
