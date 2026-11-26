@@ -977,7 +977,9 @@ public class PlayActivity extends Activity {
                 // re-opened URL jumps to where it was left (never near the end,
                 // which would look like a broken replay).
                 try {
-                    long saved = prefs.getLong(resumeKey(), 0);
+                    // v3.4.6.h — TRAP #2 TYPE-SAFETY: never a raw getLong()
+                    // (an Integer in a Long slot is a fatal ClassCastException).
+                    long saved = AppPrefs.safeGetLong(prefs, resumeKey(), 0);
                     long dur = player.getDuration();
                     if (saved > 10000 && (dur <= 0 || saved < dur - 15000)) {
                         player.seekTo(saved);

@@ -138,6 +138,10 @@ public final class DeepProbe {
         /** v3.4.6.f — the worker /api/resolve?title=The+Odyssey HTTP code
          *  (0 = unreachable): the REAL subtitle-resolution leg, live. */
         int workerResolveHttp();
+        /** v3.4.6.h — the EXACT sanitized reason the last worker leg failed
+         *  with ("java.net.UnknownHostException: …"), or "" — so Probe 47
+         *  can never print a cryptic bare "HTTP 0" again (LAW #2). */
+        default String workerLastError() { return ""; }
         /** v3.4.6.f — THE CRASH GATE: the top lines of CrashLog.read() for
          *  THIS build (empty when no uncaught Java/Dart exception exists). */
         java.util.List<String> crashTopLines();
@@ -1021,6 +1025,12 @@ public final class DeepProbe {
         Outcome o = new Outcome(0, "E", "");
         int health = h.workerHealthHttp();
         int resolve = h.workerResolveHttp();
+        // v3.4.6.h — THE EXACT FAILURE REASON (LAW #2): a 0 is never a bare
+        // "HTTP 0" again — the hook exposes the exact exception class +
+        // sanitized message (UnknownHostException / SSLHandshakeException /
+        // SocketTimeoutException / CleartextNotPermitted …), so a 5 ms local
+        // failure is distinguishable from a slow-server timeout at a glance.
+        String errorDetail = h.workerLastError();
         // The free translator contract, executed live: translate one real
         // cue through the exact engine (a live translation OR the documented
         // offline retention — reported HONESTLY either way below).
@@ -1039,8 +1049,11 @@ public final class DeepProbe {
         o.detail = workerOk
             ? "worker /health 200 ✓ · /api/resolve 200 ✓ · free translator "
                 + (freeOk ? "✓ (translates live, retains on failure)" : "✗")
-            : "FAIL — Worker unreachable (HTTP " + health + " / HTTP " + resolve
-                + "): subtitles fall back to the local translator"
+            : "FAIL — Worker unreachable (HTTP " + health + " / HTTP " + resolve + ")"
+                + (errorDetail == null || errorDetail.isEmpty()
+                    ? ""
+                    : " — " + errorDetail)
+                + ": subtitles fall back to the local translator"
                 + (freeOk ? " (which is live ✓)" : " (also degraded ✗)")
                 + " · free translator " + (freeOk ? "✓" : "✗");
         return o;
@@ -1245,14 +1258,41 @@ public final class DeepProbe {
         // mid-loop (the non-destructive contract). runAll's finally is the
         // belt-and-braces full-snapshot restore (clear + rewrite) on top.
         java.util.List<String> touched = new ArrayList<>();
+        // v3.4.6.h — THE TYPE-HEAL PROOF (implementation-agnostic, works on
+        // BOTH the app's canonical putTyped hook and the lab's raw-map hook):
+        // (a) PURE — normalizeValue answers a LONG for an INTEGER input on
+        //     every Long key: the exact v3.4.6.g poison (putInt('subSyncStepMs'))
+        //     is repaired to the canonical type on the way through the
+        //     validator, exactly what safeGetLong + putTyped run underneath;
+        // (b) STICKY — after the junk write → normalize → rewrite cycle the
+        //     stored entry for every Long key IS a Long (the repair sticks).
+        // The reader-level auto-heal itself (safeGetLong on a poisoned store)
+        // is proven live in the lab against the in-memory MapPrefs.
+        int healedLongs = 0;
         try {
             snap = h.snapshotPrefs();
+            for (String longKey : AppPrefs.LONG_KEYS) {
+                // (a) the pure contract: Integer poison in → canonical LONG out.
+                Object healed = AppPrefs.normalizeValue(longKey, Integer.valueOf(31416));
+                if (healed instanceof Long) healedLongs++;
+                else broken.add(longKey + " (normalize returned "
+                    + (healed == null ? "null" : healed.getClass().getSimpleName()) + ")");
+            }
             for (String key : AppPrefs.BACKUP_KEYS) {
                 Object before = snap.get(key);
                 // a type-matched mutation: bool → flipped; int/long → 31416;
                 // string → a probe string (enum normalizers repair it to the
                 // default — that repair IS the contract being proven).
-                Object junk = before instanceof Boolean
+                // v3.4.6.h — THE CANONICAL-TYPE MUTATION (the "write did not
+                // land" defect probes 57 caught live on Android 36): a Long key
+                // with NO stored value used to fall into the "absent → bool
+                // probe" branch, and putTyped() then CORRECTLY refused to store
+                // a Boolean in a Long slot — so the read-back was null and the
+                // audit reported a false "write did not land". The mutation must
+                // follow the KEY's canonical type, never the (absent) value's.
+                Object junk = AppPrefs.isLongKey(key)
+                        ? Long.valueOf(31416L)             // Long slot → always a Long
+                        : before instanceof Boolean
                         ? (Boolean.TRUE.equals(before) ? Boolean.FALSE : Boolean.TRUE)
                         : before instanceof Integer ? Integer.valueOf(31416)
                         : before instanceof Long ? Long.valueOf(31416L)
@@ -1269,6 +1309,14 @@ public final class DeepProbe {
                     h.putPref(key, norm);               // the repair must stick
                     if (!java.util.Objects.equals(h.getPref(key), norm)) {
                         broken.add(key + " (normalize did not stick)");
+                    }
+                    // v3.4.6.h — THE CANONICAL-TYPE LAW: after the repair the
+                    // stored Java type is the key's canonical type (Long keys
+                    // hold Longs; nothing else holds a stray Long).
+                    if (AppPrefs.isLongKey(key) ? !(h.getPref(key) instanceof Long)
+                            : h.getPref(key) instanceof Long) {
+                        broken.add(key + " (stored type "
+                            + h.getPref(key).getClass().getSimpleName() + " is not canonical)");
                     }
                 }
             }
@@ -1293,8 +1341,11 @@ public final class DeepProbe {
             }
         }
         int registry = AppPrefs.BACKUP_KEYS.size();
-        o.pass = audited == registry && registry >= 81 && broken.isEmpty();
+        boolean healOk = healedLongs == AppPrefs.LONG_KEYS.size();
+        o.pass = audited == registry && registry >= 81 && broken.isEmpty() && healOk;
         o.detail = audited + "/" + registry + " keys audited · " + normalized + " normalized+repaired"
+            + " · Integer→Long poison healed " + healedLongs + "/" + AppPrefs.LONG_KEYS.size()
+            + (healOk ? " ✓" : " ✗")
             + (broken.isEmpty() ? "" : " · BROKEN: " + String.join(", ",
                 broken.subList(0, Math.min(4, broken.size()))))
             + (registry < 81 ? " · registry under 81" : "");

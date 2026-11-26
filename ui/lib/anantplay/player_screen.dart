@@ -32,6 +32,7 @@ import 'app_state.dart';
 import 'bridge.dart';
 import 'package:anantplay_ui/main.dart';
 import 'settings_mirror.dart';
+import 'subtitle_style.dart';
 
 /// The playback request the shell hands the player.
 /// v3.4.6.f — THE COMPACT CINEMA SUBTITLE CONTRACT, as named constants the
@@ -451,14 +452,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                           softWrap: true,
-                          style: TextStyle(
-                            fontFamily: 'Noto Sans Sinhala',
-                            fontSize: _subFontSp(s),
-                            height: _subLineHeight(s),
-                            color: _subColor(s),
-                            fontWeight: s.b(SettingsMirror.kSubBold, false)
-                                ? FontWeight.w700
-                                : FontWeight.w500,
+                          // v3.4.6.h — THE SHARED SUBTITLE STYLE RESOLVER:
+                          // the SAME resolveSubtitleTextStyle the Settings
+                          // Live Preview paints with — the Subtitle Font
+                          // control (Noto / System / Serif / Cinema Bold) now
+                          // visibly changes the LIVE movie overlay too (the
+                          // v3.4.6.g overlay hardcoded 'Noto Sans Sinhala',
+                          // making the control feel fake).
+                          style: resolveSubtitleTextStyle(
+                            s,
+                            base: TextStyle(
+                              fontSize: _subFontSp(s),
+                              height: _subLineHeight(s),
+                              color: _subColor(s),
+                              fontWeight: s.b(SettingsMirror.kSubBold, false)
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
                           ),
                         ),
                       ),

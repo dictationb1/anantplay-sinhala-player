@@ -255,7 +255,19 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
                 stopForeground(true);
             }
         } catch (Throwable ignored) { }
+        if (running == this) running = null;   // v3.4.6.h — no ghost registration
         stopSelf();
+    }
+
+    /** v3.4.6.h — a live server socket owned by THIS instance (port published). */
+    private boolean serverLive() {
+        return server != null && server.port() > 0;
+    }
+
+    /** v3.4.6.h — TRUE when SOME live instance is actually serving HTTP. */
+    private static boolean armedAndServing() {
+        ReceiverService s = running;
+        return s != null && s.serverLive();
     }
 
     /** v3.4.6.f — the user's explicit stop veto (persisted in receiver_state;
@@ -269,23 +281,56 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     public void onCreate() {
         super.onCreate();
         restoreUserStop(this);   // process restart / START_STICKY resurrection
+        armCore();
+    }
+
+    /**
+     * v3.4.6.h — THE IDEMPOTENT ARMING CORE (the live Android 36 re-arm defect).
+     *
+     * <p>Android can deliver a fresh startService()/startForegroundService() to an
+     * instance that is still tearing down from a stopSelf(). In that case
+     * onCreate() does NOT run again, so the old code left {@code running == null}
+     * with a closed socket: isUp() answered false, port() answered -1, and the
+     * receiver was silently dead until the process restarted. That is exactly the
+     * "Stop Receiver, then Start again → DLNA/mDNS down" defect the live probes
+     * caught on the Android 36 emulator.
+     *
+     * <p>This core is safe to call any number of times: it refuses on a standing
+     * user stop, no-ops when ANOTHER live instance is already serving, and on
+     * re-entry it recycles a stale socket and binds a fresh server before
+     * re-announcing. onCreate() and onStartCommand() both route here.
+     */
+    private synchronized void armCore() {
         if (userStop) {
             // v3.4.6.e — the zombie veto: a START_STICKY resurrection after the
             // user's explicit stop must NOT re-announce on the LAN. Tear down
             // quietly; a future arm() clears the veto and re-arms for real.
-            Diag.w("service", "resurrected after a user stop — refusing to re-arm");
-            stopSelf();
+            Diag.w("service", "armCore refused: standing user stop — refusing to re-arm");
+            if (running == this) running = null;
+            try { stopSelf(); } catch (Throwable ignored) { }
+            return;
+        }
+        if (running != null && running != this && running.serverLive()) {
+            Diag.i("service", "armCore: another live instance already serving — no-op");
             return;
         }
         running = this;
         // FIRST: satisfy the Android 12+/14+ foreground-service contract inside the 5 s
         // window. Nothing below may delay this — not port scanning, not mDNS.
         startInForeground();
+        // v3.4.6.h — RE-ENTRY RECYCLE: a socket left over from a half-torn-down
+        // instance is closed and replaced, so the published port always belongs to
+        // a live accept loop (ReceiverServer.start() walks preferredPort..+25).
+        if (server != null) {
+            try { server.stop(); } catch (Throwable ignored) { }
+            server = null;
+        }
         server = new ReceiverServer(this);
         if (!server.start()) {
             Diag.e("service", "could not bind any port — receiver NOT armed");
             postState(R.string.notif_failed);
-            stopSelf();
+            if (running == this) running = null;
+            try { stopSelf(); } catch (Throwable ignored) { }
             return;
         }
         // v3.1.0 (Bug 1) — prime the local-address snapshot the moment the server
@@ -310,6 +355,16 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         dlnaEndpoint = new DlnaEndpoint(new DlnaBridge(), dlnaUuid(), displayName,
             "Android/" + Build.VERSION.RELEASE + " UPnP/1.0 AnantPlaySinhalaPlayer/" + AppInfo.VERSION_NAME);
         server.setDlna(dlnaEndpoint);
+        // v3.4.6.h — a re-armed instance must not double-announce: drop any
+        // pillar object left over from the previous arming before restarting.
+        if (dlnaRenderer != null) {
+            try { dlnaRenderer.stop(); } catch (Throwable ignored) { }
+            dlnaRenderer = null;
+        }
+        if (nsd != null) {
+            try { nsd.stop(); } catch (Throwable ignored) { }
+            nsd = null;
+        }
         if (dlnaOn) {
             dlnaRenderer = new DlnaRenderer(dlnaEndpoint, () -> {
                 java.net.InetAddress ip = NsdAnnouncer.wifiLanIp();
@@ -389,6 +444,14 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String a = intent == null ? null : intent.getAction();
+        // v3.4.6.h — THE RE-ATTACH LEG: a start delivered to an instance whose
+        // onCreate() will not run again (stopSelf still in flight) must re-arm
+        // here, or the receiver stays dead with running == null (the live
+        // Android 36 defect behind probes 9/10). armCore() is idempotent.
+        if (!ACTION_STOP.equals(a) && !armedAndServing()) {
+            restoreUserStop(this);
+            armCore();
+        }
         if (ACTION_STOP.equals(a)) {
             Diag.i("service", "stop by user");
             setUserStop(this, true);   // the notification Stop is also explicit
@@ -403,6 +466,7 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
                     stopForeground(true);
                 }
             } catch (Throwable ignored) { }
+            if (running == this) running = null;   // v3.4.6.h — the honest state NOW
             stopSelf();
             return START_NOT_STICKY;
         }

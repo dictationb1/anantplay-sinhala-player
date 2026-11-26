@@ -166,7 +166,7 @@ void main() {
     mock.setMockMethodCallHandler(const MethodChannel('anantplay/updater'), (call) async {
       switch (call.method) {
         case 'appInfo':
-          return <String, Object>{'versionName': '3.4.6.f', 'versionCode': 30412};
+          return <String, Object>{'versionName': '3.4.6.h', 'versionCode': 30414};
         case 'pending':
           return <String, Object>{'pending': false, 'version': ''};
         default:
@@ -192,6 +192,32 @@ void main() {
         data: const MediaQueryData(disableAnimations: true),
         child: child,
       ));
+
+  /// v3.4.6.h — THE LIVE-FEED-SAFE SCROLL: the 14-audit Dart layer grew the
+  /// step-by-step ticker; a center-point drag lands inside its (at-max)
+  /// inner scrollable and dies, so gesture-based scrollUntilVisible can no
+  /// longer reach the domain cards. Scroll the MAIN list programmatically
+  /// instead (jumpTo — no gesture arena, fully deterministic).
+  Future<void> scrollFromTop(WidgetTester tester, Finder finder,
+      {int maxSteps = 80}) async {
+    ScrollableState? main;
+    double best = -1;
+    for (final e in find.byType(Scrollable).evaluate()) {
+      final st = (e as StatefulElement).state as ScrollableState;
+      if (st.position.maxScrollExtent > best) {
+        best = st.position.maxScrollExtent;
+        main = st;
+      }
+    }
+    for (var i = 0; i < maxSteps && main != null; i++) {
+      if (tester.any(finder)) return;
+      final pos = main.position;
+      final next = (pos.pixels + 280).clamp(0.0, pos.maxScrollExtent);
+      if (next <= pos.pixels) return;
+      pos.jumpTo(next);
+      await tester.pump(const Duration(milliseconds: 30));
+    }
+  }
 
   /// The REAL app shell with onboarding already finished at the CURRENT
   /// version — the state a v3.4.6.c user sees after the wizard.
@@ -549,9 +575,9 @@ void main() {
       expect(find.text('Glass clarity'), findsOneWidget);
       expect(find.text('Live preview'), findsOneWidget);
       await tester.scrollUntilVisible(
-          find.text('AnantPlay Sinhala Player v3.4.6.g (30413)'), 240,
+          find.text('AnantPlay Sinhala Player v3.4.6.h (30414)'), 240,
           scrollable: find.byType(Scrollable).first);
-      expect(find.text('AnantPlay Sinhala Player v3.4.6.g (30413)'), findsOneWidget);
+      expect(find.text('AnantPlay Sinhala Player v3.4.6.h (30414)'), findsOneWidget);
       expect(find.text('ADVANCED'), findsOneWidget);
     });
 
@@ -766,15 +792,13 @@ void main() {
       // The domain cards render BELOW the six 1-tap action cards in the lazy
       // ListView, so scroll the first one into view before asserting (the same
       // scroll the B/C cards below already use).
-      await tester.scrollUntilVisible(find.text('Auto-Updater Law'), 200,
-          scrollable: find.byType(Scrollable).first);
+      await scrollFromTop(tester, find.text('Auto-Updater Law'));
       expect(find.text('Auto-Updater Law'), findsOneWidget);
       for (final title in const [
         'Home & Cast Receiver',
         'Settings & Customizations',
       ]) {
-        await tester.scrollUntilVisible(find.text(title), 200,
-            scrollable: find.byType(Scrollable).first);
+        await scrollFromTop(tester, find.text(title));
         expect(find.text(title), findsOneWidget);
       }
       final data = await Clipboard.getData('text/plain');
@@ -804,7 +828,7 @@ void main() {
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
       await tester.pump();
       // The run title shows with the counter at 0/54.
-      expect(find.text('Running 72 deep feature probes… 0/72'), findsOneWidget);
+      expect(find.text('Running 78 deep feature probes… 0/78'), findsOneWidget);
       // Three live frames arrive: 1, 7, 32 of 54.
       for (final done in [1, 7, 32]) {
         await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
@@ -822,7 +846,7 @@ void main() {
         );
         await tester.pump(const Duration(milliseconds: 60));
       }
-      expect(find.text('Running 72 deep feature probes… 32/72'), findsOneWidget);
+      expect(find.text('Running 78 deep feature probes… 32/78'), findsOneWidget);
       // The run itself fired exactly once.
       expect(deepRuns, 1);
     });
@@ -1284,7 +1308,7 @@ void main() {
         );
         await tester.pump();
       }
-      expect(find.text('Running 72 deep feature probes… 54/72'), findsOneWidget);
+      expect(find.text('Running 78 deep feature probes… 54/78'), findsOneWidget);
 
       // The final full-run payload (a JSON string, exactly as the host sends it).
       final buf = StringBuffer('[');
@@ -1463,7 +1487,7 @@ void main() {
           case 'pending':
             return <String, Object>{'pending': true, 'version': '3.4.6.f'};
           case 'appInfo':
-            return <String, Object>{'versionName': '3.4.6.f', 'versionCode': 30412};
+            return <String, Object>{'versionName': '3.4.6.h', 'versionCode': 30414};
           default:
             return true;
         }

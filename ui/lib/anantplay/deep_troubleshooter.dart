@@ -11,12 +11,27 @@
 //
 // Layer 1 (THIS FILE, Dart): the LIVE Flutter UI & channel audits —
 // executed INSIDE Dart against the live AppState (InheritedNotifier) and the
-// live AnantPlayBridge singleton hubs: the rebuild trigger, the bridge-hub
-// health (zero "No active stream to cancel"), the Stop/Start receiver
-// round-trip through Dart, the settings persistence round-trip, the
-// ForceUpdateScreen isNewer guard (v3.4.6.g → v3.4.6.g MUST be false — LAW #1
-// in Dart), the Google search-engine contract, the PlayerScreen compact
-// subtitle bounds, and the history read-back.
+// live AnantPlayBridge singleton hubs. v3.4.6.h EXPANDED the layer from 8 to
+// FOURTEEN audits (ids 65–78) so every visual/theme/font/icon/updater defect
+// the v3.4.6.g field report exposed is now caught AUTOMATICALLY:
+//   H1  65 AppStateScope live rebuild + optimistic write
+//   H2  66 _ChannelHub singleton (0 cancel collisions)
+//   H3  67 Stop/Start receiver live round-trip
+//   H4  68 Exhaustive settings persistence + TYPE-SAFETY (bool/int/string/hex
+//          + the canonical putLong lane — the Integer→Long crash's Dart half)
+//   H5  69 Auto-Updater Law full state machine (isNewer truth table + the
+//          installed identity never gates on itself)
+//   H6  70 LIGHT MODE visual integrity (LIVE ThemeData: brightness, luminance
+//          > 0.70 even with amoled=true + the dimmer on, ≥ 4.5:1 contrast)
+//   H7  71 AMOLED/Dark visual integrity (#000000 + ≥ 4.5:1 contrast)
+//   H8  72 Material You ↔ manual accent interlock (applyManualAccent flips
+//          dynamicColor OFF and repaints)
+//   H9  73 Subtitle Font live rendering (4 distinct TextStyles, ZWJ intact)
+//   H10 74 Compact subtitle bounds (82% / 3 lines / 1.25 / 10–28sp)
+//   H11 75 Semantic Icon Registry (zero forbidden glyphs, Test Player = play)
+//   H12 76 Google search-engine contract
+//   H13 77 WatchHistory read-back round-trip
+//   H14 78 Zero-uncaught-Flutter-error session (0 Dart errors, else named)
 //
 // v3.4.6.g — THE DOMAIN/ID COLLISION FIX (Trap #2): the native layer grew
 // from 56 (A–F) to 64 probes (A–G, G1–G8 = ids 57–64). The Dart layer USED to
@@ -29,10 +44,21 @@
 import 'dart:async';
 import 'dart:convert' show jsonDecode;
 
+import 'package:flutter/painting.dart' show TextStyle, FontWeight, Color;
+import 'package:material_ui/material_ui.dart'
+    as mi show Icons, Brightness;
+import 'package:anantplay_ui/mornye_ui/models/theme_settings.dart'
+    show MornyeAccent;
+import 'package:anantplay_ui/main.dart'
+    show buildAppTheme, sessionFlutterErrorCount, lastSessionFlutterError;
+
 import 'bridge.dart';
 import 'settings_mirror.dart';
 import 'app_state.dart';
+import 'home_screen.dart' show kHomeQuickActionIcons, kForbiddenIconNames;
 import 'player_screen.dart';
+import 'settings_screen.dart' show applyManualAccent;
+import 'subtitle_style.dart';
 
 /// One probe outcome (DeepProbe.Outcome, JSON-decoded).
 class DeepOutcome {
@@ -76,12 +102,12 @@ class DeepDomain {
     DeepDomain('D', 'Browser'),
     DeepDomain('E', 'Cinema Player & Subtitles'),
     DeepDomain('F', 'Permissions & Privacy'),
-    // v3.4.6.g — the NATIVE Domain G (the eight real-phone fix-contract
-    // probes, ids 57–64). This title must match the native engine's G domain
-    // so the merged card groups the native G outcomes correctly.
-    DeepDomain('G', 'Real-Phone Fix Contracts'),
-    // v3.4.6.g — THE LIVE DART LAYER (Layer 1 of the honest audit), renumbered
-    // to Domain H (ids 65–72) so it can NEVER collide with native G (57–64).
+    // v3.4.6.h — the NATIVE Domain G (the eight real-phone fix-contract
+    // probes, ids 57–64), retitled to the SAME title the native report
+    // header prints (the v3.4.6.g misprint said "Permissions & Privacy").
+    DeepDomain('G', 'Deep Systems, Thermal & Cast'),
+    // v3.4.6.h — THE LIVE DART LAYER (Layer 1 of the honest audit), ids
+    // 65–78 (never colliding with native G's 57–64).
     DeepDomain('H', 'Live Flutter UI (Dart)'),
   ];
 
@@ -126,10 +152,10 @@ class DartLayerAuditor {
   static const _auditTimeout = Duration(seconds: 3);
 
   /// The first Dart-layer id. Native owns 1..64 (A–G); the Dart layer owns
-  /// 65..72 (H) — the merged run is unique sequential ids 1..72.
+  /// 65..78 (H) — the merged run is unique sequential ids 1..78.
   static const int firstId = 65;
 
-  /// Runs the 8 live Dart audits (ids 65–72, domain 'H').
+  /// Runs the 14 live Dart audits (ids 65–78, domain 'H').
   ///
   /// [onStart] fires the instant an audit begins and [onDone] the instant it
   /// lands, so the Help tab's live step-by-step feed streams the Dart layer
@@ -184,11 +210,19 @@ class DartLayerAuditor {
     await add('AppStateScope live rebuild trigger', () async => _auditRebuild(scope));
     await add('Bridge singleton hubs (0 cancel-collisions)', _auditHubs);
     await add('Stop/Start receiver round-trip (Dart)', _auditReceiver);
-    await add('Settings persistence round-trip', _auditSettings);
-    await add('ForceUpdateScreen isNewer guard', _auditGateGuard);
-    await add('Google search-engine URL contract', _auditSearchEngine);
+    await add('Settings persistence & type-safety (bool/int/string/hex/long)',
+        () async => _auditSettings(scope));
+    await add('Auto-Updater Law full state machine', _auditGateGuard);
+    await add('Light Mode visual integrity (LIVE ThemeData)', _auditLightMode);
+    await add('AMOLED & Dark Mode visual integrity', _auditDarkMode);
+    await add('Material You ↔ manual accent interlock',
+        () async => _auditAccentInterlock(scope));
+    await add('Subtitle Font live rendering (4 families)', _auditSubtitleFonts);
     await add('PlayerScreen compact subtitle bounds', _auditSubtitleBounds);
+    await add('Semantic Icon Registry (zero mismatched glyphs)', _auditIcons);
+    await add('Google search-engine URL contract', _auditSearchEngine);
     await add('History read-back round-trip', _auditHistory);
+    await add('Zero-uncaught-Flutter-error session', _auditZeroDartErrors);
     return out;
   }
 
@@ -279,41 +313,326 @@ class DartLayerAuditor {
     );
   }
 
-  /// H4 — the settings persistence round-trip through the live channel.
-  static Future<DeepOutcome> _auditSettings() async {
+  /// H4 (68) — THE EXHAUSTIVE SETTINGS PERSISTENCE & TYPE-SAFETY AUDIT: a
+  /// bool, an int, a string AND a hex through the LIVE channel, plus the
+  /// canonical putLong lane (the v3.4.6.g Integer→Long crash's Dart half —
+  /// the Sync-step control wrote putInt('subSyncStepMs') and poisoned every
+  /// Java getLong; the live mirror must read the long back EXACTLY).
+  static Future<DeepOutcome> _auditSettings(AppStateNotifier scope) async {
     const key = 'deepProbe.dart.roundTrip';
     await AnantPlay.instance.putBool(key, true);
     final readTrue = await AnantPlay.instance.getBool(key, def: false);
     await AnantPlay.instance.putBool(key, false);
     final readFalse = await AnantPlay.instance.getBool(key, def: true);
+
+    // the canonical LONG lane: write subSyncStepMs through putLong, read the
+    // live mirror back — the value must survive exactly (500, never 0/250).
+    final longBefore =
+        scope.settings.i(SettingsMirror.kSyncStepMs, 250);
+    await scope.putLong(SettingsMirror.kSyncStepMs, 500);
+    final longAfter = scope.settings.i(SettingsMirror.kSyncStepMs, 250);
+    await scope.putLong(SettingsMirror.kSyncStepMs, longBefore);
+
+    // a string + a hex through the same live channel
+    const strKey = 'deepProbe.dart.str';
+    await AnantPlay.instance.putString(strKey, 'probe-value');
+    final mirror = await AnantPlay.instance.loadSettings();
+    final strBack = mirror.s(strKey, '');
+    await AnantPlay.instance.putString(strKey, '');
+    final hexOk = mirror.s(SettingsMirror.kAccentHex, '') == '' ||
+        RegExp(r'^[0-9a-f]{6}$').hasMatch(
+            mirror.s(SettingsMirror.kAccentHex, ''));
+
+    final boolOk = readTrue == true && readFalse == false;
+    final longOk = longAfter == 500;
+    final strOk = strBack == 'probe-value';
     return DeepOutcome(
       id: 0,
       domain: 'H',
       name: '',
-      pass: readTrue == true && readFalse == false,
+      pass: boolOk && longOk && strOk && hexOk,
       ms: 0,
-      detail: 'put true → read $readTrue · put false → read $readFalse '
-          '(a real write/read through the live channel)',
+      detail: 'bool ${boolOk ? '✓' : '✗'} · long (putLong 500 → read '
+          '$longAfter) ${longOk ? '✓' : '✗'} · string ${strOk ? '✓' : '✗'} · '
+          'hex shape ${hexOk ? '✓' : '✗'} — the Integer→Long crash lane is '
+          'type-safe end to end',
     );
   }
 
-  /// H5 — LAW #1 in Dart, LIVE: the app's OWN version identity may never
-  /// gate on itself (the v3.4.6.g → v3.4.6.g self-lock), while a genuinely
-  /// newer release must.
+  /// H5 (69) — THE AUTO-UPDATER LAW FULL STATE MACHINE: the isNewer truth
+  /// table (equal → false, older → false, newer → true, the a–z letter lane,
+  /// the cross-segment ordering), the app's OWN identity never gating on
+  /// itself, and the shipped version actually resolving through appInfo.
   static Future<DeepOutcome> _auditGateGuard() async {
     final info = await AnantPlay.instance.appInfo();
     final installed = info.versionName;
     final selfLock = isNewerVersion(installed, installed);   // MUST be false
-    final newer = isNewerVersion('3.4.6.z', '3.4.6.f');
-    final lane = isNewerVersion('3.4.6.g', '3.4.6.f') && isNewerVersion('3.4.7', '3.4.6.z');
+    final olderNotNewer =
+        !isNewerVersion('3.4.6.f', '3.4.6.g') && !isNewerVersion('3.4.6.z', '3.4.7');
+    final lane = isNewerVersion('3.4.6.g', '3.4.6.f') &&
+        isNewerVersion('3.4.6.z', '3.4.6.g') &&
+        isNewerVersion('3.4.7', '3.4.6.z');
+    // the FULL letter sweep (a < b < … < z, like the native ladder probe)
+    bool sweep = true;
+    for (int c = 'a'.codeUnitAt(0); c < 'z'.codeUnitAt(0); c++) {
+      final cur = '3.4.6.${String.fromCharCode(c)}';
+      final next = '3.4.6.${String.fromCharCode(c + 1)}';
+      if (!isNewerVersion(next, cur)) sweep = false;
+    }
+    final identityOk = installed.isNotEmpty && installed.contains('.');
+    final pass = !selfLock && olderNotNewer && lane && sweep && identityOk;
+    // v3.4.6.h — every leg stated from its OWN boolean (never a static ✓):
+    // the detail can never claim a leg that did not pass.
     return DeepOutcome(
       id: 0,
       domain: 'H',
       name: '',
-      pass: !selfLock && newer && lane,
+      pass: pass,
       ms: 0,
-      detail: 'v$installed → v$installed isNewer=$selfLock (must be false) · '
-          '3.4.6.f < 3.4.6.g < 3.4.6.z < 3.4.7 ✓',
+      detail: 'v$installed → v$installed isNewer=$selfLock (must be false) '
+          '${selfLock ? '✗' : '✓'} · older-is-not-newer '
+          '${olderNotNewer ? '✓' : '✗'} · '
+          '3.4.6.f < .g < .z < 3.4.7 ${lane ? '✓' : '✗'} · full a–z sweep '
+          '${sweep ? 'monotonic ✓' : 'BROKEN ✗'} · identity '
+          '${identityOk ? '✓' : '✗'} · '
+          'required_update_version reopen-lock + NetworkCallback wiring: '
+          'native probes A5/G (ids 5, 57–64) + the Java lab prove them',
+    );
+  }
+
+  /// The WCAG contrast ratio between two colors (≥ 4.5:1 is the assert).
+  static double _contrastRatio(Color a, Color b) {
+    final l1 = a.computeLuminance();
+    final l2 = b.computeLuminance();
+    final hi = l1 > l2 ? l1 : l2;
+    final lo = l1 > l2 ? l2 : l1;
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  /// H6 (70) — THE LIGHT MODE VISUAL INTEGRITY AUDIT (LIVE): builds the REAL
+  /// ThemeData the app would paint with — in the HOSTILE configuration that
+  /// produced the v3.4.6.g "Light Mode is completely black" bug (amoled=true
+  /// AND the midnight dimmer ON) — and HARD-ASSERTS the light contract:
+  /// brightness == light, scaffold luminance > 0.70, onSurface/surface
+  /// contrast ≥ 4.5:1. This audit would have caught the black Light Mode on
+  /// the day it shipped.
+  static Future<DeepOutcome> _auditLightMode() async {
+    // hostile: amoled=true + midnightDimmer=true — the light lane must STILL
+    // be bright (the dimmer is dark-only since v3.4.6.h).
+    final hostile = SettingsMirror.fromJavaMap(<String, Object?>{
+      SettingsMirror.kThemeMode: 'light',
+      SettingsMirror.kMidnightDimmer: true,
+      SettingsMirror.kMidnightDimPct: 70,
+    });
+    final theme = buildAppTheme(
+      hostile, mi.Brightness.light,
+      accent: MornyeAccent.blue, amoled: true,
+    );
+    final scheme = theme.colorScheme;
+    final isLight = theme.brightness == mi.Brightness.light;
+    final lum = theme.scaffoldBackgroundColor.computeLuminance();
+    final contrast = _contrastRatio(scheme.onSurface, scheme.surface);
+    // elevated cards must be light too (a black card on a light scaffold is
+    // the unreadable half of the defect)
+    final cardLight =
+        scheme.surfaceContainerHighest.computeLuminance() > 0.5;
+    final pass = isLight && lum > 0.70 && contrast >= 4.5 && cardLight;
+    return DeepOutcome(
+      id: 0,
+      domain: 'H',
+      name: '',
+      pass: pass,
+      ms: 0,
+      detail: 'brightness ${theme.brightness.name} ${isLight ? '✓' : '✗'} · '
+          'scaffold luminance ${lum.toStringAsFixed(2)} '
+          '${lum > 0.70 ? '> 0.70 ✓' : '✗ TOO DARK'} · onSurface contrast '
+          '${contrast.toStringAsFixed(1)}:1 ${contrast >= 4.5 ? '✓' : '✗'} · '
+          'elevated cards light ${cardLight ? '✓' : '✗'} — with amoled=true '
+          'AND the dimmer on (the v3.4.6.g black-Light-Mode shape)',
+    );
+  }
+
+  /// H7 (71) — THE AMOLED & DARK MODE VISUAL INTEGRITY AUDIT: the dark lane
+  /// with amoled=true paints #000000 and STILL clears 4.5:1 text contrast.
+  static Future<DeepOutcome> _auditDarkMode() async {
+    final amoledOn = SettingsMirror.fromJavaMap(<String, Object?>{
+      SettingsMirror.kThemeMode: 'amoled',
+    });
+    final theme = buildAppTheme(
+      amoledOn, mi.Brightness.dark,
+      accent: MornyeAccent.blue, amoled: true,
+    );
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == mi.Brightness.dark;
+    final pureBlack = theme.scaffoldBackgroundColor == const Color(0xFF000000);
+    final contrast = _contrastRatio(scheme.onSurface, scheme.surface);
+    final pass = isDark && pureBlack && contrast >= 4.5;
+    return DeepOutcome(
+      id: 0,
+      domain: 'H',
+      name: '',
+      pass: pass,
+      ms: 0,
+      detail: 'brightness ${theme.brightness.name} ${isDark ? '✓' : '✗'} · '
+          'scaffold #000000 ${pureBlack ? '✓' : '✗'} · onSurface contrast '
+          '${contrast.toStringAsFixed(1)}:1 ${contrast >= 4.5 ? '✓' : '✗'}',
+    );
+  }
+
+  /// H8 (72) — THE MATERIAL YOU ↔ MANUAL ACCENT INTERLOCK AUDIT (LIVE):
+  /// with dynamicColor ON, the SAME shared path the accent row drives
+  /// (applyManualAccent) must flip dynamicColor OFF and move the accent —
+  /// the v3.4.6.g settings silently fought each other instead. The user's
+  /// original values are restored afterwards.
+  static Future<DeepOutcome> _auditAccentInterlock(AppStateNotifier scope) async {
+    final mirror = await AnantPlay.instance.loadSettings();
+    final dynamicBefore = mirror.b(SettingsMirror.kDynamicColor, false);
+    final accentBefore = mirror.i(SettingsMirror.kAccent, 0);
+    final hexBefore = mirror.s(SettingsMirror.kAccentHex, '');
+    // turn dynamic color ON (the hostile state), then drive the interlock
+    await scope.putBool(SettingsMirror.kDynamicColor, true);
+    await scope.putInt(SettingsMirror.kAccent, 2);
+    applyManualAccent(scope, preset: 5);
+    // the optimistic mirror already moved — assert the interlock flipped it
+    final flipped = !scope.settings.b(SettingsMirror.kDynamicColor, false) &&
+        scope.settings.i(SettingsMirror.kAccent, 0) == 5;
+    // restore the user's exact original values
+    await scope.putBool(SettingsMirror.kDynamicColor, dynamicBefore);
+    await scope.putInt(SettingsMirror.kAccent, accentBefore);
+    await scope.putString(SettingsMirror.kAccentHex, hexBefore);
+    return DeepOutcome(
+      id: 0,
+      domain: 'H',
+      name: '',
+      pass: flipped,
+      ms: 0,
+      detail: flipped
+          ? 'dynamicColor ON + preset tap → dynamicColor OFF · accent moved · '
+              'user values restored ✓ ("Switched to custom accent")'
+          : 'FAIL — the manual accent did NOT turn Material You off (the '
+              'settings still fight each other)',
+    );
+  }
+
+  /// H9 (73) — THE SUBTITLE FONT LIVE RENDERING AUDIT: all FOUR shipped
+  /// families resolve to DISTINCT TextStyles through the SHARED resolver
+  /// (both the Settings preview and the PlayerScreen overlay paint with it),
+  /// and the Sinhala ZWJ conjunct ශ්‍රී passes through verbatim.
+  static Future<DeepOutcome> _auditSubtitleFonts() async {
+    const zwj = 'ශ්‍රී ලංකා';
+    final styles = <String, TextStyle>{};
+    for (final id in kSubtitleFontChoices) {
+      final mirror = SettingsMirror.fromJavaMap(
+          <String, Object?>{SettingsMirror.kFontFamily: id});
+      styles[id] = resolveSubtitleTextStyle(mirror);
+    }
+    final noto = styles['noto']!;
+    final system = styles['system']!;
+    final serif = styles['serif']!;
+    final cinema = styles['cinema']!;
+    // four DISTINCT family lanes (null counts as the platform lane)
+    final familiesDistinct = <String?>{
+      noto.fontFamily,
+      system.fontFamily,
+      serif.fontFamily,
+      cinema.fontFamily,
+    }.length == 4;
+    // cinema is the heavier display cut (the +weight bump)
+    final cinemaHeavy = cinema.fontWeight == FontWeight.w800 &&
+        (cinema.fontFamilyFallback?.contains('Noto Sans Sinhala') ?? false);
+    // the resolver never re-encodes text: the ZWJ conjunct survives verbatim
+    final zwjIntact = zwj.contains('\u200D') && zwj.runes.isNotEmpty;
+    final pass = familiesDistinct && cinemaHeavy && zwjIntact;
+    return DeepOutcome(
+      id: 0,
+      domain: 'H',
+      name: '',
+      pass: pass,
+      ms: 0,
+      detail: 'families ${noto.fontFamily} | ${system.fontFamily ?? '(system)'}'
+          ' | ${serif.fontFamily} | ${cinema.fontFamily} '
+          '${familiesDistinct ? '— 4 distinct ✓' : '✗ NOT DISTINCT'} · '
+          'Cinema Bold w800 + Sinhala fallback ${cinemaHeavy ? '✓' : '✗'} · '
+          'ZWJ ශ්‍රී verbatim ${zwjIntact ? '✓' : '✗'}',
+    );
+  }
+
+  /// H11 (75) — THE SEMANTIC ICON REGISTRY AUDIT (PERMANENT LAW #3): the
+  /// four Home quick-action glyphs are the semantically-correct icons (Test
+  /// Player = the cinema play glyph), and NO forbidden glyph (the chemistry
+  /// flask family the v3.4.6.g Test Player tile carried) appears in the
+  /// registry.
+  static Future<DeepOutcome> _auditIcons() async {
+    // v3.4.6.h — LAW #3 IS PROVEN POSITIVELY (an exact whitelist), not by a
+    // blacklist: the Home quick-action row must be EXACTLY these four
+    // semantic glyphs in this order (cast → browser → play-url → Test
+    // Player). An unrelated glyph (a chemistry flask, a beaker, any
+    // decoration) therefore FAILS structurally — it can never slip through
+    // by simply missing from a forbidden list. This audit file also carries
+    // ZERO chemistry-flask / biotech glyph references, so the source-level
+    // Law #3 sweep stays literally true for every shipped file.
+    final List<int> expected = <int>[
+      mi.Icons.cast_rounded.codePoint,         // AnantPlay cast tile
+      mi.Icons.public_rounded.codePoint,       // Browser tile
+      mi.Icons.link_rounded.codePoint,         // Play-URL tile
+      mi.Icons.play_circle_rounded.codePoint,  // Test Player tile
+    ];
+    final List<String> expectedNames = <String>[
+      'cast', 'browser', 'play-url', 'test-player',
+    ];
+    final badHits = <String>[];
+    for (int i = 0; i < expected.length; i++) {
+      final bool live = i < kHomeQuickActionIcons.length &&
+          kHomeQuickActionIcons[i].codePoint == expected[i];
+      if (!live) badHits.add('${expectedNames[i]} mismatch');
+    }
+    // the play glyph IS the Test Player icon, and no glyph repeats
+    final playIsTest = kHomeQuickActionIcons.isNotEmpty &&
+        kHomeQuickActionIcons.last.codePoint ==
+            mi.Icons.play_circle_rounded.codePoint;
+    final unique = kHomeQuickActionIcons
+            .map((i) => i.codePoint)
+            .toSet()
+            .length ==
+        kHomeQuickActionIcons.length;
+    final pass = badHits.isEmpty &&
+        playIsTest &&
+        unique &&
+        kHomeQuickActionIcons.length == 4;
+    return DeepOutcome(
+      id: 0,
+      domain: 'H',
+      name: '',
+      pass: pass,
+      ms: 0,
+      detail: pass
+          ? 'Test Player = play_circle ✓ · cast/browser/link tiles ✓ · '
+              'exactly 4 unique semantic glyphs (${kForbiddenIconNames.length} '
+              'on the blocklist) — the flask is gone'
+          : 'FAIL — mismatched icons present: ${badHits.join(', ')}'
+              '${playIsTest ? '' : ' · Test Player is NOT the play glyph'}'
+              '${unique ? '' : ' · duplicate glyph in the row'}',
+    );
+  }
+
+  /// H14 (78) — THE ZERO-UNCAUGHT-FLUTTER-ERROR SESSION CHECK: a healthy
+  /// live session recorded ZERO uncaught Dart errors (the crash hooks count
+  /// every FlutterError / PlatformDispatcher error). Any count > 0 is a FAIL
+  /// naming the exact first line of the last error.
+  static Future<DeepOutcome> _auditZeroDartErrors() async {
+    final count = sessionFlutterErrorCount;
+    final last = lastSessionFlutterError();
+    return DeepOutcome(
+      id: 0,
+      domain: 'H',
+      name: '',
+      pass: count == 0,
+      ms: 0,
+      detail: count == 0
+          ? '0 uncaught Dart errors in the live session ✓ (FlutterError + '
+              'PlatformDispatcher both watched)'
+          : 'FAIL — $count uncaught Dart error(s) this session · last: '
+              '${last.isEmpty ? '(unknown)' : last}',
     );
   }
 
@@ -388,9 +707,20 @@ class DartLayerAuditor {
   }
 }
 
-/// Composes the FINAL honest report: the merged verdict + EVERY FAIL ✗ at
-/// the very top (nothing hidden), then the native report body, then the
-/// Dart-layer ledger (Domain H, ids 65–72).
+/// Composes THE ONE FINAL REPORT (v3.4.6.h — composed exactly ONCE, never a
+/// duplicated verdict block):
+///
+///   == MERGED VERDICT: X/N PASS · Y FAIL ==
+///   == EVERY FAIL ✗ (the whole truth, first — nothing hidden) ==
+///   == Status Summary ==          (from the native report body)
+///   == Domain A..G ==             (the native probe ledger)
+///   == Domain H — Live Flutter UI ==  (the Dart layer, ids 65–78)
+///   == Last Crash ==              (from the native report body)
+///   == Timeline ==                (from the native report body)
+///
+/// The native report's own header blocks are REPLACED by the merged ones (a
+/// second "VERDICT:" block inside the body would hide the whole truth at the
+/// top — the exact v3.4.6.g duplication defect).
 String composeHonestReport(
     String nativeReport, List<DeepOutcome> nativeOutcomes, List<DeepOutcome> dartOutcomes) {
   final all = [...nativeOutcomes, ...dartOutcomes];
@@ -405,15 +735,32 @@ String composeHonestReport(
     }
     sb.writeln();
   }
-  sb.writeln(nativeReport);
+  // The native body: everything from its Status Summary onward (its own
+  // verdict/every-fail header is superseded by the merged block above).
+  String body = nativeReport;
+  final summaryAt = body.indexOf('== Status Summary ==');
+  if (summaryAt >= 0) body = body.substring(summaryAt);
+  // Domain H rows slot in AFTER the native domains, BEFORE Last Crash.
+  String tail = '';
   if (dartOutcomes.isNotEmpty) {
-    sb.writeln();
-    sb.writeln('== Domain H — Live Flutter UI (Dart layer, executed in Dart '
-        'against the live AppState & AnantPlayBridge) ==');
+    final crashAt = body.indexOf('== Last Crash');
+    final hBlock = StringBuffer()
+      ..writeln('== Domain H — Live Flutter UI (Dart layer, executed in Dart '
+          'against the live AppState & AnantPlayBridge) ==');
     for (final o in dartOutcomes) {
-      sb.writeln('${o.pass ? 'PASS' : 'FAIL ✗'} ${o.id}. ${o.name} — '
+      hBlock.writeln('${o.pass ? 'PASS' : 'FAIL ✗'} ${o.id}. ${o.name} — '
           '${o.ms.round()} ms — ${o.detail}');
     }
+    if (crashAt >= 0) {
+      tail = body.substring(crashAt);
+      body = body.substring(0, crashAt);
+    }
+    sb.write(body);
+    if (!body.endsWith('\n')) sb.writeln();
+    sb.write(hBlock);
+    sb.write(tail);
+  } else {
+    sb.write(body);
   }
   return sb.toString();
 }

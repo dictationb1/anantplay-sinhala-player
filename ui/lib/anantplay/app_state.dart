@@ -76,6 +76,11 @@ class AppStateNotifier extends ChangeNotifier {
   Future<void> putInt(String key, int value) async =>
       _optimistic(key, value, () => AnantPlay.instance.putInt(key, value));
 
+  /// v3.4.6.h — the optimistic LONG write (millisecond-scale settings ride
+  /// the canonical Long lane — the Integer→Long crash killer's Dart half).
+  Future<void> putLong(String key, int value) async =>
+      _optimistic(key, value, () => AnantPlay.instance.putLong(key, value));
+
   Future<void> putString(String key, String value) async =>
       _optimistic(key, value, () => AnantPlay.instance.putString(key, value));
 

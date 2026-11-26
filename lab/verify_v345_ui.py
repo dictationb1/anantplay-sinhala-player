@@ -55,8 +55,10 @@ for key in appearance_keys:
           f"String {key}" in prefs and key in prefs[prefs.index("BACKUP_KEYS"):])
 check("glass clarity is bounded to 10–95 percent",
       "normalizeGlassClarity(int value) { return clampTo(value, 10, 95); }" in prefs)
+# v3.4.6.h — the reader is now the type-safe safeGetInt (the Integer/Long
+# auto-heal); the 75 default and the clamp contract are unchanged.
 check("glass clarity defaults to 75 percent",
-      "normalizeGlassClarity(p.getInt(K_GLASS_CLARITY, 75))" in prefs)
+      "normalizeGlassClarity(safeGetInt(p, K_GLASS_CLARITY, 75))" in prefs)
 check("glass outline and icon-glass controls persist",
       "glassOutlines(SharedPreferences p)" in prefs and "iconGlass(SharedPreferences p)" in prefs)
 check("UI font preference normalizes unknown values",
@@ -159,13 +161,13 @@ check("release workflow rejects an APK at or above 50 MiB",
       'SIZE" -lt 52428800' in release_workflow)
 # v3.4.6.d — the workflow resolves the identity from the Gradle host (AGP 9 owns
 # it) AND from AppInfo, then asserts both against the pinned 3.4.6.d / 30410.
-check("build workflow validates version 3.4.6.g / 30413",
-      'test "$VERSION" = "3.4.6.g"' in build_workflow
-      and 'test "$CODE" = "30413"' in build_workflow
+check("build workflow validates version 3.4.6.h / 30414",
+      'test "$VERSION" = "3.4.6.h"' in build_workflow
+      and 'test "$CODE" = "30414"' in build_workflow
       and 'test "$GRADLE_VERSION" = "$VERSION"' in build_workflow
       and 'test "$APPINFO_CODE" = "$CODE"' in build_workflow)
-check("release workflow defaults to version 3.4.6.g",
-      "default: '3.4.6.g'" in release_workflow)
+check("release workflow defaults to version 3.4.6.h",
+      "default: '3.4.6.h'" in release_workflow)
 
 # Adaptive launcher icon remains a valid layered vector resource.
 try:

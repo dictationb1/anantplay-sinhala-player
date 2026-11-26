@@ -325,6 +325,14 @@ public class MainActivity extends FlutterActivity {
         prefs = getSharedPreferences("sicast", MODE_PRIVATE);
         instance = this;
         super.onCreate(b);
+        // v3.4.6.h — GUARANTEE #2: THE INSTANT OFFLINE→ONLINE AUTO-TRIGGER.
+        // A lightweight ConnectivityManager.NetworkCallback: the exact moment
+        // connectivity returns after an offline stretch, SelfUpdater
+        // .noteNetworkTransition clears the stale failure stamp and fires ONE
+        // single-flight update check — the ForceUpdateScreen pops within ~1 s
+        // of Wi-Fi/Mobile Data coming back (the v3.4.6.g complaint: "came back
+        // online and Update Now appeared SLOWLY"). Unregistered in onDestroy.
+        registerOnlineTrigger();
         // v3.4.6.c — a cold launch that carries a shell route (a cast that
         // arrived before the engine was up, ACTION_VIEW/SEND, the
         // notifyCastReady notification) is forwarded now that channels exist.
@@ -752,11 +760,18 @@ public class MainActivity extends FlutterActivity {
                 Diag.i("cast", "pending v" + pendingVer + " not newer than installed v"
                     + AppInfo.VERSION_NAME + " — gate NOT armed (self-lock killed)");
             }
+            // v3.4.6.h — a cached verified APK still re-checks the wire: a
+            // NEWER release than the cached one may exist (and the network
+            // refresh keeps the banner honest).
+            SelfUpdater.checkOnLaunch(this);
         } else {
             // v3.4.6.d — NO silent suppression: a fresh install/upgrade checks
             // on EVERY cold start (the K_AUTO_UPDATE preference still governs
             // the periodic JOB only; the CHECK always runs so the mandatory
             // gate can lock the app when a newer release exists).
+            // checkOnLaunch FIRST re-arms the gate from the PERSISTED
+            // required_update_version (Frame 0, zero network) — the
+            // close-and-reopen bypass of v3.4.6.g is structurally dead.
             SelfUpdater.checkOnLaunch(this);
         }
         if (SelfUpdater.ACTION_INSTALL_NOW.equals(getIntent().getAction())) {
@@ -795,6 +810,92 @@ public class MainActivity extends FlutterActivity {
         // behind when the user cancels the 1-tap sheet — sweep it on resume.
         if (AnantPlayInstaller.anantplayInstalled(this)) {
             AnantPlayInstaller.sweepCache(this);
+        }
+    }
+
+    // ── v3.4.6.h — THE OFFLINE→ONLINE NETWORK CALLBACK (Guarantee #2) ────────
+
+    /** The live network callback handle (null before onCreate / after destroy). */
+    private android.net.ConnectivityManager.NetworkCallback onlineTrigger;
+
+    /**
+     * Register the lightweight connectivity watcher: onAvailable (and the
+     * first NET_CAPABILITY_VALIDATED flip) is the EXACT moment the phone
+     * regains network — one call into SelfUpdater.noteNetworkTransition
+     * clears the offline failure stamp and fires an immediate single-flight
+     * update check. Fully guarded: a callback path must never crash the app.
+     */
+    private void registerOnlineTrigger() {
+        try {
+            android.net.ConnectivityManager cm = getSystemService(android.net.ConnectivityManager.class);
+            if (cm == null) return;
+            // v3.4.6.h — TRAP #1: the callback's FIRST event is synchronous.
+            // registerDefaultNetworkCallback() immediately replays onAvailable
+            // for the network we are already on, so a cold launch that is
+            // ALREADY online would fire a second, redundant check on top of the
+            // launch check. Seeding `wasOffline` from the live validated state
+            // means only a REAL offline→online transition triggers the instant
+            // check, while a launch-while-offline still fires the moment the
+            // network returns.
+            final boolean onlineNow = isOnlineNow(cm);
+            onlineTrigger = new android.net.ConnectivityManager.NetworkCallback() {
+                private boolean wasOffline = !onlineNow;
+                @Override public void onAvailable(android.net.Network network) {
+                    if (wasOffline) {
+                        wasOffline = false;
+                        try { SelfUpdater.noteNetworkTransition(MainActivity.this); }
+                        catch (Throwable t) { Diag.w("selfupd", "online trigger: " + t); }
+                    }
+                }
+                @Override public void onCapabilitiesChanged(android.net.Network network,
+                        android.net.NetworkCapabilities caps) {
+                    if (caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                            && wasOffline) {
+                        wasOffline = false;
+                        try { SelfUpdater.noteNetworkTransition(MainActivity.this); }
+                        catch (Throwable t) { Diag.w("selfupd", "validated trigger: " + t); }
+                    }
+                }
+                @Override public void onLost(android.net.Network network) {
+                    wasOffline = true;   // the NEXT onAvailable is a real transition
+                }
+            };
+            cm.registerDefaultNetworkCallback(onlineTrigger);
+            Diag.i("selfupd", "offline→online trigger registered (instant update check on reconnect)");
+        } catch (Throwable t) {
+            Diag.w("selfupd", "online trigger registration: " + t);
+        }
+    }
+
+    /**
+     * v3.4.6.h — TRUE when the ACTIVE network is validated (internet actually
+     * reachable, not merely "a network attached"). Used ONLY to seed the
+     * connectivity callback so registration cannot double-fire a redundant
+     * check when the app was already online at startup. Never throws.
+     */
+    private static boolean isOnlineNow(android.net.ConnectivityManager cm) {
+        try {
+            android.net.Network n = cm.getActiveNetwork();
+            if (n == null) return false;
+            android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+            return caps != null
+                && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        } catch (Throwable t) {
+            return false;   // "probably offline" costs one extra check — never a crash
+        }
+    }
+
+    /** Unregister cleanly — never leak the callback (LAW #4 zero-regressions). */
+    private void unregisterOnlineTrigger() {
+        try {
+            if (onlineTrigger != null) {
+                getSystemService(android.net.ConnectivityManager.class)
+                    .unregisterNetworkCallback(onlineTrigger);
+                onlineTrigger = null;
+            }
+        } catch (Throwable t) {
+            Diag.w("selfupd", "online trigger unregister: " + t);
         }
     }
 
@@ -1473,16 +1574,33 @@ public class MainActivity extends FlutterActivity {
                         Boolean.TRUE.equals(call.argument("value"))).apply();
                 result.success(true);
             } else if ("putInt".equals(m)) {
+                // v3.4.6.h — THE TYPE-SAFETY LAW: any Number from the Dart
+                // StandardMessageCodec (int or long) lands through the ONE
+                // canonical writer, so a Long key (subSyncStepMs…) can never
+                // again be stored an Integer (the v3.4.6.g ClassCastException
+                // that killed Settings + Backup + the rebuild + search-engine
+                // probes 30/56/65/70 in ONE write).
                 Object v = call.argument("value");
-                prefs.edit().putInt(call.<String>argument("key"),
-                        v instanceof Number ? ((Number) v).intValue() : 0).apply();
-                result.success(true);
+                boolean ok = v instanceof Number && AppPrefs.putTyped(prefs,
+                        call.<String>argument("key"), ((Number) v).longValue());
+                result.success(ok);
+            } else if ("putLong".equals(m)) {
+                // v3.4.6.h — the explicit Long writer (the Subtitle Studio's
+                // Sync-step control now rides this lane; canonicalized the
+                // same way whatever number shape arrives).
+                Object v = call.argument("value");
+                boolean ok = v instanceof Number && AppPrefs.putTyped(prefs,
+                        call.<String>argument("key"), ((Number) v).longValue());
+                result.success(ok);
             } else if ("getBool".equals(m)) {
                 result.success(prefs.getBoolean(call.<String>argument("key"),
                         Boolean.TRUE.equals(call.argument("def"))));
             } else if ("getInt".equals(m)) {
                 Object d = call.argument("def");
-                result.success(prefs.getInt(call.<String>argument("key"),
+                // v3.4.6.h — the type-safe int read (heals a Long-in-an-int
+                // slot instead of ever throwing).
+                result.success(AppPrefs.safeGetInt(prefs,
+                        call.<String>argument("key"),
                         d instanceof Number ? ((Number) d).intValue() : 0));
             } else if ("getString".equals(m)) {
                 Object d = call.argument("def");
@@ -1520,7 +1638,6 @@ public class MainActivity extends FlutterActivity {
                     result.success(out);
                     return;
                 }
-                SharedPreferences.Editor ed = prefs.edit();
                 int applied = 0;
                 for (Map.Entry<String, Object> e : r.values.entrySet()) {
                     String key = e.getKey();
@@ -1529,16 +1646,13 @@ public class MainActivity extends FlutterActivity {
                             || AppPrefs.K_ONBOARDING_VERSION.equals(key)) {
                         continue;   // this device's wizard state stays untouched
                     }
-                    Object v = e.getValue();
-                    if (v instanceof Boolean) ed.putBoolean(key, (Boolean) v);
-                    else if (v instanceof Integer) ed.putInt(key, (Integer) v);
-                    else if (v instanceof Long) ed.putLong(key, (Long) v);
-                    else if (v instanceof Number) ed.putFloat(key, ((Number) v).floatValue());
-                    else if (v instanceof String) ed.putString(key, (String) v);
-                    else continue;
-                    applied++;
+                    // v3.4.6.h — every restored value lands through the ONE
+                    // canonical writer: a Long key is putLong'd even when the
+                    // parsed JSON number arrived as an Integer (MiniJson boxes
+                    // small numbers as Integer), so a restore can never poison
+                    // gatherSettings() again.
+                    if (AppPrefs.putTyped(prefs, key, e.getValue())) applied++;
                 }
-                ed.commit();   // durable BEFORE the fresh snapshot is read
                 out.put("applied", applied);
                 out.put("count", applied);
                 out.put("snapshot", gatherSettings());
@@ -1610,7 +1724,9 @@ public class MainActivity extends FlutterActivity {
         m.put(AppPrefs.K_WEB_LINKS, prefs.getString(AppPrefs.K_WEB_LINKS, ""));
         m.put(AppPrefs.K_FREE_TRANSLATOR, prefs.getBoolean(AppPrefs.K_FREE_TRANSLATOR, true));
         m.put(AppPrefs.K_SURFACE_STYLE, prefs.getString(AppPrefs.K_SURFACE_STYLE, AppPrefs.SURFACE_GLASS));
-        m.put(AppPrefs.K_BORDER_ALPHA, prefs.getInt(AppPrefs.K_BORDER_ALPHA, 30));
+        // v3.4.6.h — every int read in the live mirror is type-safe (heals a
+        // mismatched stored Number instead of ever throwing ClassCastException).
+        m.put(AppPrefs.K_BORDER_ALPHA, AppPrefs.safeGetInt(prefs, AppPrefs.K_BORDER_ALPHA, 30));
         m.put(AppPrefs.K_BOTTOM_BAR_STYLE, prefs.getString(AppPrefs.K_BOTTOM_BAR_STYLE, AppPrefs.BAR_FLOATING));
         m.put(AppPrefs.K_BOTTOM_BAR_LABELS, prefs.getBoolean(AppPrefs.K_BOTTOM_BAR_LABELS, true));
         m.put(AppPrefs.K_SHOW_TROUBLE_TAB, prefs.getBoolean(AppPrefs.K_SHOW_TROUBLE_TAB, true));
@@ -1621,10 +1737,10 @@ public class MainActivity extends FlutterActivity {
         m.put(AppPrefs.K_ICON_GLASS, AppPrefs.iconGlass(prefs));
         m.put(AppPrefs.K_UI_FONT, AppPrefs.uiFont(prefs));
         m.put(AppPrefs.K_SUB_COLOR_HEX, prefs.getString(AppPrefs.K_SUB_COLOR_HEX, ""));
-        m.put(AppPrefs.K_SUB_OUTLINE, prefs.getInt(AppPrefs.K_SUB_OUTLINE, 0));
+        m.put(AppPrefs.K_SUB_OUTLINE, AppPrefs.safeGetInt(prefs, AppPrefs.K_SUB_OUTLINE, 0));
         m.put(AppPrefs.K_SUB_SHADOW, prefs.getBoolean(AppPrefs.K_SUB_SHADOW, false));
         m.put(AppPrefs.K_OMNIBAR_POS, prefs.getString(AppPrefs.K_OMNIBAR_POS, "bottom"));
-        m.put(AppPrefs.K_SPEEDDIAL_COLS, prefs.getInt(AppPrefs.K_SPEEDDIAL_COLS, 3));
+        m.put(AppPrefs.K_SPEEDDIAL_COLS, AppPrefs.safeGetInt(prefs, AppPrefs.K_SPEEDDIAL_COLS, 3));
         m.put(AppPrefs.K_SEARCH_ENGINE, prefs.getString(AppPrefs.K_SEARCH_ENGINE, "ddg"));
         m.put(AppPrefs.K_WEB_CUSTOM_UA, prefs.getString(AppPrefs.K_WEB_CUSTOM_UA, ""));
         m.put(AppPrefs.K_READER_DARK, prefs.getBoolean(AppPrefs.K_READER_DARK, true));
@@ -1632,11 +1748,13 @@ public class MainActivity extends FlutterActivity {
         m.put(AppPrefs.K_SHOW_BLOCK_COUNT, prefs.getBoolean(AppPrefs.K_SHOW_BLOCK_COUNT, true));
         m.put(AppPrefs.K_ORIENTATION, prefs.getString(AppPrefs.K_ORIENTATION, "auto"));
         m.put(AppPrefs.K_EXTERNAL_PLAYER, prefs.getString(AppPrefs.K_EXTERNAL_PLAYER, "vlc"));
-        m.put(AppPrefs.K_VOLUME_BOOST, prefs.getInt(AppPrefs.K_VOLUME_BOOST, 100));
-        m.put(AppPrefs.K_SLEEP_TIMER_MS, prefs.getLong(AppPrefs.K_SLEEP_TIMER_MS, -1L));
+        m.put(AppPrefs.K_VOLUME_BOOST, AppPrefs.safeGetInt(prefs, AppPrefs.K_VOLUME_BOOST, 100));
+        // v3.4.6.h — THE TYPE-SAFE LONG READ (the crash site itself): the
+        // v3.4.6.g gatherSettings ran a blind prefs.getLong on a slot the
+        // Dart bridge had stored an Integer into — safeGetLong heals it.
+        m.put(AppPrefs.K_SLEEP_TIMER_MS, AppPrefs.safeGetLong(prefs, AppPrefs.K_SLEEP_TIMER_MS, -1L));
         m.put(AppPrefs.K_SKIP_VERSION, prefs.getString(AppPrefs.K_SKIP_VERSION, ""));
         m.put(AppPrefs.K_WEB_TABS, prefs.getString(AppPrefs.K_WEB_TABS, ""));
-        m.put(AppPrefs.K_MIDNIGHT_DIMMER, AppPrefs.midnightDimmer(prefs));
         m.put(AppPrefs.K_MIDNIGHT_DIMMER, AppPrefs.midnightDimmer(prefs));
         m.put(AppPrefs.K_MIDNIGHT_DIM_PCT, AppPrefs.midnightDimPct(prefs));
         // v3.4.6.b — the Sources & Index Helper's saved URL (backed-up key).
@@ -1958,7 +2076,15 @@ public class MainActivity extends FlutterActivity {
             case "C": return "Settings & Customizations";
             case "D": return "Browser";
             case "E": return "Cinema Player & Subtitles";
-            default: return "Permissions & Privacy";
+            case "F": return "Permissions, Security & Privacy";
+            // v3.4.6.h — THE MISPRINTED HEADER FIX: the old default swept F, G
+            // and every future domain into "Permissions & Privacy" (the
+            // v3.4.6.g report printed "== Domain G — Permissions & Privacy =="
+            // above the deep-systems probes). Each domain carries its OWN
+            // title now.
+            case "G": return "Deep Systems, Thermal & Cast";
+            case "H": return "Live Flutter UI (Dart)";
+            default: return "App Systems";
         }
     }
 
@@ -2019,6 +2145,15 @@ public class MainActivity extends FlutterActivity {
     private DeepProbe.Hooks deepHooks() {
         final android.content.Context ctx = this;
         final SharedPreferences p = prefs;
+        // v3.4.6.h — THE FROZEN WORKER URL (FAIL 47's structural fix): resolve
+        // the user's real worker URL ONCE, before ANY probe mutates prefs —
+        // the live network legs (probe 47) must test the USER'S worker, never
+        // a probe-written placeholder (C13's example.workers.dev).
+        final String frozenWorkerUrl = AppPrefs.workerUrl(p);
+        // v3.4.6.h — the exact sanitized reason behind the last worker HTTP 0
+        // (Law #2: never a cryptic bare "HTTP 0").
+        final java.util.concurrent.atomic.AtomicReference<String> lastWorkerError =
+            new java.util.concurrent.atomic.AtomicReference<>("");
         return new DeepProbe.Hooks() {
             @Override public Map<String, Object> snapshotPrefs() {
                 Map<String, Object> m = new LinkedHashMap<>();
@@ -2039,27 +2174,32 @@ public class MainActivity extends FlutterActivity {
                 ed.commit();   // synchronous: the restore is complete before the run returns
             }
             @Override public void putPref(String key, Object value) {
-                android.content.SharedPreferences.Editor ed = p.edit();
-                if (value instanceof Boolean) ed.putBoolean(key, (Boolean) value);
-                else if (value instanceof Integer) ed.putInt(key, (Integer) value);
-                else if (value instanceof Long) ed.putLong(key, (Long) value);
-                else if (value instanceof String) ed.putString(key, (String) value);
-                else ed.putString(key, String.valueOf(value));
-                ed.commit();
+                // v3.4.6.h — the canonical writer: the deep probe's own
+                // mutation leg can never poison a Long slot with an Integer
+                // (and the G1 audit now PROVES the healing on purpose).
+                AppPrefs.putTyped(p, key, value);
             }
             @Override public Object getPref(String key) {
                 return p.getAll().get(key);
             }
             @Override public boolean receiverUp() { return ReceiverService.isUp(); }
             @Override public boolean armReceiver() {
-                ReceiverService.arm(ctx, "deep-probe");
-                for (int i = 0; i < 20 && !ReceiverService.isUp(); i++) {
-                    try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                // v3.4.6.h — THE RE-ARM RETRY (live Android 36): a start handed
+                // to a service instance that was still tearing down needs one
+                // more kick after the destroy completes. Two bounded attempts,
+                // each verified by BOTH isUp() and a published port; an instance
+                // that truly cannot arm still returns false (an honest FAIL).
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    ReceiverService.arm(ctx, "deep-probe");
+                    for (int i = 0; i < 40 && !ReceiverService.isUp(); i++) {
+                        try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                    }
+                    // v3.4.6.g — "up" is not yet "serving": wait for the published
+                    // port too, so B1/B3/B4 read a receiver that can answer HTTP.
+                    if (ReceiverService.isUp() && awaitPort() > 0) return true;
+                    try { Thread.sleep(300); } catch (InterruptedException ignored) { }
                 }
-                // v3.4.6.g — "up" is not yet "serving": wait for the published
-                // port too, so B1/B3/B4 read a receiver that can answer HTTP.
-                awaitPort();
-                return ReceiverService.isUp();
+                return ReceiverService.isUp() && ReceiverService.port() > 0;
             }
             @Override public boolean stopReceiver() {
                 ReceiverService.requestStop(ctx);
@@ -2184,41 +2324,52 @@ public class MainActivity extends FlutterActivity {
                 return AnantPlayInstaller.canRequestPackageInstalls(ctx);
             }
             @Override public int workerHealthHttp() {
-                // v3.4.6.g — FAIL #47's 8 ms HTTP 0 root fix: the OLD code read
-                // the raw pref — a stored empty/junk "workerUrl" made
-                // base + "/health" a RELATIVE URL, and new URL("/health")
-                // throws MalformedURLException in ~1 ms (catch → 0). The probe
-                // now resolves through AppPrefs.workerUrl()'s normalizer, the
-                // SAME accessor the subtitle pipeline uses — an empty or
-                // non-https stored value falls back to the default worker.
-                String base = AppPrefs.workerUrl(p);
+                // v3.4.6.h — THE FROZEN WORKER URL: deepHooks() is constructed
+                // BEFORE any probe mutates prefs, so this hook resolves the
+                // USER'S REAL worker URL once, at construction (the v3.4.6.g
+                // 5 ms HTTP 0 root cause: probe C13 wrote a probe URL into
+                // K_WORKER_URL mid-run and the full-snapshot restore only ran
+                // at the END — probe 47 then DNS-failed on the nonexistent
+                // worker.example.workers.dev in ~5 ms and reported a broken
+                // worker on a perfectly healthy phone).
                 try {
-                    // v3.4.6.f — 5 s connect / 6 s read (the honest-run cap:
-                    // every network probe capped so the WHOLE troubleshoot
-                    // finishes < 12 s; the v3.4.6.e leg stalled 32,891 ms).
                     java.net.HttpURLConnection c = (java.net.HttpURLConnection)
-                        new java.net.URL(base + "/health").openConnection();
+                        new java.net.URL(frozenWorkerUrl + "/health").openConnection();
                     c.setConnectTimeout(5000); c.setReadTimeout(6000);
                     int code = c.getResponseCode();
                     c.disconnect();
                     return code;
-                } catch (Throwable t) { return 0; }
+                } catch (Throwable t) {
+                    lastWorkerError.set(t.getClass().getName()
+                        + (t.getMessage() == null ? "" : ": " + briefWorkerError(t.getMessage())));
+                    return 0;
+                }
             }
             @Override public int workerResolveHttp() {
                 // v3.4.6.f — THE REAL SUBTITLE-RESOLUTION LEG (probe 47's
                 // second half): /api/resolve?title=The+Odyssey, same 5 s/6 s
                 // caps, honestly reported (0 = unreachable → the probe
-                // FAILS, never a fake PASS).
-                // v3.4.6.g — same normalizer fix as workerHealthHttp.
-                String base = AppPrefs.workerUrl(p);
+                // FAILS, never a fake PASS). v3.4.6.h — frozen URL + the
+                // EXACT exception class/reason for the report.
                 try {
                     java.net.HttpURLConnection c = (java.net.HttpURLConnection)
-                        new java.net.URL(base + "/api/resolve?title=The+Odyssey").openConnection();
+                        new java.net.URL(frozenWorkerUrl + "/api/resolve?title=The+Odyssey").openConnection();
                     c.setConnectTimeout(5000); c.setReadTimeout(6000);
                     int code = c.getResponseCode();
                     c.disconnect();
                     return code;
-                } catch (Throwable t) { return 0; }
+                } catch (Throwable t) {
+                    lastWorkerError.set(t.getClass().getName()
+                        + (t.getMessage() == null ? "" : ": " + briefWorkerError(t.getMessage())));
+                    return 0;
+                }
+            }
+            @Override public String workerLastError() {
+                // v3.4.6.h — the EXACT sanitized reason the last worker leg
+                // failed with ("java.net.UnknownHostException: Unable to
+                // resolve host …"), so Probe 47 can NEVER print a cryptic
+                // bare "HTTP 0" again (LAW #2: 100% honest diagnostics).
+                return lastWorkerError.get();
             }
             @Override public java.util.List<String> crashTopLines() {
                 // v3.4.6.f — THE CRASH GATE's live data: CrashLog.read() for
@@ -2246,7 +2397,13 @@ public class MainActivity extends FlutterActivity {
                 return new boolean[]{t1, t2};
             }
             @Override public boolean forceGateArmed() {
-                return lastGatePayload != null;
+                // v3.4.6.h — GUARANTEE #5 (Probe 5's honest verdict): armed
+                // IFF a STRICTLY-newer release is actually known (persisted
+                // required version or verified pending APK). The v3.4.6.g hook
+                // answered lastGatePayload != null — an uptodate/failed blob
+                // counted as "armed" and Probe 5 printed a false "gate armed
+                // (update pending)" on a fully up-to-date phone.
+                return SelfUpdater.isGateArmed(MainActivity.this);
             }
             @Override public int missingChannelHandlers() {
                 // v3.4.6.f — GAP #4: the LIVE registry of notImplemented calls
@@ -2296,6 +2453,13 @@ public class MainActivity extends FlutterActivity {
         };
     }
 
+    /** v3.4.6.h — one sanitized line of a worker failure message (≤ 110 chars,
+     *  single line — the shape Probe 47's report line carries). */
+    private static String briefWorkerError(String message) {
+        String one = message.replace('\n', ' ').replace('\r', ' ').trim();
+        return one.length() <= 110 ? one : one.substring(0, 110) + "…";
+    }
+
     private String probeJson(List<FeatureProbe.Outcome> outcomes) {
         StringBuilder sb = new StringBuilder("[");
         boolean first = true;
@@ -2334,6 +2498,7 @@ public class MainActivity extends FlutterActivity {
     protected void onDestroy() {
         instance = null;
         stopOverlayWatcher();          // v3.4.6.d — never leak the 500 ms poll
+        unregisterOnlineTrigger();     // v3.4.6.h — never leak the network callback
         if (playerBridge != null) playerBridge.dispose();
         SelfUpdater.setUiListener(null);
         super.onDestroy();
