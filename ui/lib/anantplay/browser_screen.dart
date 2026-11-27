@@ -80,13 +80,38 @@ class _BrowserScreenState extends State<BrowserScreen> {
   bool _dockOpen = true;
   Brightness? _appliedTheme;
 
+  /// v3.4.6.k — THE ZERO-AD YOUTUBE LANE: the last verified ad-free payload
+  /// (url + captions + SponsorBlock segments) pushed by YouTubeExtractor —
+  /// the dock lights up `▶ Play Ad-Free in Cinema` for it.
+  Map<dynamic, dynamic>? _yt;
+
   @override
   void initState() {
     super.initState();
     // StreamSniffer hits arrive on the shell route channel with t='sniff'.
+    // v3.4.6.k — t='sniff-clear' folds the stale banner on every navigation
+    // (Part_04 05:35: a previous page's stream NEVER lingers again), and
+    // t='yt' carries the verified ad-free YouTube payload.
     _hitSub = AnantPlay.instance.shellRoutes().listen((m) {
-      if (m['t'] == 'sniff' && mounted) {
+      if (!mounted) return;
+      if (m['t'] == 'sniff') {
         setState(() => _hits = [..._hits, m]);
+      } else if (m['t'] == 'sniff-clear') {
+        setState(() {
+          _hits = const [];
+          _yt = null;
+        });
+      } else if (m['t'] == 'yt') {
+        try {
+          final inner = m['url'] is String && (m['url'] as String).isNotEmpty
+              ? jsonDecode(m['url'] as String)
+              : null;
+          if (inner is Map && (inner['url'] as String?)?.isNotEmpty == true) {
+            setState(() => _yt = inner);
+          }
+        } on FormatException {
+          debugPrint('yt payload parse failed');
+        }
       }
     });
     if (widget.initialUrl != null && widget.initialUrl!.isNotEmpty) {
@@ -176,12 +201,23 @@ class _BrowserScreenState extends State<BrowserScreen> {
                     child: _CaptureDock(
                       hits: _hits,
                       open: _dockOpen,
+                      yt: _yt,
                       onToggle: () => setState(() => _dockOpen = !_dockOpen),
                       onPlay: (url, title, headers) {
                         // v3.4.6.c — a sniffed stream opens the MORNYE CINEMA
                         // PLAYER in the shell (was: the raw Java PlayActivity).
                         ShellRootState.of(context).pushPlayer(
                             PlayRequest(url: url, title: title, headers: headers));
+                      },
+                      onPlayAdFree: (url, title, captionUrl, segments) {
+                        // v3.4.6.k — the ZERO-AD YouTube lane: the ad-free muxed
+                        // stream + YouTube captions (auto-translated to Sinhala
+                        // in-player) + SponsorBlock auto-skip, straight into the
+                        // native hardware cinema player.
+                        AnantPlay.instance.playAdFreeCinema(url,
+                            title: title,
+                            captionUrl: captionUrl,
+                            segments: segments);
                       },
                       onTranslate: () {
                         // v3.4.6.g — the NewZone Translator Automation lane: the
@@ -732,9 +768,29 @@ class _SourceRow extends StatelessWidget {
     final description = (source['description'] as String?) ?? '';
     return InkWell(
       borderRadius: BorderRadius.circular(10),
-      // Tapping opens the source's own URL in the browser tab (the native
-      // lane keeps every hardened setting for the page).
-      onTap: url.isNotEmpty ? () => AnantPlay.instance.openNativeWeb(url) : null,
+      // v3.4.6.k — THE M3U INTERCEPT: an IPTV playlist link (`.m3u`/`.m3u8`,
+      // e.g. the Sri Lanka IPTV Playlist) opens the searchable IN-APP IPTV
+      // CHANNEL SHEET — never a raw `#EXTM3U` text dump in the WebView
+      // (Part_04 04:45). Every other URL opens in the browser tab as before.
+      onTap: url.isNotEmpty
+          ? () {
+              if (isM3uUrl(url)) {
+                showModalBottomSheet<void>(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor:
+                      Theme.of(context).colorScheme.surfaceContainerHigh,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.vertical(top: Radius.circular(28)),
+                  ),
+                  builder: (_) => _IptvSheet(playlistUrl: url),
+                );
+              } else {
+                AnantPlay.instance.openNativeWeb(url);
+              }
+            }
+          : null,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
         child: Row(
@@ -865,6 +921,223 @@ class _AddIndexCardState extends State<_AddIndexCard> {
   }
 }
 
+/// One parsed #EXTINF channel of an IPTV playlist.
+class IptvChannel {
+  const IptvChannel(this.name, this.url, {this.offline = false});
+  final String name;
+  final String url;
+  final bool offline;
+}
+
+/// v3.4.6.k — THE M3U PLAYLIST PARSER (Part_04 04:45): `#EXTM3U` bodies parse
+/// into clean channel rows (name from `#EXTINF:-1 tvg-id="…" …,NAME`,
+/// url = the next non-comment line). A `tvg-status="off"` / `offline` /
+/// `down` attr marks the channel offline (the sheet's Hide offline filter).
+List<IptvChannel> parseM3u(String body) {
+  final out = <IptvChannel>[];
+  var pendingName = '';
+  var pendingOffline = false;
+  for (var line in body.split('\n')) {
+    line = line.trim();
+    if (line.isEmpty) continue;
+    if (line.startsWith('#EXTINF')) {
+      final comma = line.lastIndexOf(',');
+      pendingName = comma >= 0 && comma + 1 < line.length
+          ? line.substring(comma + 1).trim()
+          : '';
+      final lower = line.toLowerCase();
+      pendingOffline = lower.contains('tvg-status="off"') ||
+          lower.contains('offline') && !line.toLowerCase().contains('online');
+    } else if (line.startsWith('#')) {
+      continue; // #EXTM3U / #EXTVLCOPT / #EXTGRP …
+    } else if (pendingName.isNotEmpty || out.isEmpty) {
+      out.add(IptvChannel(
+          pendingName.isEmpty ? 'Channel ${out.length + 1}' : pendingName,
+          line,
+          offline: pendingOffline));
+      pendingName = '';
+      pendingOffline = false;
+    }
+  }
+  return out;
+}
+
+/// v3.4.6.k — TRUE when a URL is an IPTV playlist link (parsed in-app, never
+/// dumped raw into the WebView).
+bool isM3uUrl(String url) {
+  final u = url.toLowerCase();
+  return u.endsWith('.m3u') || u.endsWith('.m3u8') ||
+      (u.contains('.m3u?') || u.contains('.m3u8?'));
+}
+
+/// v3.4.6.k — THE IN-APP IPTV CHANNEL SHEET: a searchable, filterable list of
+/// the playlist's channels — tapping one opens it straight in the native
+/// AnantPlay Cinema Player (never a raw #EXTM3U text dump in the WebView).
+class _IptvSheet extends StatefulWidget {
+  const _IptvSheet({required this.playlistUrl});
+
+  final String playlistUrl;
+
+  @override
+  State<_IptvSheet> createState() => _IptvSheetState();
+}
+
+class _IptvSheetState extends State<_IptvSheet> {
+  List<IptvChannel> _channels = const [];
+  String _error = '';
+  String _query = '';
+  bool _hideOffline = true;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final result = await AnantPlay.instance.fetchUrl(widget.playlistUrl);
+    if (!mounted) return;
+    if (result.body.isEmpty) {
+      setState(() {
+        _loading = false;
+        _error = result.error.isEmpty ? 'unreachable' : result.error;
+      });
+      return;
+    }
+    final channels = parseM3u(result.body);
+    setState(() {
+      _loading = false;
+      _channels = channels;
+      _error =
+          channels.isEmpty ? 'no #EXTINF entries in this playlist' : '';
+    });
+  }
+
+  void _play(IptvChannel ch) {
+    ShellRootState.of(context)
+        .pushPlayer(PlayRequest(url: ch.url, title: ch.name));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final filtered = _channels
+        .where((c) =>
+            (!_hideOffline || !c.offline) &&
+            (_query.isEmpty ||
+                c.name.toLowerCase().contains(_query.toLowerCase())))
+        .toList();
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.82,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('IPTV Channels',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: scheme.onSurface)),
+                const SizedBox(height: 4),
+                Text(
+                  '${_channels.isEmpty ? "" : "${filtered.length} of ${_channels.length} · "}'
+                  'Sri Lanka IPTV Playlist — tap a channel to watch',
+                  style:
+                      TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        onChanged: (q) => setState(() => _query = q),
+                        decoration: InputDecoration(
+                          hintText: 'Search channels · නාලිකා සොයන්න',
+                          prefixIcon: const Icon(mi.Icons.search_rounded,
+                              size: 20),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide.none,
+                          ),
+                          filled: true,
+                          fillColor:
+                              scheme.surfaceContainerHighest.withValues(
+                                  alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      label: Text(
+                          'Hide offline: ${_hideOffline ? 'On' : 'Off'}',
+                          style: const TextStyle(fontSize: 11)),
+                      selected: _hideOffline,
+                      onSelected: (v) => setState(() => _hideOffline = v),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error.isNotEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(_error,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
+                                  fontSize: 13)),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+                        itemCount: filtered.length,
+                        itemBuilder: (_, i) {
+                          final ch = filtered[i];
+                          return ListTile(
+                            dense: true,
+                            leading: Icon(
+                                ch.offline
+                                    ? mi.Icons.videocam_off_rounded
+                                    : mi.Icons.live_tv_rounded,
+                                size: 22,
+                                color: ch.offline
+                                    ? scheme.onSurfaceVariant
+                                    : scheme.primary),
+                            title: Text(ch.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w600)),
+                            trailing: Icon(mi.Icons.play_arrow_rounded,
+                                size: 20, color: scheme.primary),
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              _play(ch);
+                            },
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The floating dock: shows the newest sniffed stream with a 1-tap Play, the
 /// NewZone Auto-Translate helper pill, and the shield badge (blocked
 /// ad/tracker count) — Mornye glass over the page.
@@ -874,19 +1147,44 @@ class _CaptureDock extends StatelessWidget {
     required this.open,
     required this.onToggle,
     required this.onPlay,
+    required this.onPlayAdFree,
     required this.onTranslate,
+    this.yt,
   });
 
   final List<Map<dynamic, dynamic>> hits;
   final bool open;
+  final Map<dynamic, dynamic>? yt;
   final VoidCallback onToggle;
   final void Function(String url, String title, String headers) onPlay;
+
+  /// v3.4.6.k — the ZERO-AD YouTube lane: (streamUrl, title, captionUrl,
+  /// sponsorSegments) — `▶ Play Ad-Free in Cinema`.
+  final void Function(String url, String title, String? captionUrl,
+      List<Map<dynamic, dynamic>>? segments) onPlayAdFree;
   final VoidCallback onTranslate;
+
+  /// The `kind · host` label (v3.4.6.k: NEVER the full URL — the Part_04
+  /// `strea…` truncation came from dumping the whole stream URL here).
+  static String hostOf(String url) {
+    if (url.isEmpty) return '';
+    try {
+      final u = Uri.parse(url);
+      return u.host.isEmpty ? url : u.host;
+    } on FormatException {
+      return url.length > 26 ? url.substring(0, 26) : url;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final newest = hits.isEmpty ? null : hits.last;
+    // v3.4.6.k — the ad-free YouTube payload replaces the sniffed row while
+    // it is live (the ad-free lane IS the thing to play on a YouTube page).
+    final yt = this.yt;
+    final ytUrl = (yt?['url'] as String?) ?? '';
+    final hasYt = ytUrl.isNotEmpty;
     return Material(
       color: scheme.surfaceContainerHigh.withValues(alpha: 0.9),
       borderRadius: BorderRadius.circular(22),
@@ -901,26 +1199,22 @@ class _CaptureDock extends StatelessWidget {
                   size: 20, color: scheme.primary),
               const SizedBox(width: 10),
               Expanded(
-                child: newest == null
-                    ? Text(
-                        'Open a cinema site — sniffed streams appear here',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: scheme.onSurfaceVariant,
-                            fontSize: 12.5),
-                      )
-                    : GestureDetector(
-                        onTap: () => onPlay(
-                          (newest['url'] ?? '') as String,
-                          (newest['title'] ?? '') as String,
-                          (newest['headers'] ?? '') as String,
+                child: hasYt
+                    // v3.4.6.k — `▶ Play Ad-Free in Cinema`: the verified
+                    // ad-free YouTube payload (stream + captions + segments).
+                    ? GestureDetector(
+                        onTap: () => onPlayAdFree(
+                          ytUrl,
+                          (yt?['title'] as String?) ?? '',
+                          (yt?['captionUrl'] as String?) ?? '',
+                          (yt?['segments'] as List?)
+                                  ?.cast<Map<dynamic, dynamic>>().toList(),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${newest['kind'] ?? 'stream'} · ${(newest['url'] ?? '')}',
+                              'Ad-free YouTube · ${yt?['quality'] ?? 'stream'}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -930,19 +1224,82 @@ class _CaptureDock extends StatelessWidget {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Tap to play in the Mornye Cinema Player',
+                              'Auto Sinhala subtitles · sponsor segments auto-skipped',
                               style: TextStyle(
                                   color: scheme.onSurfaceVariant,
                                   fontSize: 10.5),
                             ),
                           ],
                         ),
-                      ),
+                      )
+                    : newest == null
+                        ? Text(
+                            'Open a cinema site — sniffed streams appear here',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: scheme.onSurfaceVariant,
+                                fontSize: 12.5),
+                          )
+                        : GestureDetector(
+                            onTap: () => onPlay(
+                              (newest['url'] ?? '') as String,
+                              (newest['title'] ?? '') as String,
+                              (newest['headers'] ?? '') as String,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${newest['kind'] ?? 'stream'} · ${hostOf((newest['url'] ?? '') as String)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      color: scheme.onSurface,
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Tap to play in the AnantPlay Cinema Player',
+                                  style: TextStyle(
+                                      color: scheme.onSurfaceVariant,
+                                      fontSize: 10.5),
+                                ),
+                              ],
+                            ),
+                          ),
               ),
-              if (newest != null)
+              if (hasYt)
+                // v3.4.6.k — THE GLOWING `▶ Play Ad-Free in Cinema` PILL.
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: [
+                      BoxShadow(
+                        color: scheme.primary.withValues(alpha: 0.45),
+                        blurRadius: 18,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  child: FilledButton.tonalIcon(
+                    icon:
+                        const Icon(mi.Icons.play_arrow_rounded, size: 18),
+                    label: const Text('Play Ad-Free in Cinema'),
+                    onPressed: () => onPlayAdFree(
+                      ytUrl,
+                      (yt?['title'] as String?) ?? '',
+                      (yt?['captionUrl'] as String?) ?? '',
+                      (yt?['segments'] as List?)
+                              ?.cast<Map<dynamic, dynamic>>().toList(),
+                    ),
+                  ),
+                )
+              else if (newest != null)
                 // v3.4.6.g — THE GLOWING 1-TAP PILL: `Play in Cinema` with a
                 // live accent glow (the exact stream, Referer + Cookie + UA
-                // captured by StreamSniffer, opens the Mornye Cinema Player).
+                // captured by StreamSniffer, opens the AnantPlay Cinema Player).
                 Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(22),

@@ -172,6 +172,17 @@ public class App extends Application {
         } catch (Throwable t) {
             Diag.w("app", "self-update schedule: " + t);
         }
+
+        // v3.4.6.k — LAW #1: THE SIGNED JSON OTA SYNC (ota/v1/manifest.json).
+        // Single-flight, 5 s deadline, both-CDN consensus + SHA-256 verified,
+        // fully silent: Subtitle Bridge mirrors, default Sri Lanka index feeds,
+        // ad-block rules and the 7-day local SRT cache policy stay fresh
+        // between releases. Fail-closed: the pinned defaults simply remain.
+        try {
+            OtaConfigSync.sync(this);
+        } catch (Throwable t) {
+            Diag.w("app", "ota sync: " + t);
+        }
     }
 
     // ── v3.1.0: the SILENT self-update notifications (channel: si-updates-silent) ──

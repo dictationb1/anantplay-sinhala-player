@@ -136,6 +136,9 @@ class SettingsMirror {
   static const kMidnightDimmer = 'midnightDimmer';
   static const kMidnightDimPct = 'midnightDimPct';
   static const kIndexUrl = 'indexUrl';
+
+  /// v3.4.6.k — the Multi-Index URL Manager's storage ("name|url" lines).
+  static const kIndexUrls = 'indexUrlsList';
   static const kContinueWatching = 'continueWatching';
 
   // ── v3.4.6.c — the advanced customization keys (AppPrefs 1:1) ───────────
@@ -158,6 +161,15 @@ class SettingsMirror {
   static const kWorkerUrl = 'workerUrl';
   /// v3.4.6.d — the subtitle pipeline's default language (AppPrefs.K_DEFAULT_LANG).
   static const kDefaultLang = 'defaultLang';
+  /// v3.4.6.k — THE SIGNED OTA CONFIG CHANNEL (AppPrefs.K_OTA_* — written by
+  /// OtaConfigSync only after both-CDN consensus + the payload SHA-256
+  /// verify; read by Settings' About & Storage pages so the remote config
+  /// state is always visible, never a silent hidden pref).
+  static const kOtaBridgeMirrors = 'otaBridgeMirrors';
+  static const kOtaIndexFeeds = 'otaIndexFeeds';
+  static const kOtaAdRules = 'otaAdRules';
+  static const kOtaSubCacheDays = 'otaSubCacheDays';
+  static const kOtaSyncAt = 'otaSyncAt';
 
   String get themeMode => s(kThemeMode, 'dark');
   bool get dynamicColor => b(kDynamicColor, false);
@@ -182,4 +194,28 @@ class SettingsMirror {
 
   /// v3.4.6.b — the Sources & Index Helper's saved URL (AppPrefs.DEFAULT_INDEX_URL).
   String get indexUrl => s(kIndexUrl, 'https://raw.githubusercontent.com/AnantPlay/index/main/index.json');
+
+  // ── v3.4.6.k — the signed OTA config channel (typed readers) ──────────────
+
+  /// The newline-joined VERIFIED bridge mirrors ('' = pinned defaults).
+  String get otaBridgeMirrors => s(kOtaBridgeMirrors, '');
+
+  /// The newline-joined VERIFIED index feeds ('' = pinned defaults).
+  String get otaIndexFeeds => s(kOtaIndexFeeds, '');
+
+  /// The newline-joined VERIFIED ad-block rules ('' = pinned defaults).
+  String get otaAdRules => s(kOtaAdRules, '');
+
+  /// The local subtitle SRT cache TTL in days (OTA-managed, 1..30, default 7).
+  int get otaSubCacheDays => i(kOtaSubCacheDays, 7).clamp(1, 30);
+
+  /// Wall-clock ms of the last VERIFIED manifest application (0 = never).
+  int get otaSyncAtMs => i(kOtaSyncAt, 0);
+
+  /// True once one signed manifest has been verified and applied.
+  bool get otaSynced => otaSyncAtMs > 0;
+
+  /// The number of non-blank lines in a newline-joined list (0 for '').
+  static int lineCount(String joined) =>
+      joined.split('\n').where((l) => l.trim().isNotEmpty).length;
 }

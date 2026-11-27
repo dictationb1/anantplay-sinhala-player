@@ -198,6 +198,49 @@ public class PlayActivity extends Activity {
         }
     }
 
+    /**
+     * v3.4.6.k — THE BAL-ALLOWED NATIVE CINEMA LAUNCH (the DLNA cast fix,
+     * Part_05 02:06–02:12). A DLNA SetAVTransportURI / HTTP /play arrives on
+     * the ReceiverService worker thread while THIS app is backgrounded (the
+     * phone sits on the sender app or the Home screen); Android 14–16
+     * silently drops a plain startActivity() from that state. The launch now
+     * rides a PendingIntent carrying
+     * ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED (API 34+) with
+     * NEW_TASK | SINGLE_TOP | CLEAR_TOP | REORDER_TO_FRONT — landing on
+     * PLAYACTIVITY (the native hardware cinema), never MainActivity. Below
+     * API 34 the same PendingIntent is still the most launch-permissive lane
+     * available (the SAW grant covers the rest).
+     */
+    static void launchBal(android.content.Context c, String url, String title,
+                          String headersJson, boolean test, long startMs) {
+        android.content.Intent i = new android.content.Intent(c, PlayActivity.class)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                        | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                .putExtra("url", url == null ? "" : url)
+                .putExtra("title", title == null ? "" : title)
+                .putExtra("headers", headersJson == null ? "" : headersJson)
+                .putExtra("startMs", startMs);
+        if (test) i.putExtra("test", true);
+        try {
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+                    c, 0x6B70, i,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                            | android.app.PendingIntent.FLAG_IMMUTABLE,
+                    MainActivity.balAllowedOptions());
+            pi.send();
+            Diag.i("player", "BAL-allowed native cinema launch sent");
+        } catch (Throwable t) {
+            Diag.w("player", "bal native launch: " + t + " — falling back to direct");
+            try {
+                c.startActivity(i);
+            } catch (Throwable t2) {
+                Diag.w("player", "native launch fallback: " + t2);
+            }
+        }
+    }
+
     public static boolean canReadSharedMedia(Context c) {
         String p = Build.VERSION.SDK_INT >= 33 ? "android.permission.READ_MEDIA_VIDEO" : "android.permission.READ_EXTERNAL_STORAGE";
         return c.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED;
@@ -292,6 +335,13 @@ public class PlayActivity extends Activity {
     /** AnantPlay's cast payload `subs` URLs — side-loaded subtitle files the phone
      *  player already had (Cast.describe forwards every StringArrayList extra). */
     private java.util.ArrayList<String> castSubs;
+
+    // ══ v3.4.6.k — THE ZERO-AD YOUTUBE CINEMA LANE (LAW #3) ══════════════════
+    /** The YouTube timedtext track URL (auto-translated to Sinhala in-player). */
+    private String ytCaptionUrl;
+    /** SponsorBlock auto-skip segment bounds in MS: [s0,e0,s1,e1,…]. */
+    private double[] ytSegments;
+    private volatile boolean ytCuesApplied;
 
     private volatile List<Cue> cues = new ArrayList<>();
     private volatile long subDelayMs;                  // the ±nudge display offset
@@ -489,7 +539,9 @@ public class PlayActivity extends Activity {
         // v2.2: the user's default subtitle language (si default)
         activeLang = Langs.isKnown(prefs.getString("defaultLang", null)) ? prefs.getString("defaultLang", Langs.DEFAULT) : Langs.DEFAULT;
         store = new SubtitleStore(getFilesDir());
-        api = new BridgeApi(prefs.getString("workerUrl", BridgeApi.DEFAULT_WORKER_URL));
+        // v3.4.6.k — the OTA multi-mirror bridge: the verified manifest's
+        // mirror #1 is the base unless the user set their own worker URL.
+        api = new BridgeApi(OtaConfigSync.workerUrl(prefs));
         // v3.4.0 - real weight 400 from the subset; falls back safely, never crashes.
         siFont = UiTokens.si(this, false);
         siFontSemi = UiTokens.si(this, true);
@@ -506,6 +558,51 @@ public class PlayActivity extends Activity {
         // 3.4.4 engine, revived as THE player).
         Diag.i("player", "pure native hardware cinema (Impeller suspended · "
                 + launchSource() + ")");
+
+        // ══ v3.4.6.k — THE BLANK-DARK-SCREEN SHOWSTOPPER FIX (Part_04 04:50,
+        // Part_05 03:29) ════════════════════════════════════════════════════
+        // v3.4.6.j removed the zero-UI router trampoline from onCreate() but
+        // never restored the launch sequence the native engine needs: buildUi()
+        // (setContentView) and startPlayback() were never invoked, so the
+        // Activity opened with ZERO content view — the 100% blank dark screen
+        // with no video and no controls the audit caught on BOTH "Test Player"
+        // AND "Play in Cinema". The v3.4.6.c field-proven sequence is restored
+        // verbatim below: buildUi FIRST (SurfaceView + HUD + spinner + error
+        // card), then the engine, the ticker and the subtitle pipeline.
+        acceptCast(castKeyOf(getIntent() == null ? null : getIntent().getStringExtra("castJson"), url));
+        recoverTitleFromCast();   // v3.4.1 — a junk title may still carry the real slug
+        if (url == null) {        // nothing playable — leave cleanly, no half UI
+            Diag.e("player", "no playable url — closing");
+            finish();
+            return;
+        }
+        buildUi();                                  // ← the missing setContentView
+        if (titleIsJunk) promptJunkTitle();         // v3.4.1 — the 1-tap intro prompt
+        startPlayback();                            // ← the missing engine start
+        startTicker();                              // HUD clock + /status pump
+        applyVolumeBoost();
+        armSleepTimer(AppPrefs.sleepTimerMs(prefs));
+        Troubleshooter.record("PLAYER", "launch source=" + launchSource()
+            + " · title=\"" + (title == null ? "" : title) + "\" · state=open");
+        // the never-silent launch pill: the subtitle pipeline is ALIVE from the
+        // very first frame ("… ලබාගනිමින්…" → "✓ සූදානම්" once cues land).
+        if (!testMode) {
+            if (titleIsJunk) {
+                setState("not-found", Chrome.pick("චිත්‍රපටයේ නම හඳුනාගත නොහැක — තට්ටු කර සොයන්න · tap to search the movie name"));
+            } else {
+                setState("fetching", Chrome.pick("සිංහල උපසිරැසි ලබාගනිමින්… · fetching Sinhala subtitles…"));
+            }
+        }
+        main.postDelayed(() -> { expectTakeover = false; armAutoPip(); }, 3000);
+        // v3.4.6.k — the zero-ad YouTube lane: the timedtext caption track
+        // replaces the title-based search (the captions ARE the subtitle source)
+        // and the SponsorBlock auto-skip rides the ticker.
+        if (ytCaptionUrl != null && !ytCaptionUrl.isEmpty()) {
+            startYouTubeCaptions();
+        } else if (!titleIsJunk && (testMode || prefs.getBoolean("autoFetch", true))) {
+            fetchSinhala();
+        }
+        Diag.i("player", "open: " + title + " · " + url);
     }
 
     /** v3.1.2 — the structured launch source for the Troubleshooter timeline. */
@@ -541,6 +638,11 @@ public class PlayActivity extends Activity {
             uaHeader = i.getStringExtra("ua");
             refererHeader = i.getStringExtra("referer");
             originHeader = i.getStringExtra("origin");
+            // v3.4.6.k — the zero-ad YouTube lane: the timedtext caption URL
+            // (piped through FreeSubTranslator for live Sinhala subtitles) and
+            // the SponsorBlock auto-skip segments (MS).
+            ytCaptionUrl = i.getStringExtra("ytCaptionUrl");
+            ytSegments = parseYtSegments(i.getStringExtra("ytSegments"));
             titleIsJunk = TitleCleaner.isJunkTitle(title);
             return;
         }
@@ -629,6 +731,11 @@ public class PlayActivity extends Activity {
     @Override
     protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
+        // v3.4.6.k — signal the /play watchdog the instant a re-target opens
+        // here too (a bare second cast must never falsely time out).
+        try {
+            ReceiverService.markPlayerOpened(i.getStringExtra("url"));
+        } catch (Throwable ignored) { }
         // singleTask: a second cast (or the takeover reorder) lands here on the live
         // instance. A bare intent (the takeover) just brings us forward; only a
         // genuinely new payload rebuilds the player — no stale stream, no double audio.
@@ -686,7 +793,13 @@ public class PlayActivity extends Activity {
             recoverTitleFromCast();   // v3.4.1 — re-cast: recover the real name again
             if (url != null) {
                 startPlayback();
-                if (!titleIsJunk) fetchSinhala();
+                // v3.4.6.k — a fresh YouTube lane re-pipes its captions too
+                if (ytCaptionUrl != null && !ytCaptionUrl.isEmpty()) {
+                    ytCuesApplied = false;
+                    startYouTubeCaptions();
+                } else if (!titleIsJunk) {
+                    fetchSinhala();
+                }
             } else {
                 Diag.w("player", "re-cast had no playable url — resuming the previous stream");
                 url = prevUrl;
@@ -1890,6 +2003,109 @@ public class PlayActivity extends Activity {
         setState("ready", "test cues");
     }
 
+    // ═════════════════════════════════════════════════════════════════════════
+    // v3.4.6.k — THE ZERO-AD YOUTUBE CAPTION LANE (LAW #3): timedtext json3 →
+    // cues → FreeSubTranslator → live Sinhala subtitles + the SponsorBlock
+    // auto-skip segments. Zero YouTube player, zero ad server.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /** "[{start:1.5,end:9.2,category:sponsor},…]" (seconds) → [s0,e0,s1,e1,…] ms. */
+    static double[] parseYtSegments(String json) {
+        if (json == null || json.isEmpty()) return null;
+        try {
+            java.util.List<Object> arr = MiniJson.arr(MiniJson.parse(json));
+            java.util.List<Double> out = new ArrayList<>();
+            for (Object o : arr) {
+                if (!(o instanceof Map)) continue;
+                Map<String, Object> m = (Map<String, Object>) o;
+                Number s = MiniJson.num(m, "start"), e = MiniJson.num(m, "end");
+                if (s == null || e == null || e.doubleValue() <= s.doubleValue()) continue;
+                out.add(s.doubleValue() * 1000d);
+                out.add(e.doubleValue() * 1000d);
+            }
+            if (out.isEmpty()) return null;
+            double[] a = new double[out.size()];
+            for (int i = 0; i < a.length; i++) a[i] = out.get(i);
+            return a;
+        } catch (Throwable t) {
+            Diag.w("yt", "segments parse: " + t);
+            return null;
+        }
+    }
+
+    /** Kick the caption lane off-thread (called right after startPlayback). */
+    private void startYouTubeCaptions() {
+        final String capUrl = ytCaptionUrl;
+        if (capUrl == null || capUrl.isEmpty() || ytCuesApplied) return;
+        final int myGen = fetchGen;
+        new Thread(() -> {
+            try {
+                // 1 — the timedtext json3 body (6 s budget)
+                String u = capUrl + (capUrl.contains("?") ? "&" : "?") + "fmt=json3";
+                byte[] raw = httpGet(u, null);
+                List<Cue> enCues = parseJson3(raw);
+                if (enCues.isEmpty()) {
+                    Diag.w("yt", "caption track empty — Sinhala lane skipped");
+                    return;
+                }
+                if (myGen != fetchGen) return;
+                // 2 — pipe the English cues straight through FreeSubTranslator
+                // for the live Sinhala subtitles (cache-first, batched, ZWJ-safe).
+                main.post(() -> setState("fetching", Chrome.pick(
+                    "YouTube උපසිරැසි සිංහලට පරිවර්තනය වෙමින්… · translating the YouTube captions…"), myGen));
+                FreeSubTranslator.Result r = FreeSubTranslator.translate(
+                        getFilesDir(), enCues, "si", ms -> {
+                            try { Thread.sleep(Math.min(ms, 400)); }
+                            catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                        });
+                if (myGen != fetchGen) return;
+                List<Cue> out = r.cues.isEmpty() ? enCues : r.cues;
+                main.post(() -> {
+                    if (myGen != fetchGen || finished) return;
+                    ytCuesApplied = true;
+                    applyCues(out, r.cues.isEmpty() ? "yt-captions (English)"
+                        : "yt-captions (Sinhala, FreeSubTranslator)");
+                    saveCues("movie:t:" + (title == null ? "" : title.toLowerCase(Locale.ROOT)) + ":0:0:si", out);
+                });
+                Diag.i("yt", "caption lane applied: " + out.size() + " cues ("
+                    + (r.cues.isEmpty() ? "en fallback" : "si translated") + ")");
+            } catch (Throwable t) {
+                Diag.w("yt", "caption lane: " + t);
+            }
+        }, "si-yt-caps").start();
+    }
+
+    /** The YouTube timedtext json3 body → cue list (en text, exact timings). */
+    static List<Cue> parseJson3(byte[] raw) {
+        List<Cue> out = new ArrayList<>();
+        try {
+            Object o = MiniJson.parse(new String(raw, java.nio.charset.StandardCharsets.UTF_8));
+            for (Object ev : MiniJson.arr(MiniJson.objGet(o, "events"))) {
+                if (!(ev instanceof Map)) continue;
+                Map<String, Object> m = (Map<String, Object>) ev;
+                Number t0 = MiniJson.num(m, "tStartMs");
+                Number d = MiniJson.num(m, "dDurationMs");
+                if (t0 == null) continue;
+                long start = t0.longValue();
+                long dur = d == null ? 2000 : d.longValue();
+                StringBuilder text = new StringBuilder();
+                for (Object seg : MiniJson.arr(MiniJson.objGet(m, "segs"))) {
+                    if (seg instanceof Map) {
+                        String s = MiniJson.str((Map<String, Object>) seg, "utf8");
+                        if (s != null) text.append(s);
+                    }
+                }
+                String line = text.toString().replace("\n", " ").trim();
+                if (line.isEmpty()) continue;
+                Cue c = new Cue(out.size(), start, start + dur, null, line, null, null);
+                out.add(c);
+            }
+        } catch (Throwable t) {
+            Diag.w("yt", "json3 parse: " + t);
+        }
+        return out;
+    }
+
     // ───────────────────────────────────────────────────────────────────────────
     // the native renderer — our cues against the player's own position
     // ───────────────────────────────────────────────────────────────────────────
@@ -1900,6 +2116,25 @@ public class PlayActivity extends Activity {
             if (finished) return;
             boolean playing = false;
             try { playing = player != null && player.isPlaying(); } catch (Throwable ignored) { }
+            // ══ v3.4.6.k — THE SPONSORBLOCK AUTO-SKIP (LAW #3) ══════════════════
+            // The zero-ad YouTube lane carries sponsor.ajay.app segments; while
+            // the playhead sits inside one, the player jumps cleanly to its end
+            // (one flash pill, never a seek storm — one skip per segment entry).
+            if (playing && player != null && ytSegments != null && ytSegments.length > 0) {
+                try {
+                    long pos = player.getCurrentPosition();
+                    for (int i = 0; i < ytSegments.length; i += 2) {
+                        if (pos >= ytSegments[i] && pos < ytSegments[i + 1] - 400) {
+                            long to = (long) ytSegments[i + 1];
+                            player.seekTo(to);
+                            flash("sponsor skipped · " + Chrome.pick("වෙළඳ ප්‍රචාරණය මඟ හැරියා"));
+                            Diag.i("yt", "sponsor segment " + (i / 2 + 1) + " skipped ("
+                                + (ytSegments[i] / 1000) + "s → " + (to / 1000) + "s)");
+                            break;
+                        }
+                    }
+                } catch (Throwable ignored) { }
+            }
             if (player != null && !enFallbackOn) {
                 long pos = player.getCurrentPosition() - subDelayMs;
                 Cue hit = null;

@@ -615,13 +615,15 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         // BAL-blocked, not a slow player).
         resetPlayerOpenSignal();
         String castJson = MiniJson.write(body);
-        // v3.4.6.d — ONE UNIFIED PLAYER: the cast opens the Flutter shell's
-        // MORNYE CINEMA PLAYER (PlayerScreen over Media3TextureBridge) through
-        // the shell route pump — was: a raw `new Intent(this, PlayActivity
-        // .class)` that rendered the OLD JAVA PLAYER UI (the v3.4.6.c "two
-        // video players" complaint). MainActivity.shellRoute brings the
-        // shell forward and pushes the route blob; the overlay grant governs
-        // the background-launch exactly as before.
+        // ══ v3.4.6.k — THE DLNA-CAST SHOWSTOPPER FIX (Part_05 02:06–02:12) ══
+        // v3.4.6.j routed /play through PlayActivity.launchNative()'s PLAIN
+        // startActivity() on this (HTTP worker) thread. Backgrounded, Android
+        // 14–16 silently drops that, and the v3.4.6.d-era 800 ms takeover then
+        // brought the FLUTTER SHELL (MainActivity = HomeScreen) to the front on
+        // top of the blank player — the user saw Home, never the movie. The
+        // cast now rides the BAL-ALLOWED PendingIntent lane targeting
+        // PLAYACTIVITY itself (MODE_BACKGROUND_ACTIVITY_START_ALLOWED on API
+        // 34+, NEW_TASK | SINGLE_TOP | CLEAR_TOP | REORDER_TO_FRONT).
         boolean overlay = Settings.canDrawOverlays(this);
         boolean opened = false;
         try {
@@ -632,13 +634,21 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
             String headersJson = MiniJson.str(m, "headers");
             if (castUrl == null || castUrl.isEmpty()) castUrl = url;
             if (castUrl == null) castUrl = "";
-            PlayActivity.trampolineToShell(this, castUrl,
+            PlayActivity.launchBal(this, castUrl,
                 castTitle == null ? (title == null ? "" : title) : castTitle,
-                headersJson == null ? "" : headersJson, false);
+                headersJson == null ? "" : headersJson, false, 0L);
             opened = true;
-            Diag.i("play", "routed into the Mornye shell player");
+            Diag.i("play", "BAL-allowed launch into the native cinema player");
         } catch (Throwable t) {
-            Diag.w("play", "shell route: " + t + " — falling back to the notification");
+            Diag.w("play", "bal native launch: " + t);
+        }
+        if (!opened) {   // the BAL lane refused: the classic direct lane, then the tap notification
+            try {
+                PlayActivity.trampolineToShell(this, url == null ? "" : url,
+                    title == null ? "" : title, "", false);
+            } catch (Throwable t) {
+                Diag.w("play", "direct native launch: " + t);
+            }
         }
         // The wait loop still proves the player session took the screen (the
         // shell's PlayerScreen claims PlayActivity's /status mirror through
@@ -694,21 +704,46 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         lastTakeoverAtMs = now;
         main.postDelayed(() -> {
             try {
-                // v3.4.6.d — the takeover brings the FLUTTER SHELL forward (the
-                // Mornye Cinema Player owns the screen), never the old Java
-                // PlayActivity UI. A bare MainActivity intent reorders the
-                // existing task to the front; the bridge session keeps serving
-                // /status while the shell is on screen.
-                // v3.4.6.g — through the BAL-ALLOWED lane: AnantPlay's Remote
-                // may be in front, which backgrounds us, and a plain
-                // startActivity() from a backgrounded service is silently
-                // dropped by Android 14–16.
-                Diag.i("takeover", "bringing the Mornye shell player to the front");
+                // ══ v3.4.6.k — THE TAKEOVER TARGETS THE NATIVE PLAYER ═════════
+                // v3.4.6.d brought the FLUTTER SHELL (MainActivity) forward —
+                // right when the player lived INSIDE the shell, WRONG since
+                // v3.4.6.j: it opened HomeScreen ON TOP of the just-launched
+                // PlayActivity (the Part_05 02:06 DLNA-cast defect). The
+                // takeover now reorders PLAYACTIVITY itself forward through
+                // the BAL-allowed lane; the shell stays paused at 0% GPU. Only
+                // when PlayActivity has died does it fall back to the shell.
+                if (PlayActivity.current() != null) {
+                    Diag.i("takeover", "bringing the native cinema player to the front");
+                    PlayerTakeover.launchBal(ReceiverService.this);
+                    return;
+                }
+                Diag.i("takeover", "no live player — bringing the shell forward");
                 launchShellBal("takeover");
             } catch (Throwable t) {
                 Diag.w("takeover", "not allowed now: " + t + " — the user can tap the notification");
             }
         }, 800);
+    }
+
+    /** v3.4.6.k — the BAL-allowed bring-forward of the LIVE native player. */
+    static class PlayerTakeover {
+        static void launchBal(android.content.Context c) {
+            try {
+                android.content.Intent i = new android.content.Intent(c, PlayActivity.class)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                                | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+                        c, 0x6B71, i,
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                                | android.app.PendingIntent.FLAG_IMMUTABLE,
+                        MainActivity.balAllowedOptions());
+                pi.send();
+            } catch (Throwable t) {
+                Diag.w("takeover", "player bal: " + t);
+            }
+        }
     }
 
     /** /do — the player actions on the main thread (Cast.onMain's FutureTask), volume direct. */

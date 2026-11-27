@@ -1,0 +1,27 @@
+{
+  "v": 1,
+  "name": "AnantPlay Floor Registry",
+  "status": "scaffolding",
+  "notes": "v3.4.6.k placeholder registry for the v3.5.0 Floor 2 ':anantplay-floor' integration. The runtime does NOT consume this file yet — it pins the contract early so the 3.5.0 floor integration lands as a pure config addition (verified endpoints, no code changes to the probe surface).",
+  "floors": [
+    {
+      "id": "floor-1",
+      "component": "anantplay-sinhala-player (this app)",
+      "role": "Android 16 media receiver + Sinhala subtitle engine + signed OTA self-updater",
+      "since": "3.4.6.k",
+      "active": true
+    },
+    {
+      "id": "floor-2",
+      "component": ":anantplay-floor",
+      "role": "the v3.5.0 in-app floor surface — Official AnantPlay index + subtitle bridge + ad-free extraction, all driven by ota/v1/manifest.json endpoints",
+      "since": "3.5.0",
+      "active": false,
+      "contract": {
+        "endpointsFrom": "docs/ota/manifest.json",
+        "verification": "same signed-JSON law: both-CDN consensus + payload SHA-256",
+        "probe": "DeepProbe Domain F/G extension (floor registry probe)"
+      }
+    }
+  ]
+}

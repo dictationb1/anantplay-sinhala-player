@@ -20,7 +20,7 @@ done
 echo "── jdk: $(javac -version 2>&1) / $(java -version 2>&1 | head -1)"
 
 echo "── compile the lab-only android stub (SharedPreferences — never shipped, never dexed)"
-javac -encoding UTF-8 -nowarn -d lab/out/classes lab/stubs/android/content/SharedPreferences.java
+javac -encoding UTF-8 -nowarn -d lab/out/classes lab/stubs/android/content/SharedPreferences.java lab/stubs/android/content/Context.java
 
 echo "── compile the pure engines + the lab"
 javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes \
@@ -65,6 +65,8 @@ javac -encoding UTF-8 -nowarn -cp lab/out/classes -d lab/out/classes \
   src/lk/techworld/anantplay/sicast/FeatureProbe.java \
   src/lk/techworld/anantplay/sicast/DeepProbe.java \
   src/lk/techworld/anantplay/sicast/AppInfo.java \
+  src/lk/techworld/anantplay/sicast/OtaConfigSync.java \
+  src/lk/techworld/anantplay/sicast/YouTubeExtractor.java \
   lab/ReceiverLab.java
 
 echo "── run the cast-protocol lab (GATING)"

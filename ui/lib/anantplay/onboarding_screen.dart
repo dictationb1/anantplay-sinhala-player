@@ -36,10 +36,29 @@ class OnboardingScreen extends StatefulWidget {
 
 class _OnboardingScreenState extends State<OnboardingScreen>
     with WidgetsBindingObserver {
+  // v3.4.6.k — THE AUTO-RETURN SLIDE-PERSISTENCE FIX (Part_01 00:45/01:15):
+  // the PageController always restored the persisted stage, but `_page` (the
+  // flip-detection + gating index) reset to 0 and a swipe NEVER persisted —
+  // so the 90 s auto-return watcher landing on a REMOUNTED wizard (or any
+  // resume that rebuilt the tree) restarted the user on Slide 1. `_page` now
+  // initializes from the SAME persisted stage, EVERY page change persists it
+  // immediately, and the wizard resumes on the EXACT slide with Enabled ✓.
   late final PageController _pages = PageController(
       initialPage: AppState.of(context).settings.onboardingStage.clamp(0, 5));
-  int _page = 0;
+  late int _page =
+      AppState.of(context).settings.onboardingStage.clamp(0, 5);
   static const _pageCount = 6;
+
+  /// v3.4.6.k — THE FORWARD-SWIPE LOCK GATE: the slides whose OS permission
+  /// is required before the user may advance — 2 Notifications, 3 Overlay,
+  /// 4 Allow App Updates (LAW #1's own grant). Slides 0/1/5 stay free
+  /// (Welcome / an optional install / the guided Sources walk).
+  static bool forwardBlocked(int page, OnboardingStatus s) => switch (page) {
+        2 => !s.notif,
+        3 => !s.overlay,
+        4 => !s.installs,
+        _ => false,
+      };
 
   // the live native permission/install snapshot (resume + on-demand re-query)
   OnboardingStatus _status = OnboardingStatus.unknown;
@@ -186,7 +205,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     AppState.of(context).scope.setOnboardingStage(target);
   }
 
-  void _onPageChanged(int page) => setState(() => _page = page);
+  void _onPageChanged(int page) {
+    setState(() => _page = page);
+    // v3.4.6.k — persist the stage THE INSTANT the slide changes (swipes
+    // included): the auto-return / remount path resumes on the EXACT slide.
+    AppState.of(context).scope.setOnboardingStage(page);
+  }
 
   void _finish() {
     // THE UNBREAKABLE FINISH: synchronous in-memory publish (ShellRoot flips
@@ -264,9 +288,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 child: PageView.builder(
                   controller: _pages,
                   onPageChanged: _onPageChanged,
-                  // FREE left/right swiping across ALL slides, any time.
-                  physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics()),
+                  // v3.4.6.k — THE SETUP-WIZARD LOCKDOWN (Part_01): BACKWARD
+                  // swiping stays free, while FORWARD swiping is completely
+                  // blocked until the CURRENT slide's required OS permission
+                  // is granted (the physics freezes the forward drag AND the
+                  // forward fling; the Back button / dots stay available).
+                  physics: _ForwardBlockedScrollPhysics(
+                    blockForward: forwardBlocked(_page, _status),
+                    parent: const AlwaysScrollableScrollPhysics(),
+                  ),
                   itemCount: _pageCount,
                   itemBuilder: (context, i) => _slide(i),
                 ),
@@ -573,8 +603,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         ),
         const SizedBox(height: 8),
         _pill(
-          label: 'Open AnantPlay',
-          onTap: () => AnantPlay.instance.openOfficialApp(),
+          // v3.4.6.k — renamed per the red-pen audit: the slide-6 CTA starts
+          // the coach walkthrough too (official AnantPlay + the floating
+          // AnantPlayCoachService in one tap).
+          label: 'Open AnantPlay with User Guide',
+          onTap: () => AnantPlay.instance.openOfficialWithCoach(),
           icon: mi.Icons.open_in_new_rounded,
         ),
         const SizedBox(height: 10),
@@ -1184,7 +1217,11 @@ class _WelcomeHeroState extends State<_WelcomeHero>
                     border: Border.all(color: const Color(0x997CE38B)),
                   ),
                   child: const Text(
-                    '5–6 පැයක් · සිසිල් · marathon-cool',
+                    // v3.4.6.k — THE HONEST MARATHON PILL (the video's
+                    // made-up '5–6 පැයක්' marathon claim never survived the
+                    // audit): the truthful battery contract of the hardware
+                    // cinema player.
+                    'Smooth & Battery-Friendly · සිංහල උපසිරැසි',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 8, color: Color(0xFFE4FFE9)),
                   ),
@@ -1937,7 +1974,50 @@ class _SourcesHeroState extends State<_SourcesHero>
 
   static String _stepText(int i) => switch (i) {
         0 => '1. Install AnantPlay',
-        1 => '2. Add Index URL in Sources',
+        // v3.4.6.k — the full pill text fits (the v3.4.6.j ellipsis
+        // truncated it to '2. Add Index URL in Sour…').
+        1 => '2. Add Index in Sources',
         _ => '3. Tap Cast — watch here',
       };
+}
+
+/// v3.4.6.k — THE SETUP-WIZARD FORWARD-SWIPE LOCK PHYSICS (Part_01):
+/// allows swiping BACKWARD (drag right / velocity < 0) freely, while
+/// completely blocking any FORWARD user drag or fling while the current
+/// slide's required OS permission is ungranted. The forward drag offset is
+/// frozen at 0 (the page never moves) and a forward fling is neutralized;
+/// everything else (bounce, backward, ballistic settle) is the parent's.
+class _ForwardBlockedScrollPhysics extends BouncingScrollPhysics {
+  const _ForwardBlockedScrollPhysics({
+    required this.blockForward,
+    super.parent,
+  });
+
+  /// True while the current slide's required permission is NOT granted.
+  final bool blockForward;
+
+  @override
+  _ForwardBlockedScrollPhysics applyTo(ScrollPhysics? ancestor) =>
+      _ForwardBlockedScrollPhysics(
+        blockForward: blockForward,
+        parent: buildParent(ancestor),
+      );
+
+  @override
+  double applyPhysicsToUserOffset(ScrollMetrics position, double offset) {
+    // FORWARD = toward the next page (a positive user drag offset). While the
+    // gate is unmet the forward offset is frozen at zero — the page cannot
+    // start moving forward. Backward offsets fall through to the parent
+    // (free bounce + free backward swiping).
+    if (blockForward && offset > 0) return 0;
+    return super.applyPhysicsToUserOffset(position, offset);
+  }
+
+  @override
+  Simulation? createBallisticSimulation(ScrollMetrics position, double velocity) {
+    // A forward FLING (velocity > 0) is neutralized while the gate is unmet —
+    // no momentum carry-over can sneak the page forward.
+    final double v = (blockForward && velocity > 0) ? 0 : velocity;
+    return super.createBallisticSimulation(position, v);
+  }
 }

@@ -57,16 +57,22 @@ import java.io.OutputStream;
  *     refused + deleted) and hands the verified file to Android's
  *     PackageInstaller 1-tap confirmation sheet.
  *
- * The HONEST ANDROID 16 SECURITY MODEL (non-root, unchanged):
- *   Silent zero-tap APK installation is BLOCKED by the OS — PackageInstaller
- *   always shows the 1-tap system "Update" confirmation. Everything up TO
- *   that single tap is user-driven: CHECK (app-open + 4 h persisted job) →
- *   TAP Update Now → PERMISSION → DOWNLOAD (single-flight, live progress) →
- *   VERIFY (https-only, 55 MB cap, strict SHA-256 vs SHA256SUMS.txt — a
- *   tampered APK is refused and deleted) → INSTALL (the OS's 1-tap prompt,
- *   BAL-safe notification fallback) → CLEANUP (stale files are removed,
- *   while a verified APK remains until install permission is granted and
- *   the user returns). Obtainium compatibility is unchanged. */
+ * The HONEST ANDROID 16 SECURITY MODEL (non-root, v3.4.6.k):
+ *   Silent zero-tap APK installation is ARMED by the OS on Android 12–16:
+ *   UPDATE_PACKAGES_WITHOUT_USER_ACTION + SessionParams
+ *   .setRequireUserAction(USER_ACTION_NOT_REQUIRED) (API 31+, targetSdk
+ *   36 ≥ 34) — same-signature letter-patch updates (3.4.6.k → .l → .m)
+ *   install with ZERO prompt (a top glass pill "Updating to vX…" only).
+ *   A full 1-tap system "Update" sheet appears ONLY when the OEM refuses
+ *   the silent lane (STATUS_PENDING_USER_ACTION) or the install permission
+ *   is missing — and then exactly ONCE (single-flight + 15 s cooldown).
+ *   Major/minor updates (3.5.0, 3.6.0…) present the full-screen
+ *   non-dismissible ForceUpdateScreen instead. DOWNLOAD is single-flight
+ *   with live progress; VERIFY is https-only, 100 MB cap, strict SHA-256
+ *   vs SHA256SUMS.txt (a tampered APK is refused and deleted); INSTALL is
+ *   the OS's silent lane (BAL-safe notification fallback); CLEANUP removes
+ *   stale files while a verified APK remains until it installs.
+ *   Obtainium compatibility is unchanged. */
 public final class SelfUpdater {
 
     static final String REPO = SelfUpdateCore.REPO;
@@ -694,6 +700,13 @@ public final class SelfUpdater {
 
     /** User-tap install entry: permission settings open only after this action. */
     static String installPendingUpdate(Context c, boolean promptIfNeeded) {
+        // v3.4.6.k — a committed/pending session swallows EVERY re-entry (the
+        // Update-gate's Update Now, onResume, the 90 s watcher): ONE system
+        // installer sheet, ever.
+        if (installInFlight()) {
+            Diag.i("selfupd", "install already committed — waiting for its result (no re-commit)");
+            return "install already in progress";
+        }
         File apk = pendingFile(c);
         if (apk == null) {
             fire("No verified update is ready");
@@ -764,6 +777,10 @@ public final class SelfUpdater {
         new Thread(() -> {
             try {
                 while (System.currentTimeMillis() < deadline) {
+                    // v3.4.6.k — THE NON-DISRUPTIVE LAW: never snap the app
+                    // forward (nor resume the installer) while a full
+                    // troubleshoot run is live.
+                    if (DeepProbe.probeRunActive()) break;
                     if (app.getSharedPreferences("selfupdate", Context.MODE_PRIVATE)
                             .getBoolean(PENDING_AWAITING_PERMISSION, false)
                             && canRequestInstalls(app)) {
@@ -785,9 +802,18 @@ public final class SelfUpdater {
         }, "si-install-watch").start();
     }
 
-    /** Called on Activity resume after the user returns from install permission settings. */
+    /** Called on Activity resume after the user returns from install permission settings.
+     *  v3.4.6.k — THE 2–3× INSTALLER LOOP KILL: NEVER re-invoke while an
+     *  install session is already committed / pending user action (the OS
+     *  sheet is up) or inside the 15 s post-commit cooldown — onResume()
+     *  stacking a second and third system installer sheet over Android Home
+     *  was exactly the XRecorder_20261127_01 01:38–02:02 defect. */
     public static void resumePendingInstall(Context c) {
         try {
+            if (installInFlight()) {
+                Diag.i("selfupd", "resume skipped — install session already committed/pending (single-flight lock)");
+                return;
+            }
             android.content.SharedPreferences sp = c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE);
             if (sp.getBoolean(PENDING_AWAITING_PERMISSION, false) && canRequestInstalls(c)) {
                 sp.edit().putBoolean(PENDING_AWAITING_PERMISSION, false).apply();
@@ -872,15 +898,12 @@ public final class SelfUpdater {
      *  CheckJob.onStartJob: rescheduling a past-due periodic job from inside
      *  its own run made JobScheduler re-deliver it IMMEDIATELY (fail →
      *  reschedule → re-fire at the ~250 ms cadence of the field log).
-     *  v3.4.6.f — LAW #2: K_AUTO_UPDATE OFF mutes ONLY this periodic job;
-     *  the launch check always runs so the gate can lock. */
+     *  v3.4.6.k — LAW #1 ZERO-DISABLE-SWITCH: the periodic job ALWAYS runs
+     *  (there is NO Auto-update OFF switch anywhere in Settings, and the old
+     *  K_AUTO_UPDATE mute is deleted — a silent-letter-patch self-updater
+     *  that a preference could switch off would break Law #1's contract). */
     public static void schedulePeriodic(Context c) {
         try {
-            if (!c.getSharedPreferences("sicast", Context.MODE_PRIVATE)
-                    .getBoolean(AppPrefs.K_AUTO_UPDATE, true)) {
-                Diag.i("selfupd", "Auto-update OFF — periodic 4 h job muted (launch check unaffected)");
-                return;
-            }
             JobScheduler js = c.getSystemService(JobScheduler.class);
             if (js == null) return;
             JobInfo info = new JobInfo.Builder(JOB_ID + 1, new ComponentName(c, CheckJob.class))
@@ -926,14 +949,29 @@ public final class SelfUpdater {
             // A verified STRICTLY-NEWER pending package is never re-downloaded
             // or overwritten; it re-arms the gate and waits for the tap.
             if (pendingFile(c) != null) {
-                gateAvailable(AppInfo.VERSION_NAME, pendingVersion(c));
-                persistRequiredVer(c, pendingVersion(c));
+                String pVer = pendingVersion(c);
+                // v3.4.6.k — LAW #1 TWO-LANE: a cached letter-suffix patch APK
+                // commits SILENTLY on the launch/reconnect check (download once
+                // already happened; zero prompt, glass pill only). Everything
+                // else re-arms the ForceUpdateScreen gate as before.
+                if (UpdateChecker.isLetterPatch(pVer, AppInfo.VERSION_NAME)
+                        && canRequestInstalls(c) && !installInFlight()) {
+                    Diag.i("selfupd", "silent patch lane: cached v" + pVer + " → zero-prompt commit");
+                    Troubleshooter.record("UPDATER", "silent letter-patch lane: cached v" + pVer
+                        + " → USER_ACTION_NOT_REQUIRED commit (no gate, no tap)");
+                    fire("Updating to v" + pVer + "…");
+                    installPendingUpdate(c, true);
+                    lastCheckConclusion = "available";
+                    return "installing " + pVer;
+                }
+                gateAvailable(AppInfo.VERSION_NAME, pVer);
+                persistRequiredVer(c, pVer);
                 lastCheckConclusion = "available";
                 if (forceDownload) {
                     // The user tapped Update Now with a verified APK in cache:
                     // go straight to the permission + installer leg (no download).
                     installPendingUpdate(c, true);
-                    return "installing " + pendingVersion(c);
+                    return "installing " + pVer;
                 }
                 fire("Update ready — tap Update Now");
                 return "ready";
@@ -961,16 +999,23 @@ public final class SelfUpdater {
             String fastVersion = SelfUpdateCore.fetchVersionFast();
             if (fastVersion != null && UpdateChecker.isNewer(fastVersion, AppInfo.VERSION_NAME)
                     && !forceDownload) {
-                persistRequiredVer(c, fastVersion);
-                gateAvailable(AppInfo.VERSION_NAME, fastVersion);
-                fire("Update available: v" + AppInfo.VERSION_NAME + " → v" + fastVersion
-                    + " — tap Update Now");
-                Diag.i("selfupd", "fast lane: v" + fastVersion + " is newer — gate armed + persisted (" +
-                    "SHA resolves on the Update Now tap)");
-                Troubleshooter.record("UPDATER", "gate armed v" + AppInfo.VERSION_NAME
-                    + " → v" + fastVersion + " (fast lane; background download suppressed)");
-                lastCheckConclusion = "available";
-                return "available " + fastVersion;
+                // v3.4.6.k — a letter-suffix patch does NOT arm the gate: it
+                // falls through to the release resolve + the SILENT lane below
+                // (zero ForceUpdateScreen for 3.4.6.k → .l → .m patches).
+                if (!UpdateChecker.isLetterPatch(fastVersion, AppInfo.VERSION_NAME)) {
+                    persistRequiredVer(c, fastVersion);
+                    gateAvailable(AppInfo.VERSION_NAME, fastVersion);
+                    fire("Update available: v" + AppInfo.VERSION_NAME + " → v" + fastVersion
+                        + " — tap Update Now");
+                    Diag.i("selfupd", "fast lane: v" + fastVersion + " is newer — gate armed + persisted (" +
+                        "SHA resolves on the Update Now tap)");
+                    Troubleshooter.record("UPDATER", "gate armed v" + AppInfo.VERSION_NAME
+                        + " → v" + fastVersion + " (fast lane; background download suppressed)");
+                    lastCheckConclusion = "available";
+                    return "available " + fastVersion;
+                }
+                Diag.i("selfupd", "fast lane: v" + fastVersion
+                    + " is a letter patch — resolving the release for the silent lane");
             }
             SelfUpdateCore.Release rel = SelfUpdateCore.fetchReleaseAny();
             if (rel == null) {
@@ -1001,19 +1046,36 @@ public final class SelfUpdater {
                 return "up-to-date";
             }
             // v3.4.6.f — LAW #1 + LAW #2: a STRICTLY newer release is known.
-            // Arm the mandatory blocking gate (skip-version only governs
-            // NOTIFICATIONS; the gate is armed BEFORE any preference), and —
-            // for every non-download leg — WAIT for the user's Update Now
-            // tap. NO background download, ever.
+            // v3.4.6.k — TWO-LANE VERSIONING (LAW #1):
+            //   · letter-suffix patch (same major.minor.patch base) → the
+            //     SILENT zero-prompt lane: download ONCE + SHA-256 verify +
+            //     USER_ACTION_NOT_REQUIRED commit, a top Mornye glass pill
+            //     "Updating to vX…" only (ForceUpdateScreen appears ONLY if
+            //     the OS returns STATUS_PENDING_USER_ACTION or the install
+            //     permission is missing);
+            //   · major/minor (3.5.0, 3.6.0…) → the full-screen
+            //     non-dismissible ForceUpdateScreen (PopScope(canPop: false)),
+            //     committing with USER_ACTION_NOT_REQUIRED on the tap.
             persistRequiredVer(c, rel.version);
             gateAvailable(AppInfo.VERSION_NAME, rel.version);
-            fire("Update available: v" + AppInfo.VERSION_NAME + " → v" + rel.version
-                + " — tap Update Now");
 
             if (!forceDownload) {
-                Diag.i("selfupd", "new release " + rel.version + " — gate armed, WAITING for the user's Update Now tap (zero background download)");
+                if (UpdateChecker.isLetterPatch(rel.version, AppInfo.VERSION_NAME)
+                        && canRequestInstalls(c)) {
+                    fire("Updating to v" + rel.version + "…");
+                    Diag.i("selfupd", "letter patch " + rel.version
+                        + " — SILENT lane: download once + verify + zero-prompt commit");
+                    Troubleshooter.record("UPDATER", "silent letter-patch lane v" + rel.version
+                        + " — download once + SHA-256 + USER_ACTION_NOT_REQUIRED commit");
+                    String r = downloadVerifyInstall(c, rel);
+                    lastCheckConclusion = "available";
+                    return r;
+                }
+                Diag.i("selfupd", "new release " + rel.version + " — gate armed, WAITING for the user's Update Now tap (major/minor lane)");
                 Troubleshooter.record("UPDATER", "gate armed v" + AppInfo.VERSION_NAME
                     + " → v" + rel.version + " — background download suppressed (waits for Update Now)");
+                fire("Update available: v" + AppInfo.VERSION_NAME + " → v" + rel.version
+                    + " — tap Update Now");
                 lastCheckConclusion = "available";
                 return "available " + rel.version;
             }
@@ -1166,18 +1228,74 @@ public final class SelfUpdater {
 
     // ── the install (Android side) ─────────────────────────────────────────────
 
-    /** Stream the verified APK FILE into a PackageInstaller.Session → the
-     *  system's 1-tap "Update" prompt. Android 14–16 compliant: an EXPLICIT
-     *  mutable PendingIntent (explicit component + FLAG_MUTABLE — the system
-     *  fills in the status extras). Same-signature updates install in place:
-     *  no uninstall, all data preserved. */
+    // ══ v3.4.6.k — THE SINGLE-FLIGHT INSTALL STATE (LAW #1, the 2–3× installer
+    // loop kill, XRecorder_20261127_01 01:38–02:02) ═════════════════════════
+    // The v3.4.6.j lane let THREE commits stack: the 90 s install watcher
+    // fired resumePendingInstall() → commit #1, MainActivity.onResume() fired
+    // resumePendingInstall() again → commit #2, and the persisted gate's
+    // Update Now re-drove installPendingUpdate() → commit #3 — each commit
+    // popped ANOTHER system installer sheet floating over Android Home. A
+    // strict single-flight state now guards commit(): one AtomicBoolean in
+    // flight, the live session id, and a 15 s cooldown after every commit.
+    private static final java.util.concurrent.atomic.AtomicBoolean installCommitInFlight =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static volatile int activeInstallSessionId = -1;
+    private static volatile long lastCommitAtMs;
+    /** The installer-sheet cooldown: a second commit inside this window is dropped. */
+    static final long INSTALL_COMMIT_COOLDOWN_MS = 15_000L;
+
+    /** True while a committed session is still pending its final status. */
+    static boolean installInFlight() {
+        return installCommitInFlight.get()
+            || (activeInstallSessionId >= 0 && System.currentTimeMillis() - lastCommitAtMs < INSTALL_COMMIT_COOLDOWN_MS);
+    }
+
+    /** v3.4.6.k — release the single-flight lock (success / terminal failure). */
+    static void installSettled() {
+        activeInstallSessionId = -1;
+        installCommitInFlight.set(false);
+    }
+
+    /** Stream the verified APK FILE into a PackageInstaller.Session.
+     *  v3.4.6.k — LAW #1 SILENT ZERO-PROMPT: on API 31+ the session carries
+     *  SessionParams.USER_ACTION_NOT_REQUIRED, so a same-signature update
+     *  installs with ZERO system installer sheet (Android 12–16, targetSdk 36
+     *  ≥ 34). Single-flight + 15 s cooldown: the system installer can NEVER be
+     *  popped 2–3 times or float over the Home screen. Same-signature updates
+     *  install in place: no uninstall, all data preserved. */
     static void install(Context c, File apk) throws Exception {
+        // ── the single-flight + cooldown gate (every caller funnels here) ──
+        long now = System.currentTimeMillis();
+        if (installCommitInFlight.get()) {
+            Diag.w("selfupd", "install: another session is already committed — dropping this duplicate commit");
+            return;
+        }
+        if (activeInstallSessionId >= 0 && now - lastCommitAtMs < INSTALL_COMMIT_COOLDOWN_MS) {
+            Diag.w("selfupd", "install: session " + activeInstallSessionId
+                + " committed " + (now - lastCommitAtMs) + " ms ago — inside the "
+                + INSTALL_COMMIT_COOLDOWN_MS + " ms cooldown, dropping the duplicate");
+            return;
+        }
+        installCommitInFlight.set(true);
         PackageInstaller pi = c.getPackageManager().getPackageInstaller();
         PackageInstaller.Session session = null;
         int sid = -1;
         try {
-            sid = pi.createSession(new PackageInstaller.SessionParams(
-                PackageInstaller.SessionParams.MODE_FULL_INSTALL));
+            PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
+                PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+            // ══ v3.4.6.k — THE SILENT ZERO-PROMPT CONTRACT (Android 12–16) ══
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                try {
+                    params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+                    Diag.i("selfupd", "silent install lane armed: USER_ACTION_NOT_REQUIRED (API "
+                        + android.os.Build.VERSION.SDK_INT + ")");
+                } catch (Throwable noSilent) {
+                    Diag.w("selfupd", "USER_ACTION_NOT_REQUIRED refused (" + noSilent + ") — prompt lane");
+                }
+            }
+            sid = pi.createSession(params);
+            activeInstallSessionId = sid;
+            lastCommitAtMs = System.currentTimeMillis();
             session = pi.openSession(sid);
             try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite("update", 0, apk.length())) {
                 byte[] buf = new byte[65536];
@@ -1189,34 +1307,54 @@ public final class SelfUpdater {
             PendingIntent piOk = PendingIntent.getBroadcast(c, sid, ok,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
             session.commit(piOk.getIntentSender());
-            Diag.i("selfupd", "install session " + sid + " committed (" + apk.length() + " B) — waiting for the 1-tap prompt");
+            // v3.4.6.k — the pending-resume flags clear THE INSTANT the commit
+            // fires: neither onResume() nor the 90 s watcher may re-commit this
+            // session (the 2–3× installer loop's second and third legs).
+            try {
+                c.getSharedPreferences("selfupdate", Context.MODE_PRIVATE).edit()
+                    .putBoolean(PENDING_AWAITING_PERMISSION, false).apply();
+            } catch (Throwable ignored) { }
+            Diag.i("selfupd", "install session " + sid + " committed (" + apk.length()
+                + " B, USER_ACTION_NOT_REQUIRED=" + (android.os.Build.VERSION.SDK_INT >= 31) + ")");
         } catch (Throwable t) {
+            if (sid >= 0 && activeInstallSessionId == sid) activeInstallSessionId = -1;
+            installCommitInFlight.set(false);
             if (session != null) try { session.abandon(); } catch (Throwable ignored) { }
             throw t;
         }
     }
 
-    /** Receives the install result broadcast (STATUS_PENDING_USER_ACTION → the
-     *  system dialog was shown; we forward the user's confirm intent, with a
-     *  BAL-SAFE high-priority notification as the fallback when the background
-     *  activity launch is refused). */
+    /** Receives the install result broadcast. v3.4.6.k — the silent lane
+     *  normally resolves here with STATUS_SUCCESS (no sheet at all on
+     *  Android 12–16). STATUS_PENDING_USER_ACTION is now the FALLBACK: the
+     *  OEM refused USER_ACTION_NOT_REQUIRED (or install permission is
+     *  missing), so exactly ONE confirm sheet may be forwarded — never two
+     *  stacked (the single-flight lock stays held until a terminal status). */
     public static final class InstallResultReceiver extends android.content.BroadcastReceiver {
         @Override public void onReceive(Context c, Intent i) {
             try {
                 int status = i.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
                 if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                    // v3.4.6.k — the OS refused the silent lane: exactly ONE
+                    // confirm sheet. The lock stays HELD (a second PENDING
+                    // broadcast for this session must not stack another sheet).
+                    Diag.i("selfupd", "OS forced the confirm sheet (silent lane refused) — forwarding it once");
                     Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
                     if (confirm != null) {
                         confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         try {
-                            c.startActivity(confirm);   // the 1-tap "Update" dialog
-                            Diag.i("selfupd", "user-action prompt shown");
+                            c.startActivity(confirm);   // the single 1-tap "Update" dialog
+                            Diag.i("selfupd", "user-action prompt shown (fallback lane)");
                         } catch (Throwable bal) {
                             Diag.w("selfupd", "BAL refused the prompt (" + bal + ") — posting the tap-to-install notification");
                             postConfirmNotification(c, confirm);
                         }
                     }
                 } else if (status == PackageInstaller.STATUS_SUCCESS) {
+                    // v3.4.6.k — release the single-flight lock FIRST: no
+                    // onResume()/watcher re-commit can ever float a second
+                    // installer sheet over Home after a successful install.
+                    installSettled();
                     Diag.i("selfupd", "installed ✓ — sweeping the verified pending cache");
                     // v3.4.6.i — the install SUCCEEDED: the verified APK cache
                     // and its metadata are swept NOW (the belt-and-braces path;
@@ -1230,6 +1368,8 @@ public final class SelfUpdater {
                     }
                     App.notifyUpdateDone(c);
                 } else {
+                    // every other terminal status releases the lock too
+                    installSettled();
                     Diag.w("selfupd", "install status " + status + ": "
                         + i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE));
                 }

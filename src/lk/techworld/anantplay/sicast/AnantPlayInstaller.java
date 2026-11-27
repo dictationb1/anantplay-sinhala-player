@@ -411,13 +411,34 @@ final class AnantPlayInstaller {
 
     // ── the PackageInstaller handoff (SelfUpdater.install's exact shape) ──────
 
+    /** v3.4.6.k — LAW #1 SILENT ZERO-PROMPT: this app is the INSTALLER-OF-
+     *  RECORD for me.champdev.weblock (Official AnantPlay), so its updates
+     *  carry UPDATE_PACKAGES_WITHOUT_USER_ACTION +
+     *  SessionParams.setRequireUserAction(USER_ACTION_NOT_REQUIRED) on API
+     *  31+ — the same silent lane our own self-updates use (Android 12–16,
+     *  targetSdk 36 ≥ 34). Single-flight + the shared cooldown keep the
+     *  system installer from ever stacking sheets. */
     private static void installViaPackageInstaller(Context c, File apk) throws Exception {
+        if (SelfUpdater.installInFlight()) {
+            Diag.i("weblock", "install already in flight — dropping the duplicate commit");
+            return;
+        }
         android.content.pm.PackageInstaller pi = c.getPackageManager().getPackageInstaller();
         android.content.pm.PackageInstaller.Session session = null;
         int sid = -1;
         try {
-            sid = pi.createSession(new android.content.pm.PackageInstaller.SessionParams(
-                android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL));
+            android.content.pm.PackageInstaller.SessionParams params =
+                new android.content.pm.PackageInstaller.SessionParams(
+                    android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                try {
+                    params.setRequireUserAction(
+                        android.content.pm.PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+                } catch (Throwable noSilent) {
+                    Diag.w("weblock", "USER_ACTION_NOT_REQUIRED refused (" + noSilent + ")");
+                }
+            }
+            sid = pi.createSession(params);
             session = pi.openSession(sid);
             try (InputStream in = new FileInputStream(apk); OutputStream out = session.openWrite("weblock", 0, apk.length())) {
                 byte[] buf = new byte[65536];
@@ -425,16 +446,18 @@ final class AnantPlayInstaller {
                 out.flush();
                 session.fsync(out);
             }
-            // SelfUpdater's own result receiver: on STATUS_PENDING_USER_ACTION
-            // it forwards the system's 1-tap confirm sheet (BAL-safe fallback
-            // notification when the background launch is refused) — exactly
-            // the install UX our own updates use. Reusing it means ONE
-            // install-result surface for both pipelines.
+            // SelfUpdater's own result receiver: the silent lane resolves with
+            // STATUS_SUCCESS (zero prompt); a forced STATUS_PENDING_USER_ACTION
+            // forwards the system's 1-tap confirm sheet exactly ONCE (BAL-safe
+            // notification fallback when the background launch is refused) —
+            // ONE install-result surface for both pipelines.
             Intent ok = new Intent(c, SelfUpdater.InstallResultReceiver.class);
             PendingIntent piOk = PendingIntent.getBroadcast(c, 32046, ok,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
             session.commit(piOk.getIntentSender());
-            Diag.i("weblock", "official-anantplay install session " + sid + " committed");
+            Diag.i("weblock", "official-anantplay install session " + sid
+                + " committed (USER_ACTION_NOT_REQUIRED, API "
+                + android.os.Build.VERSION.SDK_INT + ")");
         } catch (Throwable t) {
             if (session != null) try { session.abandon(); } catch (Throwable ignored) { }
             throw t;

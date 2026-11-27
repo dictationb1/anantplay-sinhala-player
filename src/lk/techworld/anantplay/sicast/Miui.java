@@ -109,6 +109,14 @@ final class Miui {
     static boolean overlayGranted(Context c) { return Settings.canDrawOverlays(c); }
 
     static void openOverlay(Context c) {
+        if (DeepProbe.probeRunActive()) {
+            // v3.4.6.k — THE NON-DISRUPTIVE LAW: a live troubleshoot run never
+            // opens a system settings page (the Part_03 04:18 hijack kill).
+            Diag.i("miui", "system page launch refused while the troubleshoot run is active");
+            Troubleshooter.record("TROUBLESHOOT", "system page launch refused during the probe run");
+            return;
+        }
+
         try {
             c.startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -118,6 +126,14 @@ final class Miui {
     }
 
     static void openBattery(Context c) {
+        if (DeepProbe.probeRunActive()) {
+            // v3.4.6.k — THE NON-DISRUPTIVE LAW: a live troubleshoot run never
+            // opens a system settings page (the Part_03 04:18 hijack kill).
+            Diag.i("miui", "system page launch refused while the troubleshoot run is active");
+            Troubleshooter.record("TROUBLESHOOT", "system page launch refused during the probe run");
+            return;
+        }
+
         try {
             c.startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -128,6 +144,14 @@ final class Miui {
 
     /** The direct doalog: whitelist for battery optimization ("No restrictions"). */
     static void requestBattery(Context c) {
+        if (DeepProbe.probeRunActive()) {
+            // v3.4.6.k — THE NON-DISRUPTIVE LAW: a live troubleshoot run never
+            // opens a system settings page (the Part_03 04:18 hijack kill).
+            Diag.i("miui", "system page launch refused while the troubleshoot run is active");
+            Troubleshooter.record("TROUBLESHOOT", "system page launch refused during the probe run");
+            return;
+        }
+
         try {
             c.startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                 Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -144,6 +168,14 @@ final class Miui {
 
     /** MIUI Autostart screen: known component names across MIUI 12 → HyperOS, with fallbacks. */
     static void openAutostart(Context c) {
+        if (DeepProbe.probeRunActive()) {
+            // v3.4.6.k — THE NON-DISRUPTIVE LAW: a live troubleshoot run never
+            // opens a system settings page (the Part_03 04:18 hijack kill).
+            Diag.i("miui", "system page launch refused while the troubleshoot run is active");
+            Troubleshooter.record("TROUBLESHOOT", "system page launch refused during the probe run");
+            return;
+        }
+
         String[][] comps = {
             {"com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"},
             {"com.miui.securitycenter", "com.miui.permcenter.bootapsible.BootDisposableControlActivity"},
@@ -182,6 +214,14 @@ final class Miui {
 
     /** The Android 13+ sideload gate that greys toggles until the user allows it. */
     static void openAppDetails(Context c) {
+        if (DeepProbe.probeRunActive()) {
+            // v3.4.6.k — THE NON-DISRUPTIVE LAW: a live troubleshoot run never
+            // opens a system settings page (the Part_03 04:18 hijack kill).
+            Diag.i("miui", "system page launch refused while the troubleshoot run is active");
+            Troubleshooter.record("TROUBLESHOOT", "system page launch refused during the probe run");
+            return;
+        }
+
         try {
             c.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));

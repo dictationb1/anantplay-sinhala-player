@@ -393,10 +393,15 @@ class _QuickStartCardState extends State<_QuickStartCard> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'First time? Cast from AnantPlay or open the Browser '
-                          'tab — Sinhala subtitles included.',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                          // v3.4.6.k — THE TRUNCATION FIX (Trap #3.4): with
+                          // maxLines: 2 + ellipsis the banner cut to
+                          // "…or open the Brows…" on narrow (360 dp) phones.
+                          // It now wraps on up to 3 lines with NO ellipsis, so
+                          // the promise is always readable in full.
+                          'First time? Cast from AnantPlay or open the '
+                          'Browser tab — Sinhala subtitles included.',
+                          maxLines: 3,
+                          overflow: TextOverflow.visible,
                           style: TextStyle(
                               fontSize: 12,
                               height: 1.3,

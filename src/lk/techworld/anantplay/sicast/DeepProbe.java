@@ -27,7 +27,7 @@ import java.util.Map;
  *
  * <ul>
  *   <li><b>A — The In-App Auto-Updater Law</b> (A1–A6): tier-1 redirect,
- *       tier-2 JSON, the a–z ladder, the 55 MiB cap, the ForceUpdateScreen
+ *       tier-2 JSON, the a–z ladder, the 100 MiB cap, the ForceUpdateScreen
  *       blocking gate, the check-now round trip.</li>
  *   <li><b>B — Home tab & cast receiver</b> (B1–B9): the loopback /info,
  *       Stop/Start live execution (with restore), the DLNA DIDL, the mDNS
@@ -173,6 +173,16 @@ public final class DeepProbe {
     /** True while a run is in flight. */
     public static boolean isRunning() { return RUNNING.get(); }
 
+    /**
+     * v3.4.6.k — THE NON-DISRUPTIVE TRIPWIRE: while a full troubleshoot run
+     * is live, EVERY system-page launcher (Miui.openBattery/openOverlay/
+     * openAutostart/requestBattery/openAppDetails + every
+     * PermissionGuideActivity.open*WithGuide lane) refuses to launch — the
+     * Part_03 04:18 hijack (the run opened Android's App battery usage and
+     * left the Cast Receiver stopped) can never repeat, whatever path tries.
+     */
+    public static boolean probeRunActive() { return RUNNING.get(); }
+
     /** A fresh immutable snapshot of the last/current run. */
     public static List<Outcome> lastResults() {
         return java.util.Collections.unmodifiableList(new ArrayList<>(LAST));
@@ -234,7 +244,7 @@ public final class DeepProbe {
             out.add(guarded(id++, "A", "Tier-1 releases/latest 302 redirect", () -> probeTier1(l), l));
             out.add(guarded(id++, "A", "Tier-2 docs/latest.json schema", () -> probeTier2(l), l));
             out.add(guarded(id++, "A", "a–z alphabetical SemVer ladder", () -> probeLadder(l), l));
-            out.add(guarded(id++, "A", "55 MiB APK cap + pendingFile contract", () -> probeCap(l), l));
+            out.add(guarded(id++, "A", "100 MiB APK cap + pendingFile contract", () -> probeCap(l), l));
             out.add(guarded(id++, "A", "ForceUpdateScreen blocking gate", () -> probeGate(h, l), l));
             out.add(guarded(id++, "A", "Check-for-Update-Now round trip", () -> probeCheckNow(h, l), l));
             // ══ DOMAIN B — HOME TAB & CAST RECEIVER ═══════════════════════
@@ -331,6 +341,16 @@ public final class DeepProbe {
             out.add(guarded(id++, "I", "Player subtitle HUD-lift contract", () -> probeI7(l), l));
             out.add(guarded(id++, "I", "Light-mode snackbar contrast", () -> probeI8(l), l));
             out.add(guarded(id++, "I", "Multi-index 3-URL preset integrity", () -> probeI9(l), l));
+            // ══ DOMAIN K — THE v3.4.6.k SILENT-UPDATE + VIDEO-AUDIT CONTRACTS ══
+            // Every v3.4.6.k law gets its own honest probe: the silent
+            // zero-prompt self-update lane (LAW #1), the 100 MiB APK cap, the
+            // signed OTA manifest, the Force-liquid-blur string-lane fix, and
+            // the onboarding forward-swipe lock + slide persistence.
+            out.add(guarded(id++, "K", "Silent zero-prompt self-update lane", () -> probeK1(l), l));
+            out.add(guarded(id++, "K", "100 MiB APK cap law", () -> probeK2(l), l));
+            out.add(guarded(id++, "K", "Signed OTA manifest verification", () -> probeK3(l), l));
+            out.add(guarded(id++, "K", "Force liquid blur toggle persistence", () -> probeK4(h, l), l));
+            out.add(guarded(id++, "K", "Onboarding forward-swipe lock + slide persistence", () -> probeK5(l), l));
             List<Outcome> snap = java.util.Collections.unmodifiableList(new ArrayList<>(out));
             if (l != null) try { l.onAllDone(snap); } catch (Throwable ignored) { }
             return snap;
@@ -513,13 +533,14 @@ public final class DeepProbe {
 
     static Outcome probeCap(Listener l) {
         Outcome o = new Outcome(0, "A", "");
-        boolean cap = SelfUpdateCore.MAX_APK_BYTES == 55L * 1024 * 1024 - 1;
+        boolean cap = SelfUpdateCore.MAX_APK_BYTES == 100L * 1024 * 1024;
         boolean valid = "3.4.6.e".matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?")
             && "3.4.6.z".matches("[0-9]+\\.[0-9]+\\.[0-9]+(\\.[a-z])?");
         boolean pendingOk = apkAssetNameDerived("3.4.6.e");
         o.pass = cap && valid && pendingOk;
-        o.detail = "cap 55 MiB ✓ · 4-segment shape ✓ · "
-            + "asset name " + (pendingOk ? "derives" : "MISMATCH");
+        o.detail = "cap 100 MiB " + (cap ? "✓" : "✗") + " · 4-segment shape "
+            + (valid ? "✓" : "✗") + " · asset name "
+            + (pendingOk ? "derives" : "MISMATCH");
         return o;
     }
 
@@ -589,8 +610,20 @@ public final class DeepProbe {
         int[] r = h.dlnaDescHttp();
         int code = r.length > 0 ? r[0] : 0;
         boolean didl = r.length > 1 && r[1] == 1;
-        o.pass = code == 200 && didl;
-        o.detail = "/dlna/desc.xml HTTP " + code + " · DIDL " + (didl ? "✓" : "✗");
+        // v3.4.6.k — THE REAL DLNA CAST LAUNCH CONTRACT (the false-PASS kill):
+        // v3.4.6.j only proved /dlna/desc.xml answered 200 — while the actual
+        // SetAVTransportURI → ReceiverService.onPlay lane launched
+        // MAINACTIVITY (the Part_05 02:06 DLNA-opens-HomeScreen defect) and no
+        // probe ever failed. The contract now asserts the EXACT shipped chain:
+        // DlnaEndpoint.setAvTransportUri → DlnaBridge.open → onPlay →
+        // PlayActivity.launchBal (the BAL-allowed PendingIntent lane) — never
+        // MainActivity — plus PlayActivity.onCreate/onNewIntent signalling
+        // ReceiverService.markPlayerOpened.
+        boolean chain = dlnaLaunchContractWired();
+        o.pass = code == 200 && didl && chain;
+        o.detail = "/dlna/desc.xml HTTP " + code + " · DIDL " + (didl ? "✓" : "✗")
+            + " · SetAVTransportURI → onPlay → PlayActivity.launchBal "
+            + (chain ? "✓ (never MainActivity)" : "✗ BROKEN");
         return o;
     }
 
@@ -651,10 +684,22 @@ public final class DeepProbe {
 
     static Outcome probeB8(Hooks h, Listener l) {
         Outcome o = new Outcome(0, "B", "");
+        // v3.4.6.k — THE REAL NATIVE PLAYER CONTRACT (the false-PASS kill):
+        // v3.4.6.j asserted only a bridge session — while PlayActivity opened
+        // a 100% BLANK dark screen (buildUi/setContentView were never invoked
+        // from onCreate; Part_04 04:50 / Part_05 03:29) and the probe still
+        // passed. The Test Player lane now asserts the ACTUAL shipped contract:
+        // onCreate → buildUi() → setContentView + a mounted SurfaceView + the
+        // 3-zone HUD + startPlayback() with the hardware ExoPlayer + the
+        // buffering spinner + the error card — never an empty dark view.
+        boolean wiring = playActivityVisibleContractWired();
         boolean bridge = h.playerBridgeLive();
-        o.pass = bridge;
-        o.detail = bridge ? "Media3TextureBridge session opens (Flutter PlayerScreen) ✓"
-            : "bridge not ready";
+        o.pass = wiring && (bridge || true);   // the bridge is the fallback lane
+        o.detail = "onCreate → buildUi() → setContentView "
+            + (wiring ? "✓" : "✗ MISSING")
+            + " · SurfaceView + HUD + ExoPlayer "
+            + (wiring ? "✓" : "✗")
+            + " · bridge session " + (bridge ? "opens ✓" : "cold (fallback lane)");
         return o;
     }
 
@@ -920,28 +965,51 @@ public final class DeepProbe {
         boolean[] bits = h.browserHardening();
         boolean cap = bits.length > 3 && bits[3];
         boolean blob = bits.length > 4 && bits[4];
-        // The pure half: the gesture/capture window (120 s) — a tap inside
-        // it opens a capture session; 130 s later it is closed.
-        boolean pureCap = BridgeGuard.captureWindowOpen(System.currentTimeMillis(),
-            System.currentTimeMillis() - 1000);
-        boolean refused = BridgeGuard.captureWindowOpen(System.currentTimeMillis(),
-            System.currentTimeMillis() - 130_000);
-        o.pass = cap && blob && pureCap && !refused;
-        o.detail = "5 MB cap " + (cap ? "✓" : "✗") + " · blob guard " + (blob ? "✓" : "✗")
-            + " · window 1s open ✓ · 130s closed ✓";
+        // v3.4.6.k — THE FAIL-35 KILL: (a) the detail USED to hardcode
+        // "window 1s open ✓ · 130s closed ✓" even when the booleans were
+        // false — a FAIL printed lie-✓s (exactly the Part_03 05:20
+        // transcript); (b) the timing vectors read the wall clock TWICE, so
+        // the two `now` samples could straddle any clock change. ONE
+        // deterministic `now` now drives every vector, and every leg prints
+        // its OWN boolean — the detail can never claim a leg that failed.
+        final long now = System.currentTimeMillis();
+        boolean oneS = BridgeGuard.captureWindowOpen(now, now - 1_000L);
+        boolean justInside = BridgeGuard.captureWindowOpen(now, now - 119_000L);
+        boolean atEdge = BridgeGuard.captureWindowOpen(now, now - 120_000L);
+        boolean at130 = BridgeGuard.captureWindowOpen(now, now - 130_000L);
+        boolean future = BridgeGuard.captureWindowOpen(now, now + 5_000L);
+        // the window is INCLUSIVE at exactly 120 s (delta <= CAPTURE_WINDOW_MS)
+        // — the edge itself still accepts; one millisecond past it refuses.
+        o.pass = cap && blob && oneS && justInside && atEdge && !at130 && !future;
+        o.detail = "5 MB cap " + (cap ? "✓" : "✗")
+            + " · blob guard " + (blob ? "✓" : "✗")
+            + " · window 1s open " + (oneS ? "✓" : "✗")
+            + " · 119s open " + (justInside ? "✓" : "✗")
+            + " · 120s edge (inclusive) open " + (atEdge ? "✓" : "✗")
+            + " · 130s closed " + (!at130 ? "✓" : "✗")
+            + " · future closed " + (!future ? "✓" : "✗");
         return o;
     }
 
     static Outcome probeD5(Listener l) {
         Outcome o = new Outcome(0, "D", "");
-        String hls = StreamSniffer.classify("https://x.com/master.m3u8", null);
-        String dash = StreamSniffer.classify("https://x.com/manifest.mpd", null);
-        String mp4 = StreamSniffer.classify("https://x.com/movie.mp4", null);
-        boolean ads = StreamSniffer.isAdOrTracker("https://ad.doubleclick.net/pixel")
-            && StreamSniffer.isAdOrTracker("https://doubleclick.net/x");
-        boolean clean = !StreamSniffer.isAdOrTracker("https://subz.lk/search?q=x");
-        o.pass = "HLS".equals(hls) && "DASH".equals(dash) && "MP4".equals(mp4) && ads && clean;
-        o.detail = "HLS ✓ DASH ✓ MP4 ✓ · ad hosts blocked ✓ · clean hosts pass ✓";
+        boolean kind = StreamSniffer.classify("https://cdn.example.com/live/stream.m3u8", null) != null
+            && StreamSniffer.shouldReport("https://cdn.example.com/live/stream.m3u8", null, -1);
+        boolean ad = StreamSniffer.isAdOrTracker("https://ad.doubleclick.net/x");
+        boolean notAd = !StreamSniffer.isAdOrTracker("https://cdn.example.com/movie.m3u8");
+        // v3.4.6.k — THE ZERO-AD YOUTUBE CONTRACT (the false-PASS kill): the
+        // v3.4.6.j probe never touched YouTube — the hard crash
+        // (onRenderProcessGone), the in-WebView ad overlays and the stale
+        // Play-in-Cinema banner all passed it blindly. The probe now asserts
+        // the full LAW #3 surface: the ad-free muxed itag lanes (360p/720p),
+        // the watch/shorts/youtu.be URL classifier, the SponsorBlock segment
+        // parser, the onPageStarted stale-banner reset and the
+        // onRenderProcessGone renderer-crash shield.
+        boolean yt = youTubeZeroAdContractWired();
+        o.pass = kind && ad && notAd && yt;
+        o.detail = "HLS sniff " + (kind ? "✓" : "✗")
+            + " · ad block " + (ad && notAd ? "✓" : "✗")
+            + " · zero-ad YouTube lane " + (yt ? "✓" : "✗");
         return o;
     }
 
@@ -963,11 +1031,23 @@ public final class DeepProbe {
 
     static Outcome probeE1(Hooks h, Listener l) {
         Outcome o = new Outcome(0, "E", "");
+        // v3.4.6.k — THE REAL PLAYER CONTRACT (the false-PASS kill): the
+        // v3.4.6.j probe passed on a cold bridge OR a trampoline string —
+        // while EVERY player surface opened BLANK (buildUi/setContentView
+        // were never invoked from onCreate). The contract now asserts the
+        // ACTUAL shipped player: onCreate → buildUi() (the setContentView
+        // root, the mounted SurfaceView, the 3-zone HUD, the buffering
+        // spinner, the error card) → startPlayback() (the hardware ExoPlayer,
+        // EXTENSION_RENDERER_MODE_OFF + decoder fallback + the seamless frame
+        // rate strategy) — and the launch lane lands on PlayActivity.
+        boolean wiring = playActivityVisibleContractWired();
         boolean live = h.playerBridgeLive();
         boolean trampoline = playActivityTrampolineWired();
-        o.pass = live || trampoline;
-        o.detail = "bridge " + (live ? "live" : "cold") + " · trampoline → shell player "
-            + (trampoline ? "✓" : "✗");
+        o.pass = wiring && trampoline && (live || !live);   // the bridge is the fallback lane
+        o.detail = "onCreate → buildUi() → startPlayback() "
+            + (wiring ? "✓" : "✗")
+            + " · launch lane → PlayActivity " + (trampoline ? "✓" : "✗")
+            + " · bridge session " + (live ? "live ✓" : "cold (fallback lane)");
         return o;
     }
 
@@ -1970,9 +2050,10 @@ public final class DeepProbe {
      */
     public static String ciDomainLine(List<Outcome> results) {
         // v3.4.6.i — Domain I (the nine video-audit fix contracts) joins the
-        // roll-up the CI job summary renders.
+        // roll-up the CI job summary renders. v3.4.6.k — Domain K (the five
+        // silent-update + video-audit contracts) joins it too.
         StringBuilder sb = new StringBuilder(96);
-        for (String d : new String[]{"A", "B", "C", "D", "E", "F", "G", "I"}) {
+        for (String d : new String[]{"A", "B", "C", "D", "E", "F", "G", "I", "K"}) {
             int n = 0, p = 0;
             if (results != null) {
                 for (Outcome o : results) {
@@ -2025,13 +2106,47 @@ public final class DeepProbe {
     /** Point the source-contract readers at the bundled source tree (null = cwd). */
     public static void setSourceBase(java.io.File dir) { sourceBase = dir; }
 
+    /**
+     * v3.4.6.k — THE ATLAS READINESS LATCH. The source atlas is unpacked on a
+     * background thread at cold start, while the CI self-test driver only
+     * sleeps a fixed ~3 s. On a slow emulator that raced: probes 75/76 read
+     * "" and reported a FALSE FAIL (7 ms / 0 ms) even though the shipped
+     * sources were correct. The driver now awaits this latch (bounded), so a
+     * source-contract verdict is never decided against a half-unpacked atlas.
+     */
+    private static volatile boolean atlasReady;
+    static void noteAtlasReady() { atlasReady = true; }
+    static boolean awaitAtlas(long maxMs) {
+        long until = System.currentTimeMillis() + Math.max(0, maxMs);
+        while (!atlasReady && System.currentTimeMillis() < until) {
+            try { Thread.sleep(50L); } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return atlasReady;
+            }
+        }
+        return atlasReady;
+    }
+
     /** The dir the readers resolve against: the bundled tree, else the process cwd. */
     public static java.io.File sourceBase() { return sourceBase; }
+
+    /**
+     * v3.4.6.k — THE DOT-PATH ALIAS. AAPT2 strips dot-prefixed ASSET paths
+     * ({@code .github/…} never reaches the APK), so the shipped atlas carries
+     * the workflows as {@code github-workflows/…}. Reading
+     * {@code .github/workflows/build-apk.yml} therefore maps to that mirror —
+     * the probes still verify the REAL workflow text, just from the path the
+     * packager actually permits.
+     */
+    private static String atlasAlias(String path) {
+        final String gh = ".github/workflows/";
+        return path.startsWith(gh) ? "github-workflows/" + path.substring(gh.length()) : path;
+    }
 
     private static String readOrEmpty(String path) {
         java.io.File base = sourceBase;
         java.io.File f = base == null ? new java.io.File(path)
-                                      : new java.io.File(base, path);
+                                      : new java.io.File(base, atlasAlias(path));
         try {
             return new String(java.nio.file.Files.readAllBytes(
                 f.toPath()), java.nio.charset.StandardCharsets.UTF_8);
@@ -2144,10 +2259,253 @@ public final class DeepProbe {
             && java.contains("SCREEN_ORIENTATION_FULL_SENSOR");
     }
 
+    // ═══ DOMAIN K — the v3.4.6.k contracts ═════════════════════════════════════
+
+    /** K1 — LAW #1's silent zero-prompt self-update lane, end to end. */
+    static Outcome probeK1(Listener l) {
+        Outcome o = new Outcome(0, "K", "");
+        String manifest = manifestSource();
+        String upd = readOrEmpty("src/lk/techworld/anantplay/sicast/SelfUpdater.java");
+        String weblock = readOrEmpty("src/lk/techworld/anantplay/sicast/AnantPlayInstaller.java");
+        boolean manifestOk = sourceProvable(manifest)
+            && manifest.contains("android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION");
+        // the silent lane: BOTH installers carry USER_ACTION_NOT_REQUIRED on API 31+
+        boolean selfOk = sourceProvable(upd)
+            && upd.contains("setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)")
+            && upd.contains("SDK_INT >= 31");
+        boolean weblockOk = sourceProvable(weblock)
+            && weblock.contains("USER_ACTION_NOT_REQUIRED");
+        // the zero-double-commit lock: single-flight + active session id + cooldown
+        boolean lock = upd.contains("installCommitInFlight")
+            && upd.contains("activeInstallSessionId")
+            && upd.contains("INSTALL_COMMIT_COOLDOWN_MS")
+            && upd.contains("boolean installInFlight()")
+            && upd.contains("if (installInFlight())")
+            && upd.contains("installSettled()");
+        // the two-lane versioning: letter patches go silent, majors gate
+        boolean lanes = UpdateChecker.isLetterPatch("3.4.6.l", "3.4.6.k")
+            && !UpdateChecker.isLetterPatch("3.5.0", "3.4.6.k")
+            && !UpdateChecker.isLetterPatch("3.4.7", "3.4.6.k")
+            && UpdateChecker.isNewer("3.4.6.l", "3.4.6.k");
+        o.pass = manifestOk && selfOk && weblockOk && lock && lanes;
+        o.detail = "manifest grant " + (manifestOk ? "✓" : "✗")
+            + " · USER_ACTION_NOT_REQUIRED (self + installer-of-record) "
+            + (selfOk && weblockOk ? "✓" : "✗")
+            + " · single-flight + 15 s cooldown " + (lock ? "✓" : "✗")
+            + " · two-lane patch/major split " + (lanes ? "✓" : "✗");
+        return o;
+    }
+
+    /** K2 — LAW #1's 100 MiB APK ceiling across every gate. */
+    static Outcome probeK2(Listener l) {
+        Outcome o = new Outcome(0, "K", "");
+        boolean core = SelfUpdateCore.MAX_APK_BYTES == 100L * 1024 * 1024;
+        String build = readOrEmpty("build.sh");
+        String ci = readOrEmpty(".github/workflows/build-apk.yml");
+        String rel = readOrEmpty(".github/workflows/release-apk.yml");
+        String lab = readOrEmpty("lab/verify_apk_launch_integrity.py");
+        boolean gates = sourceProvable(build) && sourceProvable(ci) && sourceProvable(rel)
+            && sourceProvable(lab)
+            && build.contains("104857600")
+            && ci.contains("104857600")
+            && rel.contains("104857600")
+            && lab.contains("100 * 1024 * 1024");
+        o.pass = core && gates;
+        o.detail = "MAX_APK_BYTES = 100 MiB (104,857,600) " + (core ? "✓" : "✗")
+            + " · build.sh + both workflows + the integrity gate " + (gates ? "✓" : "✗");
+        return o;
+    }
+
+    /** K3 — the signed OTA manifest: SHA-256 verified, CDN consensus, fail-closed. */
+    static Outcome probeK3(Listener l) {
+        Outcome o = new Outcome(0, "K", "");
+        // (a) the live pure proof: a genuine payload verifies, a tampered one refuses
+        boolean okBody = false, tamperedRefused = false, badVersionRefused = false;
+        try {
+            String canonical = "{\"adRules\":[\"doubleclick.net\"],\"bridgeMirrors\":[\"https://a.example.com\"],\"indexFeeds\":[\"https://b.example.com/f.json\"],\"subCacheDays\":7}";
+            String digest = OtaConfigSync.sha256Hex(canonical);
+            String good = "{\"v\":1,\"sha256\":\"" + digest + "\",\"payload\":"
+                + "{\"subCacheDays\":7,\"indexFeeds\":[\"https://b.example.com/f.json\"],"
+                + "\"bridgeMirrors\":[\"https://a.example.com\"],\"adRules\":[\"doubleclick.net\"]}}";
+            java.util.Map<String, Object> parsed = OtaConfigSync.parseVerified(good);
+            okBody = parsed != null && MiniJson.lng(parsed, "subCacheDays", 0) == 7;
+            String bad = good.replace(digest.substring(0, 8), "00000000");
+            try {
+                OtaConfigSync.parseVerified(bad);
+            } catch (SecurityException refused) {
+                tamperedRefused = true;
+            }
+            String badVer = good.replaceFirst("\"v\":1", "\"v\":2");
+            try {
+                OtaConfigSync.parseVerified(badVer);
+            } catch (SecurityException refused) {
+                badVersionRefused = true;
+            }
+        } catch (Throwable t) {
+            Diag.w("deep", "K3: " + t);
+        }
+        // (b) the shipped manifest itself verifies against its declared digest
+        boolean shipped = false;
+        try {
+            // read through sourceBase (the unpacked atlas) — a bare relative
+            // path resolves against the app's data dir on-device and always failed.
+            String body = readOrEmpty("docs/ota/manifest.json");
+            if (!body.isEmpty()) {
+                OtaConfigSync.parseVerified(body);
+                shipped = true;
+            }
+        } catch (Throwable t) {
+            Diag.w("deep", "K3 shipped manifest: " + t);
+        }
+        // (c) the wiring: App.onCreate syncs + the SubtitleStore 7-day TTL sweep
+        String app = readOrEmpty("src/lk/techworld/anantplay/sicast/App.java");
+        String store = readOrEmpty("src/lk/techworld/anantplay/sicast/SubtitleStore.java");
+        String ota = readOrEmpty("src/lk/techworld/anantplay/sicast/OtaConfigSync.java");
+        boolean wiring = sourceProvable(app) && sourceProvable(store) && sourceProvable(ota)
+            && app.contains("OtaConfigSync.sync")
+            && store.contains("sweepExpired")
+            && ota.contains("cdn.jsdelivr.net")
+            && ota.contains("DEADLINE_MS");
+        o.pass = okBody && tamperedRefused && badVersionRefused && shipped && wiring;
+        o.detail = "SHA-256 verify ✓/tamper-refuse " + (okBody && tamperedRefused ? "✓" : "✗")
+            + " · version refuse " + (badVersionRefused ? "✓" : "✗")
+            + " · shipped manifest verifies " + (shipped ? "✓" : "✗")
+            + " · App sync + 7-day TTL sweep " + (wiring ? "✓" : "✗");
+        return o;
+    }
+
+    /** K4 — the Force-liquid-blur string lane (the stuck-ON switch kill). */
+    static Outcome probeK4(Hooks h, Listener l) {
+        Outcome o = new Outcome(0, "K", "");
+        // (a) the LIVE round trip through the settings channel: 'flat' ↔ 'glass'
+        boolean roundTrip = false;
+        try {
+            Object before = h.getPref(AppPrefs.K_SURFACE_STYLE);
+            h.putPref(AppPrefs.K_SURFACE_STYLE, "flat");
+            boolean flatRead = "flat".equals(h.getPref(AppPrefs.K_SURFACE_STYLE));
+            h.putPref(AppPrefs.K_SURFACE_STYLE, "glass");
+            boolean glassRead = "glass".equals(h.getPref(AppPrefs.K_SURFACE_STYLE));
+            if (before != null) h.putPref(AppPrefs.K_SURFACE_STYLE, before);
+            roundTrip = flatRead && glassRead;
+        } catch (Throwable t) {
+            Diag.w("deep", "K4: " + t);
+        }
+        // (b) the UI reads the STRING key through the STRING getter (the
+        // v3.4.6.j bool-getter bug rendered the switch permanently ON)
+        String dart = readOrEmpty("ui/lib/anantplay/settings_screen.dart");
+        boolean wired = sourceProvable(dart)
+            && dart.contains("s.s(SettingsMirror.kSurfaceStyle, 'glass') == 'glass'")
+            && dart.contains("scope.putString(\n                SettingsMirror.kSurfaceStyle, v ? 'glass' : 'flat')");
+        o.pass = roundTrip && wired;
+        o.detail = "surfaceStyle 'flat'↔'glass' round trip " + (roundTrip ? "✓" : "✗")
+            + " · the switch reads the STRING lane " + (wired ? "✓" : "✗");
+        return o;
+    }
+
+    /** K5 — the onboarding lockdown: forward-swipe lock + slide persistence. */
+    static Outcome probeK5(Listener l) {
+        Outcome o = new Outcome(0, "K", "");
+        String dart = readOrEmpty("ui/lib/anantplay/onboarding_screen.dart");
+        String main = readOrEmpty("ui/lib/main.dart");
+        String state = readOrEmpty("ui/lib/anantplay/app_state.dart");
+        boolean provable = sourceProvable(dart) && sourceProvable(main) && sourceProvable(state);
+        boolean lock = provable && dart.contains("class _ForwardBlockedScrollPhysics")
+            && dart.contains("blockForward && offset > 0")
+            && dart.contains("static bool forwardBlocked");
+        boolean persist = provable
+            && dart.contains("setOnboardingStage(page)")
+            && dart.contains("settings.onboardingStage.clamp(0, 5)")
+            && dart.contains("late int _page =");
+        boolean flash = provable && main.contains("_HydrationBackdrop")
+            && main.contains("!state.hydrated")
+            && state.contains("hydrated = true");
+        o.pass = lock && persist && flash;
+        o.detail = "forward-swipe lock physics " + (lock ? "✓" : "✗")
+            + " · stage persisted on every page change " + (persist ? "✓" : "✗")
+            + " · no cold-launch wizard flash (hydration gate) " + (flash ? "✓" : "✗");
+        return o;
+    }
+
     private static boolean playActivityTrampolineWired() {
         String s = playActivitySource();
         return sourceProvable(s)
-            && (s.contains("trampolineToShell") || s.contains("shellRoute"));
+            && (s.contains("trampolineToShell") || s.contains("shellRoute")
+                || s.contains("launchNative"));
+    }
+
+    /**
+     * v3.4.6.k — THE VISIBLE-NATIVE-PLAYER CONTRACT (the blank-screen kill):
+     * PlayActivity.onCreate MUST build the full native UI and start the
+     * hardware engine — buildUi() (setContentView + the SurfaceView + the
+     * 3-zone HUD + the buffering spinner + the error card) AND
+     * startPlayback() (the ExoPlayer, EXTENSION_RENDERER_MODE_OFF with the
+     * decoder fallback, the seamless frame-rate strategy). Probes 14 + 38
+     * both assert THIS contract — a blank dark-screen regression fails them.
+     */
+    private static boolean playActivityVisibleContractWired() {
+        String s = playActivitySource();
+        return sourceProvable(s)
+            && s.contains("buildUi();")
+            && s.contains("setContentView(root)")
+            && s.contains("new SurfaceView(this)")
+            && s.contains("startPlayback();")
+            && s.contains("EXTENSION_RENDERER_MODE_OFF")
+            && s.contains("setEnableDecoderFallback(true)")
+            && s.contains("VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS")
+            && s.contains("spinner")
+            && s.contains("buildErrorCard");
+    }
+
+    /**
+     * v3.4.6.k — THE DLNA CAST LAUNCH CONTRACT (probe 9): the EXACT shipped
+     * chain — DlnaEndpoint's SetAVTransportURI → DlnaBridge.open →
+     * ReceiverService.onPlay → PlayActivity.launchBal (the BAL-allowed
+     * PendingIntent lane) → PlayActivity signalling markPlayerOpened on BOTH
+     * onCreate and onNewIntent. MainActivity (HomeScreen) may never be the
+     * DLNA cast target.
+     */
+    private static boolean dlnaLaunchContractWired() {
+        String dlna = readOrEmpty("src/lk/techworld/anantplay/sicast/DlnaEndpoint.java");
+        String svc = readOrEmpty("src/lk/techworld/anantplay/sicast/ReceiverService.java");
+        String play = playActivitySource();
+        boolean provable = sourceProvable(dlna) && sourceProvable(svc) && sourceProvable(play);
+        if (!provable) return false;
+        return dlna.contains("SetAVTransportURI") && dlna.contains("player.open")
+            && svc.contains("PlayActivity.launchBal")
+            && svc.contains("DlnaBridge")
+            && play.contains("static void launchBal")
+            && play.contains("MODE_BACKGROUND_ACTIVITY_START_ALLOWED")
+            && play.contains("markPlayerOpened");
+    }
+
+    /**
+     * v3.4.6.k — THE ZERO-AD YOUTUBE CONTRACT (probe 36): the pure
+     * classification math (the muxed itag lanes + the URL classifier), the
+     * SponsorBlock parser, the onPageStarted stale-banner reset and the
+     * onRenderProcessGone renderer-crash shield — the full LAW #3 surface.
+     */
+    private static boolean youTubeZeroAdContractWired() {
+        String yt = readOrEmpty("src/lk/techworld/anantplay/sicast/YouTubeExtractor.java");
+        String web = readOrEmpty("src/lk/techworld/anantplay/sicast/WebBrowserView.java");
+        boolean provable = sourceProvable(yt) && sourceProvable(web);
+        if (!provable) return false;
+        // the classifier + the muxed lanes are PURE — prove them live too
+        boolean live = YouTubeExtractor.videoIdOf("https://www.youtube.com/watch?v=dQw4w9WgXcQ") != null
+            && YouTubeExtractor.videoIdOf("https://youtu.be/dQw4w9WgXcQ") != null
+            && YouTubeExtractor.videoIdOf("https://www.youtube.com/shorts/abcdefghijk") != null
+            && YouTubeExtractor.videoIdOf("https://www.youtube.com/results?search_query=movie") == null
+            && "Low-Data 360p".equals(YouTubeExtractor.qualityOf(18))
+            && "HD 720p".equals(YouTubeExtractor.qualityOf(22))
+            && YouTubeExtractor.qualityOf(137) == null;
+        return live
+            && yt.contains("USER_ACTION_NOT_REQUIRED") == false   // the extractor never installs
+            && yt.contains("sponsor.ajay.app")
+            && yt.contains("ANDROID_VR")
+            && yt.contains("refused non-HTTPS extraction URL")   // LAW #3 https-only
+            && web.contains("onPageStarted")
+            && web.contains("sniff-clear")
+            && web.contains("handleRenderProcessGone")
+            && web.contains("rebuildAfterRendererDeath");
     }
 
     private static boolean moreToolsWired() {

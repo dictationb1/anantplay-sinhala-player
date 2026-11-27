@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "sha256": "7073e79336acc7126dd7f6e8180dcecd4ae9e11f1840ab7bb63b7b03cc09c91a",
+  "payload": {
+    "bridgeMirrors": [
+      "https://anantplay-si-subs-bridge.techworldlk.workers.dev",
+      "https://anantplay-si-subs-bridge-mirror.techworldlk.workers.dev"
+    ],
+    "indexFeeds": [
+      "https://raw.githubusercontent.com/dictationb1/srilanka-anantplay/main/index.json",
+      "https://raw.githubusercontent.com/AnantPlay/index/main/index.json"
+    ],
+    "adRules": [
+      "doubleclick.net",
+      "googlesyndication.com",
+      "googleadservices.com",
+      "adservice.google.com",
+      "pagead2.googlesyndication.com",
+      "youtube.com/api/stats/ads",
+      "googlevideo.com/videoplayback?id=ad"
+    ],
+    "subCacheDays": 7
+  },
+  "notes": "Signed OTA config for AnantPlay Sinhala Player. sha256 = SHA-256 of the payload's canonical JSON (sorted keys, no whitespace). Verified by OtaConfigSync: both-CDN consensus (raw.githubusercontent.com + cdn.jsdelivr.net) AND the payload digest must match. Fail-closed."
+}

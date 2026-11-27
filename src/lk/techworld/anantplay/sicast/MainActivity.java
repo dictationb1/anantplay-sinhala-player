@@ -389,6 +389,7 @@ public class MainActivity extends FlutterActivity {
                             java.nio.charset.StandardCharsets.UTF_8).trim();
                     if (want.equals(have)) {
                         DeepProbe.resetSourceCaches();
+                        DeepProbe.noteAtlasReady();      // v3.4.6.k readiness latch
                         return;                          // already unpacked
                     }
                 }
@@ -402,6 +403,7 @@ public class MainActivity extends FlutterActivity {
                         want.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 } catch (Throwable ignored) { }
                 DeepProbe.resetSourceCaches();
+                DeepProbe.noteAtlasReady();
                 Diag.i("deep", "source atlas ready: " + n + " file(s) under " + dir);
             } catch (Throwable t) {
                 Diag.w("deep", "source atlas unpack failed: " + t);
@@ -494,6 +496,11 @@ public class MainActivity extends FlutterActivity {
         if (ciDeepProbeStarted) return;
         ciDeepProbeStarted = true;
         main.postDelayed(() -> new Thread(() -> {
+            // v3.4.6.k — AWAIT THE SOURCE ATLAS before any source-contract
+            // verdict. The live Android 36 run proved the race: probes 75/76
+            // finished in 0–7 ms against a not-yet-unpacked atlas and reported
+            // a FALSE FAIL. Bounded (20 s) so a broken atlas can never hang CI.
+            DeepProbe.awaitAtlas(20_000L);
             List<DeepProbe.Outcome> outcomes;
             try {
                 outcomes = DeepProbe.runAll(deepHooks(), null);
@@ -502,7 +509,7 @@ public class MainActivity extends FlutterActivity {
                 // The matrix itself refuses to run: publish a FAILING summary so
                 // the workflow's assertion fails loudly instead of timing out.
                 android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_SUMMARY_KEY
-                        + " pass=0 fail=56 env_fail=0 total=56 clipboard_copied=false"
+                        + " pass=0 fail=78 env_fail=0 total=78 clipboard_copied=false"
                         + " privacy_clean=false error=" + t.getClass().getSimpleName());
                 android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_DONE_KEY + " aborted");
                 return;
@@ -1617,14 +1624,39 @@ public class MainActivity extends FlutterActivity {
     private void onBrowserCall(MethodCall call, MethodChannel.Result result) {
         try {
             if ("openInPlayer".equals(call.method)) {
-                // v3.4.6.c — a captured/sniffed stream from the browser tab →
-                // the IN-SHELL Mornye Cinema Player (was: PlayActivity).
+                // v3.4.6.k — the captured/sniffed stream AND the zero-ad
+                // YouTube lane land in the NATIVE hardware PlayActivity: the
+                // YouTube payload also carries the caption track URL (auto-
+                // translated to Sinhala inside the player) + the SponsorBlock
+                // auto-skip segments.
                 String url = call.argument("url");
                 String headers = call.argument("headers");
                 String title = call.argument("title");
-                pushShellRoute("play", url == null ? "" : url,
-                        title == null ? "" : title, headers == null ? "" : headers,
-                        false, 0L);
+                String captionUrl = call.argument("captionUrl");
+                String segments = call.argument("segments") == null
+                        ? "" : String.valueOf(call.argument("segments"));
+                try {
+                    android.content.Intent i = new android.content.Intent(this, PlayActivity.class)
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                                    | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                    | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                            .putExtra("url", url == null ? "" : url)
+                            .putExtra("title", title == null ? "" : title)
+                            .putExtra("headers", headers == null ? "" : headers);
+                    if (captionUrl != null && !captionUrl.isEmpty())
+                        i.putExtra("ytCaptionUrl", captionUrl);
+                    if (!segments.isEmpty() && !segments.equals("[]"))
+                        i.putExtra("ytSegments", segments);
+                    startActivity(i);
+                    Diag.i("browser", "openInPlayer → native cinema (url="
+                            + PlayActivity.hostOf(url) + ", captions="
+                            + (captionUrl != null && !captionUrl.isEmpty()) + ")");
+                } catch (Throwable t) {
+                    Diag.w("browser", "native open: " + t);
+                    pushShellRoute("play", url == null ? "" : url,
+                            title == null ? "" : title, headers == null ? "" : headers,
+                            false, 0L);
+                }
                 result.success(true);
             } else if ("openWebTab".equals(call.method)) {
                 // v3.4.6.c — the shell's live Browser tab (was: a PlayActivity
@@ -2346,6 +2378,88 @@ public class MainActivity extends FlutterActivity {
                 result.success(probeJson(FeatureProbe.lastResults()));
             } else if ("lastDeepResults".equals(call.method)) {
                 result.success(deepProbeJson(DeepProbe.lastResults()));
+            } else if ("nativeCrashTop".equals(call.method)) {
+                // v3.4.6.k — THE HONEST CRASH GATE'S DART HALF (probe 87): the
+                // raw native last_crash.txt top lines (THIS build only —
+                // CrashLog version-stamps and auto-expires older records), so
+                // the Dart audit can FAIL on a native uncaught crash too, not
+                // just Dart-side FlutterError events.
+                java.util.List<String> top = new java.util.ArrayList<>();
+                try {
+                    for (String line : Troubleshooter.crashTop(
+                            CrashLog.read(getFilesDir()), 8)) top.add(line);
+                } catch (Throwable t) {
+                    top.add("crash log unreadable: " + t.getClass().getSimpleName());
+                }
+                result.success(top);
+            } else if ("auditReceiverRoundTrip".equals(call.method)) {
+                // v3.4.6.k — THE TRANSACTIONAL RECEIVER ROUND TRIP (the
+                // Part_03 04:18 non-disruptive law): the Dart layer's stop/
+                // start audit rides THIS native lane so the standing user-stop
+                // veto + the receiver state are snapshotted BEFORE and
+                // restored in a finally — the raw 'stop'/'arm' channel pair
+                // persisted a user stop and the re-arm was vetoed by it,
+                // leaving the Cast Receiver STOPPED after every full
+                // troubleshoot run (exactly the video's defect).
+                final MethodChannel.Result r = result;
+                new Thread(() -> {
+                    boolean wasUp = ReceiverService.isUp();
+                    boolean wasUserStop = ReceiverService.userStopped();
+                    boolean stopLegOk = false, startLegOk = false, restored = false;
+                    try {
+                        if (wasUp) {
+                            ReceiverService.requestStop(MainActivity.this);
+                            for (int i = 0; i < 20 && ReceiverService.isUp(); i++)
+                                try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                            stopLegOk = !ReceiverService.isUp();
+                            // clear the transient veto the probe lane set, arm,
+                            // then put the ORIGINAL veto back in the finally
+                            ReceiverService.setUserStop(MainActivity.this, false);
+                            ReceiverService.arm(MainActivity.this, "dart-audit");
+                            for (int i = 0; i < 40 && !ReceiverService.isUp(); i++)
+                                try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                            startLegOk = ReceiverService.isUp();
+                        } else {
+                            ReceiverService.setUserStop(MainActivity.this, false);
+                            ReceiverService.arm(MainActivity.this, "dart-audit");
+                            for (int i = 0; i < 40 && !ReceiverService.isUp(); i++)
+                                try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                            startLegOk = ReceiverService.isUp();
+                            ReceiverService.requestStop(MainActivity.this);
+                            for (int i = 0; i < 20 && ReceiverService.isUp(); i++)
+                                try { Thread.sleep(100); } catch (InterruptedException ignored) { }
+                            stopLegOk = !ReceiverService.isUp();
+                        }
+                        restored = ReceiverService.isUp() == wasUp;
+                    } catch (Throwable t) {
+                        Diag.w("trouble", "receiver audit: " + t);
+                    } finally {
+                        // THE ALWAYS-RESTORE CONTRACT: the exact pre-run
+                        // running + userStop pair comes back, whatever happened.
+                        try {
+                            ReceiverService.setUserStop(MainActivity.this, wasUserStop);
+                            if (wasUp && !ReceiverService.isUp()) {
+                                ReceiverService.setUserStop(MainActivity.this, false);
+                                ReceiverService.arm(MainActivity.this, "dart-audit-restore");
+                                ReceiverService.setUserStop(MainActivity.this, wasUserStop);
+                            } else if (!wasUp && ReceiverService.isUp()) {
+                                ReceiverService.requestStop(MainActivity.this);
+                            }
+                        } catch (Throwable t) {
+                            Diag.w("trouble", "receiver audit restore: " + t);
+                        }
+                    }
+                    final Map<String, Object> reply = new LinkedHashMap<>();
+                    reply.put("wasUp", wasUp);
+                    reply.put("wasUserStop", wasUserStop);
+                    reply.put("stopLegOk", stopLegOk);
+                    reply.put("startLegOk", startLegOk);
+                    reply.put("restored", restored && ReceiverService.isUp() == wasUp
+                            && ReceiverService.userStopped() == wasUserStop);
+                    main.post(() -> {
+                        try { r.success(reply); } catch (Throwable ignored) { }
+                    });
+                }, "si-audit-recv").start();
             } else if ("deepReport".equals(call.method)) {
                 // v3.4.6.e — the full structured report (Status Summary +
                 // Domains A–F + Last Crash + Timeline), scrubbed, for the

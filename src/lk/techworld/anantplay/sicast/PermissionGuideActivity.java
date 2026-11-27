@@ -1,5 +1,7 @@
 package lk.techworld.anantplay.sicast;
 
+import android.animation.ValueAnimator;
+
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -112,6 +114,15 @@ public class PermissionGuideActivity extends Activity {
      * (unguided) launch — the guide can never block the permission path.
      */
     public static boolean stackedLaunch(Context c, Intent settings, String guide) {
+        // v3.4.6.k — THE NON-DISRUPTIVE LAW: a live troubleshoot run NEVER
+        // opens a system settings page (nor stacks the guide over one) — the
+        // Part_03 04:18 battery-settings hijack kill, enforced at the ONE
+        // launcher every open*WithGuide lane funnels through.
+        if (DeepProbe.probeRunActive()) {
+            Diag.i("guide", "stacked launch refused while the troubleshoot run is active");
+            Troubleshooter.record("TROUBLESHOOT", "permission-guide launch refused during the probe run");
+            return false;
+        }
         try {
             if (settings == null) return false;
             if (!(c instanceof Activity)) settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -384,40 +395,136 @@ public class PermissionGuideActivity extends Activity {
         return scene;
     }
 
-    /** The glowing toggle that SLIDES ON (the animated mockup's hero). */
+    /**
+     * v3.4.6.k — THE BOLD ANIMATED TOGGLE GRAPHIC (Part_01 00:26–00:40): a
+     * fully custom-drawn, unmistakably visible toggle switch — the rounded
+     * green track, the glowing white thumb that SLIDES on with a springy
+     * overshoot, a tapping RIPPLE ring around it, and a POINTER arrow above
+     * it that follows the thumb — replacing the v3.4.6.j system Switch whose
+     * tiny thumb read as a text-only box on the real phone.
+     */
     private View animatedToggle(String description) {
-        android.widget.Switch sw = new android.widget.Switch(this);
-        sw.setChecked(true);
-        // v3.4.6.i — the mock toggle is ANNOUNCED for accessibility (an
-        // ImageView-based glyph would carry no semantics at all); setContent
-        // Description exists on all API levels we ship.
-        if (Build.VERSION.SDK_INT >= 19) {
-            sw.setContentDescription(description);
-        }
-        sw.setOnCheckedChangeListener(null);               // a mockup — never tappable
-        sw.setClickable(false);
-        sw.setFocusable(false);
-        try {
-            sw.setTrackTintList(android.content.res.ColorStateList.valueOf(0x66344B5A));
-            sw.setThumbTintList(android.content.res.ColorStateList.valueOf(GREEN));
-        } catch (Throwable ignored) { }
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        sw.setLayoutParams(lp);
-        // the mock slide: the thumb animates ON (loop with a pause).
-        sw.post(() -> {
+        GuideToggleView tv = new GuideToggleView(this);
+        tv.setContentDescription(description);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(64), dp(52));
+        tv.setLayoutParams(lp);
+        return tv;
+    }
+
+    /**
+     * The custom-drawn animated toggle: rounded track + glowing sliding thumb
+     * + tapping ripple + following pointer arrow, all in ONE self-animating
+     * view (zero layouts, zero system widgets, always visible).
+     */
+    private static final class GuideToggleView extends View {
+        private final ValueAnimator slide;    // 0 (OFF side) … 1 (ON side), springy
+        private final ValueAnimator ripple;   // 0 … 1 ripple ring around the thumb
+        private float slideT, rippleT;
+        private final android.graphics.Paint track = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint thumb = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint glow = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint ring = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint pointer = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        GuideToggleView(Context c) {
+            super(c);
+            // the slide: a smooth OFF→ON sweep with a springy settle (overshoot
+            // interpolator), reversing with a hold at ON so the ON state reads.
+            slide = ValueAnimator.ofFloat(0f, 1f);
+            slide.setDuration(900);
+            slide.setInterpolator(new android.view.animation.OvershootInterpolator(1.6f));
+            slide.setRepeatCount(ValueAnimator.INFINITE);
+            slide.setRepeatMode(ValueAnimator.REVERSE);
+            slide.addUpdateListener(a -> {
+                slideT = (float) a.getAnimatedValue();
+                invalidate();
+            });
+            // the ripple: the tapping ring pulses out from the thumb.
+            ripple = ValueAnimator.ofFloat(0f, 1f);
+            ripple.setDuration(900);
+            ripple.setRepeatCount(ValueAnimator.INFINITE);
+            ripple.setRepeatMode(ValueAnimator.REVERSE);
+            ripple.addUpdateListener(a -> {
+                rippleT = (float) a.getAnimatedValue();
+                invalidate();
+            });
             try {
-                android.view.animation.ScaleAnimation pulse =
-                        new android.view.animation.ScaleAnimation(
-                                1f, 1.04f, 1f, 1.04f, android.view.animation.Animation.RELATIVE_TO_SELF, .5f,
-                                android.view.animation.Animation.RELATIVE_TO_SELF, .5f);
-                pulse.setDuration(600);
-                pulse.setRepeatMode(Animation.REVERSE);
-                pulse.setRepeatCount(Animation.INFINITE);
-                sw.startAnimation(pulse);
+                track.setColor(0xFF2FA96C);            // the bold ON green track
+                thumb.setColor(0xFFFFFFFF);            // the crisp white thumb
+                glow.setShader(null);
+                glow.setColor(0x662FA96C);             // the green halo
+                ring.setColor(0xFFFFFFFF);             // the tapping ripple ring
+                ring.setStyle(android.graphics.Paint.Style.STROKE);
+                ring.setStrokeWidth(3f);
+                pointer.setColor(0xFFFFFFFF);          // the following arrow
+                pointer.setStyle(android.graphics.Paint.Style.FILL);
             } catch (Throwable ignored) { }
-        });
-        return sw;
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            try {
+                slide.start();
+                ripple.start();
+            } catch (Throwable ignored) { }
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            try {
+                slide.cancel();
+                ripple.cancel();
+            } catch (Throwable ignored) { }
+            super.onDetachedFromWindow();
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas canvas) {
+            try {
+                final float w = getWidth(), h = getHeight();
+                if (w <= 0 || h <= 0) return;
+                final float arrowH = h * 0.26f;                  // the pointer band
+                final float trackTop = arrowH + h * 0.08f;
+                final float trackH = h - trackTop - h * 0.08f;
+                final float trackW = w;
+                final float r = trackH / 2f;
+                // ── the rounded track (bold ON green, darker OFF tail) ──────
+                android.graphics.RectF trackRect = new android.graphics.RectF(0, trackTop, trackW, trackTop + trackH);
+                track.setColor(0xFF2FA96C);
+                canvas.drawRoundRect(trackRect, r, r, track);
+                track.setColor(0x332FA96C);
+                android.graphics.RectF offPart = new android.graphics.RectF(
+                        0, trackTop, trackW * (1f - Math.max(0f, slideT)), trackTop + trackH);
+                if (offPart.right > offPart.left)
+                    canvas.drawRoundRect(offPart, r, r, track);
+                // ── the thumb: slides left→right with the springy sweep ────
+                final float cx = r + (trackW - 2 * r) * Math.max(0f, Math.min(1f, slideT));
+                final float cy = trackTop + r;
+                final float thumbR = r * 0.82f;
+                // the green glow halo behind the thumb
+                glow.setAlpha((int) (0.45f * 255 * (0.4f + 0.6f * slideT)));
+                canvas.drawCircle(cx, cy, thumbR * 1.75f + rippleT * thumbR, glow);
+                // the tapping ripple ring (pulses out from the thumb)
+                ring.setAlpha((int) (255 * (1f - rippleT)));
+                canvas.drawCircle(cx, cy, thumbR * (1.15f + rippleT * 0.9f), ring);
+                // the crisp white thumb
+                thumb.setShadowLayer(6f, 0f, 2f, 0x40000000);
+                canvas.drawCircle(cx, cy, thumbR, thumb);
+                // ── the pointer arrow above the thumb (follows it) ─────────
+                final float px = Math.max(r, Math.min(trackW - r, cx));
+                final float py = trackTop - h * 0.05f;
+                android.graphics.Path p = new android.graphics.Path();
+                float aw = h * 0.11f;                      // half width
+                float ah = h * 0.13f;                      // height
+                p.moveTo(px - aw, py - ah);
+                p.lineTo(px + aw, py - ah);
+                p.lineTo(px, py);
+                p.close();
+                pointer.setAlpha((int) (255 * (0.55f + 0.45f * slideT)));
+                canvas.drawPath(p, pointer);
+            } catch (Throwable ignored) { }
+        }
     }
 
     private void setBody(TextView t, int color, float sizeSp, boolean bold) {

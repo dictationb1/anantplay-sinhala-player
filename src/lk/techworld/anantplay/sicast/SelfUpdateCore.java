@@ -44,11 +44,11 @@ import java.util.Map;
   * above is untouched: https-only, under-50-MiB cap, strict SHA-256 vs SHA256SUMS.txt. */
 final class SelfUpdateCore {
 
-    /** Strictly below 55 MiB (v3.4.6: the Flutter APK tier — still safely under the
-     *  50 MiB SHIPPING gate in build.sh/CI, with headroom for the updater to accept
-     *  any valid future release); a hostile/renamed asset is rejected before it
-     *  fills storage. */
-    static final long MAX_APK_BYTES = 55L * 1024 * 1024 - 1;
+    /** At most 100 MiB = 104,857,600 bytes (v3.4.6.k LAW #1: the ceiling
+     *  raised from 50/55 MiB — the SHIPPING gate in build.sh/CI matches), with
+     *  headroom for the updater to accept any valid future release; a
+     *  hostile/renamed asset is rejected before it fills storage. */
+    static final long MAX_APK_BYTES = 100L * 1024 * 1024;
 
     /** Live download progress (called on the download thread). */
     interface Progress {

@@ -53,9 +53,9 @@ done
 # (v3.4.6: no silent platform fallback — the release always compiles against android-36)
 TARGET_SDK=36
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-3.4.6.j}
-VERSION_CODE=${VERSION_CODE:-30416}
-PREV_VERSION_CODE=${PREV_VERSION_CODE:-30415}   # v3.4.6.g — the last released build
+VERSION_NAME=${VERSION_NAME:-3.4.6.k}
+VERSION_CODE=${VERSION_CODE:-30417}
+PREV_VERSION_CODE=${PREV_VERSION_CODE:-30416}   # v3.4.6.k — the last released build (v3.4.6.j)
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -170,7 +170,7 @@ echo "$BADGE" | grep -q "versionName='$VERSION_NAME'" || die "badging versionNam
 cp "dist/AnantPlay-Sinhala-Player.apk" "dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk"
 
 SIZE=$(wc -c < "dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk")
-[ "$SIZE" -lt 52428800 ] || die "APK size must be strictly below 50 MiB (got $SIZE bytes)"
+[ "$SIZE" -le 104857600 ] || die "APK size must be at most 100 MiB (got $SIZE bytes)"
 if command -v sha256sum >/dev/null 2>&1; then
   SHA=$(sha256sum "dist/AnantPlay-Sinhala-Player-v$VERSION_NAME.apk" | cut -d' ' -f1)
 else

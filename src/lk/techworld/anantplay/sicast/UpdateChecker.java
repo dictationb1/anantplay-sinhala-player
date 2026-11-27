@@ -83,6 +83,21 @@ public final class UpdateChecker {
      * v3.4.6.d — THE PERMANENT LAW: the lane is a→z (1…26), NOT a→e. A ceiling
      * at 'e' would silently order 3.4.6.f as "no letter" (== 3.4.6) and the
      * update would never fire again. The alphabet is the only bound. */
+    /** v3.4.6.k — LAW #1 TWO-LANE VERSIONING: true when candidate is a
+     *  letter-suffix PATCH of the SAME major.minor.patch base as current
+     *  (3.4.6.k → 3.4.6.l → 3.4.6.m): the SILENT zero-prompt lane (download
+     *  once + SHA-256 verify + USER_ACTION_NOT_REQUIRED commit, a glass
+     *  pill "Updating to vX…" only). Any numeric bump (3.4.7 / 3.5.0) is the
+     *  major/minor lane → the full-screen non-dismissible ForceUpdateScreen. */
+    static boolean isLetterPatch(String candidate, String current) {
+        if (candidate == null || current == null) return false;
+        int[] a = parse(candidate);
+        int[] b = parse(current);
+        boolean sameBase = a[0] == b[0] && a[1] == b[1] && a[2] == b[2];
+        boolean hasLetter = a[3] > 0 || b[3] > 0;
+        return sameBase && hasLetter;
+    }
+
     static int[] parse(String v) {
         int[] out = {0, 0, 0, 0};
         if (v == null) return out;

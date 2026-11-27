@@ -225,7 +225,7 @@ void main() {
       expect(value, isTrue);
     });
 
-    testWidgets('pressing the switch engages the tactile stretch (a Transform appears)',
+    testWidgets('pressing the switch engages the tactile stretch (the v5.4.5 lens grows)',
         (tester) async {
       var value = false;
       await tester.pumpWidget(switchHost(
@@ -240,12 +240,13 @@ void main() {
       await tester.startGesture(tester.getCenter(find.byType(AppSwitch)),
           kind: PointerDeviceKind.touch);
       await tester.pump(const Duration(milliseconds: 120));
-      // while held the thumb rides a Transform.scale (the liquid stretch) —
-      // and the material fallback Switch never rendered.
+      // v3.4.6.k — SYNCED WITH MORNYE v5.4.5: while held the thumb GROWS
+      // into the 58×38.33 lens through an OverflowBox (never a bare
+      // Transform.scale) — and the material fallback Switch never rendered.
       expect(find.byType(Switch), findsNothing);
       expect(
           find.descendant(
-              of: find.byType(AppSwitch), matching: find.byType(Transform)),
+              of: find.byType(AppSwitch), matching: find.byType(OverflowBox)),
           findsWidgets);
     });
   });

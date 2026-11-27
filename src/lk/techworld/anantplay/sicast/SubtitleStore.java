@@ -81,6 +81,24 @@ public final class SubtitleStore {
         for (int i = MAX_CACHED; i < all.length; i++) all[i].delete();
     }
 
+    /** v3.4.6.k — LAW #1: the OTA-managed 7-DAY TTL sweep (called by
+     *  OtaConfigSync after every verified manifest application). A cached
+     *  .srt older than ttlMs is deleted; a subtitle that is REUSED gets its
+     *  lastModified refreshed by save(), so a movie actually being watched
+     *  never drops out from under the viewer. Returns the deleted count. */
+    int sweepExpired(long ttlMs) {
+        File[] all = dir.listFiles();
+        if (all == null || ttlMs <= 0) return 0;
+        long cutoff = System.currentTimeMillis() - ttlMs;
+        int deleted = 0;
+        for (File f : all) {
+            if (f.isFile() && f.lastModified() < cutoff) {
+                if (f.delete()) deleted++;
+            }
+        }
+        return deleted;
+    }
+
     private static byte[] read(File f) throws IOException {
         try (FileInputStream in = new FileInputStream(f)) {
             java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();

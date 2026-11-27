@@ -37,7 +37,7 @@ on:
       version:
         description: 'Version to release (e.g. 3.4.6.c — no leading v)'
         required: true
-        default: "3.4.6.j"
+        default: "3.4.6.k"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -327,8 +327,8 @@ jobs:
           APK="dist/AnantPlay-Sinhala-Player-v${{ steps.ver.outputs.version }}.apk"
           test -s "$APK"
           SIZE=$(stat -c %s "$APK")
-          test "$SIZE" -lt 52428800 || { echo "::error::APK must be strictly below 50 MiB (got $SIZE bytes)"; exit 1; }
-          echo "size: $SIZE bytes (< 50 MiB)"
+          test "$SIZE" -le 104857600 || { echo "::error::APK must be at most 100 MiB (got $SIZE bytes)"; exit 1; }
+          echo "size: $SIZE bytes (<= 100 MiB)"
           "$BT/apksigner" verify --verbose --print-certs "$APK" | tee /tmp/apksigner.txt
           # the release contract: BOTH schemes, verified, on the exact artifact
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" /tmp/apksigner.txt \
@@ -458,7 +458,7 @@ jobs:
               "🎬 සිංහල උපසිරැසි සමඟ බලන්න" — zero Cast needed, works on any network.
             - App-open auto-updater (checks the moment the app opens + every 4 h,
               live progress, SHA-256-verified, temp files always cleaned) with a
-              55 MiB download cap.
+              100 MiB download cap (v3.4.6.k law).
 
             ## Install / update
             - **In-app**: Settings → Updates (or just open the app).

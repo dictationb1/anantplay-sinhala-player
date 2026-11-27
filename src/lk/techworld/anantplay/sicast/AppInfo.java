@@ -27,12 +27,28 @@ package lk.techworld.anantplay.sicast;
  *  script-ratio validation) + the Mornye/Apple-grade customization hub + the
  *  dedicated 10-point Troubleshooter. Strictly v3.x — never v4. */
 final class AppInfo {
+    // v3.4.6.k (code 30417): THE SILENT ZERO-PROMPT SELF-UPDATE (LAW #1:
+    // UPDATE_PACKAGES_WITHOUT_USER_ACTION + USER_ACTION_NOT_REQUIRED on API
+    // 31+, two-lane letter-patch/major versioning, the 2–3× installer-loop
+    // kill) + THE SIGNED JSON OTA (ota/v1/manifest.json: both-CDN consensus
+    // + SHA-256, Subtitle Bridge mirrors + index feeds + ad rules + the
+    // 7-day local SRT cache TTL) + THE 100 MiB APK CEILING + the 7-video
+    // audit's core kills: the blank PlayActivity screen (the missing
+    // buildUi()/startPlayback()), the DLNA-cast-opens-HomeScreen BAL fix,
+    // the YouTube renderer-crash shield + the pure-Java ad-free extractor +
+    // SponsorBlock auto-skip, the stale Play-in-Cinema banner, the #EXTM3U
+    // in-app IPTV channel sheet, the setup-wizard forward-swipe lock +
+    // slide persistence + no cold-launch flash, the animated permission
+    // toggle graphic, the bottom-anchored arrow-guided coach, the
+    // scrolling-tile backdrop lag kill, the stuck Force-liquid-blur switch,
+    // the Mornye bubble sliders + live Sinhala preview, the ⋮ popover
+    // anchor, and the non-disruptive troubleshooter.
     // v3.4.6.f (code 30412): THE HONEST UPDATER & UI FIX — kills the
     // v3.4.6.e→v3.4.6.e self-lock, the background multi-download, the
     // `No active stream to cancel` EventChannel collision, and the fake
     // PASSes in the deep troubleshooter (Probe 47's HTTP 0 lie).
-    static final String VERSION_NAME = "3.4.6.j";
-    static final int VERSION_CODE = 30416;
+    static final String VERSION_NAME = "3.4.6.k";
+    static final int VERSION_CODE = 30417;
     static final String NAME = "AnantPlay Sinhala Player";
     private AppInfo() { }
 }

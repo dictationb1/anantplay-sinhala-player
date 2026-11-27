@@ -42,6 +42,13 @@
          The install itself is the OS's own 1-tap "Update" dialog (non-root Android
          never allows silent installs — by design). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- v3.4.6.k LAW #1 — SILENT ZERO-PROMPT SELF-UPDATES (Android 12–16): the
+         UPDATE_PACKAGES_WITHOUT_USER_ACTION grant (API 31+) + SessionParams
+         .setRequireUserAction(USER_ACTION_NOT_REQUIRED) make a same-signature
+         letter-patch update (3.4.6.k → .l → .m) install with ZERO installer
+         sheet — a top glass pill "Updating to vX…" only. Non-root, no
+         AccessibilityService, exactly the AOSP auto-update contract. -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
     <!-- one-time system toggle: lets the receiver take the screen when a cast arrives.
          NOT required for casting itself — without it the cast arrives as a tap-to-open
          high-priority notification (see ReceiverService.onPlay). -->
