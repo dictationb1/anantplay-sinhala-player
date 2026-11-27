@@ -736,6 +736,14 @@ class ShellRootState extends State<ShellRoot> {
         initialGate: _lastGate,
       );
     }
+    if (!state.hydrated) {
+      // v3.4.6.k — THE COLD-LAUNCH WIZARD-FLASH KILL (Part_05 02:17–02:53):
+      // hold a clean theme-matched solid backdrop until the first real
+      // `getAll()` settings snapshot arrives — the defaults (`onboardingCurrent
+      // == false`) can never flash OnboardingScreen for one frame on a cold
+      // start of a phone whose persisted `onboardingVersion >= 2`.
+      return const _HydrationBackdrop();
+    }
     if (!state.settings.onboardingCurrent) {
       return const OnboardingScreen();
     }
@@ -768,10 +776,23 @@ class ShellRootState extends State<ShellRoot> {
     // drain fix — an offstage Home pulse no longer repaints at 60 fps while
     // the user watches a movie in the Browser tab).
     final pages = [
-      TickerMode(enabled: _tab == 0, child: const HomeScreen()),
-      TickerMode(enabled: _tab == 1, child: BrowserScreen(initialUrl: _pendingWebUrl)),
-      TickerMode(enabled: _tab == 2, child: const SettingsScreen()),
-      TickerMode(enabled: _tab == 3, child: const HelpScreen()),
+      // v3.4.6.k — THE TAB-BODY REPAINT ISOLATION (the app-wide lag kill,
+      // Part_02 02:38 / Part_03 03:23 / Part_04 02:12): every tab body sits in
+      // its own RepaintBoundary layer, so a repaint storm inside one tab
+      // (a settings page of tiles, the browser's WebView host, a help card)
+      // never repels into the other tabs or the shell — the active tab's
+      // layer composites alone at 60/120 fps.
+      RepaintBoundary(
+          child: TickerMode(enabled: _tab == 0, child: const HomeScreen())),
+      RepaintBoundary(
+          child: TickerMode(
+              enabled: _tab == 1,
+              child: BrowserScreen(initialUrl: _pendingWebUrl))),
+      RepaintBoundary(
+          child: TickerMode(
+              enabled: _tab == 2, child: const SettingsScreen())),
+      RepaintBoundary(
+          child: TickerMode(enabled: _tab == 3, child: const HelpScreen())),
     ];
     // The docked bar hugs the navigation-bar inset edge-to-edge; the floating
     // capsule rides 12dp above it. The page clears the taller of the two.
@@ -842,6 +863,33 @@ class ShellRootState extends State<ShellRoot> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// v3.4.6.k — THE HYDRATION BACKDROP: the quiet, theme-matched solid loading
+/// surface the shell shows while the very first `getAll()` settings snapshot
+/// is still in flight. A centered small progress indicator on the app's own
+/// dark navy — never OnboardingScreen flashing (Part_05 02:17–02:53), never a
+/// white blink, never a dead blank frame.
+class _HydrationBackdrop extends StatelessWidget {
+  const _HydrationBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: ColoredBox(
+        color: scheme.surface,
+        child: const Center(
+          child: SizedBox(
+            width: 26,
+            height: 26,
+            child: CircularProgressIndicator(strokeWidth: 2.4),
+          ),
+        ),
       ),
     );
   }

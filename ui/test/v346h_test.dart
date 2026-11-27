@@ -18,7 +18,7 @@
 //     (isNewerVersion truth table; the installed identity never gates on
 //     itself)
 //   · the 14-audit Dart layer of the 87-probe Debug Engine (H1..H14,
-//     ids 74–87, after the v3.4.6.i native Domain I took 65–73)
+//     ids 79–92, after the v3.4.6.i native Domain I (65–73) + the v3.4.6.k Domain K (74–78))
 import 'dart:io' show File;
 
 import 'package:flutter/services.dart';
@@ -350,20 +350,21 @@ void main() {
     });
   });
 
-  group('v3.4.6.h the 87-probe Debug Engine (Dart layer H1..H14, ids 74–87)', () {
+  group('v3.4.6.h the 92-probe Debug Engine (Dart layer H1..H14, ids 79–92)', () {
     test('the Dart layer runs EXACTLY 14 audits with unique sequential ids', () async {
       final scope = AppStateNotifier();
       final out = await DartLayerAuditor.run(scope).timeout(
           const Duration(seconds: 60), onTimeout: () => <DeepOutcome>[]);
-      expect(out.length, 14, reason: 'H1..H14 (ids 74–87)');
+      expect(out.length, 14, reason: 'H1..H14 (ids 79–92)');
       final ids = out.map((o) => o.id).toSet();
       expect(ids.length, 14, reason: 'zero duplicate ids');
-      expect(ids.reduce((a, b) => a < b ? a : b), 74);
-      expect(ids.reduce((a, b) => a > b ? a : b), 87);
-      // v3.4.6.i — THE ID-PARITY LAW: the native layer owns 1..73 (A–G plus
-      // the new Domain I at 65–73), so no Dart id may ever land in 1..73.
-      expect(ids.every((i) => i >= 74), isTrue,
-          reason: 'Dart ids must never collide with the native 1..73');
+      expect(ids.reduce((a, b) => a < b ? a : b), 79);
+      expect(ids.reduce((a, b) => a > b ? a : b), 92);
+      // v3.4.6.k — THE ID-PARITY LAW: the native layer owns 1..78 (A–G +
+      // Domain I at 65–73 + the new Domain K at 74–78), so no Dart id may
+      // ever land in 1..78.
+      expect(ids.every((i) => i >= 79), isTrue,
+          reason: 'Dart ids must never collide with the native 1..78');
       // the NEW visual audits exist by name
       final names = out.map((o) => o.name).toSet();
       expect(names, contains('Light Mode visual integrity (LIVE ThemeData)'));
@@ -431,9 +432,9 @@ void main() {
   });
 
   group('v3.4.6.h version identity', () {
-    test('pubspec carries 3.4.6+30416 (pure integer build number)', () {
+    test('pubspec carries 3.4.6+30417 (pure integer build number)', () {
       final pubspec = File('pubspec.yaml').readAsStringSync();
-      expect(RegExp(r'^version: 3\.4\.6\+30416$', multiLine: true).hasMatch(pubspec), isTrue);
+      expect(RegExp(r'^version: 3\.4\.6\+30417$', multiLine: true).hasMatch(pubspec), isTrue);
       expect(pubspec.contains('3.4.6.h+30414'), isFalse,
           reason: 'pub-semver forbids the 4-part core in the version field');
     });

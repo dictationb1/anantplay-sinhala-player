@@ -1,5 +1,6 @@
 package lk.techworld.anantplay.sicast;
 
+import android.animation.ValueAnimator;
 import android.app.Service;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -21,74 +22,119 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * v3.4.6.j — THE FLOATING ANANTPLAY SETUP COACH (video_5 01:40–05:55, Law #3).
+ * v3.4.6.k — THE FLOATING ANANTPLAY SETUP COACH, REBUILT TO THE RED-PEN SPECS
+ * (Part_01 01:40–05:16, Part_02 03:38–06:01, Part_03 00:00–02:47).
  *
  * Official AnantPlay (me.champdev.weblock) is installed and updated directly
- * from inside our app; the LAST mile of the guided setup — adding our three
- * index URLs inside ANANTPLAY's OWN Settings — now rides a floating, draggable,
- * collapsible glass coach card over AnantPlay itself:
+ * from inside our app; the LAST mile of the guided setup — adding our index
+ * URLs inside ANANTPLAY's OWN Settings — rides this floating, draggable glass
+ * coach card over AnantPlay itself, built to the user's exact audit:
  *
- *   · the overlay uses the `Display over other apps` permission we already
- *     ask for in onboarding (SYSTEM_ALERT_WINDOW, TYPE_APPLICATION_OVERLAY) —
- *     ZERO AccessibilityService, exactly like every other surface of this app;
- *   · the card walks the SIX exact steps from video_5 with a bold title, a
- *     short instruction line, a 1-tap Copy button for every URL that must be
- *     pasted into AnantPlay, and a Next/Finish button — never a second app,
- *     never a video the user has to remember;
- *   · dragging: touch-drag moves the card anywhere (a small drag slop keeps
- *     taps working); collapse folds it into a compact pill; Finish Setup ✓
- *     removes the overlay and returns cleanly to AnantPlay;
- *   · lightweight by Law #4 discipline: ONE view tree, ZERO repeating
- *     animations, ZERO blur shaders (a plain translucent GradientDrawable
- *     glass tint), 0 CPU while the user follows a step.
+ *   · DEFAULT POSITION: anchored at the BOTTOM of the screen; it lifts to
+ *     the TOP automatically on the URL-paste steps (a dialog/keyboard is
+ *     opening there), and stays 100% smoothly draggable everywhere in
+ *     between (Part_01 01:40);
+ *   · NO `✕` (Close) and NO `—` (Minimize) buttons exist anywhere — only
+ *     clean step navigation (Back / Next step / the final Finish Setup ✓)
+ *     with sleek glass styling (Part_01 01:52);
+ *   · EVERY step renders a GLOWING ANIMATED DIRECTIONAL ARROW indicator with
+ *     the exact audit labels — `↗ Top-right ⚙`, `↓ Tap Sources`, `↓ Tap Add
+ *     this index`, `↓ Tap Add on all 3 rows`, `↓ Tap Add an index by link`,
+ *     `↓ Paste into URL box`, `↓ Tap Add on BOTH Sinhala Subtitle Bridge
+ *     rows`, `↓ Enable WARP · Ad block · Address bar`, `↓ Enable Hide
+ *     offline + Add MyTV .m3u + Check channels`, `↓ Player settings → Finish
+ *     Setup ✓` (Part_02 03:38, Part_03 02:55);
+ *   · ONE-TAP COPY pills for BOTH index JSONs (Sri Lanka IPTV + the Sinhala
+ *     Subtitle Bridge) AND every user-added custom index URL from Settings →
+ *     AnantPlay & Sources (Part_03 02:09);
+ *   · the overlay uses the `Display over other apps` grant we already ask
+ *     for in onboarding (SYSTEM_ALERT_WINDOW, TYPE_APPLICATION_OVERLAY) —
+ *     ZERO AccessibilityService, exactly like every other surface;
+ *   · lightweight by Law #4 discipline: ONE view tree, ONE 4 Hz alpha pulse
+ *     on the arrow (a ValueAnimator invalidating a 40 dp arrow view), ZERO
+ *     blur shaders, ~0 CPU while the user follows a step.
  *
- * Started from: Onboarding slide 2 (after the official app lands) and
+ * Started from: Onboarding slide 6 ("Open AnantPlay with User Guide") and
  * Settings → AnantPlay & Sources → "Guided AnantPlay Setup" — the
  * openOfficialWithCoach channel (MainActivity) starts the coach and launches
  * official AnantPlay in one tap.
  */
 public class AnantPlayCoachService extends Service {
 
-    // ── the six guided steps (video_5 01:40–05:55, verbatim labels) ──────────
+    /** The two built-in index JSONs every guided setup needs (both copyable). */
+    static final String URL_SL_IPTV =
+            "https://raw.githubusercontent.com/dictationb1/srilanka-anantplay/main/index.json";
+    static final String URL_SI_SUBS_BRIDGE =
+            "https://anantplay-si-subs-bridge.techworldlk.workers.dev/index.json";
+
+    // ── the guided steps, verbatim from the audit's red-pen walkthrough ──────
+    // Each step: the bold title, the instruction body, the ARROW direction
+    // (the glowing indicator), and the copyable URLs (both built-ins + the
+    // user's own custom index URLs are appended at build time).
     private static final Step[] STEPS = new Step[]{
-            new Step("Settings ⚙ → Sources",
-                    "In official AnantPlay, tap Settings (top-right ⚙) → Sources. "
-                            + "Then tap “Add this index” on the AnantPlay index "
-                            + "(Streaming sites · Free TV channels · Title links).", null),
-            new Step("Add the Sri Lanka IPTV index",
-                    "Tap “Add an index by link” in AnantPlay → Sources, then copy "
-                            + "this URL, paste it there, and Save:",
-                    "https://raw.githubusercontent.com/dictationb1/srilanka-anantplay/main/index.json"),
-            new Step("Add the Sinhala Subs Bridge",
-                    "Tap “Add an index by link” again, copy this URL, paste and Save:",
-                    "https://anantplay-si-subs-bridge.techworldlk.workers.dev/index.json"),
-            new Step("Connection → WARP · Ad block · Address bar",
+            new Step("Top-right ⚙ → Settings",
+                    "In official AnantPlay, tap the ⚙ at the TOP-RIGHT, then tap Settings.",
+                    Arrow.NE, new String[0]),
+            new Step("Tap Sources",
+                    "In AnantPlay Settings, tap the Sources row.",
+                    Arrow.DOWN, new String[0]),
+            new Step("Tap Add this index",
+                    "In Sources, tap “Add this index” on the AnantPlay index group.",
+                    Arrow.DOWN, new String[0]),
+            new Step("Tap Add on all 3 rows",
+                    "Tap Add on ALL 3 rows of the AnantPlay index (Streaming sites · "
+                            + "Free TV channels · Title links).",
+                    Arrow.DOWN, new String[0]),
+            new Step("Tap Add an index by link",
+                    "Now tap “Add an index by link” — a URL box opens. Copy the Sri Lanka "
+                            + "IPTV URL below and paste it in:",
+                    Arrow.DOWN, new String[]{URL_SL_IPTV}),
+            new Step("Paste into URL box",
+                    "Paste into the URL box and tap Save/OK. If the box is empty again, "
+                            + "re-copy the URL below:",
+                    Arrow.DOWN, new String[]{URL_SL_IPTV, URL_SI_SUBS_BRIDGE}),
+            new Step("Tap Add on BOTH Sinhala Subtitle Bridge rows",
+                    "Repeat “Add an index by link” and tap Add on BOTH Sinhala Subtitle "
+                            + "Bridge rows — copy the bridge URL below:",
+                    Arrow.DOWN, new String[]{URL_SI_SUBS_BRIDGE, URL_SL_IPTV}),
+            new Step("Enable WARP · Ad block · Address bar",
                     "Open Connection in AnantPlay Settings and enable WARP: On, "
-                            + "Ad block: On, Address bar: On.", null),
-            new Step("IPTV → Hide offline channels",
-                    "Open IPTV in AnantPlay and enable “Hide offline channels: On” "
-                            + "(optional: Adult channels / Add playlist), then tap "
-                            + "“Check channels now”.", null),
-            new Step("Player → boosts · Finish",
-                    "Open Player in AnantPlay Settings, enable your preferred "
-                            + "boosts / auto-subs, then tap Finish Setup ✓.", null),
+                            + "Ad block: On, Address bar: On.",
+                    Arrow.DOWN, new String[0]),
+            new Step("Enable Hide offline + Add MyTV .m3u + Check channels",
+                    "Open IPTV in AnantPlay: enable “Hide offline channels: On”, add the "
+                            + "MyTV .m3u playlist if you want it, then tap “Check channels now”.",
+                    Arrow.DOWN, new String[0]),
+            new Step("Player settings → Finish Setup ✓",
+                    "Open Player in AnantPlay Settings, pick your boosts / auto-subs, "
+                            + "then tap Finish Setup ✓ below — done!",
+                    Arrow.DOWN, new String[0]),
     };
 
-    /** One guided step: a bold title, a short instruction, an optional 1-tap copy URL. */
-    private static final class Step {
-        final String title, body, copyUrl;
-        Step(String title, String body, String copyUrl) {
-            this.title = title; this.body = body; this.copyUrl = copyUrl;
+    /** The animated arrow directions the coach renders. */
+    static final class Arrow {
+        static final int NE = 0;    // ↗ (the top-right ⚙)
+        static final int DOWN = 1;  // ↓ (everything else)
+    }
+
+    /** One guided step: title, body, arrow direction, copyable URLs. */
+    static final class Step {
+        final String title, body;
+        final int arrow;
+        final String[] copyUrls;
+        Step(String title, String body, int arrow, String[] copyUrls) {
+            this.title = title; this.body = body;
+            this.arrow = arrow; this.copyUrls = copyUrls;
         }
     }
 
     private WindowManager wm;
-    private LinearLayout card;          // the full coach card
-    private LinearLayout collapsedPill; // the compact "Setup Coach · k/6" pill
+    private LinearLayout card;      // the coach card (bottom-anchored by default)
     private TextView stepTitle, stepBody, stepCounter;
-    private Button copyButton, nextButton;
+    private LinearLayout copyRow;  // the 1-tap Copy pill rows (rebuilt per step)
+    private Button backButton, nextButton;
+    private ArrowView arrowView;
     private int step = 0;
-    private boolean collapsed = false;
 
     /** True when the overlay permission is granted (the only precondition). */
     public static boolean canCoach(Context c) {
@@ -103,7 +149,7 @@ public class AnantPlayCoachService extends Service {
         }
         try {
             c.startService(new Intent(c, AnantPlayCoachService.class));
-            Diag.i("coach", "setup coach overlay started (6 steps)");
+            Diag.i("coach", "setup coach overlay started (10 steps, bottom-anchored)");
         } catch (Throwable t) {
             Diag.w("coach", "start: " + t);
         }
@@ -124,9 +170,8 @@ public class AnantPlayCoachService extends Service {
         super.onCreate();
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         if (wm == null) { stopSelf(); return; }
-        // v3.4.6.j — Android 16 safety: never touch addView() without the
-        // live SYSTEM_ALERT_WINDOW grant (start() checks too; this is the
-        // last gate for an explicit startService from anywhere else).
+        // Android 16 safety: never touch addView() without the live
+        // SYSTEM_ALERT_WINDOW grant.
         if (!canCoach(this)) {
             Diag.w("coach", "overlay permission absent — coach not attached");
             stopSelf();
@@ -135,18 +180,15 @@ public class AnantPlayCoachService extends Service {
         buildCard();
         addOverlay();
         showStep();
-        Diag.i("coach", "coach card attached over official AnantPlay");
-        Troubleshooter.record("COACH", "AnantPlay setup coach overlay attached · 6 steps · "
-                + "overlay=" + canCoach(this) + " · zero AccessibilityService");
+        Diag.i("coach", "coach card attached over official AnantPlay (bottom anchor)");
+        Troubleshooter.record("COACH", "AnantPlay setup coach overlay attached · 10 steps · "
+                + "bottom anchor · overlay=" + canCoach(this) + " · zero AccessibilityService");
     }
 
     @Override public int onStartCommand(Intent i, int flags, int startId) {
         // A re-tap of "Guided AnantPlay Setup" re-shows the coach at the same
         // step (it never restarts the walk from scratch).
-        if (card != null) {
-            collapsed = false;
-            applyCollapsed();
-        }
+        if (card != null) repositionForStep();
         return START_NOT_STICKY;
     }
 
@@ -160,14 +202,14 @@ public class AnantPlayCoachService extends Service {
     private void buildCard() {
         card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.setPadding(dp(16), dp(13), dp(16), dp(13));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xF3141A24);
         bg.setCornerRadius(dp(20));
         bg.setStroke(dp(1), 0x4DFFFFFF);
         card.setBackground(bg);
 
-        // header: coach label + step counter + collapse + close
+        // ── the header: coach label + step counter (NO ✕, NO — anywhere) ──────
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
@@ -177,22 +219,21 @@ public class AnantPlayCoachService extends Service {
         label.setTextSize(13f);
         label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         head.addView(label, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button collapse = smallButton("—", v -> { collapsed = true; applyCollapsed(); });
-        head.addView(collapse, wrap());
-        Button close = smallButton("✕", v -> stopSelf());
-        head.addView(close, wrap());
-        card.addView(head, new LinearLayout.LayoutParams(-1, -2));
-
         stepCounter = new TextView(this);
         stepCounter.setTextColor(0xFF94A3B8);
         stepCounter.setTextSize(11f);
-        card.addView(stepCounter, new LinearLayout.LayoutParams(-1, -2));
+        head.addView(stepCounter, wrap());
+        card.addView(head, new LinearLayout.LayoutParams(-1, -2));
+
+        // ── the GLOWING ANIMATED ARROW indicator (rebuilt per step) ──────────
+        arrowView = new ArrowView(this);
+        card.addView(arrowView, new LinearLayout.LayoutParams(-1, dp(34)));
 
         stepTitle = new TextView(this);
         stepTitle.setTextColor(Color.WHITE);
         stepTitle.setTextSize(15f);
         stepTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        stepTitle.setPadding(0, dp(6), 0, 0);
+        stepTitle.setPadding(0, dp(4), 0, 0);
         card.addView(stepTitle, new LinearLayout.LayoutParams(-1, -2));
 
         stepBody = new TextView(this);
@@ -201,66 +242,96 @@ public class AnantPlayCoachService extends Service {
         stepBody.setLineSpacing(dp(1), 1.25f);
         card.addView(stepBody, new LinearLayout.LayoutParams(-1, -2));
 
+        // ── the 1-tap Copy pills (rebuilt per step) ───────────────────────────
+        copyRow = new LinearLayout(this);
+        copyRow.setOrientation(LinearLayout.VERTICAL);
+        card.addView(copyRow, new LinearLayout.LayoutParams(-1, -2));
+
+        // ── the navigation row: Back · Next step / Finish Setup ✓ ────────────
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        copyButton = pillButton("Copy", null);
-        copyButton.setTextColor(0xFF7DD3FC);
-        row.addView(copyButton, new LinearLayout.LayoutParams(0, -2, 1f));
+        backButton = pillButton("Back", v -> back());
+        backButton.setTextColor(0xFF94A3B8);
+        row.addView(backButton, new LinearLayout.LayoutParams(0, -2, 1f));
         nextButton = pillButton("Next step", v -> advance());
-        row.addView(nextButton, wrap());
+        row.addView(nextButton, new LinearLayout.LayoutParams(0, -2, 1.6f));
         card.addView(row, new LinearLayout.LayoutParams(-1, -2));
-
-        // the collapsed pill: "Setup Coach · k/6" (tap to re-open)
-        collapsedPill = new LinearLayout(this);
-        collapsedPill.setOrientation(LinearLayout.HORIZONTAL);
-        collapsedPill.setGravity(Gravity.CENTER_VERTICAL);
-        collapsedPill.setPadding(dp(14), dp(8), dp(14), dp(8));
-        GradientDrawable pillBg = new GradientDrawable();
-        pillBg.setColor(0xF3141A24);
-        pillBg.setCornerRadius(dp(999));
-        pillBg.setStroke(dp(1), 0x4DFFFFFF);
-        collapsedPill.setBackground(pillBg);
-        TextView pillText = new TextView(this);
-        pillText.setTextColor(0xFF7DD3FC);
-        pillText.setTextSize(12f);
-        pillText.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        collapsedPill.addView(pillText, wrap());
-        collapsedPill.setOnClickListener(v -> { collapsed = false; applyCollapsed(); });
-        stepPillText = pillText;
     }
 
-    private TextView stepPillText;
-
-    private void applyCollapsed() {
-        if (card == null || collapsedPill == null) return;
+    /** The user's own custom index URLs (Settings → AnantPlay & Sources). */
+    private java.util.List<String[]> customIndexes() {
+        java.util.List<String[]> out = new java.util.ArrayList<>();
         try {
-            if (collapsed) {
-                wm.removeView(card);
-                wm.addView(collapsedPill, pillParams());
-                stepPillText.setText("Setup Coach · " + (step + 1) + "/6");
-            } else {
-                wm.removeView(collapsedPill);
-                wm.addView(card, cardParams());
+            String raw = getSharedPreferences("sicast", MODE_PRIVATE)
+                    .getString(AppPrefs.K_INDEX_URLS, "");
+            if (raw != null && !raw.isEmpty()) {
+                for (String line : raw.split("\n")) {
+                    int bar = line.indexOf('|');
+                    if (bar > 0 && bar < line.length() - 1)
+                        out.add(new String[]{line.substring(0, bar), line.substring(bar + 1)});
+                }
             }
-        } catch (Throwable t) {
-            Diag.w("coach", "collapse toggle: " + t);
-        }
+        } catch (Throwable ignored) { }
+        return out;
     }
 
     private void showStep() {
         Step s = STEPS[step];
-        stepCounter.setText("Step " + (step + 1) + " of 6");
+        stepCounter.setText("Step " + (step + 1) + " of " + STEPS.length);
+        arrowView.setDirection(s.arrow);
         stepTitle.setText(s.title);
         stepBody.setText(s.body);
-        if (s.copyUrl != null) {
-            copyButton.setVisibility(View.VISIBLE);
-            copyButton.setText("Copy: " + shorten(s.copyUrl, 34));
-            copyButton.setOnClickListener(v -> copy(s.copyUrl));
-        } else {
-            copyButton.setVisibility(View.GONE);
+
+        // ── the copy pills: the step's URLs + EVERY user custom index ────────
+        copyRow.removeAllViews();
+        java.util.LinkedHashSet<String> urls = new java.util.LinkedHashSet<>();
+        for (String u : s.copyUrls) urls.add(u);
+        // every custom index URL from Settings joins the copyable set too
+        for (String[] cust : customIndexes()) urls.add(cust[1]);
+        if (!urls.isEmpty()) {
+            for (String u : urls) {
+                Button pill = pillButton("⧉  " + shorten(u, 40), v -> copy(u));
+                pill.setTextColor(0xFF7DD3FC);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+                lp.topMargin = dp(6);
+                copyRow.addView(pill, lp);
+            }
         }
+
+        backButton.setVisibility(step > 0 ? View.VISIBLE : View.INVISIBLE);
         nextButton.setText(step == STEPS.length - 1 ? "Finish Setup ✓" : "Next step");
+        repositionForStep();
+    }
+
+    /**
+     * v3.4.6.k — THE BOTTOM DEFAULT + THE AUTO-LIFT: the card anchors at the
+     * BOTTOM (out of the way of the content the user is reading), and lifts
+     * to the TOP automatically on the URL-paste steps (4/5) where a dialog
+     * + keyboard opens over the bottom of the screen. Only while un-dragged.
+     */
+    private void repositionForStep() {
+        if (card == null) return;
+        try {
+            WindowManager.LayoutParams p = (WindowManager.LayoutParams) card.getLayoutParams();
+            if (p == null) return;
+            boolean pasteStep = step == 4 || step == 5;
+            p.gravity = pasteStep
+                    ? Gravity.TOP | Gravity.CENTER_HORIZONTAL
+                    : Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+            p.x = 0;
+            p.y = dp(16);
+            wm.updateViewLayout(card, p);
+        } catch (Throwable t) {
+            Diag.w("coach", "reposition: " + t);
+        }
+    }
+
+    private void back() {
+        if (step > 0) {
+            step--;
+            showStep();
+        }
     }
 
     private void advance() {
@@ -270,9 +341,10 @@ public class AnantPlayCoachService extends Service {
             return;
         }
         // Finish Setup ✓ — the coach removes itself; the user is left in
-        // official AnantPlay exactly where they were (video_5 05:55).
-        Diag.i("coach", "guided setup finished (6/6)");
-        Troubleshooter.record("COACH", "guided AnantPlay setup finished · all 6 steps");
+        // official AnantPlay exactly where they were.
+        Diag.i("coach", "guided setup finished (" + STEPS.length + "/" + STEPS.length + ")");
+        Troubleshooter.record("COACH", "guided AnantPlay setup finished · all "
+                + STEPS.length + " steps");
         stopSelf();
     }
 
@@ -280,8 +352,9 @@ public class AnantPlayCoachService extends Service {
         try {
             ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("AnantPlay index", url));
-            if (nextButton != null) nextButton.setText("Copied ✓ — " + nextButton.getText());
             Diag.i("coach", "copied: " + url);
+            if (nextButton != null && step < STEPS.length - 1)
+                nextButton.setText("Copied ✓ — Next step");
         } catch (Throwable t) {
             Diag.w("coach", "copy: " + t);
         }
@@ -292,17 +365,10 @@ public class AnantPlayCoachService extends Service {
     private WindowManager.LayoutParams cardParams() {
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-                windowType(), Gravity.TOP | Gravity.CENTER_HORIZONTAL, PixelFormat.TRANSLUCENT);
+                windowType(), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, PixelFormat.TRANSLUCENT);
+        p.y = dp(16);
         p.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
-        return p;
-    }
-
-    private WindowManager.LayoutParams pillParams() {
-        WindowManager.LayoutParams p = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-                windowType(), Gravity.TOP | Gravity.START, PixelFormat.TRANSLUCENT);
-        p.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         return p;
     }
 
@@ -329,31 +395,133 @@ public class AnantPlayCoachService extends Service {
 
     private void removeOverlay() {
         try { wm.removeView(card); } catch (Throwable ignored) { }
-        try { wm.removeView(collapsedPill); } catch (Throwable ignored) { }
     }
 
-    /** Touch-drag anywhere on the header area moves the whole card. */
+    /**
+     * Smooth touch-drag: the whole card (except its buttons) drags anywhere.
+     * The drag switches the window gravity to TOP|START on the first move
+     * and tracks the finger 1:1 — 100% smooth, taps still work.
+     */
     private void attachDrag(final View v) {
         v.setOnTouchListener(new View.OnTouchListener() {
             float downX, downY, startX, startY;
+            boolean dragging;
             @Override public boolean onTouch(View view, MotionEvent e) {
                 WindowManager.LayoutParams p = (WindowManager.LayoutParams) view.getLayoutParams();
                 switch (e.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         downX = e.getRawX(); downY = e.getRawY();
-                        startX = p.x; startY = p.y;
+                        int[] loc = new int[2];
+                        view.getLocationOnScreen(loc);
+                        startX = loc[0]; startY = loc[1];
+                        dragging = false;
                         return false;                       // taps still work
                     case MotionEvent.ACTION_MOVE:
-                        p.x = (int) (startX + (e.getRawX() - downX));
-                        p.y = (int) (startY + (e.getRawY() - downY));
+                        float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
+                        if (!dragging && dx * dx + dy * dy < dp(6) * dp(6)) return false;
+                        dragging = true;
                         p.gravity = Gravity.TOP | Gravity.START;
+                        p.x = (int) (startX + dx);
+                        p.y = Math.max(0, (int) (startY + dy));
                         try { wm.updateViewLayout(view, p); } catch (Throwable ignored) { }
                         return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        boolean was = dragging;
+                        dragging = false;
+                        return was;
                     default:
                         return false;
                 }
             }
         });
+    }
+
+    // ── the glowing animated arrow indicator ──────────────────────────────────
+
+    /**
+     * The GLOWING ANIMATED DIRECTIONAL ARROW: a custom-drawn arrow (↗ for the
+     * top-right ⚙, ↓ for everything else) with a soft alpha glow that pulses
+     * at 4 Hz — unmistakable on ANY wallpaper, zero layout resources.
+     */
+    private static final class ArrowView extends View {
+        private final android.graphics.Paint paint =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint glow =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final ValueAnimator pulse;
+        private int direction = Arrow.DOWN;
+
+        ArrowView(Context c) {
+            super(c);
+            paint.setColor(0xFF7DD3FC);
+            paint.setStyle(android.graphics.Paint.Style.STROKE);
+            paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+            glow.setColor(0x667DD3FC);
+            glow.setStyle(android.graphics.Paint.Style.STROKE);
+            glow.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+            pulse = ValueAnimator.ofFloat(0f, 1f);
+            pulse.setDuration(500);
+            pulse.setRepeatCount(ValueAnimator.INFINITE);
+            pulse.setRepeatMode(ValueAnimator.REVERSE);
+            pulse.addUpdateListener(a -> invalidate());
+        }
+
+        void setDirection(int dir) {
+            direction = dir;
+            try {
+                if (!pulse.isStarted()) pulse.start();
+            } catch (Throwable ignored) { }
+            invalidate();
+        }
+
+        @Override protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            try { pulse.start(); } catch (Throwable ignored) { }
+        }
+
+        @Override protected void onDetachedFromWindow() {
+            try { pulse.cancel(); } catch (Throwable ignored) { }
+            super.onDetachedFromWindow();
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas canvas) {
+            try {
+                final float w = getWidth(), h = getHeight();
+                if (w <= 0 || h <= 0) return;
+                float t = pulse.getAnimatedFraction();
+                float alpha = 0.55f + 0.45f * t;   // the 4 Hz glow pulse
+                final float cx = w * (direction == Arrow.NE ? 0.82f : 0.5f);
+                final float cy = h * (direction == Arrow.NE ? 0.18f : 0.78f);
+                // ↗ points at the TOP-RIGHT ⚙; ↓ points straight down.
+                float len = Math.min(w, h) * 0.34f;
+                float head = len * 0.55f;
+                float nx = direction == Arrow.NE ? 0.7071f : 0f;   // unit dir
+                float ny = direction == Arrow.NE ? -0.7071f : 1f;
+                float x0 = cx - nx * len / 2, y0 = cy - ny * len / 2;
+                float x1 = cx + nx * len / 2, y1 = cy + ny * len / 2;
+                glow.setStrokeWidth(9f);
+                glow.setAlpha((int) (255 * 0.45f * alpha));
+                paint.setStrokeWidth(4.5f);
+                paint.setAlpha((int) (255 * alpha));
+                canvas.drawLine(x0, y0, x1, y1, glow);
+                canvas.drawLine(x0, y0, x1, y1, paint);
+                // the arrow head: two strokes at ±150° from the tip direction
+                for (int side = 0; side < 2; side++) {
+                    float a = (float) Math.atan2(ny, nx)
+                            + (side == 0 ? (float) Math.toRadians(150) : (float) Math.toRadians(-150));
+                    float hx = x1 + (float) Math.cos(a) * head;
+                    float hy = y1 + (float) Math.sin(a) * head;
+                    canvas.drawLine(x1, y1, hx, hy, glow);
+                    canvas.drawLine(x1, y1, hx, hy, paint);
+                }
+                // the glow dot at the anchor (where the finger should tap)
+                glow.setStyle(android.graphics.Paint.Style.FILL);
+                glow.setAlpha((int) (255 * 0.5f * alpha));
+                canvas.drawCircle(x1, y1, 7f * t + 3f, glow);
+                glow.setStyle(android.graphics.Paint.Style.STROKE);
+            } catch (Throwable ignored) { }
+        }
     }
 
     // ── tiny view helpers (no res dependencies — the coach stays self-earned) ──
@@ -364,18 +532,6 @@ public class AnantPlayCoachService extends Service {
 
     private LinearLayout.LayoutParams wrap() {
         return new LinearLayout.LayoutParams(-2, -2);
-    }
-
-    private Button smallButton(String text, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setTextColor(0xFF94A3B8);
-        b.setTextSize(12f);
-        b.setAllCaps(false);
-        b.setPadding(dp(6), dp(2), dp(6), dp(2));
-        b.setBackgroundColor(Color.TRANSPARENT);
-        b.setOnClickListener(l);
-        return b;
     }
 
     private Button pillButton(String text, View.OnClickListener l) {

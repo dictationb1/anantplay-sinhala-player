@@ -1107,7 +1107,14 @@ class SettingsInfoCard extends StatelessWidget {
       ),
     );
     final card = useGlass
-        ? MornyeGlassPanel.overlay(child: content)
+        // v3.4.6.k — THE SCROLLING-TILE BACKDROP LAG KILL (Part_02 02:38,
+        // Part_03 03:23, Part_04 02:12): every settings card used to carry a
+        // LIVE backdrop blur (samplesBackdrop: true) — a per-tile BackdropFilter
+        // rescanning the page on every scroll frame is exactly the app-wide
+        // Settings/UI lag. Per the Mornye law only the floating tab bar,
+        // popovers and the top notification pill keep live blur; the tiles
+        // keep the glass tint + rim with ZERO backdrop sampling.
+        ? MornyeGlassPanel.overlay(samplesBackdrop: false, child: content)
         : DecoratedBox(
             decoration: BoxDecoration(
               color: background,

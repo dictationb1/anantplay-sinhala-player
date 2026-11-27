@@ -3,7 +3,7 @@
 
 Why this gate exists: v3.4.6 INSTALLED fine and then crashed instantly on
 launch on Android 16 hardware while every CI gate of record was green —
-apksigner v2+v3, zipalign -c 4, aapt2 badging, size < 50 MiB.
+apksigner v2+v3, zipalign -c 4, aapt2 badging, size <= 100 MiB.
 
 The first post-mortem blamed the shipped libflutter.so ELF layout:
 
@@ -60,7 +60,7 @@ PAGE_16K = 0x4000
 TARGET_ABI = "arm64-v8a"
 EXPECT_CODE = 30410
 EXPECT_NAME = "3.4.6.d"
-MAX_APK_BYTES = 50 * 1024 * 1024  # the shipping gate (build.sh/workflows)
+MAX_APK_BYTES = 100 * 1024 * 1024  # the shipping gate (build.sh/workflows, v3.4.6.k law)
 
 failures = []
 checks = 0
@@ -434,7 +434,7 @@ def main():
     # ── the size gate (re-checked here so one report says everything) ───────
     import os
     size = os.path.getsize(apk_path)
-    check("size below 50 MiB (%d bytes)", size < MAX_APK_BYTES,
+    check("size below 100 MiB (%d bytes)", size < MAX_APK_BYTES,
           "%d B = %.2f MiB" % (size, size / (1024.0 * 1024.0)))
 
     for f in failures:

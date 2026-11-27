@@ -1,9 +1,11 @@
 // AnantPlay Sinhala Player v3.4.6.g — THE HONEST TWO-LAYER DEEP TROUBLESHOOTER.
 //
-// Layer 2 (native, DeepProbe.java): 64 live probes across the 7 domains
+// Layer 2 (native, DeepProbe.java): 78 live probes across the 9 domains
 // (A Auto-Updater Law · B Home & Cast · C Settings & Customizations ·
 // D Browser · E Cinema Player & Subtitles · F Permissions & Privacy ·
-// G the v3.4.6.g real-phone fix contracts) — including the honesty rebuild:
+// G the v3.4.6.g real-phone fix contracts · I the v3.4.6.i video-audit
+// contracts · K the v3.4.6.k silent-update contracts) — including the honesty
+// rebuild:
 // the worker probe FAILS on any non-200 HTTP code (the v3.4.6.e "HTTP 0 →
 // offline retention ✓" fake PASS), a REAL subtitle SRT → parse → ZWJ →
 // SubtitleStore end-to-end probe, and the Uncaught-crash gate (a captured
@@ -12,7 +14,7 @@
 // Layer 1 (THIS FILE, Dart): the LIVE Flutter UI & channel audits —
 // executed INSIDE Dart against the live AppState (InheritedNotifier) and the
 // live AnantPlayBridge singleton hubs. v3.4.6.h EXPANDED the layer from 8 to
-// FOURTEEN audits (ids 74–87) so every visual/theme/font/icon/updater defect
+// FOURTEEN audits (ids 79–92) so every visual/theme/font/icon/updater defect
 // the v3.4.6.g field report exposed is now caught AUTOMATICALLY:
 //   H1  65 AppStateScope live rebuild + optimistic write
 //   H2  66 _ChannelHub singleton (0 cancel collisions)
@@ -31,7 +33,7 @@
 //   H11 84 Semantic Icon Registry (zero forbidden glyphs, Test Player = play)
 //   H12 85 Google search-engine contract
 //   H13 86 WatchHistory read-back round-trip
-//   H14 87 Zero-uncaught-Flutter-error session (0 Dart errors, else named)
+//   H14 92 Zero-uncaught-Flutter-error session (0 Dart errors, else named)
 //
 // v3.4.6.g — THE DOMAIN/ID COLLISION FIX (Trap #2): the native layer grew
 // from 56 (A–F) to 64 probes (A–G, G1–G8 = ids 57–64). The Dart layer USED to
@@ -40,8 +42,8 @@
 // cards overwriting each other. The Dart layer then moved to Domain H ids 65–78
 // — and v3.4.6.i killed the SECOND collision: the native v3.4.6.i Domain I
 // (the nine video-audit fix contracts) owns ids 65–73, so the Dart layer is
-// now **Domain H, ids 74–87**. The merged run is 100% unique sequential ids
-// 1..87 (73 native + 14 Dart) with zero duplicates.
+// now **Domain H, ids 79–92**. The merged run is 100% unique sequential ids
+// 1..92 (78 native + 14 Dart) with zero duplicates.
 // The verdict merges BOTH layers and every FAIL ✗ is printed at the very top
 // of the composed report — nothing is ever hidden.
 import 'dart:async';
@@ -158,11 +160,11 @@ class DartLayerAuditor {
 
   /// The first Dart-layer id. Native owns 1..73 (A–G plus the v3.4.6.i
   /// Domain I at 65–73); the Dart layer owns 74..87 (H) — so the merged run
-  /// is unique sequential ids 1..87 (73 native + 14 Dart) with zero
+  /// is unique sequential ids 1..92 (78 native + 14 Dart) with zero
   /// duplicates and zero gaps.
-  static const int firstId = 74;
+  static const int firstId = 79;
 
-  /// Runs the 14 live Dart audits (ids 74–87, domain 'H').
+  /// Runs the 14 live Dart audits (ids 79–92, domain 'H').
   ///
   /// [onStart] fires the instant an audit begins and [onDone] the instant it
   /// lands, so the Help tab's live step-by-step feed streams the Dart layer
@@ -289,34 +291,27 @@ class DartLayerAuditor {
   /// start → up == true, ending in the original state. The exact flow of
   /// the real Home "Stop Receiver" button, live.
   static Future<DeepOutcome> _auditReceiver() async {
-    final before = await AnantPlay.instance.currentCastStatus();
-    bool stopLegOk = false;
-    bool startLegOk = false;
-    if (before.up) {
-      await AnantPlay.instance.stopReceiver();
-      final stopped = await AnantPlay.instance.currentCastStatus();
-      stopLegOk = !stopped.up;
-      await AnantPlay.instance.armReceiver();
-      final reArmed = await AnantPlay.instance.currentCastStatus();
-      startLegOk = reArmed.up;
-    } else {
-      await AnantPlay.instance.armReceiver();
-      final armed = await AnantPlay.instance.currentCastStatus();
-      startLegOk = armed.up;
-      await AnantPlay.instance.stopReceiver();
-      final stopped = await AnantPlay.instance.currentCastStatus();
-      stopLegOk = !stopped.up;
-    }
-    final after = await AnantPlay.instance.currentCastStatus();
-    final restored = after.up == before.up;
+    // v3.4.6.k — THE NON-DISRUPTIVE ROUND TRIP: this audit used to call the
+    // raw stop/arm channel pair — the stop persisted a STANDING user-stop
+    // veto, the re-arm was vetoed by it, and the Cast Receiver was left
+    // STOPPED after every full troubleshoot run (Part_03 04:18). The native
+    // transactional lane now snapshots (running + userStop), proves both
+    // legs, and restores the exact pre-run pair in a finally.
+    final reply = await AnantPlay.instance.auditReceiverRoundTrip();
+    final wasUp = reply?['wasUp'] == true;
+    final stopLegOk = reply?['stopLegOk'] == true;
+    final startLegOk = reply?['startLegOk'] == true;
+    final restored = reply?['restored'] == true;
     return DeepOutcome(
       id: 0,
       domain: 'H',
       name: '',
       pass: stopLegOk && startLegOk && restored,
       ms: 0,
-      detail: 'stop → down ${stopLegOk ? '✓' : '✗'} · start → up ${startLegOk ? '✓' : '✗'}'
-          ' · original state restored ${restored ? '✓' : '✗'}',
+      detail: 'stop → down ${stopLegOk ? '✓' : '✗'} · start → up '
+          '${startLegOk ? '✓' : '✗'}'
+          ' · original state restored ${restored ? '✓' : '✗'}'
+          ' (was: ${wasUp ? 'up' : 'down'} · userStop preserved)',
     );
   }
 
@@ -639,21 +634,37 @@ class DartLayerAuditor {
   /// exceptions still fail the audit. A diagnostic never fails H14 — but it
   /// is always named in the report when one fired.
   static Future<DeepOutcome> _auditZeroDartErrors() async {
+    // v3.4.6.k — THE HONEST CRASH GATE (the #87 false-PASS kill): the audit
+    // only ever counted DART-side FlutterError events — a NATIVE uncaught
+    // crash (the Part_05 00:20 straight-to-Home renderer crash) still
+    // passed it blind. The native last_crash.txt (this build only) now
+    // feeds the SAME verdict: any captured native crash = FAIL.
     final count = sessionFlutterErrorCount;
     final last = lastSessionFlutterError();
     final diag = lastSessionDiagnostic();
+    List<String> nativeCrash = const [];
+    try {
+      nativeCrash = await AnantPlay.instance.nativeCrashTop();
+    } catch (_) {}
+    final nativeClean = nativeCrash.isEmpty
+        || nativeCrash.every((l) =>
+            l.isEmpty || l.startsWith('(none') || l.contains('unreadable'));
+    final pass = count == 0 && nativeClean;
     return DeepOutcome(
       id: 0,
       domain: 'H',
       name: '',
-      pass: count == 0,
+      pass: pass,
       ms: 0,
-      detail: count == 0
-          ? '0 uncaught Dart errors in the live session ✓ (FlutterError + '
-              'PlatformDispatcher both watched)'
+      detail: pass
+          ? '0 uncaught Dart errors ✓ · 0 captured native crashes ✓ '
+              '(FlutterError + PlatformDispatcher + CrashLog all watched)'
               '${diag.isEmpty ? '' : ' · non-fatal diagnostic recorded: $diag'}'
-          : 'FAIL — $count uncaught Dart error(s) this session · last: '
-              '${last.isEmpty ? '(unknown)' : last}',
+          : (count > 0
+              ? 'FAIL — $count uncaught Dart error(s) · last: '
+                  '${last.isEmpty ? '(unknown)' : last}'
+              : 'FAIL — a native crash was captured: '
+                  '${nativeCrash.isEmpty ? '(unknown)' : nativeCrash.first}'),
     );
   }
 

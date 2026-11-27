@@ -357,28 +357,28 @@ void main() {
   });
 
   group('v3.4.6.i — version identity', () {
-    test('pubspec is 3.4.6+30416 (pure integer build)', () {
+    test('pubspec is 3.4.6+30417 (pure integer build)', () {
       final pubspec = repo('pubspec.yaml');
       expect(
-          RegExp(r'^version: 3\.4\.6\+30416$', multiLine: true)
+          RegExp(r'^version: 3\.4\.6\+30417$', multiLine: true)
               .hasMatch(pubspec),
           isTrue);
     });
 
-    test('AppInfo declares 3.4.6.j / 30416', () {
+    test('AppInfo declares 3.4.6.k / 30417', () {
       final appInfo =
           repo('../src/lk/techworld/anantplay/sicast/AppInfo.java');
-      expect(appInfo.contains('"3.4.6.j"'), isTrue);
-      expect(appInfo.contains('30416'), isTrue);
+      expect(appInfo.contains('"3.4.6.k"'), isTrue);
+      expect(appInfo.contains('30417'), isTrue);
     });
 
-    test('docs/latest.json stays at the LIVE 3.4.6.i / 30415 tier', () {
+    test('docs/latest.json stays at the LIVE 3.4.6.j / 30416 tier', () {
       final latest = repo('../docs/latest.json');
-      expect(latest.contains('"version":"3.4.6.i"'), isTrue);
-      // v3.4.6.j — the LIVE tier is 3.4.6.i / 30415 (this branch NEVER
-      // touches latest.json; the release workflow rewrites it to .j / 30416
-      // only when v3.4.6.j ships).
-      expect(latest.contains('"code":30415'), isTrue);
+      // v3.4.6.k — the LIVE tier is 3.4.6.j / 30416 (this branch NEVER
+      // touches latest.json; the release workflow rewrites it to .k / 30417
+      // only when v3.4.6.k ships).
+      expect(latest.contains('"version":"3.4.6.j"'), isTrue);
+      expect(latest.contains('"code":30416'), isTrue);
     });
 
     test('the bridge exposes the raw getString/getInt lanes', () {

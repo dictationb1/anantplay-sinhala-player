@@ -143,8 +143,9 @@ check("browser controls use glass medallions",
       "UiGlassIcon.create" in browser)
 
 # Versioned updater protections, local E2E, and release size gates.
-check("updater cap is strictly below 55 MiB (the v3.4.6 Flutter tier)",
-      "55L * 1024 * 1024 - 1" in update_core)
+# v3.4.6.k — LAW #1: the APK size ceiling is 100 MiB (104,857,600 bytes).
+check("updater cap is exactly 100 MiB (the v3.4.6.k law tier)",
+      "100L * 1024 * 1024" in update_core)
 check("updater rechecks SHA-256 before installation",
       "matchesSha256(apk, expected)" in updater and "install(c, apk)" in updater)
 check("loopback updater E2E exercises the redirected release flow",
@@ -153,23 +154,23 @@ check("loopback E2E verifies tampered APK rejection",
       "tampered APK is rejected" in update_lab)
 check("loopback E2E proves no GitHub REST calls are made",
       "zero GitHub REST calls" in update_lab)
-check("build script rejects an APK at or above 50 MiB",
-      'SIZE" -lt 52428800' in build)
-check("build workflow rejects an APK at or above 50 MiB",
-      'SIZE" -lt 52428800' in build_workflow)
-check("release workflow rejects an APK at or above 50 MiB",
-      'SIZE" -lt 52428800' in release_workflow)
+check("build script rejects an APK above 100 MiB",
+      'SIZE" -le 104857600' in build)
+check("build workflow rejects an APK above 100 MiB",
+      'SIZE" -le 104857600' in build_workflow)
+check("release workflow rejects an APK above 100 MiB",
+      'SIZE" -le 104857600' in release_workflow)
 # v3.4.6.d — the workflow resolves the identity from the Gradle host (AGP 9 owns
 # it) AND from AppInfo, then asserts both against the pinned release identity.
-# v3.4.6.j — the pinned release is 3.4.6.j / 30416.
-check("build workflow validates version 3.4.6.j / 30416",
-      'test "$VERSION" = "3.4.6.j"' in build_workflow
-      and 'test "$CODE" = "30416"' in build_workflow
+# v3.4.6.k — the pinned release is 3.4.6.k / 30417.
+check("build workflow validates version 3.4.6.k / 30417",
+      'test "$VERSION" = "3.4.6.k"' in build_workflow
+      and 'test "$CODE" = "30417"' in build_workflow
       and 'test "$GRADLE_VERSION" = "$VERSION"' in build_workflow
       and 'test "$APPINFO_CODE" = "$CODE"' in build_workflow)
-check("release workflow defaults to version 3.4.6.j",
-      "default: '3.4.6.j'" in release_workflow
-      or 'default: "3.4.6.j"' in release_workflow)
+check("release workflow defaults to version 3.4.6.k",
+      "default: '3.4.6.k'" in release_workflow
+      or 'default: "3.4.6.k"' in release_workflow)
 
 # Adaptive launcher icon remains a valid layered vector resource.
 try:

@@ -108,6 +108,10 @@ public final class AppPrefs {
      * here (a normal BACKED-UP key), and offer 1-tap Copy + Open AnantPlay.
      */
     public static final String K_INDEX_URL = "indexUrl";
+    /** v3.4.6.k — THE MULTI-INDEX URL MANAGER's storage: "name|url" lines
+     *  (unlimited user-added index URLs, 1-tap Copy & Delete in Settings →
+     *  AnantPlay & Sources; the Setup Coach copy-picks them up too). */
+    public static final String K_INDEX_URLS = "indexUrlsList";
     /** The helper's out-of-the-box default (AnantPlay's own index feed). */
     public static final String DEFAULT_INDEX_URL =
         "https://raw.githubusercontent.com/AnantPlay/index/main/index.json";
@@ -123,6 +127,18 @@ public final class AppPrefs {
     public static final String K_AD_BLOCK = "adBlock";               // v3.2.0: bool (WebView blocker)
     public static final String K_WEB_LINKS = "webLinks";             // v3.2.0: "name|url\n…" (≤8 entries)
     public static final String K_FREE_TRANSLATOR = "freeTranslator"; // v3.2.0: bool (Layer 3 on/off)
+
+    // ══ v3.4.6.k — LAW #1: THE SIGNED JSON OTA CHANNEL (OtaConfigSync) ══════
+    /** Multi-mirror Subtitle Bridge endpoints (newline-joined https URLs). */
+    public static final String K_OTA_BRIDGE_MIRRORS = "otaBridgeMirrors";
+    /** Default Sri Lanka index feeds (newline-joined https URLs). */
+    public static final String K_OTA_INDEX_FEEDS = "otaIndexFeeds";
+    /** Ad-block/extractor host rules (newline-joined). */
+    public static final String K_OTA_AD_RULES = "otaAdRules";
+    /** Local SubtitleStore SRT cache TTL in days (1..30, default 7). */
+    public static final String K_OTA_SUB_CACHE_DAYS = "otaSubCacheDays";
+    /** Wall-clock of the last VERIFIED manifest application. */
+    public static final String K_OTA_SYNC_AT = "otaSyncAt";
 
     // ══ v3.4.0 - Mornye-grade shell, surface, subtitle studio, browser, player ══
     /** Surface style: flat (default) or glass (translucent + hairline). */
@@ -374,7 +390,12 @@ public final class AppPrefs {
         K_INDEX_URL,
         // v3.4.6.g - the Home Got-it banner's dismissal rides the same lossless
         // backup (registry 82: every key is auto-audited by DeepProbe G1)
-        K_HOME_TIP_DISMISSED);
+        K_HOME_TIP_DISMISSED,
+        // v3.4.6.k - the signed OTA channel's synced endpoints + cache policy
+        K_OTA_BRIDGE_MIRRORS, K_OTA_INDEX_FEEDS, K_OTA_AD_RULES,
+        K_OTA_SUB_CACHE_DAYS, K_OTA_SYNC_AT,
+        // v3.4.6.k - the Multi-Index URL Manager's saved list
+        K_INDEX_URLS);
 
     // ── the normalizers (pure — Mornye's normalizeXxx pattern) ─────────────────
 

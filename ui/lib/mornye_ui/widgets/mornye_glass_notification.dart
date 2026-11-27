@@ -10,6 +10,9 @@
 // the reference app uses for its transient toasts).
 import 'package:material_ui/material_ui.dart';
 import 'dart:async' show Timer;
+import 'dart:ui' show ImageFilter;
+
+import 'package:anantplay_ui/mornye_ui/theme/app_motion.dart';
 
 /// The one live overlay entry (a second call replaces the first — never two
 /// pills stacked).
@@ -99,6 +102,7 @@ class _MornyeGlassNotificationState extends State<_MornyeGlassNotification>
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final accent = widget.error ? scheme.error : scheme.primary;
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
     return Positioned(
       // Top-anchored, below the status bar, never over the bottom tab bar.
       top: 0,
@@ -125,61 +129,97 @@ class _MornyeGlassNotificationState extends State<_MornyeGlassNotification>
                 _dragDy = 0;
               }
             },
-            child: SlideTransition(
-              position: Tween<Offset>(
-                      begin: const Offset(0, -1.2), end: Offset.zero)
-                  .animate(CurvedAnimation(
-                      parent: _slide, curve: Curves.easeOutCubic)),
-              child: ScaleTransition(
-                scale: Tween<double>(begin: 0.96, end: 1).animate(
-                    CurvedAnimation(parent: _slide, curve: Curves.easeOutBack)),
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 11),
-                    decoration: BoxDecoration(
-                      // the translucent liquid-glass tint (light/dark
-                      // adaptive) + the accent hairline.
-                      color: scheme.surfaceContainerHigh.withValues(alpha: 0.9),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: accent.withValues(alpha: 0.55)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(
-                              alpha: Theme.of(context).brightness ==
-                                      Brightness.dark
-                                  ? 0.35
-                                  : 0.18),
-                          blurRadius: 18,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          widget.error
-                              ? Icons.error_outline_rounded
-                              : Icons.check_circle_rounded,
-                          size: 18,
-                          color: accent,
-                        ),
-                        const SizedBox(width: 10),
-                        Flexible(
-                          child: Text(
-                            widget.message,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: scheme.onSurface,
+            // v3.4.6.k — THE SMOOTH TOP SPRING DROP (Mornye v5.4.5's snackbar
+            // pattern, app_snack_bar.dart:283-317): the pill drops in on the
+            // 250 ms fast spring (a 14 px travel, never a linear ease) — the
+            // real glass slides over the page instead of fading.
+            child: AnimatedBuilder(
+              animation: _slide,
+              builder: (context, child) {
+                final t =
+                    CurvedAnimation(parent: _slide, curve: MornyeMotion.fast.curve)
+                        .value;
+                return Opacity(
+                  opacity: t.clamp(0.0, 1.0),
+                  child: Transform.translate(
+                    offset: Offset(0, 14 * (1 - t)),
+                    child: child,
+                  ),
+                );
+              },
+              child: Material(
+                color: Colors.transparent,
+                // v3.4.6.k — THE REAL FROSTED GLASS: one BackdropFilter blur at
+                // sigma 14 clipped to the pill (the top notification pill is
+                // one of Mornye's three legitimate live-blur surfaces — the
+                // floating tab bar, the popovers and this pill), with the
+                // luminous hairline rim painted around the same rounded rect.
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 11),
+                      decoration: BoxDecoration(
+                        // the translucent liquid-glass tint (light/dark
+                        // adaptive) — the frosted read comes from the blur above.
+                        color: scheme.surfaceContainerHigh.withValues(
+                            alpha: dark ? 0.62 : 0.55),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                            color: accent.withValues(alpha: 0.55)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(
+                                alpha: dark ? 0.35 : 0.18),
+                            blurRadius: 18,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      foregroundDecoration: const BoxDecoration(
+                        borderRadius: BorderRadius.all(Radius.circular(999)),
+                      ),
+                      child: Stack(
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                widget.error
+                                    ? Icons.error_outline_rounded
+                                    : Icons.check_circle_rounded,
+                                size: 18,
+                                color: accent,
+                              ),
+                              const SizedBox(width: 10),
+                              Flexible(
+                                child: Text(
+                                  widget.message,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: scheme.onSurface,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          // the luminous Mornye hairline rim (0.6 px vertical
+                          // gradient stroke, brighter at the top light catch)
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: _HairlineRimPainter(
+                                accent: accent,
+                                dark: dark,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -190,4 +230,41 @@ class _MornyeGlassNotificationState extends State<_MornyeGlassNotification>
       ),
     );
   }
+}
+
+/// v3.4.6.k — THE LUMINOUS MORNYE HAIRLINE RIM (Mornye's _MornyeGlassRim
+/// pattern, mornye_chrome.dart:430-529): a 0.6 px vertical-gradient stroke
+/// around the pill — whites 0x88 at the top light catch, 0x26 mid, 0x0d at the
+/// bottom, with the accent tint riding the same sweep.
+class _HairlineRimPainter extends CustomPainter {
+  _HairlineRimPainter({required this.accent, required this.dark});
+
+  final Color accent;
+  final bool dark;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final rrect = RRect.fromRectAndRadius(
+        rect.deflate(0.3), Radius.circular(rect.height / 2));
+    final shader = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.white.withValues(alpha: dark ? 0.55 : 0.34),
+        accent.withValues(alpha: 0.28),
+        Colors.white.withValues(alpha: dark ? 0.10 : 0.06),
+      ],
+      stops: const [0.0, 0.5, 1.0],
+    ).createShader(rect);
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.6
+      ..shader = shader;
+    canvas.drawRRect(rrect, paint);
+  }
+
+  @override
+  bool shouldRepaint(_HairlineRimPainter old) =>
+      old.accent != accent || old.dark != dark;
 }

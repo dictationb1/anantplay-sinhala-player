@@ -793,9 +793,14 @@ void main() {
       // Drive the same onChanged lane the real Slider uses: widget-test
       // drags need a horizontal drag recognizer geometry that a SettingsGroup
       // row does not expose, so invoke the callback directly instead.
+      // v3.4.6.k — the slider rides MornyeBubbleSlider now: onChanged feeds
+      // the LOCAL draft only; onChangeEnd is the single commit lane (the
+      // per-frame putInt/getAll round-trip lag kill). Drive both exactly as
+      // a drag + release does.
       final slider = find.byType(Slider).first;
       final widget = slider.evaluate().single.widget as Slider;
       widget.onChanged!(0.25);
+      widget.onChangeEnd!(0.25);
       await tester.pumpAndSettle();
       final after = appTheme(tester).extension<MornyeTheme>()!.glassClarity;
       expect(after, lessThan(before),
@@ -855,7 +860,7 @@ void main() {
     // v3.4.6.e — THE DEEP TROUBLESHOOT CONTRACT: the run fires runDeepProbe,
     // the outcomes stream renders the domain cards, and the completion
     // auto-copies the privacy-safe report to the clipboard.
-    testWidgets('Run full app troubleshoot fires the 54-probe deep run', (tester) async {
+    testWidgets('Run full app troubleshoot fires the 92-probe deep run', (tester) async {
       var deepRuns = 0;
       mock.setMockMethodCallHandler(const MethodChannel('anantplay/troubleshoot'), (call) async {
         if (call.method == 'runDeepProbe') deepRuns++;
@@ -949,7 +954,7 @@ void main() {
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
       await tester.pump();
       // The run title shows with the counter at 0/54.
-      expect(find.text('Running 87 deep feature probes… 0/87'), findsOneWidget);
+      expect(find.text('Running 92 deep feature probes… 0/92'), findsOneWidget);
       // Three live frames arrive: 1, 7, 32 of 54.
       for (final done in [1, 7, 32]) {
         await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
@@ -967,7 +972,7 @@ void main() {
         );
         await tester.pump(const Duration(milliseconds: 60));
       }
-      expect(find.text('Running 87 deep feature probes… 32/87'), findsOneWidget);
+      expect(find.text('Running 92 deep feature probes… 32/92'), findsOneWidget);
       // The run itself fired exactly once.
       expect(deepRuns, 1);
     });
@@ -1427,7 +1432,7 @@ void main() {
     });
   });
 
-  // ══ v3.4.6.e — THE 1-TAP AUTO-COPY TROUBLESHOOT (54-probe deep run) ════════
+  // ══ v3.4.6.e — THE 1-TAP AUTO-COPY TROUBLESHOOT (92-probe deep run) ════════
   //
   // v3.4.6.d asserted a 10-point frame decoded by the typed probeResults()
   // stream. v3.4.6.e replaced that engine: the anantplay/troubleshoot channel
@@ -1440,11 +1445,11 @@ void main() {
   // asserted in their own group above.
   group('troubleshoot auto-copy (1-tap, zero extra taps)', () {
     testWidgets(
-        'the moment the 54 probes land, the report is on the clipboard + the banner shows',
+        'the moment the 92 probes land, the report is on the clipboard + the banner shows',
         (tester) async {
       mock.setMockMethodCallHandler(const MethodChannel('anantplay/troubleshoot'), (call) async {
         if (call.method == 'deepReport') {
-          return 'AnantPlay Sinhala Player v3.4.6.e (30411) — 54/54 PASS\n'
+          return 'AnantPlay Sinhala Player v3.4.6.e (30411) — 92/92 PASS\n'
               '== Domain A — Auto-Updater Law ==\nPASS 1. Tier-1 302';
         }
         if (call.method == 'lastDeepResults') return '[]';
@@ -1456,8 +1461,8 @@ void main() {
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
       await tester.pump();
 
-      // Three live progress frames drive the "Running 54 deep feature probes…".
-      for (final done in [1, 27, 54]) {
+      // Three live progress frames drive the "Running 92 deep feature probes…".
+      for (final done in [1, 27, 92]) {
         await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
           'anantplay/troubleshoot/events',
           const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
@@ -1471,13 +1476,20 @@ void main() {
         );
         await tester.pump();
       }
-      expect(find.text('Running 87 deep feature probes… 54/87'), findsOneWidget);
+      expect(find.text('Running 92 deep feature probes… 92/92'), findsOneWidget);
 
       // The final full-run payload (a JSON string, exactly as the host sends it).
       final buf = StringBuffer('[');
-      for (var i = 1; i <= 54; i++) {
+      for (var i = 1; i <= 92; i++) {
         if (i > 1) buf.write(',');
-        final domain = i <= 6 ? 'A' : (i <= 15 ? 'B' : (i <= 31 ? 'C' : (i <= 37 ? 'D' : (i <= 49 ? 'E' : 'F'))));
+        final domain = i <= 6 ? 'A'
+            : (i <= 15 ? 'B'
+            : (i <= 31 ? 'C'
+            : (i <= 37 ? 'D'
+            : (i <= 50 ? 'E'
+            : (i <= 56 ? 'F'
+            : (i <= 64 ? 'G'
+            : (i <= 73 ? 'I' : 'K')))))));
         buf.write('{"id":$i,"domain":"$domain","name":"probe $i",'
             '"pass":true,"ms":12,"detail":"ok"}');
       }
@@ -1496,7 +1508,7 @@ void main() {
       // THE AUTO-COPY CONTRACT: zero extra tap, the report is on the clipboard.
       final data = await Clipboard.getData('text/plain');
       expect(data?.text, contains('v3.4.6.e (30411)'));
-      expect(data?.text, contains('54/54 PASS'));
+      expect(data?.text, contains('92/92 PASS'));
       // The banner confirms the TRUTHFUL two-layer verdict (the merged count
       // includes the 8 Dart-layer audits; the exact pass/fail split depends
       // on the live audit outcomes, so the verdict FORMAT is the contract).
@@ -1545,7 +1557,10 @@ void main() {
       // builds every frame on device).
       final stack = tester.widget<IndexedStack>(find.byType(IndexedStack));
       expect(stack.children.length, 4);
+      // v3.4.6.k — every tab body now also sits in its own RepaintBoundary
+      // (the app-wide lag kill): unwrap the layer around each TickerMode.
       final tabModes = stack.children
+          .map((c) => c is RepaintBoundary ? c.child : c)
           .whereType<TickerMode>()
           .map((m) => m.enabled)
           .toList();
@@ -1562,7 +1577,9 @@ void main() {
           warnIfMissed: false);
       await tester.pumpAndSettle();
       final stack2 = tester.widget<IndexedStack>(find.byType(IndexedStack));
+      // v3.4.6.k — unwrap the per-tab RepaintBoundary layers here too.
       final tabModes2 = stack2.children
+          .map((c) => c is RepaintBoundary ? c.child : c)
           .whereType<TickerMode>()
           .map((m) => m.enabled)
           .toList();

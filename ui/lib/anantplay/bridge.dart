@@ -771,6 +771,22 @@ class AnantPlay {
 
   Future<void> armReceiver() => _cast.invokeMethod('arm');
   Future<void> stopReceiver() => _cast.invokeMethod('stop');
+
+  /// v3.4.6.k — THE TRANSACTIONAL RECEIVER ROUND TRIP (the non-disruptive
+  /// law): stop → verify → start → verify on the NATIVE side, with the exact
+  /// pre-run running + userStop pair restored in a finally — the raw
+  /// stop/arm pair persisted a standing user stop and left the receiver
+  /// DOWN after every full troubleshoot run (Part_03 04:18).
+  Future<Map<dynamic, dynamic>?> auditReceiverRoundTrip() async =>
+      await _trouble.invokeMethod('auditReceiverRoundTrip');
+
+  /// v3.4.6.k — the raw native last_crash.txt top lines (this build only —
+  /// CrashLog version-stamps and auto-expires older records), for the
+  /// honest crash gate's Dart half.
+  Future<List<String>> nativeCrashTop() async =>
+      (await _trouble.invokeMethod<List<dynamic>>('nativeCrashTop'))
+              ?.cast<String>() ??
+          const <String>[];
   Future<bool> overlayGranted() async => await _cast.invokeMethod('overlayGranted');
   Future<void> openOverlaySettings() => _cast.invokeMethod('openOverlay');
   Future<bool> notificationsGranted() async => await _cast.invokeMethod('notifGranted');
@@ -1045,11 +1061,26 @@ class AnantPlay {
         if (title != null && title.isNotEmpty) 'title': title,
       });
 
-  Future<void> playCapturedStream(String url, {String? headers, String? title}) =>
+  Future<void> playCapturedStream(String url,
+      {String? headers, String? title}) =>
       _browser.invokeMethod('openInPlayer', {
         'url': url,
         if (headers != null && headers.isNotEmpty) 'headers': headers,
         if (title != null && title.isNotEmpty) 'title': title,
+      });
+
+  /// v3.4.6.k — THE ZERO-AD YOUTUBE CINEMA LANE: the ad-free muxed stream +
+  /// the YouTube caption track (auto-translated to Sinhala inside the native
+  /// player) + the SponsorBlock auto-skip segments, straight into the native
+  /// hardware PlayActivity.
+  Future<void> playAdFreeCinema(String url,
+      {String? title, String? captionUrl, List<Map<dynamic, dynamic>>? segments}) =>
+      _browser.invokeMethod('openInPlayer', {
+        'url': url,
+        if (title != null && title.isNotEmpty) 'title': title,
+        if (captionUrl != null && captionUrl.isNotEmpty)
+          'captionUrl': captionUrl,
+        if (segments != null && segments.isNotEmpty) 'segments': segments,
       });
 
   Future<void> openWebTab(String url) =>

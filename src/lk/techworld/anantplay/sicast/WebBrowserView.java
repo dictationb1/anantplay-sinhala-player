@@ -266,6 +266,119 @@ public class WebBrowserView extends FrameLayout {
         }
     }
 
+    // ══ v3.4.6.k — THE YOUTUBE RENDERER-CRASH SHIELD + AD-FREE LANE (LAW #3) ══
+
+    /** The cosmetic YouTube ad-skip/mute page script (injected when Ad block
+     *  is ON — even the in-WebView preview stays clean; the Ad-Free Cinema
+     *  lane remains the fully ad-free playback path). */
+    static final String YT_AD_SKIP_JS =
+        "(function(){function tick(){try{var b=document.querySelector('.ytp-ad-skip-button,"
+        + ".ytp-ad-skip-button-modern,.ytp-skip-ad-button,[class*=\"skip-button\"]');if(b){b.click();}"
+        + "var a=document.querySelector('.ad-showing,.ytp-ad-player-overlay,[id*=\"ad-container\"]');"
+        + "if(a){a.style.display='none';}var v=document.querySelector('video');"
+        + "if(v&&v.duration&&v.duration<=120&&document.querySelector('.ad-showing')){v.muted=true;}}catch(e){}}"
+        + "setInterval(tick,350);tick();})();";
+
+    /**
+     * v3.4.6.k — THE YOUTUBE RENDERER-CRASH SHIELD (the Part_05 00:20 hard
+     * crash kill). Android 12+ runs the WebView in a sandboxed RENDERER
+     * process; a heavy YouTube page can OOM-kill it, and the DEFAULT
+     * behavior of an unhandled {@code onRenderProcessGone} is to KILL THE
+     * WHOLE APP PROCESS — the exact straight-to-Android-Home crash the audit
+     * caught. This override RETURNS TRUE (the app survives), tears the dead
+     * WebView down, rebuilds a fresh hardened one in its place and reloads
+     * the last page: the user sees a short reload instead of a dead app.
+     */
+    static boolean handleRenderProcessGone(WebBrowserView owner) {
+        Diag.w("web", "renderer gone — shielding the app, rebuilding the WebView");
+        Troubleshooter.record("BROWSER", "WebView renderer died — app survived, WebView rebuilt");
+        try {
+            owner.rebuildAfterRendererDeath();
+        } catch (Throwable t) {
+            Diag.w("web", "renderer rebuild: " + t);
+        }
+        return true;   // the app process stays alive — never the default kill
+    }
+
+    /** Tear down + rebuild the WebView after its renderer died (main thread). */
+    void rebuildAfterRendererDeath() {
+        act.runOnUiThread(() -> {
+            try {
+                // the fullscreen custom view belongs to the DEAD renderer
+                if (fullscreenView != null) {
+                    try {
+                        ((android.view.ViewGroup) act.getWindow().getDecorView())
+                            .removeView(fullscreenView);
+                    } catch (Throwable ignored) { }
+                    fullscreenView = null;
+                    fullscreenCb = null;
+                    act.getWindow().getDecorView().setSystemUiVisibility(0);
+                }
+                String last = null;
+                try { last = web == null ? null : web.getUrl(); } catch (Throwable ignored) { }
+                if (web != null) {
+                    try { ((android.view.ViewGroup) web.getParent()).removeView(web); } catch (Throwable ignored) { }
+                    try { web.destroy(); } catch (Throwable ignored) { }
+                    web = null;
+                }
+                buildUi();
+                if (last != null && !last.isEmpty() && web != null) {
+                    web.loadUrl(last);
+                    Diag.i("web", "renderer rebuild: reloaded " + StreamSniffer.hostOf(last));
+                }
+            } catch (Throwable t) {
+                Diag.w("web", "rebuild: " + t);
+            }
+        });
+    }
+
+    /**
+     * v3.4.6.k — THE ZERO-AD YOUTUBE EXTRACTION LANE: on ANY watch / shorts /
+     * youtu.be URL, resolve the ad-free direct stream + captions +
+     * SponsorBlock segments off-thread and push a t='yt' shell route (the
+     * Browser dock lights up `▶ Play Ad-Free in Cinema`). Single-flight per
+     * video id; a navigation away cancels the previous extraction's push.
+     */
+    private void maybeExtractYouTube(final String url) {
+        final String vid = YouTubeExtractor.videoIdOf(url);
+        if (vid == null) return;
+        final String lastStarted = String.valueOf(url);
+        new Thread(() -> {
+            try {
+                YouTubeExtractor.Result r = YouTubeExtractor.extract(vid);
+                if (!r.ok()) {
+                    Diag.w("yt", "no ad-free muxed format for " + vid);
+                    return;
+                }
+                java.util.List<YouTubeExtractor.Segment> segs = YouTubeExtractor.skipSegments(vid);
+                String payload = YouTubeExtractor.shellPayload(r, segs);
+                Diag.i("yt", "ad-free lane ready: \"" + r.title + "\" · "
+                    + (r.hd != null ? "HD 720p + Low-Data 360p" : "Low-Data 360p")
+                    + " · captions=" + (r.caption != null ? r.caption.name : "none")
+                    + " · sponsor segments=" + segs.size());
+                act.runOnUiThread(() -> {
+                    // a newer navigation already started: this result is stale
+                    String now = null;
+                    try { now = web == null ? null : web.getUrl(); } catch (Throwable ignored) { }
+                    if (now != null && !now.equals(lastStarted)
+                            && YouTubeExtractor.videoIdOf(now) != null
+                            && !vid.equals(YouTubeExtractor.videoIdOf(now))) return;
+                    if (!headless) return;   // the Flutter dock owns the surface
+                    try {
+                        // the payload JSON rides the url slot; the Dart dock
+                        // jsonDecodes it for the `▶ Play Ad-Free in Cinema` pill.
+                        MainActivity.shellRoute(act, "yt", payload, r.title == null ? "" : r.title,
+                            "", false, 0L);
+                    } catch (Throwable t) {
+                        Diag.w("web", "yt push: " + t);
+                    }
+                });
+            } catch (Throwable t) {
+                Diag.w("yt", "extract " + vid + ": " + t);
+            }
+        }, "si-yt").start();
+    }
+
     /**
      * v3.4.6.d — the SHARED web host builder: the FrameLayout that stacks the
      * progress bar, the (non-headless) speed-dial start page and the hardened
@@ -530,6 +643,29 @@ public class WebBrowserView extends FrameLayout {
                 return null;   // the WebView loads it normally — we only listen
             }
 
+            @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap favicon) {
+                // ══ v3.4.6.k — THE STALE-BANNER RESET (Part_04 05:35, Part_05 00:00) ══
+                // v3.4.6.j NEVER cleared the sniffed-stream state on navigation,
+                // so the previous page's stream banner lingered on YouTube search
+                // results (a stale "Play in Cinema" over unrelated pages). Every
+                // navigation (and goHome) clears the hit map NOW, and the shell
+                // dock is told to fold its stale row.
+                synchronized (hits) { hits.clear(); }
+                if (headless) {
+                    try {
+                        MainActivity.shellRoute(act, "sniff-clear", url == null ? "" : url,
+                            "", "", false, 0L);
+                    } catch (Throwable ignored) { }
+                } else {
+                    try { if (pillRow != null) pillRow.setVisibility(View.GONE); } catch (Throwable ignored) { }
+                }
+                // ══ v3.4.6.k — THE ZERO-AD YOUTUBE LANE (LAW #3) ══════════════════
+                // Any watch / shorts / youtu.be URL resolves the AD-FREE direct
+                // stream + captions + SponsorBlock segments in the background;
+                // the shell dock lights up `▶ Play Ad-Free in Cinema`.
+                maybeExtractYouTube(url);
+            }
+
             @Override public void onPageFinished(WebView v, String url) {
                 if (AppPrefs.readerDark(prefs)) {
                     try {
@@ -552,6 +688,19 @@ public class WebBrowserView extends FrameLayout {
                     "document.addEventListener('loadedmetadata',function(e){f(e.target)},true);" +
                     "var l=document.querySelectorAll('video,source');for(var i=0;i<l.length;i++)f(l[i]);})()", null);
                 injectBlobHook(v);
+                // ══ v3.4.6.k — THE COSMETIC YOUTUBE AD-SKIP/MUTE JS (LAW #3, the
+                // Part_05 00:17 + Part_06 00:09 in-preview overlays): when Ad
+                // block is ON, a lightweight page script skips ad overlays the
+                // instant they appear (clicks the Skip button, hides the ad
+                // container, mutes while an ad plays) — the in-WebView preview
+                // stays clean even before the Ad-Free Cinema lane opens. ══
+                if (AppPrefs.adBlock(prefs) && YouTubeExtractor.isYouTubeUrl(url == null ? "" : url)) {
+                    try {
+                        v.evaluateJavascript(YT_AD_SKIP_JS, null);
+                    } catch (Throwable t) {
+                        Diag.w("web", "yt ad-skip inject: " + t);
+                    }
+                }
             }
         });
 

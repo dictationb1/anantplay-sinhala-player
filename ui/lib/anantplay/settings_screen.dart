@@ -29,6 +29,7 @@ import 'package:anantplay_ui/mornye_ui/widgets/app_switch.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_chrome.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_context_menu.dart';
 import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_notification.dart';
+import 'package:anantplay_ui/mornye_ui/widgets/mornye_bubble_slider.dart';
 
 import 'action_feedback.dart';
 import 'app_state.dart';
@@ -38,6 +39,12 @@ import 'settings_mirror.dart';
 import 'subtitle_style.dart';
 import 'package:anantplay_ui/main.dart'
     show wallpaperSchemeAvailable, kWallpaperUnavailableCaption;
+
+/// v3.4.6.k — the Interface size label (85–115% around the 14sp studio base).
+String _interfaceSizeLabel(double v) {
+  final sp = (12 + v * 8).round().clamp(12, 20);
+  return sp == 14 ? '100%' : '${(sp / 14 * 100).round()}%';
+}
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -54,10 +61,18 @@ class SettingsScreen extends StatelessWidget {
         actions: [
           // v3.4.6.j — the Apple-style liquid-glass overflow popover (the
           // Mornye context menu): Backup / Reset / Update-check quick picks.
-          IconButton(
-            icon: const Icon(mi.Icons.more_vert_rounded),
-            tooltip: 'Quick actions',
-            onPressed: () => _settingsOverflow(context),
+          // v3.4.6.k — THE ANCHOR FIX (Part_04 02:18–04:18): the call used the
+          // SCAFFOLD's context, so mornyeMenuAnchor() measured the whole page
+          // (the >65% guard nulled it) and the menu expanded from the CENTER
+          // of the screen. The ⋮ button's OWN Builder context now supplies the
+          // exact anchor rect, and the flight origin is its top-right corner —
+          // the glass pours directly out of the button (Alignment.topRight).
+          Builder(
+            builder: (btnContext) => IconButton(
+              icon: const Icon(mi.Icons.more_vert_rounded),
+              tooltip: 'Quick actions',
+              onPressed: () => _settingsOverflow(btnContext),
+            ),
           ),
         ],
       ),
@@ -68,8 +83,14 @@ class SettingsScreen extends StatelessWidget {
   Future<void> _settingsOverflow(BuildContext context) {
     // v3.4.6.j — the Apple-style liquid-glass popover (the vendored Mornye
     // context menu): Backup / Reset / Update-check quick picks.
+    // v3.4.6.k — the exact ⋮ anchor rect (the button's own box, root-overlay
+    // coordinates) + the top-right origin: the menu scales smoothly out of
+    // the ⋮ button itself — never from the center of the screen.
+    final anchor = mornyeMenuAnchor(context);
     return showMornyeContextMenu<void>(
       context: context,
+      anchor: anchor,
+      origin: anchor?.topRight,
       builder: (menuContext) => MornyeContextMenu(
         dense: true,
         groups: [
@@ -437,8 +458,9 @@ class _AppearanceSettingsPage extends StatelessWidget {
           _SliderRow(
             title: 'Glass clarity',
             value: s.glassClarity / 100.0,
-            label: '${s.glassClarity}%',
-            onChanged: (v) => scope.putInt(
+            labelFor: (v) =>
+                '${(v * 100).round().clamp(10, 95)}%',
+            onCommit: (v) => scope.putInt(
                 SettingsMirror.kGlassClarity, (v * 100).round().clamp(10, 95)),
           ),
           _SwitchRow(
@@ -448,16 +470,23 @@ class _AppearanceSettingsPage extends StatelessWidget {
                 scope.putBool(SettingsMirror.kGlassOutlines, v),
           ),
           _SwitchRow(
+            // v3.4.6.k — THE STUCK FORCE-LIQUID-BLUR FIX (Part_02 00:50–01:10):
+            // v3.4.6.j read the STRING surfaceStyle key ('glass'/'flat')
+            // through the BOOL getter `b()` — a String is never a bool, so it
+            // ALWAYS fell back to the default `true` and the switch rendered
+            // permanently ON no matter what was stored (writing 'flat'
+            // succeeded, the next read just ignored it). The String lane
+            // (s() == 'glass') both reads AND writes the same key now.
             title: 'Force liquid blur',
-            value: s.b(SettingsMirror.kSurfaceStyle, true),
+            value: s.s(SettingsMirror.kSurfaceStyle, 'glass') == 'glass',
             onChanged: (v) => scope.putString(
                 SettingsMirror.kSurfaceStyle, v ? 'glass' : 'flat'),
           ),
           _SliderRow(
             title: 'Animation speed',
             value: (s.b(SettingsMirror.kMotion, true) ? 1.0 : 0.0),
-            label: s.b(SettingsMirror.kMotion, true) ? 'Full' : 'Reduced',
-            onChanged: (v) => scope.putBool(
+            labelFor: (v) => v >= 0.5 ? 'Full' : 'Reduced',
+            onCommit: (v) => scope.putBool(
                 SettingsMirror.kMotion, v >= 0.5),
           ),
           // v3.4.6.j — Interface size (85–115%) with the live bubble, riding
@@ -465,8 +494,8 @@ class _AppearanceSettingsPage extends StatelessWidget {
           _SliderRow(
             title: 'Interface size',
             value: (s.i(SettingsMirror.kFontSpKey, 14) - 12) / 8.0,
-            label: '${s.i(SettingsMirror.kFontSpKey, 14) == 14 ? '100' : ((s.i(SettingsMirror.kFontSpKey, 14) / 14 * 100).round())}%',
-            onChanged: (v) => scope.putInt(
+            labelFor: (v) => _interfaceSizeLabel(v),
+            onCommit: (v) => scope.putInt(
                 SettingsMirror.kFontSpKey, (12 + v * 8).round().clamp(12, 20)),
           ),
           _SegmentedRow(
@@ -494,8 +523,9 @@ class _AppearanceSettingsPage extends StatelessWidget {
           _SliderRow(
             title: 'Dim amount',
             value: s.i(SettingsMirror.kMidnightDimPct, 30) / 70.0,
-            label: '${s.i(SettingsMirror.kMidnightDimPct, 30)}%',
-            onChanged: (v) => scope.putInt(
+            labelFor: (v) =>
+                '${(v * 70).round().clamp(10, 70)}%',
+            onCommit: (v) => scope.putInt(
                 SettingsMirror.kMidnightDimPct,
                 (v * 70).round().clamp(10, 70)),
             enabled: Theme.of(context).brightness == Brightness.dark,
@@ -526,12 +556,20 @@ class _PlaybackSubtitlesPage extends StatelessWidget {
     return _SettingsSubPage(
       title: 'Playback & Subtitles',
       children: [
+        // v3.4.6.k — THE STICKY LIVE SINHALA SUBTITLE PREVIEW CARD (Part_02
+        // 03:00–03:16, Part_04 00:25–00:54): the reference line
+        // "ශ්‍රී ලංකාවේ සිනමා උපසිරැසි" updates INSTANTANEOUSLY as the user
+        // adjusts Subtitle size, Subtitle font, Background style, Background
+        // opacity and Vertical position below (it rides the SAME
+        // resolveSubtitleTextStyle resolver the player paints with, with the
+        // ZWJ conjuncts ශ්‍රී passing through verbatim).
+        _LiveSubtitlePreviewCard(s: s),
         SettingsGroup(children: [
           _SliderRow(
             title: 'Subtitle size',
             value: ((s.i(SettingsMirror.kFontSpKey, 14)) - 12) / 24.0,
-            label: '${s.i(SettingsMirror.kFontSpKey, 14)}sp',
-            onChanged: (v) => scope.putInt(
+            labelFor: (v) => '${(12 + v * 24).round().clamp(12, 36)}sp',
+            onCommit: (v) => scope.putInt(
                 SettingsMirror.kFontSpKey, (12 + v * 24).round().clamp(12, 36)),
           ),
           _SwitchRow(
@@ -578,10 +616,18 @@ class _AnantPlaySourcesPage extends StatelessWidget {
         SettingsGroup(children: [
           _ActionRow(
             title: 'Guided AnantPlay Setup',
-            subtitle: 'The floating coach walks all 6 steps over AnantPlay',
+            subtitle:
+                'The floating coach walks all 10 steps over AnantPlay',
             onTap: () => AnantPlay.instance.openOfficialWithCoach(),
           ),
-          const _IndexUrlField(initial: ''),
+          // v3.4.6.k — THE BROKEN EMPTY BOX DELETION (Part_02 03:38, Part_03
+          // 02:55): the v3.4.6.j GUIDED SETUP card carried an unlabeled EMPTY
+          // text field + Save that saved nothing into the guided flow. It is
+          // GONE; the multi-index manager below is the one true URL surface.
+        ]),
+        _SectionHeader('Index URLs'),
+        SettingsGroup(children: const [
+          _MultiIndexManager(),
         ]),
       ],
     );
@@ -677,6 +723,11 @@ class _StorageCachePageState extends State<_StorageCachePage> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final stats = _stats;
+    // v3.4.6.k — the OTA-managed subtitle cache TTL (AppPrefs.K_OTA_SUB_CACHE_
+    // DAYS via the signed manifest; the row states the live policy, never a
+    // stale literal — an unwired pref is a fake pref).
+    final subTtlDays =
+        AppState.of(context).settings.otaSubCacheDays;
     return _SettingsSubPage(
       title: 'Storage & Cache',
       children: [
@@ -684,7 +735,11 @@ class _StorageCachePageState extends State<_StorageCachePage> {
           _StorageRow(
               title: 'App cache & WebView',
               bytes: stats?.appCache ?? 0),
-          _StorageRow(title: 'Subtitle cache', bytes: stats?.subs ?? 0),
+          _StorageRow(
+              key: const ValueKey('sub-cache-ttl'),
+              title: 'Subtitle cache',
+              subtitle: 'Auto-expires after $subTtlDays days (signed config)',
+              bytes: stats?.subs ?? 0),
           _StorageRow(title: 'Update cache', bytes: stats?.updates ?? 0),
           _StorageRow(title: 'Watch history', bytes: stats?.history ?? 0),
           Padding(
@@ -731,10 +786,15 @@ class _StorageCachePageState extends State<_StorageCachePage> {
 
 /// One real-MB storage row (the honest byte counts, never placeholders).
 class _StorageRow extends StatelessWidget {
-  const _StorageRow({required this.title, required this.bytes});
+  const _StorageRow(
+      {super.key, required this.title, required this.bytes, this.subtitle});
 
   final String title;
   final int bytes;
+
+  /// v3.4.6.k — the optional live policy line (e.g. the OTA subtitle cache
+  /// TTL); a row that states its real policy beats a silent hidden pref.
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -744,9 +804,21 @@ class _StorageRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text(title,
-                style: const TextStyle(
-                    fontSize: 13.5, fontWeight: FontWeight.w600)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 13.5, fontWeight: FontWeight.w600)),
+                if (subtitle != null && subtitle!.isNotEmpty)
+                  Text(subtitle!,
+                      key: ValueKey('storage-sub-$title'),
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: scheme.onSurfaceVariant)),
+              ],
+            ),
           ),
           Text(
             _StorageCachePageState._mb(bytes),
@@ -836,6 +908,11 @@ class _AboutPage extends StatelessWidget {
               scope.rerunOnboarding();
             },
           ),
+          // v3.4.6.k — THE SIGNED REMOTE CONFIG CARD: the OTA channel's state
+          // is USER-VISIBLE (when it last synced, how many bridge mirrors /
+          // index feeds / ad rules it pinned). A config channel that reports
+          // nothing is indistinguishable from a dead one.
+          const _RemoteConfigRow(),
         ]),
         _SectionHeader('Licenses'),
         SettingsGroup(children: [
@@ -864,6 +941,70 @@ class _AboutPage extends StatelessWidget {
       applicationIcon: const SizedBox(width: 48, height: 48),
     );
   }
+}
+
+// ── v3.4.6.k — THE SIGNED REMOTE CONFIG CARD (OTA channel transparency) ──────
+
+/// One honest, live line of the signed OTA config state — About's answer to
+/// "is the remote config channel actually alive?" It reads the SAME mirror
+/// values OtaConfigSync writes (both-CDN consensus + SHA-256 verified), so
+/// an unsynced phone honestly says "pending" instead of faking numbers.
+class _RemoteConfigRow extends StatelessWidget {
+  const _RemoteConfigRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final settings = AppState.of(context).settings;
+    final synced = settings.otaSynced;
+    final mirrors = SettingsMirror.lineCount(settings.otaBridgeMirrors);
+    final feeds = SettingsMirror.lineCount(settings.otaIndexFeeds);
+    final rules = SettingsMirror.lineCount(settings.otaAdRules);
+    final String status;
+    if (synced) {
+      final when = DateTime.fromMillisecondsSinceEpoch(
+          settings.otaSyncAtMs,
+          isUtc: false);
+      final clock =
+          '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}';
+      final day = '${when.year}-${_two(when.month)}-${_two(when.day)}';
+      status = 'Verified $day $clock · $mirrors mirrors · '
+          '$feeds feeds · $rules ad rules';
+    } else {
+      status = 'Pending — pinned defaults in force';
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Expanded(
+              child: Text('Remote config (signed)',
+                  key: const ValueKey('remote-config-title'),
+                  style: const TextStyle(
+                      fontSize: 13.5, fontWeight: FontWeight.w600)),
+            ),
+            Icon(
+                synced
+                    ? mi.Icons.verified_rounded
+                    : mi.Icons.hourglass_empty_rounded,
+                size: 18,
+                color: scheme.primary),
+          ]),
+          const SizedBox(height: 2),
+          Text(status,
+              key: const ValueKey('remote-config-status'),
+              style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w500,
+                  color: scheme.onSurfaceVariant)),
+        ],
+      ),
+    );
+  }
+
+  static String _two(int v) => v.toString().padLeft(2, '0');
 }
 
 // ── v3.4.6.h — THE MATERIAL YOU ↔ MANUAL ACCENT INTERLOCK (one shared path) ─
@@ -1163,15 +1304,15 @@ class _SubtitleStudioRows extends StatelessWidget {
       _SliderRow(
         title: 'Background opacity',
         value: s.i(SettingsMirror.kSubBgOpacity, 40) / 95.0,
-        label: '${s.i(SettingsMirror.kSubBgOpacity, 40)}%',
-        onChanged: (v) => scope.putInt(
+        labelFor: (v) => '${(v * 95).round().clamp(0, 95)}%',
+        onCommit: (v) => scope.putInt(
             SettingsMirror.kSubBgOpacity, (v * 95).round().clamp(0, 95)),
       ),
       _SliderRow(
         title: 'Vertical position',
         value: (s.i(SettingsMirror.kSubBottomPct, 8) - 2) / 33.0,
-        label: '${s.i(SettingsMirror.kSubBottomPct, 8)}%',
-        onChanged: (v) => scope.putInt(SettingsMirror.kSubBottomPct,
+        labelFor: (v) => '${(2 + v * 33).round().clamp(2, 35)}%',
+        onCommit: (v) => scope.putInt(SettingsMirror.kSubBottomPct,
             (2 + v * 33).round().clamp(2, 35)),
       ),
       _SegmentedRow(
@@ -1218,32 +1359,11 @@ class _AnantPlayRows extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = AppState.of(context);
-    final s = state.settings;
     return Column(children: [
       // v3.4.6.i — the OFFICIAL ANANTPLAY UPDATE PILL (Settings side): the
       // installed me.champdev.weblock vs the latest AnantPlay/android release,
       // 1-tap Update Now through the fixed in-app installer.
       const _OfficialAnantPlayUpdateRow(),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Text('Saved Index URL',
-              style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontSize: 13.5)),
-        ),
-      ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-        child: _IndexUrlField(initial: s.indexUrl),
-      ),
-      _ActionRow(
-        title: '1-tap Copy Index URL',
-        subtitle: 'Paste into AnantPlay → Settings → Sources',
-        onTap: () => AnantPlay.instance.copyToClipboard(s.indexUrl),
-      ),
       _ActionRow(
         title: 'Check / install official AnantPlay',
         subtitle: 'In-app downloader + 1-tap PackageInstaller',
@@ -1264,6 +1384,322 @@ class _AnantPlayRows extends StatelessWidget {
         onTap: () => AppState.of(context).scope.rerunOnboarding(),
       ),
     ]);
+  }
+}
+
+/// v3.4.6.k — THE MULTI-INDEX URL MANAGER (Part_02 03:38, Part_03 02:55): the
+/// list of ALL built-in + unlimited user-added index URLs — each with 1-Tap
+/// Copy & Delete — plus `+ Add Index URL`. Replaces the v3.4.6.j single
+/// `Saved Index URL` box (and the broken unlabeled empty box + Save inside
+/// the GUIDED SETUP card, which is deleted entirely).
+class _MultiIndexManager extends StatefulWidget {
+  const _MultiIndexManager();
+
+  @override
+  State<_MultiIndexManager> createState() => _MultiIndexManagerState();
+}
+
+class _MultiIndexManagerState extends State<_MultiIndexManager> {
+  static const _builtIns = [
+    ('Sri Lanka IPTV',
+        'https://raw.githubusercontent.com/dictationb1/srilanka-anantplay/main/index.json'),
+    ('Sinhala Subtitle Bridge',
+        'https://anantplay-si-subs-bridge.techworldlk.workers.dev/index.json'),
+    ('Official AnantPlay Index',
+        'https://raw.githubusercontent.com/AnantPlay/index/main/index.json'),
+  ];
+
+  List<(String, String)> _customs(String raw) => [
+        for (final line in raw.split('\n'))
+          if (line.trim().isNotEmpty && line.contains('|'))
+            (
+              line.substring(0, line.indexOf('|')).trim(),
+              line.substring(line.indexOf('|') + 1).trim()
+            )
+      ];
+
+  String _serialize(List<(String, String)> customs) => [
+        for (final (name, url) in customs)
+          if (url.trim().isNotEmpty) '$name|$url',
+      ].join('\n');
+
+  void _save(List<(String, String)> customs) =>
+      AppState.of(context).scope.putString(
+          SettingsMirror.kIndexUrls, _serialize(customs));
+
+  void _copy(String url) {
+    AnantPlay.instance.copyToClipboard(url);
+    showMornyeGlassNotification(context, message: 'Index URL copied');
+  }
+
+  void _add() async {
+    final nameCtl = TextEditingController();
+    final urlCtl = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Add Index URL'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtl,
+              decoration: const InputDecoration(
+                  labelText: 'Name', hintText: 'e.g. My IPTV index'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: urlCtl,
+              decoration: const InputDecoration(
+                  labelText: 'URL', hintText: 'https://…/index.json'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonal(
+            onPressed: () {
+              final raw =
+                  AppState.of(context).settings.s(SettingsMirror.kIndexUrls, '');
+              final customs = _customs(raw)
+                ..add((
+                  nameCtl.text.trim().isEmpty
+                      ? 'Custom index'
+                      : nameCtl.text.trim(),
+                  urlCtl.text.trim()
+                ));
+              _save(customs);
+              Navigator.of(dctx).pop();
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final s = AppState.of(context).settings;
+    final customs = _customs(s.s(SettingsMirror.kIndexUrls, ''));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final (name, url) in _builtIns)
+          _IndexUrlRow(
+            name: name,
+            url: url,
+            builtin: true,
+            onCopy: () => _copy(url),
+          ),
+        for (final entry in customs)
+          _IndexUrlRow(
+            name: entry.$1,
+            url: entry.$2,
+            builtin: false,
+            onCopy: () => _copy(entry.$2),
+            onDelete: () => _save(customs
+                .where((c) => c != entry)
+                .toList()),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          child: OutlinedButton.icon(
+            icon: Icon(mi.Icons.add_rounded,
+                size: 18, color: scheme.primary),
+            label: const Text('Add Index URL'),
+            onPressed: _add,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _IndexUrlRow extends StatelessWidget {
+  const _IndexUrlRow({
+    required this.name,
+    required this.url,
+    required this.builtin,
+    required this.onCopy,
+    this.onDelete,
+  });
+
+  final String name;
+  final String url;
+  final bool builtin;
+  final VoidCallback onCopy;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
+        children: [
+          Icon(builtin ? mi.Icons.star_rounded : mi.Icons.link_rounded,
+              size: 18, color: scheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface)),
+                const SizedBox(height: 2),
+                Text(url,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 11, color: scheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          FilledButton.tonal(
+            onPressed: onCopy,
+            style: FilledButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12),
+                minimumSize: const Size(0, 34)),
+            child: const Text('Copy', style: TextStyle(fontSize: 12)),
+          ),
+          if (onDelete != null) ...[
+            const SizedBox(width: 6),
+            IconButton(
+              tooltip: 'Delete',
+              icon: Icon(mi.Icons.delete_outline_rounded,
+                  size: 20, color: scheme.error),
+              onPressed: onDelete,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// v3.4.6.k — THE STICKY LIVE SINHALA SUBTITLE PREVIEW CARD: one reference
+/// line, styled by the LIVE subtitle studio settings, at the very top of
+/// Playback & Subtitles. Same resolver as the player (resolveSubtitleTextStyle),
+/// same bg style/opacity pill, same vertical position anchor (as a visual
+/// hint band, scaled into the card) — every knob below moves it instantly.
+class _LiveSubtitlePreviewCard extends StatelessWidget {
+  const _LiveSubtitlePreviewCard({required this.s});
+
+  final SettingsMirror s;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final int sizeSp = s.i(SettingsMirror.kFontSpKey, 14).clamp(12, 36);
+    final String bg = s.s(SettingsMirror.kSubBg, 'pill');
+    final int bgOpacity = s.i(SettingsMirror.kSubBgOpacity, 40).clamp(0, 95);
+    // v3.4.6.k — the outline lane rides the existing subBold preference.
+    final bool outline = s.b(SettingsMirror.kSubBold, false);
+    final Color subColor = _subColorOf(s);
+    final TextStyle resolved = resolveSubtitleTextStyle(
+      s,
+      base: TextStyle(
+        fontSize: sizeSp.toDouble(),
+        height: 1.28,
+        color: subColor,
+      ),
+    );
+    final BoxDecoration pillBg = bg == 'pill'
+        ? BoxDecoration(
+            color: Color(0xFF000000).withValues(alpha: bgOpacity / 100),
+            borderRadius: BorderRadius.circular(10),
+          )
+        : bg == 'box'
+            ? BoxDecoration(
+                color: Color(0xFF000000).withValues(alpha: bgOpacity / 100),
+                borderRadius: BorderRadius.circular(4),
+              )
+            : bg == 'outline'
+                ? BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                        color: subColor.withValues(alpha: bgOpacity / 100),
+                        width: 1.2),
+                  )
+                : BoxDecoration(); // 'shadow' paints via the text shadows
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(mi.Icons.subtitles_rounded,
+                  size: 15, color: scheme.primary),
+              const SizedBox(width: 6),
+              Text('Live Sinhala subtitle preview',
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurfaceVariant)),
+              const Spacer(),
+              Text('$sizeSp sp',
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurfaceVariant)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            height: 96,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: pillBg,
+              child: Text(
+                'ශ්‍රී ලංකාවේ සිනමා උපසිරැසි',
+                textAlign: TextAlign.center,
+                style: resolved.copyWith(
+                  shadows: bg == 'shadow'
+                      ? [
+                          Shadow(
+                              color: Color(0xFF000000)
+                                  .withValues(alpha: bgOpacity / 100),
+                              blurRadius: 4),
+                        ]
+                      : (outline
+                          ? [
+                              Shadow(color: Color(0x99000000), blurRadius: 2),
+                              Shadow(color: Color(0x99000000), blurRadius: 2),
+                            ]
+                          : null),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Color _subColorOf(SettingsMirror s) {
+    final hex = s.s(SettingsMirror.kSubColor, '#FFF2F7F7');
+    final v = int.tryParse(hex.replaceFirst('#', ''), radix: 16);
+    return v == null ? const Color(0xFFF2F7F7) : Color(v | 0xFF000000);
   }
 }
 
@@ -1343,59 +1779,6 @@ class _OfficialAnantPlayUpdateRowState
   }
 }
 
-class _IndexUrlField extends StatefulWidget {
-  const _IndexUrlField({required this.initial});
-
-  final String initial;
-
-  @override
-  State<_IndexUrlField> createState() => _IndexUrlFieldState();
-}
-
-class _IndexUrlFieldState extends State<_IndexUrlField> {
-  late final TextEditingController _c =
-      TextEditingController(text: widget.initial);
-  String _saved = '';
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        Expanded(
-          child: TextField(
-            controller: _c,
-            maxLines: 1,
-            decoration: InputDecoration(
-              isDense: true,
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              suffixIcon: _saved.isEmpty
-                  ? null
-                  : Icon(mi.Icons.check_rounded,
-                      size: 18, color: scheme.primary),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        FilledButton.tonal(
-          onPressed: () {
-            final url = _c.text.trim();
-            AnantPlay.instance.saveIndexUrl(url);
-            setState(() => _saved = url);   // optimistic; the pref write is fire-and-forget
-          },
-          child: const Text('Save'),
-        ),
-      ],
-    );
-  }
-}
 
 class _BrowserRows extends StatelessWidget {
   const _BrowserRows();
@@ -2217,28 +2600,48 @@ class _AccentRow extends StatelessWidget {
 // ── v3.4.6.b — the connected rows (upstream SettingsItem shapes, Mornye
 // paddings from context.tokens, divider between rows by the group) ──────────
 
-class _SliderRow extends StatelessWidget {
+class _SliderRow extends StatefulWidget {
   const _SliderRow({
     required this.title,
     required this.value,
-    required this.label,
-    required this.onChanged,
+    required this.labelFor,
+    required this.onCommit,
     this.enabled = true,
   });
 
   final String title;
+
+  /// The normalized slider value, 0.0 … 1.0 (the caller's own mapping).
   final double value;
-  final String label;
-  final ValueChanged<double> onChanged;
+
+  /// The value label for a given slider fraction (`14sp`, `55%`, `100%` …) —
+  /// used for BOTH the resting row label and the drag bubble callout.
+  final String Function(double v) labelFor;
+
+  /// v3.4.6.k — THE SINGLE COMMIT POINT: fires ONCE when the drag ends.
+  /// While dragging, ONLY the local draft updates (60/120 fps smooth, zero
+  /// MethodChannel putInt + getAll() round-trips per frame — the Part_02/
+  /// Part_03/Part_04 settings lag kill).
+  final ValueChanged<double> onCommit;
 
   /// v3.4.6.i — inert-but-visible slider (the Midnight dim amount in Light
   /// mode): the control stays on screen in its clean disabled color.
   final bool enabled;
 
   @override
+  State<_SliderRow> createState() => _SliderRowState();
+}
+
+class _SliderRowState extends State<_SliderRow> {
+  /// The local drag draft: while non-null the row shows the DRAFT value and
+  /// writes NOTHING to the channel; the commit fires once on drag end.
+  double? _draft;
+
+  @override
   Widget build(BuildContext context) {
     final tokens = context.tokens;
     final scheme = Theme.of(context).colorScheme;
+    final v = _draft ?? widget.value;
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: tokens.rowPaddingH,
@@ -2247,22 +2650,28 @@ class _SliderRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-              child: Text(title,
+              child: Text(widget.title,
                   style: TextStyle(
                       color: scheme.onSurface, fontSize: 14))),
           Expanded(
             flex: 2,
-            child: Slider(
-              value: value.clamp(0.0, 1.0),
-              onChanged: enabled ? onChanged : null,
-              activeColor: scheme.primary,
-              inactiveColor:
-                  scheme.onSurface.withValues(alpha: 0.12),
+            // v3.4.6.k — the MORNYE BUBBLE SLIDER: the accent callout pill
+            // pops up above the thumb while dragging; onChanged feeds ONLY
+            // the local draft; onCommit is the single channel write.
+            child: MornyeBubbleSlider(
+              value: v.clamp(0.0, 1.0),
+              enabled: widget.enabled,
+              calloutFor: widget.labelFor,
+              onChanged: (x) => setState(() => _draft = x),
+              onChangeEnd: (x) {
+                setState(() => _draft = null);
+                widget.onCommit(x);
+              },
             ),
           ),
           SizedBox(
             width: 44,
-            child: Text(label,
+            child: Text(widget.labelFor(v),
                 textAlign: TextAlign.right,
                 style: TextStyle(
                     color: scheme.onSurfaceVariant, fontSize: 12)),

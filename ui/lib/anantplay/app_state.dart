@@ -32,6 +32,10 @@ class AppState extends InheritedNotifier<AppStateNotifier> {
   /// The owning scope's data (put/refresh entry points for dependents).
   AppStateNotifier get scope => notifier!;
 
+  /// v3.4.6.k — true once the FIRST real getAll() settings snapshot landed
+  /// (the cold-launch wizard-flash kill's shell-side read).
+  bool get hydrated => notifier?.hydrated ?? false;
+
   @override
   bool updateShouldNotify(AppState oldWidget) =>
       settings != oldWidget.settings ||
@@ -50,12 +54,21 @@ class AppStateNotifier extends ChangeNotifier {
   UpdaterEvent? updater;
   List<HistoryItem> history = const [];
 
+  /// v3.4.6.k — THE COLD-LAUNCH HYDRATION FLAG (the wizard-flash kill):
+  /// false until the FIRST real `getAll()` snapshot arrives from the native
+  /// side. The shell holds a clean theme-matched backdrop while it is false —
+  /// `OnboardingScreen` can never flash on a cold start when the persisted
+  /// `onboardingVersion >= 2` (the defaults' false value was exactly the
+  /// one-frame flash the Part_05 02:17–02:53 audit caught).
+  bool hydrated = false;
+
   void publish(SettingsMirror newSettings, CastStatus newCast, UpdaterEvent? newUpdater,
       List<HistoryItem> newHistory) {
     settings = newSettings;
     cast = newCast;
     updater = newUpdater;
     history = newHistory;
+    hydrated = true;
     notifyListeners();
   }
 
@@ -229,11 +242,21 @@ class AppStateScopeData extends State<AppStateScope> with WidgetsBindingObserver
   }
 
   Future<void> _load() async {
-    final settings = await AnantPlay.instance.loadSettings();
-    final history = await AnantPlay.instance.history();
-    if (!mounted) return;
-    _notifier.publish(settings, _notifier.cast, _notifier.updater, history);
-    setState(() {});
+    // v3.4.6.k — FAIL-OPEN hydration: a channel hiccup must never leave the
+    // shell stuck on the hydration backdrop (hydrated == false forever) —
+    // the defaults publish and the first real snapshot replaces them as soon
+    // as the channel answers.
+    try {
+      final settings = await AnantPlay.instance.loadSettings();
+      final history = await AnantPlay.instance.history();
+      if (!mounted) return;
+      _notifier.publish(settings, _notifier.cast, _notifier.updater, history);
+    } catch (_) {
+      if (!mounted) return;
+      _notifier.publish(_notifier.settings, _notifier.cast, _notifier.updater,
+          _notifier.history);
+    }
+    if (mounted) setState(() {});
   }
 
   void _onCast(CastStatus s) {
