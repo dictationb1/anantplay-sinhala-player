@@ -2130,10 +2130,23 @@ public final class DeepProbe {
     /** The dir the readers resolve against: the bundled tree, else the process cwd. */
     public static java.io.File sourceBase() { return sourceBase; }
 
+    /**
+     * v3.4.6.k — THE DOT-PATH ALIAS. AAPT2 strips dot-prefixed ASSET paths
+     * ({@code .github/…} never reaches the APK), so the shipped atlas carries
+     * the workflows as {@code github-workflows/…}. Reading
+     * {@code .github/workflows/build-apk.yml} therefore maps to that mirror —
+     * the probes still verify the REAL workflow text, just from the path the
+     * packager actually permits.
+     */
+    private static String atlasAlias(String path) {
+        final String gh = ".github/workflows/";
+        return path.startsWith(gh) ? "github-workflows/" + path.substring(gh.length()) : path;
+    }
+
     private static String readOrEmpty(String path) {
         java.io.File base = sourceBase;
         java.io.File f = base == null ? new java.io.File(path)
-                                      : new java.io.File(base, path);
+                                      : new java.io.File(base, atlasAlias(path));
         try {
             return new String(java.nio.file.Files.readAllBytes(
                 f.toPath()), java.nio.charset.StandardCharsets.UTF_8);

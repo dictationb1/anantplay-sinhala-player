@@ -7857,11 +7857,12 @@ public class ReceiverLab {
         check("v346k ci: the emulator job label + step do not advertise a stale matrix",
             wk.contains("Live 78-Probe") && !wk.contains("Live 73-Probe"),
             "an honest label; the count is never cosmetic");
+        String atlasGradle = readRepoFile("android/app/build.gradle");
         check("v346k atlas: the source atlas ships EVERY path the probes read",
-            gradle.contains("\"build.sh\"")
-                && gradle.contains(".github/workflows")
-                && gradle.contains("docs/ota/manifest.json")
-                && gradle.contains("lab/verify_apk_launch_integrity.py"),
+            atlasGradle.contains("\"build.sh\"")
+                && atlasGradle.contains("github-workflows")
+                && atlasGradle.contains("docs/ota/manifest.json")
+                && atlasGradle.contains("lab/verify_apk_launch_integrity.py"),
             "a source-contract probe may never be decided against a missing file");
         check("v346e ci: the emulator job publishes every probe into the step summary",
             wk.contains("AnantPlayCI: PROBE"));

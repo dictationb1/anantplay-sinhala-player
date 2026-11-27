@@ -63,8 +63,7 @@ def dropAbis = ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"].findAll { it != kee
 // workflows and docs/ota/manifest.json read as "" on-device). Every
 // path DeepProbe reads by source must ride the atlas.
 def atlasTrees = ["ui/lib", "src", "AndroidManifest.xml",
-                  "build.sh", ".github/workflows",
-                  "lab/verify_apk_launch_integrity.py",
+                  "build.sh", "lab/verify_apk_launch_integrity.py",
                   "docs/ota/manifest.json"]
 def atlasOutDir = new File(project.layout.buildDirectory.get().asFile, "generated/sourceAtlas")
 def repoRootForAtlas = project.rootProject.projectDir.parentFile
@@ -75,8 +74,24 @@ def buildSourceAtlas = tasks.register("buildSourceAtlas", Sync) {
     into atlasOutDir
     atlasTrees.each { rel ->
         def node = new File(repoRootForAtlas, rel)
-        // a FILE source keeps its own name; a DIRECTORY source keeps its tree
-        from(node) { into node.isDirectory() ? "src-atlas/" + rel : "src-atlas" }
+        if (node.isDirectory()) {
+            from(node) { into "src-atlas/" + rel }
+        } else {
+            // v3.4.6.k — a FILE must keep its FULL repo-relative folder: the
+            // probes read lab/verify_apk_launch_integrity.py and
+            // docs/ota/manifest.json by that exact path, but both were landing
+            // at the atlas ROOT, so the live emulator still read "" and probes
+            // 75/76 kept failing.
+            def parent = rel.contains('/') ? rel.substring(0, rel.lastIndexOf('/')) : ''
+            from(node) { into parent ? "src-atlas/" + parent : "src-atlas" }
+        }
+    }
+    // AAPT2's default ignoreAssetsPattern is `!.svn:!.git:...:.*:<dir>_*`: every
+    // DOT-PREFIXED asset path is stripped from the APK, so `.github/workflows`
+    // can never ride the atlas under its own name. It ships as
+    // `github-workflows/` and DeepProbe.atlasAlias() maps the path back.
+    from(new File(repoRootForAtlas, ".github/workflows")) {
+        into "src-atlas/github-workflows"
     }
 }
 
