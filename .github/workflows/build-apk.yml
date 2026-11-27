@@ -794,7 +794,7 @@ jobs:
   #    flutter:E lines published to $GITHUB_STEP_SUMMARY and ::error::
   #    check-run annotations on any failure.
   launch-smoke:
-    name: Android 36 KVM Emulator Launch & Live 73-Probe Deep Probe Smoke Test
+    name: Android 36 KVM Emulator Launch & Live 78-Probe Deep Probe Smoke Test
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:

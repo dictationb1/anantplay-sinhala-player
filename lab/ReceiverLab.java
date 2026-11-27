@@ -7846,12 +7846,23 @@ public class ReceiverLab {
             wk.contains("--ez ci_run_deep_probe true"));
         check("v346e ci: the emulator job polls AnantPlayCI logcat for the summary",
             wk.contains("logcat -d -s AnantPlayCI:I") && wk.contains("DEEP_PROBE_SUMMARY"));
-        check("v346k ci: the emulator job hard-asserts fail=0 and total>=78",
-            wk.contains("fail=0") && wk.contains("total >= 78")
-                && !wk.contains("total >= 73") && !wk.contains("-lt 73")
-                && !wk.contains("-lt 64"),
+        check("v346k ci: the emulator job hard-asserts fail=0 and at least 78 probes",
+            wk.contains("fail=0")
+                && wk.contains("\"$(cat /tmp/ntotal.txt)\" -lt 78")
+                && wk.contains("\"$(cat /tmp/nlines.txt)\" -lt 78")
+                && !wk.contains("-lt 73") && !wk.contains("-lt 64")
+                && !wk.contains("total >= 73"),
             "the v3.4.6.k native matrix is 78 probes (A2..K5) — a stale 73/64 "
-                + "denominator would fail the live emulator job");
+                + "numeric denominator would fail the live emulator job");
+        check("v346k ci: the emulator job label + step do not advertise a stale matrix",
+            wk.contains("Live 78-Probe") && !wk.contains("Live 73-Probe"),
+            "an honest label; the count is never cosmetic");
+        check("v346k atlas: the source atlas ships EVERY path the probes read",
+            gradle.contains("\"build.sh\"")
+                && gradle.contains(".github/workflows")
+                && gradle.contains("docs/ota/manifest.json")
+                && gradle.contains("lab/verify_apk_launch_integrity.py"),
+            "a source-contract probe may never be decided against a missing file");
         check("v346e ci: the emulator job publishes every probe into the step summary",
             wk.contains("AnantPlayCI: PROBE"));
         // v3.4.6.g — THE PORT-PUBLICATION RACE (live Android 36 CI found probes

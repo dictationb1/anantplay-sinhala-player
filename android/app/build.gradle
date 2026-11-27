@@ -57,7 +57,15 @@ def dropAbis = ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"].findAll { it != kee
 // into noBackupFilesDir and point DeepProbe at them. Deterministic input set,
 // zero network, ~2.0 MB of text (the APK stays far under the 50 MiB cap).
 // ═════════════════════════════════════════════════════════════════════════════
-def atlasTrees = ["ui/lib", "src", "AndroidManifest.xml"]
+// v3.4.6.k — THE DEVICE-PROVABLE INPUT SET (live Android 36 finding:
+// probes 75/76 FAILED on the real emulator because the atlas carried
+// only ui/lib + src + AndroidManifest.xml, so build.sh, the two
+// workflows and docs/ota/manifest.json read as "" on-device). Every
+// path DeepProbe reads by source must ride the atlas.
+def atlasTrees = ["ui/lib", "src", "AndroidManifest.xml",
+                  "build.sh", ".github/workflows",
+                  "lab/verify_apk_launch_integrity.py",
+                  "docs/ota/manifest.json"]
 def atlasOutDir = new File(project.layout.buildDirectory.get().asFile, "generated/sourceAtlas")
 def repoRootForAtlas = project.rootProject.projectDir.parentFile
 

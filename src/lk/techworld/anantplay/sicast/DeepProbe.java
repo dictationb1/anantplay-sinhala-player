@@ -2106,6 +2106,27 @@ public final class DeepProbe {
     /** Point the source-contract readers at the bundled source tree (null = cwd). */
     public static void setSourceBase(java.io.File dir) { sourceBase = dir; }
 
+    /**
+     * v3.4.6.k — THE ATLAS READINESS LATCH. The source atlas is unpacked on a
+     * background thread at cold start, while the CI self-test driver only
+     * sleeps a fixed ~3 s. On a slow emulator that raced: probes 75/76 read
+     * "" and reported a FALSE FAIL (7 ms / 0 ms) even though the shipped
+     * sources were correct. The driver now awaits this latch (bounded), so a
+     * source-contract verdict is never decided against a half-unpacked atlas.
+     */
+    private static volatile boolean atlasReady;
+    static void noteAtlasReady() { atlasReady = true; }
+    static boolean awaitAtlas(long maxMs) {
+        long until = System.currentTimeMillis() + Math.max(0, maxMs);
+        while (!atlasReady && System.currentTimeMillis() < until) {
+            try { Thread.sleep(50L); } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return atlasReady;
+            }
+        }
+        return atlasReady;
+    }
+
     /** The dir the readers resolve against: the bundled tree, else the process cwd. */
     public static java.io.File sourceBase() { return sourceBase; }
 
@@ -2313,11 +2334,13 @@ public final class DeepProbe {
         // (b) the shipped manifest itself verifies against its declared digest
         boolean shipped = false;
         try {
-            String body = new String(java.nio.file.Files.readAllBytes(
-                java.nio.file.Paths.get("docs/ota/manifest.json")),
-                java.nio.charset.StandardCharsets.UTF_8);
-            OtaConfigSync.parseVerified(body);
-            shipped = true;
+            // read through sourceBase (the unpacked atlas) — a bare relative
+            // path resolves against the app's data dir on-device and always failed.
+            String body = readOrEmpty("docs/ota/manifest.json");
+            if (!body.isEmpty()) {
+                OtaConfigSync.parseVerified(body);
+                shipped = true;
+            }
         } catch (Throwable t) {
             Diag.w("deep", "K3 shipped manifest: " + t);
         }

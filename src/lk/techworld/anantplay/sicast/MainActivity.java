@@ -389,6 +389,7 @@ public class MainActivity extends FlutterActivity {
                             java.nio.charset.StandardCharsets.UTF_8).trim();
                     if (want.equals(have)) {
                         DeepProbe.resetSourceCaches();
+                        DeepProbe.noteAtlasReady();      // v3.4.6.k readiness latch
                         return;                          // already unpacked
                     }
                 }
@@ -402,6 +403,7 @@ public class MainActivity extends FlutterActivity {
                         want.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 } catch (Throwable ignored) { }
                 DeepProbe.resetSourceCaches();
+                DeepProbe.noteAtlasReady();
                 Diag.i("deep", "source atlas ready: " + n + " file(s) under " + dir);
             } catch (Throwable t) {
                 Diag.w("deep", "source atlas unpack failed: " + t);
@@ -494,6 +496,11 @@ public class MainActivity extends FlutterActivity {
         if (ciDeepProbeStarted) return;
         ciDeepProbeStarted = true;
         main.postDelayed(() -> new Thread(() -> {
+            // v3.4.6.k — AWAIT THE SOURCE ATLAS before any source-contract
+            // verdict. The live Android 36 run proved the race: probes 75/76
+            // finished in 0–7 ms against a not-yet-unpacked atlas and reported
+            // a FALSE FAIL. Bounded (20 s) so a broken atlas can never hang CI.
+            DeepProbe.awaitAtlas(20_000L);
             List<DeepProbe.Outcome> outcomes;
             try {
                 outcomes = DeepProbe.runAll(deepHooks(), null);
@@ -502,7 +509,7 @@ public class MainActivity extends FlutterActivity {
                 // The matrix itself refuses to run: publish a FAILING summary so
                 // the workflow's assertion fails loudly instead of timing out.
                 android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_SUMMARY_KEY
-                        + " pass=0 fail=56 env_fail=0 total=56 clipboard_copied=false"
+                        + " pass=0 fail=78 env_fail=0 total=78 clipboard_copied=false"
                         + " privacy_clean=false error=" + t.getClass().getSimpleName());
                 android.util.Log.i(DeepProbe.CI_TAG, DeepProbe.CI_DONE_KEY + " aborted");
                 return;
