@@ -6168,8 +6168,17 @@ public class ReceiverLab {
         check("v344 subtitles: UI translation helper routes bilingual text through Chrome",
             play.contains("private String t2(String s) { return Chrome.pick(s); }"));
 
-        check("v346 host: the About/licenses disclosure stays labeled",
-            readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Open-source licenses"));
+        // v3.4.6.m — THE MIT → GPL-3.0-only SWITCH: the disclosure row now names
+        // the PROJECT license (GPL-3.0-only) and, in its subtitle, every bundled
+        // component's license — the vendored Mornye UI stays LGPL-3.0-only.
+        String aboutPage = readRepoFile("ui/lib/anantplay/settings_screen.dart");
+        check("v346m host: the About/licenses disclosure names GPL-3.0-only + every component license",
+            aboutPage.contains("Project license: GPL-3.0-only")
+                && aboutPage.contains("LGPL-3.0-only")
+                && aboutPage.contains("Apache-2.0")
+                && aboutPage.contains("MIT")
+                && aboutPage.contains("OFL-1.1")
+                && aboutPage.contains("_aboutPageLicenses"));
         check("v344 accessibility: player control descriptions cover all top icons",
             play.contains("Lock player controls") && play.contains("Change screen orientation")
                 && play.contains("Enter picture-in-picture") && play.contains("Open in external player")
