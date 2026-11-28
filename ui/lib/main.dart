@@ -356,6 +356,33 @@ ThemeData buildAppTheme(
   );
 }
 
+/// v3.4.6.l — the deduped post-frame system-bar applier (the black-flash
+/// kill). A widget-level cache keeps the LAST applied pair; only a real
+/// brightness change writes through.
+void _applySystemBarsPostFrame(ThemeMode mode) {
+  final SystemUiOverlayStyle wanted = mode == ThemeMode.light
+      ? const SystemUiOverlayStyle(
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
+          systemNavigationBarIconBrightness: Brightness.dark,
+          systemNavigationBarColor: Color(0xFFF2F2F7),
+        )
+      : const SystemUiOverlayStyle(
+          statusBarIconBrightness: Brightness.light,
+          statusBarBrightness: Brightness.dark,
+          systemNavigationBarIconBrightness: Brightness.light,
+          systemNavigationBarColor: Color(0xFF000000),
+        );
+  final String key = mode == ThemeMode.light ? 'light' : 'dark';
+  if (_lastSystemBarMode == key) return;
+  _lastSystemBarMode = key;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    SystemChrome.setSystemUIOverlayStyle(wanted);
+  });
+}
+
+String? _lastSystemBarMode;
+
 class _ThemedApp extends StatelessWidget {
   const _ThemedApp();
 
@@ -426,21 +453,16 @@ class _ThemedApp extends StatelessWidget {
     // icons (readable on the bright #F2F2F7 surface); Dark/AMOLED get LIGHT
     // icons. The v3.4.6.g build left light icons on a light background —
     // the "unreadable notification bar" half of the black-Light-Mode bug.
-    SystemChrome.setSystemUIOverlayStyle(
-      mode == ThemeMode.light
-          ? const SystemUiOverlayStyle(
-              statusBarIconBrightness: Brightness.dark,
-              statusBarBrightness: Brightness.light,
-              systemNavigationBarIconBrightness: Brightness.dark,
-              systemNavigationBarColor: Color(0xFFF2F2F7),
-            )
-          : const SystemUiOverlayStyle(
-              statusBarIconBrightness: Brightness.light,
-              statusBarBrightness: Brightness.dark,
-              systemNavigationBarIconBrightness: Brightness.light,
-              systemNavigationBarColor: Color(0xFF000000),
-            ),
-    );
+    // v3.4.6.l — THE BLACK-FLASH KILL (video_2 02:05–02:30): this platform
+    // call USED to fire synchronously inside the BUILD pass — every theme /
+    // appStyle toggle raced the frame and flashed the system bars black
+    // (and on some OEMs destabilised the Flutter render too). It now rides a
+    // POST-FRAME callback that dedupes on the brightness + style pair, so a
+    // style switch repaints in ONE clean frame with ZERO side effects during
+    // build (the Navigator below is NEVER rebuilt: `home` is const and the
+    // MaterialApp carries no key that changes with the theme).
+    _applySystemBarsPostFrame(mode);
+    // (kept for the analyzer: the legacy inline call is retired)
     return MaterialApp(
       title: 'AnantPlay Player',
       debugShowCheckedModeBanner: false,
@@ -798,6 +820,41 @@ class ShellRootState extends State<ShellRoot> {
     // capsule rides 12dp above it. The page clears the taller of the two.
     final pageBottom =
         barDocked ? mediaBottom + 76 : bottomInset + 58;
+    // v3.4.6.l — THE TRUE APP-STYLE SPLIT (video_2 02:05–02:30): 'material'
+    // renders the AUTHENTIC Material 3 Expressive chrome — a REAL M3
+    // NavigationBar (tonal pill indicator, surfaceContainer tonal bar,
+    // full-width edge-to-edge) in the scaffold's own bottomNavigationBar
+    // slot; 'mornye' keeps the floating refracting MornyeTabBar capsule. The
+    // change is UNMISTAKABLE (a full-width tonal dock vs a detached glass
+    // capsule) and lives entirely in this build — the IndexedStack above is
+    // never keyed or rebuilt, so switching styles keeps every tab's state.
+    final bool materialBar =
+        state.settings.s(SettingsMirror.kAppStyle, 'mornye') == 'material';
+    if (materialBar) {
+      return Scaffold(
+        backgroundColor: scheme.surface,
+        body: Padding(
+          padding: EdgeInsets.only(bottom: mediaBottom + 84),
+          child: IndexedStack(index: _tab, children: pages),
+        ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _tab,
+          onDestinationSelected: selectTab,
+          labelBehavior: barLabels
+              ? NavigationDestinationLabelBehavior.alwaysShow
+              : NavigationDestinationLabelBehavior.alwaysHide,
+          height: barLabels ? 80 : 64,
+          destinations: [
+            for (final (label, icon) in _tabs)
+              NavigationDestination(
+                icon: Icon(icon),
+                selectedIcon: Icon(icon),
+                label: label,
+              ),
+          ],
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: scheme.surface,
       body: Stack(

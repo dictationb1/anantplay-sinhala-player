@@ -178,6 +178,10 @@ public class App extends Application {
         // fully silent: Subtitle Bridge mirrors, default Sri Lanka index feeds,
         // ad-block rules and the 7-day local SRT cache policy stay fresh
         // between releases. Fail-closed: the pinned defaults simply remain.
+        // v3.4.6.l — the retry: a phone whose LAST sync is older than 24 h
+        // (or that never synced — the "Pending" case) gets a fresh attempt on
+        // every process start; the sync is single-flight so the retry can
+        // never stack.
         try {
             OtaConfigSync.sync(this);
         } catch (Throwable t) {

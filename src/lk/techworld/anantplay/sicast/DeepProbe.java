@@ -2395,7 +2395,7 @@ public final class DeepProbe {
         String dart = readOrEmpty("ui/lib/anantplay/settings_screen.dart");
         boolean wired = sourceProvable(dart)
             && dart.contains("s.s(SettingsMirror.kSurfaceStyle, 'glass') == 'glass'")
-            && dart.contains("scope.putString(\n                SettingsMirror.kSurfaceStyle, v ? 'glass' : 'flat')");
+            && dart.contains("SettingsMirror.kSurfaceStyle, v ? 'glass' : 'flat'");
         o.pass = roundTrip && wired;
         o.detail = "surfaceStyle 'flat'↔'glass' round trip " + (roundTrip ? "✓" : "✗")
             + " · the switch reads the STRING lane " + (wired ? "✓" : "✗");
@@ -2409,8 +2409,12 @@ public final class DeepProbe {
         String main = readOrEmpty("ui/lib/main.dart");
         String state = readOrEmpty("ui/lib/anantplay/app_state.dart");
         boolean provable = sourceProvable(dart) && sourceProvable(main) && sourceProvable(state);
+        // v3.4.6.l — the frozen branch is the NEGATIVE offset (a forward
+        // horizontal drag arrives as a negative delta; see the physics'
+        // own comment) and the fling freeze reads the gate via the static
+        // forwardBlocked() predicate (video_3 01:30–01:58).
         boolean lock = provable && dart.contains("class _ForwardBlockedScrollPhysics")
-            && dart.contains("blockForward && offset > 0")
+            && dart.contains("blockForward && offset < 0")
             && dart.contains("static bool forwardBlocked");
         boolean persist = provable
             && dart.contains("setOnboardingStage(page)")

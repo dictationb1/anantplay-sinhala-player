@@ -139,10 +139,16 @@ public class MainActivity extends FlutterActivity {
         // (never a recreate), and a cold process gets onCreate. The payload
         // rides the intent extras; forwardLaunchRoute delivers it.
         try {
+            // v3.4.6.l — THE SLIDE-1 RESET KILL (video_3 02:46/03:03/03:36):
+            // CLEAR_TOP is REMOVED from every relaunch lane. On a standard
+            // launch-mode activity CLEAR_TOP destroys + recreates the instance
+            // on several OEM stacks (HyperOS included) even with SINGLE_TOP set
+            // — the recreated shell cold-reads the stage default and the wizard
+            // lands on Slide 1. REORDER_TO_FRONT | SINGLE_TOP alone brings the
+            // LIVE instance forward through onNewIntent — zero recreation.
             android.content.Intent i = new android.content.Intent(c, MainActivity.class)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
                             | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
-                            | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
                             | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                     .putExtra("shellRouteType", type)
                     .putExtra("url", url)
@@ -206,10 +212,11 @@ public class MainActivity extends FlutterActivity {
         MainActivity a = instance;
         if (a != null && a.shellResumed) return;   // already on screen
         try {
+            // v3.4.6.l — the same slide-1 reset kill: NO CLEAR_TOP here either —
+            // the BAL snap-back must land on the LIVE instance via onNewIntent.
             android.content.Intent i = new android.content.Intent(c, MainActivity.class)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
                             | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
-                            | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
                             | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
                     c, 0x6C68, i,
@@ -284,6 +291,15 @@ public class MainActivity extends FlutterActivity {
     /** A cold-launch intent carrying a shell route, forwarded once channels exist. */
     private void forwardLaunchRoute(Intent i) {
         if (i == null) return;
+        // v3.4.6.l — THE COACH FINISH AUTO-RETURN (video_2 00:50): the guided
+        // coach's Finish Setup ✓ relaunches the shell with openOnboarding=true;
+        // a LIVE first-time wizard is re-presented on its persisted slide (the
+        // About → Sources & Index flow), and a completed setup just lands on
+        // the Home tab. Pushed as a shell route {t:'onboarding'} frame.
+        if (i.getBooleanExtra("openOnboarding", false)) {
+            pushShellRoute("onboarding", "", "", "", false, 0L);
+            return;
+        }
         String url = i.getStringExtra("url");
         String castJson = i.getStringExtra("castJson");
         boolean test = i.getBooleanExtra("test", false);
@@ -803,6 +819,18 @@ public class MainActivity extends FlutterActivity {
         super.onResume();
         shellResumed = true;   // v3.4.6.g — the in-app route fast path gate
         pushCastStatus();          // the auto-open overlay re-check reads this live
+        // v3.4.6.l — THE OTA RETRY-ON-RESUME (the real-phone "Pending" kill):
+        // when the last signed sync is older than 24 h (or never landed),
+        // every foreground resume retries the single-flight sync — the About
+        // page's Remote config (signed) row flips to Verified with live
+        // mirror/feed/rule counts once it lands.
+        try {
+            if (!OtaConfigSync.syncedRecently(prefs, 24L * 60L * 60L * 1000L)) {
+                OtaConfigSync.sync(this);
+            }
+        } catch (Throwable t) {
+            Diag.w("ota", "resume retry: " + t);
+        }
         // v3.4.6.b — the onboarding resume contract: a fresh status blob ALSO
         // carries the live permission/install bits (overlay, notifications,
         // battery, unknown-sources, official-app presence), so the wizard's

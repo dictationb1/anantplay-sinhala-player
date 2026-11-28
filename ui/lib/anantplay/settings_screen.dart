@@ -257,7 +257,7 @@ class _SettingsHubState extends State<_SettingsHub> {
             ),
             _NavRow(
               title: 'About & Licenses',
-              subtitle: 'Version $kVisibleVersion · update check',
+              subtitle: 'Version · the live installed build',
               icon: mi.Icons.info_rounded,
               page: const _AboutPage(),
             ),
@@ -545,8 +545,35 @@ class _AppearanceSettingsPage extends StatelessWidget {
 }
 
 /// PAGE 2 — Playback & Subtitles: the subtitle studio + playback rows.
-class _PlaybackSubtitlesPage extends StatelessWidget {
+///
+/// v3.4.6.l — THE LIVE-DRAGGING PREVIEW (video_2 02:55): the page is now
+/// STATEFUL and owns three live draft notifiers (size / opacity / position).
+/// While a MornyeBubbleSlider is DRAGGED, onChanged feeds the local draft
+/// through onPreview — the preview card + the top-right sp readout repaint
+/// at 60/120 fps BEFORE anything commits; the single putInt commit still
+/// fires once on onChangeEnd (the AppState + MethodChannel stay write-clean).
+class _PlaybackSubtitlesPage extends StatefulWidget {
   const _PlaybackSubtitlesPage();
+
+  @override
+  State<_PlaybackSubtitlesPage> createState() => _PlaybackSubtitlesPageState();
+}
+
+class _PlaybackSubtitlesPageState extends State<_PlaybackSubtitlesPage> {
+  /// The in-flight drag drafts (null = resting on the committed mirror value).
+  /// Public so the studio rows below can feed the SAME drafts (one source of
+  /// truth for the live preview).
+  final ValueNotifier<double?> _sizeDraft = ValueNotifier<double?>(null);
+  final ValueNotifier<double?> _bgOpacityDraft = ValueNotifier<double?>(null);
+  final ValueNotifier<double?> _positionDraft = ValueNotifier<double?>(null);
+
+  @override
+  void dispose() {
+    _sizeDraft.dispose();
+    _bgOpacityDraft.dispose();
+    _positionDraft.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -563,12 +590,30 @@ class _PlaybackSubtitlesPage extends StatelessWidget {
         // opacity and Vertical position below (it rides the SAME
         // resolveSubtitleTextStyle resolver the player paints with, with the
         // ZWJ conjuncts ශ්‍රී passing through verbatim).
-        _LiveSubtitlePreviewCard(s: s),
+        // v3.4.6.l — the card ALSO listens to the three live drag drafts.
+        ValueListenableBuilder<double?>(
+          valueListenable: _sizeDraft,
+          builder: (context, _, d0) => ValueListenableBuilder<double?>(
+            valueListenable: _bgOpacityDraft,
+            builder: (context, _, d1) => ValueListenableBuilder<double?>(
+              valueListenable: _positionDraft,
+              builder: (context, _, d2) => _LiveSubtitlePreviewCard(
+                s: s,
+                liveSize: _sizeDraft.value,
+                liveBgOpacity: _bgOpacityDraft.value,
+                livePosition: _positionDraft.value,
+              ),
+            ),
+          ),
+        ),
         SettingsGroup(children: [
           _SliderRow(
             title: 'Subtitle size',
             value: ((s.i(SettingsMirror.kFontSpKey, 14)) - 12) / 24.0,
             labelFor: (v) => '${(12 + v * 24).round().clamp(12, 36)}sp',
+            // v3.4.6.l — the LIVE drag lane: the preview + sp readout update
+            // on every drag frame, before the single commit lands.
+            onPreview: (v) => _sizeDraft.value = v,
             onCommit: (v) => scope.putInt(
                 SettingsMirror.kFontSpKey, (12 + v * 24).round().clamp(12, 36)),
           ),
@@ -589,6 +634,81 @@ class _PlaybackSubtitlesPage extends StatelessWidget {
             value: s.b(SettingsMirror.kContinueWatching, true),
             onChanged: (v) => scope.putBool(
                 SettingsMirror.kContinueWatching, v),
+          ),
+        ]),
+        _SectionHeader('Player controls'),
+        SettingsGroup(children: [
+          // v3.4.6.l — THE NEXT-LEVEL CINEMA PLAYER CUSTOMIZATION (1:1 with
+          // the native Player Customization sheet: same keys, same values,
+          // same writer lanes — the two surfaces are one control set).
+          _SegmentedRow(
+            title: 'Double-tap seek seconds',
+            labels: const ['5 s', '10 s', '15 s', '30 s'],
+            selected: const [5, 10, 15, 30]
+                .indexOf(s.i(SettingsMirror.kDoubleTapSeekSec, 10))
+                .clamp(0, 3),
+            onChanged: (i) => scope.putInt(
+                SettingsMirror.kDoubleTapSeekSec, const [5, 10, 15, 30][i]),
+          ),
+          _SegmentedRow(
+            title: 'Long-press speed',
+            labels: const ['1.5x', '2.0x', '2.5x'],
+            selected: const [150, 200, 250]
+                .indexOf(s.i(SettingsMirror.kLongPressSpeedX, 200))
+                .clamp(0, 2),
+            onChanged: (i) => scope.putInt(
+                SettingsMirror.kLongPressSpeedX, const [150, 200, 250][i]),
+          ),
+          _SegmentedRow(
+            title: 'Seek step',
+            labels: const ['5 s', '10 s', '15 s', '30 s'],
+            selected: const [5000, 10000, 15000, 30000]
+                .indexOf(s.i(SettingsMirror.kSeekStepMs, 10000))
+                .clamp(0, 3),
+            onChanged: (i) => scope.putInt(
+                SettingsMirror.kSeekStepMs, const [5000, 10000, 15000, 30000][i]),
+          ),
+          _SegmentedRow(
+            title: 'Controls auto-hide',
+            labels: const ['2 s', '3 s', '5 s'],
+            selected: s.i(SettingsMirror.kHudHideMs, 3500) <= 2000
+                ? 0
+                : (s.i(SettingsMirror.kHudHideMs, 3500) <= 3000 ? 1 : 2),
+            onChanged: (i) => scope.putLong(
+                SettingsMirror.kHudHideMs, const [2000, 3000, 5000][i]),
+          ),
+          _SwitchRow(
+            title: 'Swipe brightness and volume',
+            subtitle: 'Vertical edge swipes with the live capsules',
+            value: s.b(SettingsMirror.kSwipeBrightness, true) ||
+                s.b(SettingsMirror.kSwipeVolume, true),
+            onChanged: (v) {
+              scope.putBool(SettingsMirror.kSwipeBrightness, v);
+              scope.putBool(SettingsMirror.kSwipeVolume, v);
+            },
+          ),
+          _SwitchRow(
+            title: 'Swipe to seek',
+            subtitle: 'Horizontal scrub with the live time pill',
+            value: s.b(SettingsMirror.kSwipeSeek, true),
+            onChanged: (v) => scope.putBool(SettingsMirror.kSwipeSeek, v),
+          ),
+          _SwitchRow(
+            title: 'Double-tap to seek',
+            value: s.b(SettingsMirror.kDoubleTapSeek, true),
+            onChanged: (v) => scope.putBool(SettingsMirror.kDoubleTapSeek, v),
+          ),
+          _SwitchRow(
+            title: 'Pinch to zoom',
+            subtitle: 'Two fingers cycle Fit and Fill',
+            value: s.b(SettingsMirror.kPinchZoom, true),
+            onChanged: (v) => scope.putBool(SettingsMirror.kPinchZoom, v),
+          ),
+          _SwitchRow(
+            title: 'Frame-rate matching',
+            subtitle: 'Seamless 24/30/60 Hz display sync',
+            value: s.b(SettingsMirror.kFrameRateMatch, true),
+            onChanged: (v) => scope.putBool(SettingsMirror.kFrameRateMatch, v),
           ),
         ]),
         _SectionHeader('Subtitle studio'),
@@ -890,7 +1010,7 @@ class _AboutPage extends StatelessWidget {
           // "Check for update now" row remains.
           _ActionRow(
             title: 'Check for update now',
-            subtitle: 'Checking… → Up to date ($kVisibleVersion)',
+            subtitle: 'Checking… then Up to date on the live build',
             onTap: () => checkForUpdateWithFeedback(context),
           ),
           _ActionRow(
@@ -927,8 +1047,9 @@ class _AboutPage extends StatelessWidget {
   }
 
   Future<void> _aboutPageLicenses(BuildContext context) async {
-    // v3.4.6.h — the LIVE installed version (never a stale literal).
-    String version = '3.4.6.j';
+    // v3.4.6.l — the LIVE installed version (the stale-literal kill: the
+    // fallback matches the current release only until the channel answers).
+    String version = kVisibleVersionFallback;
     try {
       final info = await AnantPlay.instance.appInfo();
       if (info.versionName.isNotEmpty) version = info.versionName;
@@ -949,8 +1070,42 @@ class _AboutPage extends StatelessWidget {
 /// "is the remote config channel actually alive?" It reads the SAME mirror
 /// values OtaConfigSync writes (both-CDN consensus + SHA-256 verified), so
 /// an unsynced phone honestly says "pending" instead of faking numbers.
-class _RemoteConfigRow extends StatelessWidget {
+/// v3.4.6.l — THE PENDING FLIP (video_2 04:10): the row re-reads the LIVE
+/// mirror the moment the About page opens (the native sync may have landed
+/// after the app's startup hydration — the row used to keep showing the
+/// start-of-process snapshot forever). One refresh on init + on resume.
+class _RemoteConfigRow extends StatefulWidget {
   const _RemoteConfigRow();
+
+  @override
+  State<_RemoteConfigRow> createState() => _RemoteConfigRowState();
+}
+
+class _RemoteConfigRowState extends State<_RemoteConfigRow>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      await AppState.of(context).scope.refresh();
+    } catch (_) {/* the pinned-defaults line stays honest */}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1271,6 +1426,11 @@ class _AppearanceNavRows extends StatelessWidget {
 class _SubtitleStudioRows extends StatelessWidget {
   const _SubtitleStudioRows();
 
+  /// v3.4.6.l — the studio slider previews are plumbed through the nearest
+  /// _PlaybackSubtitlesPageState when present (the page owns the drafts).
+  static _PlaybackSubtitlesPageState? _pageOf(BuildContext c) =>
+      c.findAncestorStateOfType<_PlaybackSubtitlesPageState>();
+
   @override
   Widget build(BuildContext context) {
     final state = AppState.of(context);
@@ -1305,6 +1465,8 @@ class _SubtitleStudioRows extends StatelessWidget {
         title: 'Background opacity',
         value: s.i(SettingsMirror.kSubBgOpacity, 40) / 95.0,
         labelFor: (v) => '${(v * 95).round().clamp(0, 95)}%',
+        // v3.4.6.l — the live draft (null on drag end) feeds the page preview
+        onPreview: (v) => _pageOf(context)?._bgOpacityDraft.value = v,
         onCommit: (v) => scope.putInt(
             SettingsMirror.kSubBgOpacity, (v * 95).round().clamp(0, 95)),
       ),
@@ -1312,6 +1474,7 @@ class _SubtitleStudioRows extends StatelessWidget {
         title: 'Vertical position',
         value: (s.i(SettingsMirror.kSubBottomPct, 8) - 2) / 33.0,
         labelFor: (v) => '${(2 + v * 33).round().clamp(2, 35)}%',
+        onPreview: (v) => _pageOf(context)?._positionDraft.value = v,
         onCommit: (v) => scope.putInt(SettingsMirror.kSubBottomPct,
             (2 + v * 33).round().clamp(2, 35)),
       ),
@@ -1595,16 +1758,36 @@ class _IndexUrlRow extends StatelessWidget {
 /// same bg style/opacity pill, same vertical position anchor (as a visual
 /// hint band, scaled into the card) — every knob below moves it instantly.
 class _LiveSubtitlePreviewCard extends StatelessWidget {
-  const _LiveSubtitlePreviewCard({required this.s});
+  const _LiveSubtitlePreviewCard({
+    required this.s,
+    this.liveSize,
+    this.liveBgOpacity,
+    this.livePosition,
+  });
 
   final SettingsMirror s;
+
+  /// v3.4.6.l — the LIVE DRAG DRAFTS (video_2 02:55): while a slider thumb
+  /// is STILL MOVING these carry the in-flight normalized value; the card
+  /// paints the draft (and the sp readout) at 60/120 fps before any commit.
+  final double? liveSize;
+  final double? liveBgOpacity;
+  final double? livePosition;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final int sizeSp = s.i(SettingsMirror.kFontSpKey, 14).clamp(12, 36);
+    // v3.4.6.l — the draft overrides the committed mirror value WHILE the
+    // thumb moves (null drafts = the resting committed state).
+    final int sizeSp = (liveSize == null
+            ? s.i(SettingsMirror.kFontSpKey, 14)
+            : (12 + liveSize! * 24).round())
+        .clamp(12, 36);
     final String bg = s.s(SettingsMirror.kSubBg, 'pill');
-    final int bgOpacity = s.i(SettingsMirror.kSubBgOpacity, 40).clamp(0, 95);
+    final int bgOpacity = (liveBgOpacity == null
+            ? s.i(SettingsMirror.kSubBgOpacity, 40)
+            : (liveBgOpacity! * 95).round())
+        .clamp(0, 95);
     // v3.4.6.k — the outline lane rides the existing subBold preference.
     final bool outline = s.b(SettingsMirror.kSubBold, false);
     final Color subColor = _subColorOf(s);
@@ -1660,7 +1843,11 @@ class _LiveSubtitlePreviewCard extends StatelessWidget {
           const SizedBox(height: 8),
           Container(
             height: 96,
-            alignment: Alignment.center,
+            // v3.4.6.l — the LIVE vertical-position draft: the preview line
+            // glides within the card while the position slider is dragged.
+            alignment: livePosition == null
+                ? Alignment.center
+                : Alignment(0, (livePosition! * 2 - 1).clamp(-1.0, 1.0)),
             decoration: BoxDecoration(
               color: scheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(14),
@@ -2607,6 +2794,7 @@ class _SliderRow extends StatefulWidget {
     required this.labelFor,
     required this.onCommit,
     this.enabled = true,
+    this.onPreview,
   });
 
   final String title;
@@ -2627,6 +2815,12 @@ class _SliderRow extends StatefulWidget {
   /// v3.4.6.i — inert-but-visible slider (the Midnight dim amount in Light
   /// mode): the control stays on screen in its clean disabled color.
   final bool enabled;
+
+  /// v3.4.6.l — THE LIVE PREVIEW LANE (video_2 02:55, "30sp stuck at 12sp"):
+  /// fires on EVERY drag frame while the thumb moves; a null value fires once
+  /// on drag END so the page can clear its draft (the commit still fires
+  /// exactly once on drag end).
+  final ValueChanged<double?>? onPreview;
 
   @override
   State<_SliderRow> createState() => _SliderRowState();
@@ -2662,9 +2856,15 @@ class _SliderRowState extends State<_SliderRow> {
               value: v.clamp(0.0, 1.0),
               enabled: widget.enabled,
               calloutFor: widget.labelFor,
-              onChanged: (x) => setState(() => _draft = x),
+              // v3.4.6.l — the LIVE lane feeds the preview DURING the drag;
+              // the single commit still fires once on drag end.
+              onChanged: (x) {
+                setState(() => _draft = x);
+                widget.onPreview?.call(x);
+              },
               onChangeEnd: (x) {
                 setState(() => _draft = null);
+                widget.onPreview?.call(null);   // v3.4.6.l — clear the live draft
                 widget.onCommit(x);
               },
             ),

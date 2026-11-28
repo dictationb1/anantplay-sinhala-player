@@ -153,6 +153,27 @@ class SettingsMirror {
   static const kSubBottomPct = 'subBottomPct';
   static const kSubLineSpacing = 'subLineSpacing';
   static const kSyncStepMs = 'subSyncStepMs';
+  // ══ v3.4.6.l — THE NEXT-LEVEL CINEMA PLAYER KEYS (1:1 with AppPrefs) ═════
+  /// Double-tap seek seconds (5 | 10 | 15 | 30; AppPrefs.K_DOUBLE_TAP_SEC).
+  static const kDoubleTapSeekSec = 'doubleTapSeekSec';
+  /// Long-press hold speed per-mille (150 | 200 | 250 -> 1.5x/2.0x/2.5x).
+  static const kLongPressSpeedX = 'longPressSpeedX';
+  /// Two-finger pinch Fit/Fill zoom toggle (AppPrefs.K_PINCH_ZOOM).
+  static const kPinchZoom = 'pinchZoom';
+  /// 24/30/60 Hz seamless frame-rate matching (AppPrefs.K_FRAME_RATE_MATCH).
+  static const kFrameRateMatch = 'frameRateMatch';
+  /// Controls auto-hide milliseconds (2000 | 3000 | 3500 | 5000).
+  static const kHudHideMs = 'hudHideMs';
+  /// The seek-step milliseconds (5000 | 10000 | 15000 | 30000).
+  static const kSeekStepMs = 'seekStepMs';
+  /// The double-tap-to-seek toggle (AppPrefs.K_DOUBLE_TAP_SEEK).
+  static const kDoubleTapSeek = 'doubleTapSeek';
+  /// The horizontal swipe-seek toggle (AppPrefs.K_SWIPE_SEEK).
+  static const kSwipeSeek = 'swipeSeek';
+  /// The swipe-brightness toggle (AppPrefs.K_SWIPE_BRIGHTNESS).
+  static const kSwipeBrightness = 'swipeBrightness';
+  /// The swipe-volume toggle (AppPrefs.K_SWIPE_VOLUME).
+  static const kSwipeVolume = 'swipeVolume';
   static const kAspectMode = 'aspectMode';
   static const kReceiverName = 'receiverName';
   static const kReceiverPort = 'receiverPort';

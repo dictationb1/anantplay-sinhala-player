@@ -172,8 +172,12 @@ version_pins = {
     "build.sh": buildsh,
 }
 for name, text in version_pins.items():
-    # v3.4.6.k — the pinned release identity.
-    check("%s carries 3.4.6.k + 30417" % name, "3.4.6.k" in text and "30417" in text)
+    # v3.4.6.l — the pinned release identity.
+    check("%s carries 3.4.6.l + 30418" % name, "3.4.6.l" in text and "30418" in text)
+    # v3.4.6.l — the LIVE updater tier on this branch stays pinned at .k / 30417
+    # (docs/latest.json is rewritten to .l only by the release workflow on ship).
+    check("%s carries the PREVIOUS 3.4.6.k + 30417 identity (the live update tier)",
+          "3.4.6.k" in text and "30417" in text)
 check("the manifest no longer carries the AGP-9-obsolete package attribute",
       'package="lk.techworld' not in manifest)
 # v3.4.6 — AGP 9 rejects <uses-sdk>; the SDK levels are owned by the Gradle host
@@ -224,12 +228,21 @@ check("the flutter extension points at the module (ui/, lib/main.dart)",
       and 'new File(project.rootProject.projectDir.parentFile, "ui").absolutePath' in host
       and 'target = "lib/main.dart"' in host)
 
+# ── G4d: the updater tier stays LIVE on this branch ──────────────────────────
+# docs/latest.json is the updater's tier-2 source and belongs to the RELEASE
+# workflow: this branch keeps it pinned at the LIVE 3.4.6.k / 30417 tier and
+# never bumps it to the unreleased .l (the workflow rewrites it on ship).
+latest = read("docs/latest.json")
+check("docs/latest.json stays at the LIVE 3.4.6.k / 30417 tier (never bumped on this branch)",
+      '"version":"3.4.6.k"' in latest and '"code":30417' in latest
+      and "3.4.6.l" not in latest)
+
 # ── G5: the Flutter module contract ──────────────────────────────────────────
 pubspec = read("ui/pubspec.yaml")
-check("pubspec carries the 3.4.6.k / 30417 identity in a pub-semver-VALID, Gradle-integer build number",
-      re.search(r"^version: 3\.4\.6\+30417$", pubspec, re.M) is not None
-      and "3.4.6.k" in pubspec
-      and "3.4.6.j+30417" not in pubspec
+check("pubspec carries the 3.4.6.l / 30418 identity in a pub-semver-VALID, Gradle-integer build number",
+      re.search(r"^version: 3\.4\.6\+30418$", pubspec, re.M) is not None
+      and "3.4.6.l" in pubspec
+      and "3.4.6.k+30418" not in pubspec
       and re.search(r"^version: .*\.\w+$", pubspec, re.M) is None)
 check("pubspec declares the add-to-app module block", re.search(r"^  module:", pubspec, re.M) is not None)
 _asset_dirs = re.findall(r"^\s+- (mornye/[A-Za-z0-9_.-]+|assets/[A-Za-z0-9_/.-]+/)$", pubspec, re.M)

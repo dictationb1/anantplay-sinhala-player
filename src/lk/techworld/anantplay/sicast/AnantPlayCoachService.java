@@ -72,43 +72,50 @@ public class AnantPlayCoachService extends Service {
     // (the glowing indicator), and the copyable URLs (both built-ins + the
     // user's own custom index URLs are appended at build time).
     private static final Step[] STEPS = new Step[]{
+            // v3.4.6.l — every step now carries its VISUAL TARGET BADGE (the
+            // exact UI element the glowing arrow points at; video_3 04:43).
             new Step("Top-right ⚙ → Settings",
                     "In official AnantPlay, tap the ⚙ at the TOP-RIGHT, then tap Settings.",
-                    Arrow.NE, new String[0]),
+                    Arrow.NE, new String[0], "Top-right ⚙ icon"),
             new Step("Tap Sources",
                     "In AnantPlay Settings, tap the Sources row.",
-                    Arrow.DOWN, new String[0]),
+                    Arrow.DOWN, new String[0], "Top row: Sources"),
             new Step("Tap Add this index",
                     "In Sources, tap “Add this index” on the AnantPlay index group.",
-                    Arrow.DOWN, new String[0]),
+                    Arrow.DOWN, new String[0], "Tap Add on each row"),
             new Step("Tap Add on all 3 rows",
                     "Tap Add on ALL 3 rows of the AnantPlay index (Streaming sites · "
                             + "Free TV channels · Title links).",
-                    Arrow.DOWN, new String[0]),
+                    Arrow.DOWN, new String[0], "Tap Add on each row"),
             new Step("Tap Add an index by link",
                     "Now tap “Add an index by link” — a URL box opens. Copy the Sri Lanka "
                             + "IPTV URL below and paste it in:",
-                    Arrow.DOWN, new String[]{URL_SL_IPTV}),
+                    Arrow.DOWN, new String[]{URL_SL_IPTV}, "Tap Add on each row"),
             new Step("Paste into URL box",
                     "Paste into the URL box and tap Save/OK. If the box is empty again, "
                             + "re-copy the URL below:",
-                    Arrow.DOWN, new String[]{URL_SL_IPTV, URL_SI_SUBS_BRIDGE}),
+                    Arrow.DOWN, new String[]{URL_SL_IPTV, URL_SI_SUBS_BRIDGE},
+                    "URL box + keyboard"),
             new Step("Tap Add on BOTH Sinhala Subtitle Bridge rows",
                     "Repeat “Add an index by link” and tap Add on BOTH Sinhala Subtitle "
                             + "Bridge rows — copy the bridge URL below:",
-                    Arrow.DOWN, new String[]{URL_SI_SUBS_BRIDGE, URL_SL_IPTV}),
-            new Step("Enable WARP · Ad block · Address bar",
-                    "Open Connection in AnantPlay Settings and enable WARP: On, "
-                            + "Ad block: On, Address bar: On.",
-                    Arrow.DOWN, new String[0]),
+                    Arrow.DOWN, new String[]{URL_SI_SUBS_BRIDGE, URL_SL_IPTV},
+                    "URL box + keyboard"),
+            // v3.4.6.l — THE ACCURATE CONNECTION COPY (video_2 00:25): WARP
+            // and Ad block are usually ALREADY On — the user is told to VERIFY
+            // those two and only TURN ON the one that starts off.
+            new Step("Connection → verify + Address bar",
+                    "Open Connection → verify WARP & Ad block are On, and turn "
+                            + "Address bar: On.",
+                    Arrow.DOWN, new String[0], "Connection row"),
             new Step("Enable Hide offline + Add MyTV .m3u + Check channels",
                     "Open IPTV in AnantPlay: enable “Hide offline channels: On”, add the "
                             + "MyTV .m3u playlist if you want it, then tap “Check channels now”.",
-                    Arrow.DOWN, new String[0]),
+                    Arrow.DOWN, new String[0], "IPTV row"),
             new Step("Player settings → Finish Setup ✓",
                     "Open Player in AnantPlay Settings, pick your boosts / auto-subs, "
                             + "then tap Finish Setup ✓ below — done!",
-                    Arrow.DOWN, new String[0]),
+                    Arrow.DOWN, new String[0], "Player row"),
     };
 
     /** The animated arrow directions the coach renders. */
@@ -117,14 +124,19 @@ public class AnantPlayCoachService extends Service {
         static final int DOWN = 1;  // ↓ (everything else)
     }
 
-    /** One guided step: title, body, arrow direction, copyable URLs. */
+    /**
+     * One guided step: title, body, arrow direction, copyable URLs, and the
+     * v3.4.6.l VISUAL TARGET BADGE — the unmistakable label of the exact UI
+     * element the arrow points at (video_3 04:43).
+     */
     static final class Step {
-        final String title, body;
+        final String title, body, target;
         final int arrow;
         final String[] copyUrls;
-        Step(String title, String body, int arrow, String[] copyUrls) {
+        Step(String title, String body, int arrow, String[] copyUrls, String target) {
             this.title = title; this.body = body;
             this.arrow = arrow; this.copyUrls = copyUrls;
+            this.target = target == null || target.isEmpty() ? "" : target;
         }
     }
 
@@ -132,6 +144,7 @@ public class AnantPlayCoachService extends Service {
     private LinearLayout card;      // the coach card (bottom-anchored by default)
     private TextView stepTitle, stepBody, stepCounter;
     private LinearLayout copyRow;  // the 1-tap Copy pill rows (rebuilt per step)
+    private TextView targetBadge;  // v3.4.6.l — the visual target indicator label
     private Button backButton, nextButton;
     private ArrowView arrowView;
     private int step = 0;
@@ -225,9 +238,27 @@ public class AnantPlayCoachService extends Service {
         head.addView(stepCounter, wrap());
         card.addView(head, new LinearLayout.LayoutParams(-1, -2));
 
-        // ── the GLOWING ANIMATED ARROW indicator (rebuilt per step) ──────────
+        // ── the GLOWING ANIMATED ARROW + THE VISUAL TARGET BADGE ────────────
+        // v3.4.6.l (video_3 04:43): the arrow now rides WITH an unmistakable
+        // target pill ("Top-right ⚙ icon", "Top row: Sources", "URL box +
+        // keyboard") — a pulsing glowing badge pointing at the exact target.
+        LinearLayout indicator = new LinearLayout(this);
+        indicator.setOrientation(LinearLayout.HORIZONTAL);
+        indicator.setGravity(Gravity.CENTER_VERTICAL);
         arrowView = new ArrowView(this);
-        card.addView(arrowView, new LinearLayout.LayoutParams(-1, dp(34)));
+        indicator.addView(arrowView, new LinearLayout.LayoutParams(0, dp(34), 0.9f));
+        targetBadge = new TextView(this);
+        targetBadge.setTextColor(0xFF7DD3FC);
+        targetBadge.setTextSize(11.5f);
+        targetBadge.setTypeface(Typeface.DEFAULT_BOLD);
+        targetBadge.setPadding(dp(8), dp(3), dp(8), dp(3));
+        GradientDrawable tb = new GradientDrawable();
+        tb.setColor(0x3D0C4A6E);
+        tb.setCornerRadius(dp(999));
+        tb.setStroke(dp(1), 0x667DD3FC);
+        targetBadge.setBackground(tb);
+        indicator.addView(targetBadge, new LinearLayout.LayoutParams(0, -2, 1.1f));
+        card.addView(indicator, new LinearLayout.LayoutParams(-1, -2));
 
         stepTitle = new TextView(this);
         stepTitle.setTextColor(Color.WHITE);
@@ -280,6 +311,8 @@ public class AnantPlayCoachService extends Service {
         Step s = STEPS[step];
         stepCounter.setText("Step " + (step + 1) + " of " + STEPS.length);
         arrowView.setDirection(s.arrow);
+        targetBadge.setText(s.target.isEmpty() ? " " : s.target);
+        targetBadge.setVisibility(s.target.isEmpty() ? View.INVISIBLE : View.VISIBLE);
         stepTitle.setText(s.title);
         stepBody.setText(s.body);
 
@@ -315,12 +348,17 @@ public class AnantPlayCoachService extends Service {
         try {
             WindowManager.LayoutParams p = (WindowManager.LayoutParams) card.getLayoutParams();
             if (p == null) return;
-            boolean pasteStep = step == 4 || step == 5;
+            // v3.4.6.l (video_3 05:25–05:33): the URL-paste steps are 5, 6 AND 7
+            // (indices 4, 5, 6 — step 7 repeats “Add an index by link” for the
+            // Bridge rows and opens the SAME dialog + keyboard). All three lift
+            // the card to the TOP below the status bar so it can NEVER cover
+            // the “Add an index by link” dialog or the keyboard.
+            boolean pasteStep = step >= 4 && step <= 6;
             p.gravity = pasteStep
                     ? Gravity.TOP | Gravity.CENTER_HORIZONTAL
                     : Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
             p.x = 0;
-            p.y = dp(16);
+            p.y = pasteStep ? dp(64) : dp(16);
             wm.updateViewLayout(card, p);
         } catch (Throwable t) {
             Diag.w("coach", "reposition: " + t);
@@ -340,12 +378,50 @@ public class AnantPlayCoachService extends Service {
             showStep();
             return;
         }
-        // Finish Setup ✓ — the coach removes itself; the user is left in
-        // official AnantPlay exactly where they were.
-        Diag.i("coach", "guided setup finished (" + STEPS.length + "/" + STEPS.length + ")");
+        // v3.4.6.l — THE FINISH AUTO-RETURN (video_2 00:50): tapping Finish
+        // Setup ✓ removes the overlay AND immediately relaunches OUR
+        // MainActivity to the foreground — the BAL-allowed, NO-CLEAR_TOP lane
+        // (REORDER_TO_FRONT | SINGLE_TOP through a PendingIntent) so the LIVE
+        // shell instance lands via onNewIntent with zero recreation. A
+        // first-time wizard (onboarding still current) therefore resumes on
+        // the EXACT persisted slide — Slide 6 (Sources & Index) with its own
+        // Finish ready.
+        Diag.i("coach", "guided setup finished (" + STEPS.length + "/" + STEPS.length
+                + ") — auto-returning to the shell");
         Troubleshooter.record("COACH", "guided AnantPlay setup finished · all "
-                + STEPS.length + " steps");
+                + STEPS.length + " steps · auto-return fired");
         stopSelf();
+        returnToShell();
+    }
+
+    /**
+     * The BAL-allowed shell relaunch: REORDER_TO_FRONT | SINGLE_TOP (NO
+     * CLEAR_TOP — the slide-1 reset kill), with the openOnboarding extra so a
+     * live wizard instance re-presents itself at the persisted slide.
+     */
+    private void returnToShell() {
+        try {
+            android.content.Intent i = new android.content.Intent(this, MainActivity.class)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                            | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    .putExtra("openOnboarding", true);
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
+                    this, 0x6C69, i,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                            | android.app.PendingIntent.FLAG_IMMUTABLE,
+                    MainActivity.balAllowedOptions());
+            pi.send();
+            Diag.i("coach", "auto-return to the shell sent (BAL lane)");
+        } catch (Throwable t) {
+            Diag.w("coach", "auto-return: " + t);
+            try {
+                startActivity(new android.content.Intent(this, MainActivity.class)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Throwable t2) {
+                Diag.w("coach", "auto-return fallback: " + t2);
+            }
+        }
     }
 
     private void copy(String url) {
