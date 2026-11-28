@@ -195,13 +195,15 @@ void main() {
       expect(
           onboarding.contains('''
   static bool forwardBlocked(int page, OnboardingStatus s) => switch (page) {
+        1 => !s.official,
         2 => !s.notif,
         3 => !s.overlay,
-        4 => !s.installs,
+        4 => !s.battery || !s.installs,
         _ => false,
       };'''),
           isTrue,
-          reason: 'slides 2/3/4 gate forward swipes on their OS permission');
+          reason: 'v3.4.6.m — ALL required slides gate: official install (1), '
+              'notifications (2), overlay (3), battery AND updates (4)');
     });
 
     test('the stage persists on EVERY page change + resumes on the same slide',
@@ -513,31 +515,36 @@ void main() {
       expect(banner.contains('maxLines: 3'), isTrue);
     });
 
-    test('the deep probe denominators are honest: 78 native + 14 Dart = 92',
+    test('the deep probe denominators are honest: 84 native + 14 Dart = 98',
         () {
       final help = repo('lib/anantplay/help_screen.dart');
       final dart = repo('lib/anantplay/deep_troubleshooter.dart');
-      // Trap #2: the counter/bar/verdict all use the one 92 total, and the
-      // native docs no longer claim the v3.4.6.i 64/73 matrix.
-      expect(help.contains('_done / 92'), isTrue);
-      expect(help.contains('78 native'), isTrue);
-      expect(help.contains('ids 79–92'), isTrue);
-      expect(dart.contains('firstId = 79'), isTrue);
-      expect(dart.contains('78 live probes'), isTrue);
-      expect(dart.contains('(78 native + 14 Dart)'), isTrue);
+      // Trap #2 (v3.4.6.m): the counter/bar/verdict all use the one 98
+      // total, and the native docs no longer claim the v3.4.6.i/k 64/73/78
+      // matrix.
+      expect(help.contains('_done / 98'), isTrue);
+      expect(help.contains('84 native'), isTrue);
+      expect(help.contains('ids 85–98'), isTrue);
+      expect(dart.contains('firstId = 85'), isTrue);
+      expect(dart.contains('84 live probes'), isTrue);
+      expect(dart.contains('(84 native + 14 Dart)'), isTrue);
       expect(dart.contains('64 live probes'), isFalse);
       expect(dart.contains('73 native'), isFalse);
+      expect(dart.contains('78 native'), isFalse);
     });
 
-    test('the CI emulator gate requires 78 live probes (no stale 73/64)', () {
+    test('the CI emulator gate requires 84 live probes (no stale 73/64/78)',
+        () {
       final wk = repo('../.github/workflows/build-apk.yml');
-      expect(wk.contains('-lt 78 '), isTrue);
-      expect(wk.contains('total >= 78'), isFalse,
-          reason: 'the assert is the shell -lt 78 form, not a prose token');
+      expect(wk.contains('-lt 84 '), isTrue);
+      expect(wk.contains('total >= 84'), isFalse,
+          reason: 'the assert is the shell -lt 84 form, not a prose token');
       expect(wk.contains('-lt 73'), isFalse, reason: 'stale denominator');
       expect(wk.contains('-lt 64'), isFalse, reason: 'stale denominator');
-      expect(wk.contains('78-probe'), isTrue);
+      expect(wk.contains('-lt 78'), isFalse, reason: 'v3.4.6.m stale denominator');
+      expect(wk.contains('84-probe'), isTrue);
       expect(wk.contains('73-probe'), isFalse);
+      expect(wk.contains('78-probe'), isFalse);
       // LAW #1 — the 100 MiB ceiling, never the retired 50/55 MiB tier.
       expect(wk.contains('104857600'), isTrue);
       expect(wk.contains('50 MiB'), isFalse);

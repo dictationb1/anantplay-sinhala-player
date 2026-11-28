@@ -222,6 +222,27 @@ public final class AppPrefs {
     // a restore keeps the user's choice.
     public static final String K_HOME_TIP_DISMISSED = "homeTipDismissed";  // bool
 
+    // ══ v3.4.6.m — THE LOW-DATA + SETUP-COACH KEYS ═════════════════════
+    /**
+     * v3.4.6.m — LOW DATA MODE (the thermal/battery audit's real saver):
+     * ON caps the cinema player's adaptive bitrate at 1.2 Mbps / 480p and
+     * prefers efficient Opus/AAC audio; OFF plays the full optimal
+     * hardware-decoded quality (CodecPolicy still never downgrades the
+     * DECODER — only the stream ceiling changes). Toggleable in Settings →
+     * Playback & Subtitles AND the Player Customization sheet; backed up.
+     */
+    public static final String K_LOW_DATA_MODE = "lowDataMode";           // bool
+    /**
+     * v3.4.6.m — THE SETUP COACH COMPLETION STAMP (Slide 6's `✓ Finish`
+     * gate): TRUE only after AnantPlayCoachService's Step 10 `Finish Setup ✓`
+     * ran to the end. The onboarding wizard's Finish button stays disabled
+     * (caption "Complete 'Open AnantPlay with User Guide' first") until it
+     * is TRUE. Written through the synchronous commit() writer from the
+     * coach service; unlike the wizard stage it is in BACKUP_KEYS (a restore
+     * onto a fresh device re-validates against the real installed app).
+     */
+    public static final String K_COACH_COMPLETED = "coachCompleted";      // bool
+
     /** Every key SettingsBackup carries (ordered — the export JSON is stable). */
     /**
      * v3.4.3 — keys that must NEVER travel in a backup (device/permission state).
@@ -406,7 +427,9 @@ public final class AppPrefs {
         K_OTA_BRIDGE_MIRRORS, K_OTA_INDEX_FEEDS, K_OTA_AD_RULES,
         K_OTA_SUB_CACHE_DAYS, K_OTA_SYNC_AT,
         // v3.4.6.k - the Multi-Index URL Manager's saved list
-        K_INDEX_URLS);
+        K_INDEX_URLS,
+        // v3.4.6.m - Low Data Mode + the Setup Coach completion stamp
+        K_LOW_DATA_MODE, K_COACH_COMPLETED);
 
     // ── the normalizers (pure — Mornye's normalizeXxx pattern) ─────────────────
 
@@ -926,6 +949,36 @@ public final class AppPrefs {
     public static void setOnboardingVersion(SharedPreferences p, int version) {
         if (p == null) return;
         p.edit().putInt(K_ONBOARDING_VERSION, version).apply();
+    }
+
+    // ── v3.4.6.m — the Setup Coach completion contract (Slide 6's Finish gate) ──
+
+    /** True once AnantPlayCoachService's Step 10 `Finish Setup ✓` ran to
+     *  the end (the wizard's `✓ Finish` stays disabled until then). */
+    public static boolean coachCompleted(SharedPreferences p) {
+        return p != null && p.getBoolean(K_COACH_COMPLETED, false);
+    }
+
+    /**
+     * v3.4.6.m — the coach's SYNCHRONOUS completion stamp: commit() (not
+     * apply()) so the flag survives an immediate process death — the coach
+     * runs as an overlay over the official app and HyperOS may kill us at
+     * any moment after Step 10. Called with the "sicast" prefs handle.
+     */
+    public static void setCoachCompleted(SharedPreferences p, boolean done) {
+        if (p == null) return;
+        try {
+            p.edit().putBoolean(K_COACH_COMPLETED, done).commit();
+        } catch (Throwable t) {
+            Diag.w("prefs", "coachCompleted persist failed: " + t);
+        }
+    }
+
+    // ── v3.4.6.m — Low Data Mode (the 480p / 1.2 Mbps ceiling) ─────────
+
+    /** True when the cinema player should cap ABR at 1.2 Mbps / 480p. */
+    public static boolean lowDataMode(SharedPreferences p) {
+        return p != null && p.getBoolean(K_LOW_DATA_MODE, false);
     }
     /** v3.3.1 — the Card-corner-radius preference, normalized (sharp|rounded|apple-pill). */
     public static String cardRadius(SharedPreferences p) {

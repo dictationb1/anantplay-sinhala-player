@@ -27,6 +27,27 @@ package lk.techworld.anantplay.sicast;
  *  script-ratio validation) + the Mornye/Apple-grade customization hub + the
  *  dedicated 10-point Troubleshooter. Strictly v3.x — never v4. */
 final class AppInfo {
+    // v3.4.6.m (code 30419): THE SILENT-GLASS-PLAYER FIX BUILD. Kills the
+    // real-phone ForegroundServiceDidNotStartInTimeException (startForeground
+    // FIRST in onCreate/onStartCommand on every veto/STOP/duplicate lane, the
+    // typed connectedDevice→mediaPlayback→dataSync chain, never
+    // startForegroundService() for ACTION_STOP) + perfect two-lane silent
+    // 3.4.6.x auto-push (the gate NEVER arms for a letter patch with install
+    // permission — "Updating to vX…"→"Installing update…" glass pill only,
+    // 8 s Installer Active lock, 200 ms permission auto-return) + the
+    // synchronous getInitialRoute() (zero Welcome flash / zero Slide-1 reset)
+    // + complete onboarding gating (official install + BOTH battery and
+    // update grants; the coach-gated ✓ Finish with K_COACH_COMPLETED) + the
+    // coach's floating target-pointer arrow overlay + the thermal/hw-codec
+    // cinema engine (CodecPolicy hardware-first decoding, Low Data Mode
+    // 480p/1.2 Mbps, the 0/1/4 Hz tick law) + the REAL lock mode + working
+    // subtitle language pills + zero legacy AlertDialogs (all three legacy
+    // dialogs are dark-glass sheets) + live thumb bubbles + the center
+    // buffering ring + the Apple iOS 26 Liquid Glass single-queue
+    // notification + the OverlayPortal zero-clip slider bubbles + zero
+    // bottom black gaps + the browser floating ▶ video play button + the
+    // OtaConfigSync per-fetch-budget Verified fix + the PrivacyScrubber
+    // technical-term whitelist (SHA-256/3-URL/16-KiB never eaten).
     // v3.4.6.l (code 30418): THE NEXT-LEVEL NATIVE HARDWARE CINEMA PLAYER
     // (PlayActivity rebuilt on the modular CinemaHud / CinemaGestures /
     // CinemaSheets engine: gradient scrims, icon-only ripple targets, the
@@ -55,8 +76,8 @@ final class AppInfo {
     // v3.4.6.e→v3.4.6.e self-lock, the background multi-download, the
     // `No active stream to cancel` EventChannel collision, and the fake
     // PASSes in the deep troubleshooter (Probe 47's HTTP 0 lie).
-    static final String VERSION_NAME = "3.4.6.l";
-    static final int VERSION_CODE = 30418;
+    static final String VERSION_NAME = "3.4.6.m";
+    static final int VERSION_CODE = 30419;
     static final String NAME = "AnantPlay Sinhala Player";
     private AppInfo() { }
 }

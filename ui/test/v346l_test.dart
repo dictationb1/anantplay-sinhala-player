@@ -39,7 +39,18 @@ Widget materialApp(Widget child) => MaterialApp(home: child);
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // v3.4.6.m — the LIVE mutable permission state (the official-install gate
+  // flip in the forward-lock test below).
+  final perms = <String, bool>{
+    'overlay': false,
+    'notif': false,
+    'battery': false,
+    'installs': false,
+    'official': false,
+  };
+
   setUp(() {
+    perms.updateAll((k, v) => false);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('anantplay/cast'),
             (call) async {
@@ -47,18 +58,18 @@ void main() {
       if (call.method == 'onboardingStatus') {
         return <String, Object>{
           't': 'onboardingStatus',
-          'overlay': false,
-          'notif': false,
-          'battery': false,
-          'installs': false,
-          'official': false,
+          'overlay': perms['overlay'] ?? false,
+          'notif': perms['notif'] ?? false,
+          'battery': perms['battery'] ?? false,
+          'installs': perms['installs'] ?? false,
+          'official': perms['official'] ?? false,
         };
       }
       if (call.method == 'appInfo') {
-        // v3.4.6.l — the LIVE identity channel: AppInfo.VERSION_NAME.
+        // v3.4.6.m — the LIVE identity channel: AppInfo.VERSION_NAME.
         return <String, Object>{
-          'versionName': '3.4.6.l',
-          'versionCode': 30418,
+          'versionName': '3.4.6.m',
+          'versionCode': 30419,
           'packageName': 'lk.techworld.anantplay.sicast',
         };
       }
@@ -117,7 +128,16 @@ void main() {
       }
 
       await hop('Get started');
-      await hop('Continue without installing');
+      // v3.4.6.m — the official-install gate: flip the mock + resume (the
+      // auto-return contract); the dead 'Continue without installing' escape
+      // is gone, exactly like the real phone.
+      perms['official'] = true;
+      final binding = TestWidgetsFlutterBinding.instance;
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pumpAndSettle();
       expect(find.text('Notifications'), findsOneWidget);
 
       // THE FORWARD FLING on the ungranted slide: the onPageChanged gate
@@ -265,11 +285,11 @@ void main() {
       expect(help.contains("replaceAll('↔', '·')"), isTrue);
     });
 
-    test('the Dart auditor registers 14 named probes (ids 79–92)', () {
+    test('the Dart auditor registers 14 named probes (ids 85–98)', () {
       final deep = repo('lib/anantplay/deep_troubleshooter.dart');
-      expect(deep.contains('static const int firstId = 79;'), isTrue);
+      expect(deep.contains('static const int firstId = 85;'), isTrue);
       expect(deep.contains("'History read-back round-trip'"), isTrue,
-          reason: 'probe #91 has its real name');
+          reason: 'probe #97 has its real name');
       expect(deep.contains("'Zero-uncaught-Flutter-error session'"), isTrue);
     });
 
@@ -290,15 +310,15 @@ void main() {
           reason: 'the pill composes the live resolved version');
       expect(feedback.contains("kVisibleVersion = 'v3.4.6.j'"), isFalse,
           reason: 'the stale v3.4.6.j literal is dead');
-      expect(feedback.contains("kVisibleVersionFallback = 'v3.4.6.l'"), isTrue);
+      expect(feedback.contains("kVisibleVersionFallback = 'v3.4.6.m'"), isTrue);
     });
 
     test('the appInfo channel serves the live identity on both shores', () {
       final java = repo('../src/lk/techworld/anantplay/sicast/MainActivity.java');
       expect(java.contains('m.put("versionName", AppInfo.VERSION_NAME);'), isTrue);
       final appInfo = repo('../src/lk/techworld/anantplay/sicast/AppInfo.java');
-      expect(appInfo.contains('VERSION_NAME = "3.4.6.l"'), isTrue);
-      expect(appInfo.contains('VERSION_CODE = 30418'), isTrue);
+      expect(appInfo.contains('VERSION_NAME = "3.4.6.m"'), isTrue);
+      expect(appInfo.contains('VERSION_CODE = 30419'), isTrue);
     });
 
     test('the remote config row refreshes live (Pending -> Verified)', () {
@@ -489,15 +509,15 @@ void main() {
           repo('../src/lk/techworld/anantplay/sicast/UpdateChecker.java');
       expect(checker.contains('isNewer'), isTrue);
       // the lab proves the full a→z sweep by execution; the identity ladder
-      // for THIS release: 30417 (k) < 30418 (l) < a future 30419 (m).
+      // for THIS release: 30417 (k) < 30418 (l) < 30419 (m, this build).
       final appInfo = repo('../src/lk/techworld/anantplay/sicast/AppInfo.java');
-      expect(appInfo.contains('VERSION_CODE = 30418'), isTrue);
+      expect(appInfo.contains('VERSION_CODE = 30419'), isTrue);
       final latest = repo('../docs/latest.json');
-      expect(latest.contains('"version":"3.4.6.k"'), isTrue);
-      expect(latest.contains('"code":30417'), isTrue,
-          reason: 'docs/latest.json stays at the LIVE .k tier on this branch');
-      expect(latest.contains('3.4.6.l'), isFalse,
-          reason: 'the updater tier is never hand-bumped to the unreleased .l');
+      expect(latest.contains('"version":"3.4.6.l"'), isTrue);
+      expect(latest.contains('"code":30418'), isTrue,
+          reason: 'docs/latest.json stays at the LIVE .l tier on this branch');
+      expect(latest.contains('3.4.6.m'), isFalse,
+          reason: 'the updater tier is never hand-bumped to the unreleased .m');
     });
 
     test('the updater gate reads the live AppInfo (never a stale literal)',

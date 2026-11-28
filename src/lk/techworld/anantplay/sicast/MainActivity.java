@@ -113,6 +113,14 @@ public class MainActivity extends FlutterActivity {
      *  Flutter's Impeller compositor anymore — MainActivity is paused while
      *  the movie plays, the GPU renderer idles at 0%). Only 'web' routes
      *  still push into the shell. */
+    /** v3.4.6.m — TRUE while the Flutter shell is the resumed foreground (the
+     *  floating ▶ rail's background-relaunch guard: a passive video-rect
+     *  observer must never relaunch the app through the route pump). */
+    static boolean shellVisible() {
+        MainActivity a = instance;
+        return a != null && a.shellResumed;
+    }
+
     static void shellRoute(android.content.Context c, String type, String url,
                            String title, String headers, boolean test, long startMs) {
         if ("play".equals(type)) {
@@ -376,6 +384,42 @@ public class MainActivity extends FlutterActivity {
         attachSourceAtlas();
         // v3.4.6.e — THE CI SELF-TEST HOOK (see runCiDeepProbe).
         maybeStartCiDeepProbe(getIntent());
+    }
+
+    /**
+     * v3.4.6.m — THE SYNCHRONOUS COLD-LAUNCH ROUTE (the Welcome-flash /
+     * Slide-1-reset kill, Part_0.01 05:22 / Part_0.02 02:03).
+     *
+     * <p>FlutterActivity calls this while the engine is created inside
+     * super.onCreate(...) — BEFORE the first Dart frame exists — and the
+     * returned string becomes {@code platformDispatcher.defaultRouteName},
+     * which {@code _ShellRoot} reads synchronously at initState. The decision
+     * therefore comes from SharedPreferences (a synchronous first read) and
+     * not from the async getAll() hydration:
+     * <ul>
+     *   <li>{@code "/home"} — onboardingVersion ≥ 2 AND onboardingDone: a
+     *       completed user NEVER renders a single frame of Welcome, on cold
+     *       start, on warm resume, or on a PiP-exit recreate;</li>
+     *   <li>{@code "/onboarding?stage=N"} — the EXACT persisted wizard
+     *       stage (0..5), so a mid-onboarding user returning from Overlay /
+     *       Battery / the Setup Coach lands on that slide — never Slide 1.</li>
+     * </ul>
+     * A failure of any kind answers {@code "/home"}: the hydrated settings
+     * gate re-decides in Dart, exactly as before.
+     */
+    @Override
+    public String getInitialRoute() {
+        try {
+            android.content.SharedPreferences p =
+                getSharedPreferences("sicast", MODE_PRIVATE);
+            if (AppPrefs.onboardingVersion(p) >= 2 && AppPrefs.onboardingDone(p)) {
+                return "/home";
+            }
+            return "/onboarding?stage=" + AppPrefs.onboardingStage(p);
+        } catch (Throwable t) {
+            Diag.w("route", "initial route fallback: " + t);
+            return "/home";
+        }
     }
 
     /**
@@ -977,7 +1021,9 @@ public class MainActivity extends FlutterActivity {
         // that MUST run off-screen); everything else quiets down here.
     }
 
-    /** v3.4.6.b — the permission/install snapshot the wizard auto-advance reads. */
+    /** v3.4.6.b — the permission/install snapshot the wizard auto-advance reads.
+     *  v3.4.6.m — `coach` joins the frame: Slide 6's `✓ Finish` gate reads
+     *  the Setup Coach completion stamp (K_COACH_COMPLETED) live. */
     private Map<String, Object> onboardingStatusMap() {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("t", "onboardingStatus");
@@ -986,6 +1032,7 @@ public class MainActivity extends FlutterActivity {
         m.put("battery", Miui.batteryUnrestricted(this));
         m.put("installs", AnantPlayInstaller.canRequestPackageInstalls(this));
         m.put("official", AnantPlayInstaller.anantplayInstalled(this));
+        m.put("coach", AppPrefs.coachCompleted(prefs));
         return m;
     }
 
@@ -1296,21 +1343,21 @@ public class MainActivity extends FlutterActivity {
                 result.success(true);
             } else if ("watchOverlayGrant".equals(m)) {
                 // v3.4.6.j — THE 90-SECOND BOUNDED OVERLAY RETURN-WATCHER
-                // (400 ms poll): the user is heading into
+                // (200 ms poll, v3.4.6.m): the user is heading into
                 // ACTION_MANAGE_OVERLAY_PERMISSION; the INSTANT it flips true
                 // we snap MainActivity back to the front through the BAL-allowed
                 // PendingIntent lane — the ESET-style instant auto-return.
                 watchPermissionGrant("overlay");
                 result.success(true);
             } else if ("watchInstallPermission".equals(m)) {
-                // v3.4.6.j — the same 90 s / 400 ms watcher for the
+                // v3.4.6.j — the same 90 s watcher (v3.4.6.m: 200 ms poll) for the
                 // unknown-sources install grant (the HyperOS Danger-warning
                 // countdown comfortably fits in 90 s).
                 watchPermissionGrant("installs");
                 result.success(true);
             } else if ("watchBatteryGrant".equals(m)) {
                 // v3.4.6.j — NEW: the battery-unrestricted watcher (slide 5's
-                // "No restrictions ✓" flip) with the identical 90 s / 400 ms /
+                // "No restrictions ✓" flip) with the identical 90 s / 200 ms (v3.4.6.m) /
                 // BAL snap-back contract.
                 watchPermissionGrant("battery");
                 result.success(true);
@@ -1417,7 +1464,7 @@ public class MainActivity extends FlutterActivity {
     // all three permissions:
     //   · 90 s bounded lifetime (225 ticks) — survives the full HyperOS
     //     warning + toggle round trip with margin;
-    //   · 400 ms polling — the EXACT millisecond flip is caught in-budget;
+    //   · 200 ms polling (v3.4.6.m) — the EXACT millisecond flip is caught in-budget;
     //   · the return relaunch rides the BAL-ALLOWED PendingIntent lane
     //     (MODE_BACKGROUND_ACTIVITY_START_ALLOWED, API 34+) with
     //     NEW_TASK | SINGLE_TOP | REORDER_TO_FRONT — the same ESET-style
@@ -1452,7 +1499,7 @@ public class MainActivity extends FlutterActivity {
                 if (readWatchState(watchKind)) {
                     stopOverlayWatcher();
                     Diag.i("perm", watchKind + " grant observed in "
-                            + (permissionWatchTicks * 400 / 1000f) + " s — BAL snap-back");
+                            + (permissionWatchTicks * 200 / 1000f) + " s — BAL snap-back");
                     Troubleshooter.record("PERM", watchKind + " granted — instant auto-return fired");
                     // THE ESET-STYLE SNAP-BACK: the BAL-allowed PendingIntent
                     // relaunch (NEW_TASK | SINGLE_TOP | REORDER_TO_FRONT).
@@ -1460,14 +1507,20 @@ public class MainActivity extends FlutterActivity {
                     pushOnboardingStatus();
                     return;
                 }
-                if (permissionWatchTicks >= 225) {       // 90 s bounded lifetime
+                if (permissionWatchTicks >= 450) {       // 90 s bounded lifetime (450 × 200 ms)
                     stopOverlayWatcher();
                     return;
                 }
-                main.postDelayed(this, 400);
+                // v3.4.6.m — 200 ms poll (was 400 ms): the user's grant of
+                // "Install unknown apps" / "Display over other apps" / "Battery
+                // Unrestricted" now snaps the shell back within < 300 ms
+                // (Part_0.01 04:20's 3–4 s dead wait killed).
+                main.postDelayed(this, 200);
             }
         };
-        main.postDelayed(permissionWatcher, 400);
+        // v3.4.6.m — 200 ms poll: instant permission auto-return (≤ 300 ms after
+        // the grant flips on a normal Android 16 build).
+        main.postDelayed(permissionWatcher, 200);
     }
 
     private void stopOverlayWatcher() {
@@ -1915,8 +1968,27 @@ public class MainActivity extends FlutterActivity {
                 // that killed Settings + Backup + the rebuild + search-engine
                 // probes 30/56/65/70 in ONE write).
                 Object v = call.argument("value");
+                String key = call.<String>argument("key");
+                // v3.4.6.m — THE WIZARD-STAGE SYNCHRONOUS WRITER: the stage is
+                // persisted RIGHT BEFORE a system settings screen or the Setup
+                // Coach opens (the Dart _persistStageBeforeLeaving contract),
+                // so the write must be durable at that exact moment — commit(),
+                // never apply() (a process death mid-grant used to resume the
+                // wizard on a stale slide; combined with the ShellRoot
+                // pre-hydration stage-0 write it reset users to Slide 1).
+                if (AppPrefs.K_ONBOARDING_STAGE.equals(key) && v instanceof Number) {
+                    boolean committed = false;
+                    try {
+                        committed = prefs.edit().putInt(AppPrefs.K_ONBOARDING_STAGE,
+                                ((Number) v).intValue()).commit();
+                    } catch (Throwable t) {
+                        Diag.w("settings", "stage commit: " + t);
+                    }
+                    result.success(committed);
+                    return;
+                }
                 boolean ok = v instanceof Number && AppPrefs.putTyped(prefs,
-                        call.<String>argument("key"), ((Number) v).longValue());
+                        key, ((Number) v).longValue());
                 result.success(ok);
             } else if ("putLong".equals(m)) {
                 // v3.4.6.h — the explicit Long writer (the Subtitle Studio's

@@ -172,12 +172,12 @@ version_pins = {
     "build.sh": buildsh,
 }
 for name, text in version_pins.items():
-    # v3.4.6.l — the pinned release identity.
-    check("%s carries 3.4.6.l + 30418" % name, "3.4.6.l" in text and "30418" in text)
-    # v3.4.6.l — the LIVE updater tier on this branch stays pinned at .k / 30417
-    # (docs/latest.json is rewritten to .l only by the release workflow on ship).
-    check("%s carries the PREVIOUS 3.4.6.k + 30417 identity (the live update tier)",
-          "3.4.6.k" in text and "30417" in text)
+    # v3.4.6.m — the pinned release identity.
+    check("%s carries 3.4.6.m + 30419" % name, "3.4.6.m" in text and "30419" in text)
+    # v3.4.6.m — the LIVE updater tier on this branch stays pinned at .l / 30418
+    # (docs/latest.json is rewritten to .m only by the release workflow on ship).
+    check("%s carries the PREVIOUS 3.4.6.l + 30418 identity (the live update tier)",
+          "3.4.6.l" in text and "30418" in text)
 check("the manifest no longer carries the AGP-9-obsolete package attribute",
       'package="lk.techworld' not in manifest)
 # v3.4.6 — AGP 9 rejects <uses-sdk>; the SDK levels are owned by the Gradle host
@@ -230,19 +230,19 @@ check("the flutter extension points at the module (ui/, lib/main.dart)",
 
 # ── G4d: the updater tier stays LIVE on this branch ──────────────────────────
 # docs/latest.json is the updater's tier-2 source and belongs to the RELEASE
-# workflow: this branch keeps it pinned at the LIVE 3.4.6.k / 30417 tier and
-# never bumps it to the unreleased .l (the workflow rewrites it on ship).
+# workflow: this branch keeps it pinned at the LIVE 3.4.6.l / 30418 tier and
+# never bumps it to the unreleased .m (the workflow rewrites it on ship).
 latest = read("docs/latest.json")
-check("docs/latest.json stays at the LIVE 3.4.6.k / 30417 tier (never bumped on this branch)",
-      '"version":"3.4.6.k"' in latest and '"code":30417' in latest
-      and "3.4.6.l" not in latest)
+check("docs/latest.json stays at the LIVE 3.4.6.l / 30418 tier (never bumped on this branch)",
+      '"version":"3.4.6.l"' in latest and '"code":30418' in latest
+      and "3.4.6.m" not in latest)
 
 # ── G5: the Flutter module contract ──────────────────────────────────────────
 pubspec = read("ui/pubspec.yaml")
-check("pubspec carries the 3.4.6.l / 30418 identity in a pub-semver-VALID, Gradle-integer build number",
-      re.search(r"^version: 3\.4\.6\+30418$", pubspec, re.M) is not None
-      and "3.4.6.l" in pubspec
-      and "3.4.6.k+30418" not in pubspec
+check("pubspec carries the 3.4.6.m / 30419 identity in a pub-semver-VALID, Gradle-integer build number",
+      re.search(r"^version: 3\.4\.6\+30419$", pubspec, re.M) is not None
+      and "3.4.6.m" in pubspec
+      and "3.4.6.l+30419" not in pubspec
       and re.search(r"^version: .*\.\w+$", pubspec, re.M) is None)
 check("pubspec declares the add-to-app module block", re.search(r"^  module:", pubspec, re.M) is not None)
 _asset_dirs = re.findall(r"^\s+- (mornye/[A-Za-z0-9_.-]+|assets/[A-Za-z0-9_/.-]+/)$", pubspec, re.M)
@@ -257,6 +257,28 @@ check("the pinned font stack ships (Inter + Google Sans Flex + Sinhala)",
            "NotoSansSinhala-Regular.ttf", "NotoSansSinhala-SemiBold.ttf")))
 check("the vendored engine keeps LICENSE + COPYING + NOTICE",
       all(os.path.isfile(path("ui/lib/mornye_ui/" + f)) for f in ("LICENSE", "COPYING", "NOTICE")))
+# v3.4.6.m — THE MIT → GPL-3.0-only REPOSITORY SWITCH (LAW #1). The root
+# LICENSE must be the verbatim GNU GPL v3.0, while the vendored Mornye UI stays
+# LGPL-3.0-only with every notice intact in BOTH trees (a project-wide upgrade
+# can never narrow a dependency's weaker copyleft).
+_root_license = read("LICENSE")
+check("the root LICENSE is the verbatim GNU GPL v3.0 (GPL-3.0-only, v3.4.6.m onward)",
+      "GNU GENERAL PUBLIC LICENSE" in _root_license
+      and "Version 3, 29 June 2007" in _root_license
+      and "END OF TERMS AND CONDITIONS" in _root_license
+      and "MIT License" not in _root_license)
+check("the vendored Mornye UI stays LGPL-3.0-only (LICENSE + COPYING + NOTICE in both trees)",
+      "GNU LESSER GENERAL PUBLIC LICENSE" in read("ui/lib/mornye_ui/LICENSE")
+      and "GNU GENERAL PUBLIC LICENSE" in read("ui/lib/mornye_ui/COPYING")
+      and all(os.path.isfile(path(p)) for p in (
+          "ui/lib/mornye_ui/LICENSE", "ui/lib/mornye_ui/COPYING", "ui/lib/mornye_ui/NOTICE",
+          "ui/assets/mornye/LICENSE", "ui/assets/mornye/COPYING", "ui/assets/mornye/NOTICE")))
+for _doc in ("README.md", "THIRD_PARTY.md", "SETUP-SI.md"):
+    check("%s states the GPL-3.0-only project license" % _doc, "GPL-3.0-only" in read(_doc))
+check("the About page names the project license + the component licenses",
+      "Project license: GPL-3.0-only" in read("ui/lib/anantplay/settings_screen.dart")
+      and "LGPL-3.0-only" in read("ui/lib/anantplay/settings_screen.dart")
+      and "Apache-2.0" in read("ui/lib/anantplay/settings_screen.dart"))
 # ui/.dart_tool/package_config.json is generated by `flutter pub get`; the repo
 # ships the pins in pubspec.yaml and resolves in CI, so a MISSING pubspec.lock is
 # NOT a defect (Flutter module locks are regenerated per SDK). Assert the pins.

@@ -116,6 +116,22 @@ embedded, not sold on its own.
 
 ## This project
 
-`AnantPlay-Sinhala-Player` source is licensed under the MIT License — see `LICENSE`.
-That license covers only this repository's own code, not the third-party artifacts
-listed above.
+`AnantPlay-Sinhala-Player` source is licensed under the **GNU General Public License v3.0 only**
+(**`GPL-3.0-only`**) from **v3.4.6.m** (versionCode `30419`) onward — see `LICENSE`, which carries
+the verbatim GNU GPL v3.0 text. Releases up to and including **v3.4.6.l** were published under the
+**MIT** License and keep that original release history. The GPL covers only this repository's own
+code, not the third-party artifacts listed above.
+
+The vendored **Mornye UI** stays **`LGPL-3.0-only`**: `ui/lib/mornye_ui/LICENSE|COPYING|NOTICE`
+and `ui/assets/mornye/LICENSE|COPYING|NOTICE` are redistributed **unmodified**, so its weaker
+copyleft terms are never narrowed by the repository's GPL-3.0-only upgrade.
+
+| Scope | License |
+| --- | --- |
+| This project's own code (`v3.4.6.m` onward) | **GPL-3.0-only** |
+| Historical releases `<= v3.4.6.l` | MIT (unchanged release history) |
+| Vendored Mornye UI | **LGPL-3.0-only** |
+| Media3 / Guava (`libs/`) | Apache-2.0 |
+| `liquid_glass_easy` | MIT |
+| `flutter_riverpod`, `flutter_svg`, `cupertino_icons` | MIT |
+| Noto Sans Sinhala / Inter / Google Sans Flex | SIL OFL 1.1 |

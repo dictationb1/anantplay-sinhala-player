@@ -45,6 +45,9 @@ void main() {
     'notif': false,
     'battery': false,
     'installs': false,
+    // v3.4.6.m — slide 1's official-install gate + slide 6's coach gate.
+    'official': false,
+    'coach': false,
   };
   // v3.4.6.j — the anantplay/player 'open' call counter (the native-cinema
   // launch assertions read it).
@@ -67,7 +70,9 @@ void main() {
       ..['overlay'] = false
       ..['notif'] = false
       ..['battery'] = false
-      ..['installs'] = false;
+      ..['installs'] = false
+      ..['official'] = false
+      ..['coach'] = false;
     mock.setMockMethodCallHandler(const MethodChannel('anantplay/settings'), (call) async {
       switch (call.method) {
         case 'getAll':
@@ -116,7 +121,8 @@ void main() {
             'notif': mockPerms['notif'] ?? false,
             'battery': mockPerms['battery'] ?? false,
             'installs': mockPerms['installs'] ?? false,
-            'official': false,
+            'official': mockPerms['official'] ?? false,
+            'coach': mockPerms['coach'] ?? false,
           };
         case 'canRequestPackageInstalls':
           // v3.4.6.f — Update Now's LAW #3 Step 1 probe (permission FIRST).
@@ -326,7 +332,7 @@ void main() {
       // v3.4.6.l — THE MANDATORY GATES: 'Continue anyway' is dead on the
       // permission slides; each GRANT (delivered as a resume, exactly the
       // real auto-return contract) auto-advances the wizard instead.
-      await hop('Continue without installing'); // slide 1 → slide 2
+      await grant('official'); // v3.4.6.m — slide 1's install gate auto-advances
       await grant('notif'); // slide 2 (Notifications) auto-advances
       await grant('overlay'); // slide 3 (Auto-open on cast) auto-advances
       await grant('battery'); // slide 4: battery half of the stability gate
@@ -334,10 +340,16 @@ void main() {
       // stability grants are mandatory before the slide-4 Continue exists,
       // so the wizard completes the day-one LAW #3 contract and reaches 5.
 
-      expect(find.text('Finish'), findsOneWidget);
-      await tester.ensureVisible(find.text('Finish'));
+      // v3.4.6.m — the coach-gated ✓ Finish: complete the setup coach first.
+      mockPerms['coach'] = true;
+      final binding = TestWidgetsFlutterBinding.instance;
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Finish'), warnIfMissed: false);
+      expect(find.text('✓ Finish'), findsOneWidget);
+      await tester.ensureVisible(find.text('✓ Finish'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('✓ Finish'), warnIfMissed: false);
       await tester.pumpAndSettle();
 
       // THE assertion: OnboardingScreen is GONE, HomeScreen is rendered —
@@ -376,7 +388,9 @@ void main() {
       await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
       await tester.pumpAndSettle();
       expect(find.text('Install AnantPlay'), findsWidgets);
-      expect(find.text('Continue without installing'), findsOneWidget);
+      // v3.4.6.m — 'Continue without installing' is DELETED (Slide 2 is a
+      // hard gate: the only way forward is a real install).
+      expect(find.text('Continue without installing'), findsNothing);
       await tester.fling(find.byType(PageView), const Offset(380, 0), 900);
       await tester.pumpAndSettle();
       expect(find.text('Welcome'), findsOneWidget);
@@ -986,7 +1000,7 @@ void main() {
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
       await tester.pump();
       // The run title shows with the counter at 0/54.
-      expect(find.text('Running 92 deep feature probes… 0/92'), findsOneWidget);
+      expect(find.text('Running 98 deep feature probes… 0/98'), findsOneWidget);
       // Three live frames arrive: 1, 7, 32 of 54.
       for (final done in [1, 7, 32]) {
         await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
@@ -1004,7 +1018,7 @@ void main() {
         );
         await tester.pump(const Duration(milliseconds: 60));
       }
-      expect(find.text('Running 92 deep feature probes… 32/92'), findsOneWidget);
+      expect(find.text('Running 98 deep feature probes… 32/98'), findsOneWidget);
       // The run itself fired exactly once.
       expect(deepRuns, 1);
     });
@@ -1290,10 +1304,10 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 120));
       // v3.4.6.j — the status line + the disabled button BOTH say it now
-      // (the button reads 'Installer Open…' for its first 3 s — never a
+      // (the button reads 'Installer Active…' for its first 8 s — never a
       // red 'Update Now' flash; at ≥ 3 s it becomes 'Install Downloaded
       // Update', the < 50 ms cached-APK re-open).
-      expect(find.textContaining('Installer Open'), findsWidgets);
+      expect(find.textContaining('Installer Active'), findsWidgets);
     });
 
     // v3.4.6.e — THE FAILURE SURFACE, asserted on the gate itself. The shell
@@ -1382,7 +1396,11 @@ void main() {
             return <String, Object>{
               't': 'onboardingStatus',
               'overlay': false, 'notif': false, 'battery': false,
-              'installs': false, 'official': false,
+              'installs': false,
+              // v3.4.6.m — read the LIVE mockPerms so the official-install
+              // grant flip below actually lands (slide 1 is now a hard gate:
+              // two blind flings can no longer skip it).
+              'official': mockPerms['official'] ?? false,
             };
           default:
             return <String, Object>{'up': false, 'port': -1, 'discoverable': false, 'mdns': false};
@@ -1390,11 +1408,17 @@ void main() {
       });
       await tester.pumpWidget(quiet(const OnboardingScreen()));
       await tester.pump();
-      // glide to slide 3 (Notifications)
-      for (var i = 0; i < 2; i++) {
-        await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
-        await tester.pumpAndSettle();
-      }
+      // v3.4.6.m — glide to slide 1, then grant the official install (the
+      // auto-advance contract) to reach slide 2 (Notifications) honestly.
+      await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+      await tester.pumpAndSettle();
+      mockPerms['official'] = true;
+      final binding = TestWidgetsFlutterBinding.instance;
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Enable Notifications'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Enable Notifications'), warnIfMissed: false);
@@ -1423,7 +1447,8 @@ void main() {
               'notif': mockPerms['notif'] ?? false,
               'battery': mockPerms['battery'] ?? false,
               'installs': mockPerms['installs'] ?? false,
-              'official': false,
+              'official': mockPerms['official'] ?? false,
+              'coach': mockPerms['coach'] ?? false,
             };
           default:
             return <String, Object>{'up': false, 'port': -1, 'discoverable': false, 'mdns': false};
@@ -1442,14 +1467,20 @@ void main() {
       }
 
       await hop('Get started');
-      await hop('Continue without installing');
-      mockPerms['notif'] = true;
-      final binding = TestWidgetsFlutterBinding.instance;
-      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 700));
-      await tester.pumpAndSettle();
+      // v3.4.6.m — slide 1's official-install gate (the dead escape is gone):
+      // flip + resume, exactly the real auto-return contract — ONE grant per
+      // cycle so each slide's auto-advance cascades in order.
+      Future<void> flipAndResume(String perm) async {
+        mockPerms[perm] = true;
+        final binding = TestWidgetsFlutterBinding.instance;
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 700));
+        await tester.pumpAndSettle();
+      }
+      await flipAndResume('official');   // slide 1 → 2 (Notifications)
+      await flipAndResume('notif');      // slide 2 → 3 (Auto-open on cast)
       await tester.ensureVisible(find.text('Enable Auto-Open'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Enable Auto-Open'), warnIfMissed: false);
@@ -1497,7 +1528,7 @@ void main() {
   // asserted in their own group above.
   group('troubleshoot auto-copy (1-tap, zero extra taps)', () {
     testWidgets(
-        'the moment the 92 probes land, the report is on the clipboard + the banner shows',
+        'the moment the 98 probes land, the report is on the clipboard + the banner shows',
         (tester) async {
       mock.setMockMethodCallHandler(const MethodChannel('anantplay/troubleshoot'), (call) async {
         if (call.method == 'deepReport') {
@@ -1513,8 +1544,8 @@ void main() {
       await tester.tap(find.text('Run full app troubleshoot'), warnIfMissed: false);
       await tester.pump();
 
-      // Three live progress frames drive the "Running 92 deep feature probes…".
-      for (final done in [1, 27, 92]) {
+      // Three live progress frames drive the "Running 98 deep feature probes…".
+      for (final done in [1, 27, 98]) {
         await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
           'anantplay/troubleshoot/events',
           const StandardMethodCodec().encodeSuccessEnvelope(<String, Object>{
@@ -1528,11 +1559,11 @@ void main() {
         );
         await tester.pump();
       }
-      expect(find.text('Running 92 deep feature probes… 92/92'), findsOneWidget);
+      expect(find.text('Running 98 deep feature probes… 98/98'), findsOneWidget);
 
       // The final full-run payload (a JSON string, exactly as the host sends it).
       final buf = StringBuffer('[');
-      for (var i = 1; i <= 92; i++) {
+      for (var i = 1; i <= 98; i++) {
         if (i > 1) buf.write(',');
         final domain = i <= 6 ? 'A'
             : (i <= 15 ? 'B'
@@ -1541,7 +1572,9 @@ void main() {
             : (i <= 50 ? 'E'
             : (i <= 56 ? 'F'
             : (i <= 64 ? 'G'
-            : (i <= 73 ? 'I' : 'K')))))));
+            : (i <= 73 ? 'I'
+            : (i <= 78 ? 'K'
+            : (i <= 84 ? 'M' : 'H')))))))));
         buf.write('{"id":$i,"domain":"$domain","name":"probe $i",'
             '"pass":true,"ms":12,"detail":"ok"}');
       }
@@ -1838,7 +1871,8 @@ void main() {
               'notif': mockPerms['notif'] ?? false,
               'battery': mockPerms['battery'] ?? false,
               'installs': mockPerms['installs'] ?? false,
-              'official': false,
+              'official': mockPerms['official'] ?? false,
+              'coach': mockPerms['coach'] ?? false,
             };
           default:
             return <String, Object>{
@@ -1870,7 +1904,7 @@ void main() {
       }
 
       await hop('Get started');
-      await hop('Continue without installing');
+      await grant('official'); // v3.4.6.m — slide 1's gate
       await grant('notif');    // slide 2 → slide 3
       await grant('overlay');  // slide 3 → slide 4 (Keep Cast ready)
       expect(find.text('Keep Cast ready'), findsOneWidget);
@@ -1908,7 +1942,8 @@ void main() {
               'notif': mockPerms['notif'] ?? false,
               'battery': mockPerms['battery'] ?? false,
               'installs': mockPerms['installs'] ?? false,
-              'official': false,
+              'official': mockPerms['official'] ?? false,
+              'coach': mockPerms['coach'] ?? false,
             };
           default:
             return <String, Object>{
@@ -1939,7 +1974,7 @@ void main() {
       }
 
       await hop('Get started');
-      await hop('Continue without installing');
+      await grant('official'); // v3.4.6.m — slide 1's gate
       await grant('notif');    // slide 2 → slide 3
       await grant('overlay');  // slide 3 → slide 4 (Keep Cast ready)
       // v3.4.6.i — the redesigned slide 4: the row label + its [Enable]

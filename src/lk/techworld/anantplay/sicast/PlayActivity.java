@@ -48,6 +48,7 @@ import androidx.media3.common.Format;
 import androidx.media3.common.Player;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
+import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.text.CueGroup;
@@ -395,6 +396,10 @@ public class PlayActivity extends Activity {
     /** The decoded video geometry (Media3 onVideoSizeChanged). */
     private int videoW, videoH;
     private float videoPar = 1f;
+    /** v3.4.6.m — a quality switch whose ASPECT differs is HELD here until the
+     *  new track's first rendered frame (onRenderedFirstFrame applies it) —
+     *  the one-frame geometry flip the audit saw as the quality-switch glitch. */
+    private VideoSize pendingVideoSize;
     private int aspectMode = VideoViewport.FIT;
     /** v3.4.1 — proof that at least one cue has actually been painted this track. */
     private boolean firstCueRendered;
@@ -418,6 +423,19 @@ public class PlayActivity extends Activity {
         java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
     /** Lock: every touch is swallowed except the tiny unlock pill. */
     private boolean locked;
+    /** v3.4.6.m — the unlock pill's 2.5 s auto-hide (reset on EVERY swallowed
+     *  touch while locked; only tapping the pill itself unlocks — Part_02
+     *  00:00–00:36, the REAL lock contract). */
+    private final Runnable hideUnlockPill = new Runnable() {
+        @Override public void run() {
+            if (unlockPill != null && locked) unlockPill.setVisibility(View.GONE);
+        }
+    };
+    /** v3.4.6.m — the LIVE sleep-timer countdown pill (repainted by the ticker;
+     *  the sleep runnable still PAUSES the player when the deadline passes). */
+    private TextView sleepPill;
+    /** v3.4.6.m — the armed sleep deadline (elapsedRealtime ms, 0 = off). */
+    private volatile long sleepUntilMs;
     /** The measured window insets (status bar / gesture bar), in px. */
     private int statusInset, navInset;
     /** The 403 recovery leg: one automatic retry, then the honest error card. */
@@ -539,6 +557,11 @@ public class PlayActivity extends Activity {
         } catch (Throwable ignored) { }
         snapshot = ReceiverServer.loadingJson();
         prefs = getSharedPreferences("sicast", MODE_PRIVATE);
+        // v3.4.6.m — LOW DATA MODE, re-applied LIVE: the Flutter settings page
+        // (or a cinema sheet) can flip the key while a movie plays — the prefs
+        // listener re-paints the track-selection caps the instant it changes.
+        try { prefs.registerOnSharedPreferenceChangeListener(lowDataListener); }
+        catch (Throwable ignored) { }
         // v3.4.3 — the player's chrome follows the UI language too (zero Sinhala leaks).
         Chrome.setUiLang(AppPrefs.uiLang(prefs));
         // v2.2: the user's default subtitle language (si default)
@@ -829,6 +852,9 @@ public class PlayActivity extends Activity {
         // nothing keeps the Activity, its ExoPlayer or its store reachable after
         // the screen is gone, and no late hot-swap can touch a dead view.
         if (main != null) main.removeCallbacksAndMessages(null);
+        // v3.4.6.m — the Low-Data live listener leaves with the activity.
+        try { if (prefs != null) prefs.unregisterOnSharedPreferenceChangeListener(lowDataListener); }
+        catch (Throwable ignored) { }
         if (currentInstance == this) {
             currentInstance = null;
             snapshot = ReceiverServer.idleJson();
@@ -850,6 +876,7 @@ public class PlayActivity extends Activity {
     public void onPictureInPictureModeChanged(boolean inPip, Configuration c) {
         super.onPictureInPictureModeChanged(inPip, c);
         if (hud != null) hud.setVisibility(inPip || !hudVisible ? View.GONE : View.VISIBLE);
+        armTicker();   // v3.4.6.m — a HUD visibility flip re-arms the throttled pump
     }
 
     /** Android 12+: let the system enter PiP itself (no onUserLeaveHint race).
@@ -900,6 +927,21 @@ public class PlayActivity extends Activity {
 
     private void startPlayback() {
         try {
+            // ══ v3.4.6.m — THE DUPLICATE-EXOPLAYER KILL (the thermal audit's
+            // double-engine complaint) ══════════════════════════════════════
+            // Media3TextureBridge exposes NO static pause/release surface (its
+            // ExoPlayer lives behind MainActivity's private instance and adding
+            // a public method there is out of bounds this phase), so the
+            // strongest in-bounds moves happen here: OUR static /status mirror
+            // releases any live bridge claim the moment the native engine owns
+            // the screen, and the gap is logged honestly (a Diag.w line, then
+            // skip — the bridge player parks with the Flutter shell once
+            // MainActivity.onPause() lands).
+            if (bridgeSessionLive()) {
+                adoptBridgeSession(null, null);
+                Diag.w("player", "bridge /status claim released for the native takeover — "
+                    + "Media3TextureBridge has no static pause lane callable from here");
+            }
             // ══ v3.3.0 — THE 403 KILLER (see StreamHttpConfig's class docs for the
             // four line-by-line differences from official PlayerActivity.java:1087-1103).
             // 1. the headers are NORMALISED (browser UA, Origin derived from Referer,
@@ -1022,6 +1064,15 @@ public class PlayActivity extends Activity {
             DefaultRenderersFactory hardwareRenderers = new DefaultRenderersFactory(this)
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                     .setEnableDecoderFallback(true);
+            // v3.4.6.m — THE HARDWARE-FIRST DECODER LANE (the thermal audit,
+            // Part_02 00:55–03:24): every decoder list is STABLY re-ordered so
+            // hardware codecs win the race and software stays the fallback —
+            // never a decoder dropped, never a resolution downgrade. (media3
+            // 1.11.1 has no ExoPlayer.Builder.setMediaCodecSelector — the
+            // selector rides the renderers factory, so THIS is the effective
+            // call; the builder-lane variant is applied below for the day a
+            // media3 exposes it.)
+            CodecPolicy.applyHardwareFirst(hardwareRenderers);
             // v3.4.6.l — the AUDIO SESSION: claimed once per build so the clamped
             // LoudnessEnhancer attaches to THIS player's own sink (the v3.4.0 bus
             // buzz kill; see applyVolumeBoost). A rebuild (retry ladder) first
@@ -1034,7 +1085,7 @@ public class PlayActivity extends Activity {
             }
             audioSessionId = ((android.media.AudioManager) getSystemService(AUDIO_SERVICE))
                     .generateAudioSessionId();
-            player = new ExoPlayer.Builder(this)
+            ExoPlayer.Builder playerBuilder = new ExoPlayer.Builder(this)
                 .setRenderersFactory(hardwareRenderers)
                 // v3.4.6.l — the frame-rate toggle (customization sheet + Flutter
                 // Playback settings): OFF keeps the platform default strategy.
@@ -1047,20 +1098,40 @@ public class PlayActivity extends Activity {
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(data))
                 .setHandleAudioBecomingNoisy(true)
                 .setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
-                .build();
+                    .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
+            // v3.4.6.m — the builder lane of the same hardware-first policy
+            // (reflective: a guarded no-op on media3 1.11.1 — see CodecPolicy).
+            CodecPolicy.applyHardwareFirst(playerBuilder);
+            player = playerBuilder.build();
             try { player.setAudioSessionId(audioSessionId); } catch (Throwable ignored) { }
             player.setWakeMode(C.WAKE_MODE_LOCAL);
             applyVolumeBoost();
             player.setVideoSurfaceView(surface);
-            player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build());   // our cues first, like AnantPlay
+            // v3.4.6.m — LOW DATA MODE (the caller decides ON/OFF; CodecPolicy
+            // only paints the caps): ON = 480p / 1.2 Mbps, OFF = the caps
+            // cleared for full optimal hardware-decoded quality.
+            TrackSelectionParameters.Builder trackParams =
+                player.getTrackSelectionParameters().buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);   // our cues first, like AnantPlay
+            CodecPolicy.applyLowDataMode(trackParams, AppPrefs.lowDataMode(prefs));
+            player.setTrackSelectionParameters(trackParams.build());
+            // v3.4.6.m — the one-line engine identity at playback start.
+            Diag.i("player", "engine: " + (CodecPolicy.summary().isEmpty()
+                ? "sw-decode-only" : CodecPolicy.summary())
+                + (AppPrefs.lowDataMode(prefs) ? " · low-data 480p/1.2 Mbps" : " · full quality"));
             player.addListener(new Player.Listener() {
                 @Override public void onPlaybackStateChanged(int s) {
                     // v3.4.1 — buffering IS a transition: keep the remote on TRANSITIONING
                     if (s == Player.STATE_BUFFERING) hold();
                     if (s == Player.STATE_READY) holdUntil = 0;   // a real frame is up
+                    // v3.4.6.m — THE CENTER BUFFERING RING contract (the spinner
+                    // field aliases chrome.bufferRing now): BUFFERING → ring
+                    // visible + the disc's play/pause glyph HIDDEN; anything else
+                    // → ring gone + glyph per play state. CinemaHud.paintBuffering
+                    // owns both sides of that contract.
                     spinner.setVisibility(s == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
+                    CinemaHud.paintBuffering(chrome, s == Player.STATE_BUFFERING);
+                    armTicker();   // v3.4.6.m — a state change re-arms the throttled pump
                     // v3.1.2 — the Media3 transition lands in the Troubleshooter timeline
                     Troubleshooter.record("PLAYER", "media3 state=" + stateName(s));
                     if (s == Player.STATE_READY) onReady();
@@ -1078,7 +1149,30 @@ public class PlayActivity extends Activity {
                     // v3.3.0 — the decoded geometry: width, height AND the anamorphic
                     // ratio. This is the callback v3.2.0 never had, which is why a
                     // 16:9 movie was stretched to fill a 20:9 portrait screen.
+                    // v3.4.6.m — THE QUALITY-SWITCH VIEWPORT GLITCH GUARD: never
+                    // trust a zero/empty size, and when the new track's ASPECT
+                    // differs hold the current stable geometry until the first
+                    // rendered frame (applying mid-switch flipped the surface
+                    // for one visible frame — the glitch the audit recorded).
+                    if (vs == null || vs.width <= 0 || vs.height <= 0) return;
+                    if (videoW > 0 && videoH > 0 && aspectDiffers(vs)) {
+                        pendingVideoSize = vs;
+                        Diag.i("player", "video geometry held until first frame: "
+                            + videoW + "x" + videoH + " → " + vs.width + "x" + vs.height);
+                        return;
+                    }
+                    pendingVideoSize = null;
                     setVideoSize(vs.width, vs.height, vs.pixelWidthHeightRatio);
+                }
+                @Override public void onRenderedFirstFrame() {
+                    // v3.4.6.m — the held quality-switch geometry applies NOW:
+                    // the new track's first frame is actually on the panel, so
+                    // swapping the surface box can no longer glitch.
+                    VideoSize held = pendingVideoSize;
+                    if (held != null) {
+                        pendingVideoSize = null;
+                        setVideoSize(held.width, held.height, held.pixelWidthHeightRatio);
+                    }
                 }
                 @Override public void onPlayerError(PlaybackException e) {
                     Diag.e("player", "error: " + e.getErrorCodeName());
@@ -1151,6 +1245,10 @@ public class PlayActivity extends Activity {
                     updateSnapshot();
                 }
                 @Override public void onCues(CueGroup g) {
+                    // v3.4.6.m — cues arriving is a ticker RE-ARM event: the 1 Hz
+                    // HUD-hidden subtitle cadence starts the moment cues exist
+                    // (and the pump parks again when they are gone).
+                    armTicker();
                     if (enFallbackOn && cues.isEmpty()) renderFallbackEnglish(g);   // the stream's own CC
                 }
             });
@@ -1184,6 +1282,34 @@ public class PlayActivity extends Activity {
     }
 
     // ── /status + /do (the cast surface; called on the main thread by the service) ──
+
+    /**
+     * v3.4.6.m — LOW DATA MODE, LIVE: re-reads the preference and paints (or
+     * clears) the track-selection caps on the LIVE player. Called at playback
+     * start, from the sheet write lane (putBool) and from the prefs listener
+     * (so the Flutter settings page flipping the key mid-movie takes effect
+     * without any restart).
+     */
+    private void applyLowDataModeLive() {
+        if (player == null) return;
+        try {
+            TrackSelectionParameters.Builder b = player.getTrackSelectionParameters().buildUpon();
+            CodecPolicy.applyLowDataMode(b, AppPrefs.lowDataMode(prefs));
+            player.setTrackSelectionParameters(b.build());
+            Diag.i("player", "engine: low-data "
+                + (AppPrefs.lowDataMode(prefs) ? "480p/1.2 Mbps (live)" : "cleared — full quality (live)"));
+        } catch (Throwable t) {
+            Diag.w("player", "low-data live apply: " + t);
+        }
+    }
+
+    /** v3.4.6.m — the one-key prefs listener that re-applies Low Data Mode live. */
+    private final SharedPreferences.OnSharedPreferenceChangeListener lowDataListener =
+        (sharedPrefs, key) -> {
+            if (AppPrefs.K_LOW_DATA_MODE.equals(key)) {
+                main.post(this::applyLowDataModeLive);
+            }
+        };
 
     String statusJson() {
         // v3.4.1 — THE TRANSITIONING HOLD. While the startup grace, a buffer or an
@@ -1801,6 +1927,7 @@ public class PlayActivity extends Activity {
         Troubleshooter.record("SUBS", "cues loaded: " + sorted.size() + " · source=" + how + " · render=on");
         // …and prove the view can actually paint them
         main.post(this::repairSubtitleView);
+        armTicker();   // v3.4.6.m — cues arrived → the 1 Hz HUD-hidden cadence starts
     }
 
     /**
@@ -1954,6 +2081,7 @@ public class PlayActivity extends Activity {
     void onLocalCues(List<Cue> loaded, String name) {
         cues = loaded;
         enFallbackOn = false;
+        armTicker();   // v3.4.6.m — a local track is a cues-arrive event too
         if ("si".equals(activeLang) && prefs.getBoolean("autoTranslateNonSi", true)
             && !loaded.isEmpty() && !SubLangDetect.looksSinhala(SubLangDetect.sampleOf(loaded))) {
             Diag.i("subs", "local " + name + " is not Sinhala — free-translating");
@@ -2030,12 +2158,64 @@ public class PlayActivity extends Activity {
     }
 
     private void applyTestCues() {
+        cues = testSinhalaCues();
+        setState("ready", "test cues");
+        armTicker();   // v3.4.6.m — the demo track is a cues-arrive event too
+    }
+
+    /** The Sinhala demo track (the Test Player's original 3 lines). */
+    private static List<Cue> testSinhalaCues() {
         List<Cue> demo = new ArrayList<>();
         demo.add(new Cue(0, 500, 4000, "00:00:00,500 --> 00:00:04,000", "", "", "ආයුබෝවන්! සිංහල Player ක්‍රියාත්මකයි"));
         demo.add(new Cue(1, 4600, 9000, "00:00:04,600 --> 00:00:09,000", "", "", "මෙය AnantPlay Cast මඟින් එවන වීඩියෝවකි — උපසිරැසි සිංහලෙන්."));
         demo.add(new Cue(2, 9500, 15000, "00:00:09,500 --> 00:00:15,000", "", "", "ඔබේ චිත්‍රපටිය AnantPlay තුළ විවෘත කර Cast ඔබන්න — මෙය ස්වයංක්‍රීයව විවෘත වේ."));
-        cues = demo;
-        setState("ready", "test cues");
+        return demo;
+    }
+
+    /**
+     * The English source of the demo track — what the test-mode language lane
+     * feeds FreeSubTranslator so the Test Player honors the language chips
+     * (Part_0.04 04:29–05:17: the demo cues ignored the switch).
+     */
+    private static List<Cue> testEnglishCues() {
+        List<Cue> demo = new ArrayList<>();
+        demo.add(new Cue(0, 500, 4000, "00:00:00,500 --> 00:00:04,000", "Hello! The Sinhala Player is running", null, null));
+        demo.add(new Cue(1, 4600, 9000, "00:00:04,600 --> 00:00:09,000", "This is a video sent via AnantPlay Cast — subtitles follow your language.", null, null));
+        demo.add(new Cue(2, 9500, 15000, "00:00:09,500 --> 00:00:15,000", "Open your movie in AnantPlay and press Cast — this player opens automatically.", null, null));
+        return demo;
+    }
+
+    /**
+     * v3.4.6.m — THE TEST-MODE LANGUAGE LANE: si restores the original demo
+     * instantly; any other language pipes the English demo through
+     * FreeSubTranslator (on-device, keyless, cached) and applies the result.
+     */
+    private void applyTestCuesForLang(final String code) {
+        if ("si".equals(code)) {
+            applyTestCues();
+            setState("ready", "test cues · " + Langs.nativeOf(code));
+            return;
+        }
+        final int myGen = fetchGen;
+        new Thread(() -> {
+            try {
+                FreeSubTranslator.Result r = FreeSubTranslator.translate(
+                    getFilesDir(), testEnglishCues(), code, ms -> {
+                        try { Thread.sleep(Math.min(ms, 400)); }
+                        catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    });
+                if (myGen != fetchGen) return;
+                final List<Cue> out = r.cues.isEmpty() ? testEnglishCues() : r.cues;
+                main.post(() -> {
+                    if (myGen != fetchGen || finished) return;
+                    cues = out;
+                    setState("ready", "test cues · " + Langs.nativeOf(code));
+                    armTicker();
+                });
+            } catch (Throwable t) {
+                Diag.w("subs", "test cue translate: " + t);
+            }
+        }, "si-test-lang").start();
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -2229,20 +2409,56 @@ public class PlayActivity extends Activity {
                     saveResumePoint();
                 }
             }
+            // v3.4.6.m — the LIVE sleep countdown pill rides whatever cadence runs.
+            paintSleepPill();
             updateSnapshot();
-            // ══ v3.4.6.j — THE THERMAL TICK DISCIPLINE (Law #4) ═══════════════
-            //   · HUD visible + playing  → 4 Hz (the live seekbar/times pump);
-            //   · HUD hidden + playing   → 1 Hz (the lightweight cue check —
-            //     a movie without subtitles parks at a 1 s heartbeat);
-            //   · paused                 → 0 Hz (PARKED — zero CPU wakeups on a
-            //     paused screen; onIsPlayingChanged re-arms the pump the
-            //     instant play resumes, and a paused seek re-paints the cue
-            //     through paintCueOnce()).
-            if (!playing) return;               // parked: no repost while paused
-            long interval = hudVisible ? 250 : 1000;
-            main.postDelayed(this, interval);
+            // ══ v3.4.6.m — THE UI TICK THROTTLE (the cadence law, rebuilt) ══
+            //   · HUD visible + playing         → 4 Hz (the live seekbar/times pump);
+            //   · HUD hidden + subtitles active → 1 Hz (the lightweight cue check;
+            //     the SponsorBlock skip duty counts as active work too);
+            //   · HUD hidden + nothing active   → 0 Hz (PARKED — zero CPU wakeups;
+            //     the HUD-show and cues-arrive events re-arm through armTicker());
+            //   · paused                        → 0 Hz (the v3.4.6.j park law;
+            //     onIsPlayingChanged re-arms the instant play resumes).
+            long interval = tickIntervalMs();
+            if (interval > 0) main.postDelayed(this, interval);
         }
     };
+
+    /**
+     * v3.4.6.m — THE ADAPTIVE TICK CADENCE (one law, computed live):
+     * 4 Hz while the HUD is visible · 1 Hz when it is hidden and subtitles (or
+     * the SponsorBlock skip duty) are active · 0 Hz otherwise (parked). Every
+     * state-change site calls {@link #armTicker()} which re-posts — or parks —
+     * the pump from THIS computation, never a stale self-repost.
+     */
+    private long tickIntervalMs() {
+        if (finished) return 0;
+        boolean playing = false;
+        try { playing = player != null && player.isPlaying(); } catch (Throwable ignored) { }
+        if (!playing) return 0;                          // paused: parked
+        if (hudVisible) return 250;                      // 4 Hz only while the HUD shows
+        List<Cue> cs = cues;
+        boolean subsActive = (cs != null && !cs.isEmpty()) || enFallbackOn;
+        boolean skipDuty = ytSegments != null && ytSegments.length > 0;
+        return (subsActive || skipDuty) ? 1000 : 0;      // 1 Hz · else parked
+    }
+
+    /**
+     * v3.4.6.m — THE ONE RE-ARM LANE: computes the current cadence and posts
+     * (or parks) the ticker accordingly. Thread-safe (the cadence reads the
+     * player, so the decision runs on the main looper); every state-change
+     * site — HUD show/hide, lock, play/pause, cues arriving, sheets, PiP —
+     * calls this, so the pump can never stay parked or keep a stale rate.
+     */
+    private void armTicker() {
+        main.post(() -> {
+            if (finished) return;
+            main.removeCallbacks(ticker);
+            long ms = tickIntervalMs();
+            if (ms > 0) main.postDelayed(ticker, ms);
+        });
+    }
 
     /** The monotonic Auto-Resume guard (v3.4.6.j). */
     private long lastResumeSave;
@@ -2269,7 +2485,9 @@ public class PlayActivity extends Activity {
         } catch (Throwable ignored) { }
     }
 
-    private void startTicker() { main.post(ticker); }
+    /** v3.4.6.m — startTicker is the public re-arm: the adaptive cadence
+     *  (armTicker) decides whether the pump runs at 4 Hz, 1 Hz or parks. */
+    private void startTicker() { armTicker(); }
 
     private void setState(String s, String detail) {
         setState(s, detail, -1);
@@ -2299,6 +2517,8 @@ public class PlayActivity extends Activity {
 
     /** Failures surface their 1-tap fixes: the status pill lingers 6 s. */
     private void showSubActions() {
+        // v3.4.6.m — REAL LOCK: failure fixes stay hidden behind the lock.
+        if (locked) return;
         if (statusPill != null) {
             statusPill.setVisibility(View.VISIBLE);
             statusPill.setAlpha(1f);
@@ -2316,6 +2536,9 @@ public class PlayActivity extends Activity {
         if (chrome != null && stateDetail != null && !stateDetail.isEmpty()) {
             CinemaHud.announceSubtitles(chrome, main, stateDetail);
         }
+        // v3.4.6.m — REAL LOCK: while locked only the unlock pill may show; a
+        // background fetch state change must not re-open the status pill.
+        if (locked) return;
         if (statusPill != null) {
             boolean good = "ready".equals(state) || "local".equals(state);
             statusPill.setText(stateDetail);
@@ -2431,6 +2654,22 @@ public class PlayActivity extends Activity {
         LinearLayout.LayoutParams pillTextLp = new LinearLayout.LayoutParams(-2, -2);
         pillTextLp.topMargin = dp(6);
         pillBox.addView(statusPill, pillTextLp);
+        // v3.4.6.m — the LIVE sleep-timer countdown pill (the ticker repaints it
+        // while a timer is armed; the sleep runnable pauses the player at 0).
+        sleepPill = new TextView(this);
+        sleepPill.setTextColor(0xFFC6D0E2);
+        sleepPill.setTextSize(11.5f);
+        sleepPill.setGravity(Gravity.CENTER);
+        GradientDrawable sleepBg = new GradientDrawable();
+        sleepBg.setColor(0xE60E1424);
+        sleepBg.setCornerRadius(dp(14));
+        sleepBg.setStroke(dp(1), 0x33FFFFFF);
+        sleepPill.setBackground(sleepBg);
+        sleepPill.setPadding(dp(14), dp(7), dp(14), dp(7));
+        sleepPill.setVisibility(View.GONE);
+        LinearLayout.LayoutParams sleepLp = new LinearLayout.LayoutParams(-2, -2);
+        sleepLp.topMargin = dp(6);
+        pillBox.addView(sleepPill, sleepLp);
 
         // the pill's 1-tap fixes (they STACK under the pill — v3.2.0 floated them at a
         // fixed 64dp top margin, which is exactly how "< Back" ended up on top of them)
@@ -2464,14 +2703,11 @@ public class PlayActivity extends Activity {
         root.addView(notice, noticeLp);
 
         // ── the buffering spinner (centre) ────────────────────────────────────
-        spinner = new android.view.View(this);
-        try {
-            android.widget.ProgressBar pb = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleLarge);
-            pb.setIndeterminate(true);
-            spinner = pb;
-        } catch (Throwable ignored) { }
-        spinner.setVisibility(View.GONE);
-        root.addView(spinner, new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER));
+        // v3.4.6.m — RETIRED as a root-mounted ProgressBar (it rendered BEHIND
+        // the translucent hero disc — the audit's "spinner behind the Play/Pause
+        // circle" defect). The spinner surface is now the ring CinemaHud draws
+        // INSIDE the hero disc; `spinner` aliases chrome.bufferRing so the
+        // STATE_BUFFERING listener lane drives the same contract.
 
         // ── LAYER 4 — THE NEXT-LEVEL CINEMA HUD (v3.4.6.l, the modular engine) ──
         // Gradient scrims + icon-only ripple targets + the tabular clock, built
@@ -2484,6 +2720,8 @@ public class PlayActivity extends Activity {
         timeTotal = chrome.timeTotal;
         seek = chrome.seek;
         playPause = chrome.playPause;
+        // v3.4.6.m — the center buffering ring IS the spinner surface now.
+        spinner = chrome.bufferRing;
         hudTopBar = chrome.topBar;
         hudBottomBar = chrome.bottomBar;
         root.addView(hud, new FrameLayout.LayoutParams(-1, -1));
@@ -2649,6 +2887,12 @@ public class PlayActivity extends Activity {
     private UiSheet.Handle trackSheet;
     private UiSheet.Handle subtitleSheet;
     private UiSheet.Handle speedSheet;
+    // v3.4.6.m — the legacy-dialog replacement sheets (orientation · all
+    // languages · title search · audio-to-SRT · the SL finder): every one of
+    // them is a dark-glass UiSheet now — ZERO legacy system dialogs remain.
+    private UiSheet.Handle orientationSheet;
+    private UiSheet.Handle langSheet;
+    private UiSheet.Handle titleSearchSheet;
 
     // ══ v3.4.6.l — THE CINEMA OPS SURFACES (CinemaHud + CinemaSheets) ═════════
     // The chrome's one-click surface: every target routes to the SAME methods
@@ -2766,11 +3010,14 @@ public class PlayActivity extends Activity {
             }
             @Override public void putBool(String key, boolean v) {
                 prefs.edit().putBoolean(key, v).apply();
+                // v3.4.6.m — the sheet write lane re-applies Low Data Mode live
+                // when its key flips (the prefs listener covers the Flutter side).
+                if (AppPrefs.K_LOW_DATA_MODE.equals(key)) applyLowDataModeLive();
             }
             @Override public boolean getBool(String key, boolean def) {
                 return prefs.getBoolean(key, def);
             }
-            @Override public void openMoreTools() { dismissSheets(); showLangSheet(); }
+            @Override public void openMoreTools() { dismissSheets(); showLangSheet(); }   // v3.4.6.m — the searchable dark-glass sheet
             @Override public void sheetOpened() { applyStudioStyle(); }
         };
     }
@@ -2780,7 +3027,11 @@ public class PlayActivity extends Activity {
         try { if (trackSheet != null) trackSheet.dismiss(); } catch (Throwable ignored) { }
         try { if (speedSheet != null) speedSheet.dismiss(); } catch (Throwable ignored) { }
         try { if (settingsSheet != null) settingsSheet.dismiss(); } catch (Throwable ignored) { }
+        try { if (orientationSheet != null) orientationSheet.dismiss(); } catch (Throwable ignored) { }
+        try { if (langSheet != null) langSheet.dismiss(); } catch (Throwable ignored) { }
+        try { if (titleSearchSheet != null) titleSearchSheet.dismiss(); } catch (Throwable ignored) { }
         subtitleSheet = trackSheet = speedSheet = settingsSheet = null;
+        orientationSheet = langSheet = titleSearchSheet = null;
     }
 
     /** v3.4.0 - Player settings as a real modal sheet (60% height: the video stays visible). */
@@ -2819,6 +3070,24 @@ public class PlayActivity extends Activity {
         videoH = h;
         videoPar = par;
         applyVideoSize();
+    }
+
+    /**
+     * v3.4.6.m — does the incoming track's DISPLAY aspect differ from the one
+     * currently painted? (anamorphic-safe: width × pixelWidthHeightRatio).
+     * Used by onVideoSizeChanged to decide whether the change is held for the
+     * first rendered frame.
+     */
+    private boolean aspectDiffers(VideoSize vs) {
+        try {
+            float par = vs.pixelWidthHeightRatio;
+            if (Float.isNaN(par) || Float.isInfinite(par) || par <= 0f) par = 1f;
+            float cur = (videoW * videoPar) / (float) Math.max(1, videoH);
+            float next = (vs.width * par) / (float) Math.max(1, vs.height);
+            return Math.abs(cur - next) > 0.01f;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /** v3.4.6.l — the aspect target: Fit → Fill → 16:9 → Stretch → Fit. */
@@ -2861,21 +3130,42 @@ public class PlayActivity extends Activity {
     /** v3.4.0 - the sleep timer: 0 = off, -1 = end of video, else a one-shot pause. */
     private void armSleepTimer(long ms) {
         main.removeCallbacks(sleepRunnable);
+        // v3.4.6.m — the LIVE countdown: the wall-clock deadline feeds the
+        // sleepPill the ticker repaints; the runnable still pauses on expiry.
+        sleepUntilMs = ms > 0 ? SystemClock.elapsedRealtime() + ms : 0L;
         if (ms > 0) {
             main.postDelayed(sleepRunnable, ms);
             flash("Sleep timer " + (ms / 60000L) + "m");
+            paintSleepPill();
         } else if (ms < 0) {
             flash("Sleep at end of video");
+            if (sleepPill != null) sleepPill.setVisibility(View.GONE);
         } else {
             flash("Sleep timer off");
+            if (sleepPill != null) sleepPill.setVisibility(View.GONE);
         }
+    }
+
+    /** v3.4.6.m — repaint the live countdown pill ("Sleep · 29:59"). */
+    private void paintSleepPill() {
+        if (sleepPill == null) return;
+        if (sleepUntilMs <= 0L || locked) {
+            sleepPill.setVisibility(View.GONE);
+            return;
+        }
+        long left = Math.max(0L, sleepUntilMs - SystemClock.elapsedRealtime());
+        sleepPill.setText(Chrome.pick("නිදක්කරය · Sleep") + " · " + ReceiverServer.clock(left));
+        sleepPill.setVisibility(View.VISIBLE);
     }
 
     private final Runnable sleepRunnable = new Runnable() {
         @Override public void run() {
             try {
-                if (player != null) player.pause();
+                if (player != null) player.pause();   // the REAL action (kept)
+                sleepUntilMs = 0L;                    // v3.4.6.m — the countdown ends with the timer
+                if (sleepPill != null) sleepPill.setVisibility(View.GONE);
                 flash("Sleep timer - paused");
+                armTicker();                          // paused → the pump parks
             } catch (Throwable t) {
                 Diag.w("player", "sleep: " + t);
             }
@@ -2963,12 +3253,88 @@ public class PlayActivity extends Activity {
 
     private void setLocked(boolean on) {
         locked = on;
-        if (unlockPill != null) unlockPill.setVisibility(on ? View.VISIBLE : View.GONE);
-        if (hud != null) hud.setVisibility(on ? View.GONE : View.VISIBLE);
-        if (chrome != null) chrome.root.setAlpha(1f);
-        hudVisible = !on;
-        if (!on) scheduleHudHide();
-        flash(on ? "Locked" : "Unlocked");
+        main.removeCallbacks(hideUnlockPill);
+        if (on) {
+            // ══ v3.4.6.m — THE REAL LOCK (Part_02 00:00–00:36) ═══════════════
+            // The audit: tapping Lock did NOT lock — Play/Pause, seek, sheets
+            // and the full HUD all stayed live while "Tap to unlock" was up.
+            // Locking now kills EVERY control surface, and dispatchTouchEvent
+            // swallows every gesture below; ONLY the unlock pill stays alive.
+            hudVisible = false;
+            if (hud != null) hud.setVisibility(View.GONE);
+            if (chrome != null) chrome.root.setAlpha(1f);
+            hideGesturePills();
+            if (statusPill != null) statusPill.setVisibility(View.GONE);
+            if (sleepPill != null) sleepPill.setVisibility(View.GONE);
+            dismissSheets();
+            applyImmersive(true);          // true fullscreen behind the lock
+            revealUnlockPill();            // the 2.5 s affordance (re-revealed by any touch)
+            armTicker();                   // HUD gone → the cadence drops immediately
+            flash("Locked");
+        } else {
+            if (unlockPill != null) unlockPill.setVisibility(View.GONE);
+            showControls();                // the HUD + inset law return in one lane
+            showStatus();                  // the never-silent pill repaints
+            armTicker();                   // HUD back → the 4 Hz pump re-arms
+            flash("Unlocked");
+        }
+    }
+
+    /**
+     * v3.4.6.m — show the unlock pill for 2.5 s (the timer RESETS on every
+     * swallowed touch while locked; only tapping the pill itself unlocks).
+     */
+    private void revealUnlockPill() {
+        if (unlockPill == null) return;
+        unlockPill.setVisibility(View.VISIBLE);
+        try { unlockPill.bringToFront(); } catch (Throwable ignored) { }
+        main.removeCallbacks(hideUnlockPill);
+        main.postDelayed(hideUnlockPill, 2500);
+    }
+
+    /**
+     * v3.4.6.m — THE TOP-LEVEL LOCK INTERCEPTOR (the ONE place the swallow
+     * lives): while locked EVERY touch dies here — Play/Pause taps, double-tap
+     * seek, long-press speed, scrub-seek, pinch-zoom, brightness/volume
+     * swipes, sheet opens. The ONLY exceptions are events that land inside the
+     * unlock pill's bounds: those pass through so the pill's own click lane
+     * (setLocked(false)) can run.
+     */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        if (locked) {
+            if (unlockPill != null && unlockPill.getVisibility() == View.VISIBLE
+                    && insideUnlockPill(e)) {
+                return super.dispatchTouchEvent(e);   // the pill's own lane
+            }
+            revealUnlockPill();   // every swallowed touch re-offers the affordance
+            return true;          // swallowed — nothing below ever sees it
+        }
+        return super.dispatchTouchEvent(e);
+    }
+
+    /** Hit test for the unlock pill (screen coordinates, dp-toleranced). */
+    private boolean insideUnlockPill(MotionEvent e) {
+        try {
+            int[] loc = new int[2];
+            unlockPill.getLocationOnScreen(loc);
+            float x = e.getRawX(), y = e.getRawY();
+            int tol = dp(10);
+            return x >= loc[0] - tol && x <= loc[0] + unlockPill.getWidth() + tol
+                && y >= loc[1] - tol && y <= loc[1] + unlockPill.getHeight() + tol;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** v3.4.6.m — the one lane that hides every gesture feedback surface. */
+    private void hideGesturePills() {
+        if (scrubPill != null) scrubPill.setVisibility(View.GONE);
+        if (speedPill != null) speedPill.setVisibility(View.GONE);
+        if (aspectPill != null) aspectPill.setVisibility(View.GONE);
+        if (brightCapsule != null) brightCapsule.setVisibility(View.GONE);
+        if (volCapsule != null) volCapsule.setVisibility(View.GONE);
+        if (notice != null) notice.setVisibility(View.GONE);
     }
 
     // ── v3.2.0 — THE 1-TAP MOVIE TITLE SEARCH (the junk-title pill's action) ──
@@ -2977,36 +3343,99 @@ public class PlayActivity extends Activity {
      *  S/E) → instant /api/resolve → instant Sinhala subtitles. This is the
      *  REPLACEMENT for the raw "no Cinemeta match for: ArrowTV Player" JSON
      *  banners — junk titles route HERE, never to Cinemeta. */
+    /**
+     * v3.4.6.m — THE TITLE-SEARCH INPUT SHEET (the old rectangular system dialog is
+     * dead): a rounded dark-glass UiSheet with the movie/series field, the
+     * optional S01E02 field, IME-safe insets (the panel pads above the
+     * keyboard AND the gesture bar) and one prominent accent pill that runs
+     * the exact same manualFetch lane the old dialog's positive button did.
+     */
     private void openTitleSearch() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(6), dp(4), dp(6), 0);
-        final EditText nameIn = new EditText(this);
-        nameIn.setHint(t2("චිත්‍රපට / කතා මාලාවේ නම · movie / series name"));
-        nameIn.setTextSize(13);
-        nameIn.setTextColor(0xFFE2E8F0);
-        box.addView(nameIn, new LinearLayout.LayoutParams(-1, -2));
-        final EditText seIn = new EditText(this);
-        seIn.setHint(t2("අදාළ නම්: S01E02 (හිස් = චිත්‍රපටයක්) · optional S01E02"));
-        seIn.setTextSize(13);
-        seIn.setTextColor(0xFFE2E8F0);
-        box.addView(seIn, new LinearLayout.LayoutParams(-1, -2));
-        new android.app.AlertDialog.Builder(this)
-            .setTitle(t2("නම සොයන්න · Title search"))
-            .setView(box)
-            .setPositiveButton(t2("සිංහල උපසිරැසි ලබාගන්න · Get subs"), (d, w) -> {
-                String name = nameIn.getText().toString().trim();
-                if (name.length() < 2) return;
-                int s = season, e = episode;
-                String se = seIn.getText().toString().trim().toLowerCase(Locale.ROOT);
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("s(\\d{1,2})\\s*e(\\d{1,3})").matcher(se);
-                if (m.find()) { s = Integer.parseInt(m.group(1)); e = Integer.parseInt(m.group(2)); }
-                hudTitle.setText(name);
-                flash(name);
-                manualFetch(name, s, e);
-            })
-            .setNegativeButton(android.R.string.cancel, null)
-            .show();
+        if (titleSearchSheet != null) { titleSearchSheet.dismiss(); titleSearchSheet = null; return; }
+        ThemeEngine.Palette p = pal();
+        LinearLayout b = new LinearLayout(this);
+        b.setOrientation(LinearLayout.VERTICAL);
+        b.setPadding(dp(20), dp(6), dp(20), dp(10));
+        b.addView(UiSheet.header(this, p, t2("නම සොයන්න · Title search"),
+            Chrome.pick("නම + අදාළ S/E · name + optional S01E02")),
+            new LinearLayout.LayoutParams(-1, -2));
+        final EditText nameIn = sheetInput(t2("චිත්‍රපට / කතා මාලාවේ නම · movie / series name"));
+        b.addView(nameIn, new LinearLayout.LayoutParams(-1, -2));
+        final EditText seIn = sheetInput(t2("අදාළ නම්: S01E02 (හිස් = චිත්‍රපටයක්) · optional S01E02"));
+        seIn.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        b.addView(seIn, new LinearLayout.LayoutParams(-1, -2));
+        // the prominent "Get Subtitles" pill (accent, rounded 999, bold).
+        Button go = new Button(this);
+        go.setAllCaps(false);
+        go.setText(t2("සිංහල උපසිරැසි ලබාගන්න · Get Subtitles"));
+        go.setTextSize(14f);
+        go.setTextColor(0xFF0A0A14);
+        go.setTypeface(Typeface.DEFAULT_BOLD);
+        GradientDrawable goBg = new GradientDrawable();
+        goBg.setColor(p.accent);
+        goBg.setCornerRadius(dp(999));
+        go.setPadding(dp(16), dp(12), dp(16), dp(12));
+        go.setBackground(goBg);
+        LinearLayout.LayoutParams goLp = new LinearLayout.LayoutParams(-1, -2);
+        goLp.topMargin = dp(14);
+        b.addView(go, goLp);
+        go.setOnClickListener(v -> {
+            String name = nameIn.getText().toString().trim();
+            if (name.length() < 2) {
+                flash(t2("නමක් ලියන්න · type a name first"));
+                return;
+            }
+            int s = season, e = episode;
+            String se = seIn.getText().toString().trim().toLowerCase(Locale.ROOT);
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("s(\\d{1,2})\\s*e(\\d{1,3})").matcher(se);
+            if (m.find()) { s = Integer.parseInt(m.group(1)); e = Integer.parseInt(m.group(2)); }
+            hudTitle.setText(name);
+            flash("Fetching " + name + Chrome.pick(" උපසිරැසි… · subtitles…"));
+            if (titleSearchSheet != null) { titleSearchSheet.dismiss(); titleSearchSheet = null; }
+            manualFetch(name, s, e);
+        });
+        UiSheet.Handle h = UiSheet.show(this, p, prefs, b, 44, null);
+        titleSearchSheet = h;
+        b.setTag(h);
+        // v3.4.6.m — IME-SAFE PADDING: the sheet panel pads by navigationBars()
+        // AND ime() (this listener folds the UiSheet's own nav padding in, so
+        // the fields never sit under the keyboard or the gesture bar).
+        if (h != null && h.panel != null) {
+            h.panel.setOnApplyWindowInsetsListener((v, insets) -> {
+                try {
+                    android.graphics.Insets nav = insets.getInsets(
+                        android.view.WindowInsets.Type.navigationBars());
+                    android.graphics.Insets ime = insets.getInsets(
+                        android.view.WindowInsets.Type.ime());
+                    v.setPadding(0, 0, 0, Math.max(nav.bottom, ime.bottom) + dp(10));
+                } catch (Throwable ignored) { }
+                return insets;
+            });
+        }
+    }
+
+    /**
+     * v3.4.6.m — the one dark-glass sheet input style (rounded field, light
+     * text, hint, single line) used by the title-search sheet.
+     */
+    private EditText sheetInput(String hint) {
+        EditText in = new EditText(this);
+        in.setHint(hint);
+        in.setTextSize(13.5f);
+        in.setTextColor(0xFFE2E8F0);
+        in.setHintTextColor(0xFF8C97AB);
+        in.setSingleLine(true);
+        in.setAllCaps(false);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(0x2431465F);
+        g.setCornerRadius(dp(12));
+        g.setStroke(dp(1), 0x2E4E6E8E);
+        in.setBackground(g);
+        in.setPadding(dp(12), dp(10), dp(12), dp(10));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(8);
+        in.setLayoutParams(lp);
+        return in;
     }
 
     /** The tiny bilingual helper (PlayActivity has no AppPrefs.pick dependency loop). */
@@ -3113,10 +3542,11 @@ public class PlayActivity extends Activity {
 
 
 
-    /** v3.4.6.l — the hero disc glyph swap lives in CinemaHud (24dp, ONE place). */
+    /** v3.4.6.l — the hero disc glyph swap lives in CinemaHud (24dp, ONE place).
+     *  v3.4.6.m — the Chrome carries the glyph state: while STATE_BUFFERING the
+     *  ring owns the disc (glyph hidden), and the glyph repaints on resume. */
     private void setPlayPauseIcon(boolean playing) {
-        if (chrome == null) return;
-        CinemaHud.paintPlayPause(this, chrome.playPause, playing);
+        CinemaHud.paintPlayPause(chrome, playing);
     }
 
     /** A pill button with a leading vector (replaces pillBtn("\uD83D\uDCAC Subtitles")). */
@@ -3360,22 +3790,16 @@ public class PlayActivity extends Activity {
      * device even when the system rotation lock is on — a video player is the one place
      * that behaviour is wanted.
      */
+    /**
+     * v3.4.6.m — THE ORIENTATION SHEET (the old rectangular system dialog is dead):
+     * CinemaSheets.orientation builds the dark-glass sheet; the selection
+     * applies setRequestedOrientation + persists K_ORIENTATION + highlights
+     * on the FIRST tap (the sheet stays open with the new row accented — no
+     * second confirmation, no dismiss requirement).
+     */
     private void showOrientationSheet() {
-        final String[] vals = {AppPrefs.ORIENT_AUTO, AppPrefs.ORIENT_LANDSCAPE, AppPrefs.ORIENT_PORTRAIT};
-        String cur = AppPrefs.orientation(prefs);
-        int sel = AppPrefs.ORIENT_LANDSCAPE.equals(cur) ? 1
-            : (AppPrefs.ORIENT_PORTRAIT.equals(cur) ? 2 : 0);
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("Orientation")
-            .setSingleChoiceItems(new String[]{"Auto-rotate (sensor)", "Lock landscape", "Lock portrait"},
-                sel, (d, which) -> {
-                    prefs.edit().putString(AppPrefs.K_ORIENTATION, vals[which]).apply();
-                    applyOrientation();
-                    d.dismiss();
-                    flash(which == 0 ? "Auto-rotate" : (which == 1 ? "Locked landscape" : "Locked portrait"));
-                })
-            .setNegativeButton(android.R.string.cancel, null)
-            .show();
+        if (orientationSheet != null) { orientationSheet.dismiss(); orientationSheet = null; return; }
+        orientationSheet = CinemaSheets.orientation(this, prefs, sheetOps());
     }
 
     /** Apply the stored orientation mode to the window (never throws). */
@@ -3485,36 +3909,73 @@ public class PlayActivity extends Activity {
      * three end in the SAME place: a timestamped {@code .srt} attached live to this player.
      */
     private void showAudioToSrtHelper() {
-        final String[] items = {
-            "1 · Whisper via my Worker (auto)",
-            "2 · Copy the AI Studio transcript prompt",
-            "3 · Pick a finished .srt file"
-        };
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("Audio → SRT (AI fallback)")
-            .setItems(items, (d, which) -> {
-                if (which == 0) {
-                    fetchGen++;
-                    fetching = false;
-                    fetchSinhala();          // the Worker path already speaks Whisper
-                    flash("Trying Whisper via the Worker");
-                } else if (which == 1) {
-                    try {
-                        android.content.ClipboardManager cm = (android.content.ClipboardManager)
-                            getSystemService(android.content.Context.CLIPBOARD_SERVICE);
-                        String prompt = "Transcribe the attached audio into a timestamped SRT"
-                            + " subtitle file. Keep the original timing, one cue per sentence,"
-                            + " then translate each cue into Sinhala. Output ONLY the .srt file."
-                            + " Movie: " + (title == null ? "" : title);
-                        cm.setPrimaryClip(android.content.ClipData.newPlainText("subtitle-prompt", prompt));
-                        flash("Prompt copied — paste it in AI Studio");
-                    } catch (Throwable t) { Diag.w("player", "prompt: " + t); }
-                } else {
-                    pickLocal();
-                }
-            })
-            .setNegativeButton(android.R.string.cancel, null)
-            .show();
+        // v3.4.6.m — the old rectangular system dialog is DEAD: the same three
+        // one-tap lanes, drawn as clean rows on a dark-glass UiSheet.
+        ThemeEngine.Palette p = pal();
+        LinearLayout b = new LinearLayout(this);
+        b.setOrientation(LinearLayout.VERTICAL);
+        b.setPadding(dp(20), dp(6), dp(20), dp(10));
+        b.addView(UiSheet.header(this, p, "Audio → SRT (AI fallback)",
+            Chrome.pick("හඬ උපසිරැසි සෑදීම · when no subtitle exists anywhere")),
+            new LinearLayout.LayoutParams(-1, -2));
+        UiSheet.Handle h = UiSheet.show(this, p, prefs, b, 40, null);
+        b.setTag(h);
+        b.addView(sheetRow("1 · Whisper via my Worker (auto)", v -> {
+            dismissSheetOf(b);
+            fetchGen++;
+            fetching = false;
+            fetchSinhala();          // the Worker path already speaks Whisper
+            flash("Trying Whisper via the Worker");
+        }), new LinearLayout.LayoutParams(-1, -2));
+        b.addView(sheetRow("2 · Copy the AI Studio transcript prompt", v -> {
+            dismissSheetOf(b);
+            try {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                    getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                String prompt = "Transcribe the attached audio into a timestamped SRT"
+                    + " subtitle file. Keep the original timing, one cue per sentence,"
+                    + " then translate each cue into Sinhala. Output ONLY the .srt file."
+                    + " Movie: " + (title == null ? "" : title);
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("subtitle-prompt", prompt));
+                flash("Prompt copied — paste it in AI Studio");
+            } catch (Throwable t) { Diag.w("player", "prompt: " + t); }
+        }), new LinearLayout.LayoutParams(-1, -2));
+        b.addView(sheetRow("3 · Pick a finished .srt file", v -> {
+            dismissSheetOf(b);
+            pickLocal();
+        }), new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    /** v3.4.6.m — dismiss a sheet from a row click (the body carries its Handle as tag). */
+    private void dismissSheetOf(View sheetBody) {
+        try {
+            if (sheetBody != null && sheetBody.getTag() instanceof UiSheet.Handle) {
+                ((UiSheet.Handle) sheetBody.getTag()).dismiss();
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    /**
+     * v3.4.6.m — one clean full-width action row for the dark-glass sheets
+     * (Audio → SRT, the SL finder): rounded, glass-tinted, vector-optional.
+     */
+    private Button sheetRow(String label, View.OnClickListener click) {
+        Button r = new Button(this);
+        r.setAllCaps(false);
+        r.setText(label);
+        r.setTextSize(12.5f);
+        r.setTextColor(Color.WHITE);
+        r.setPadding(dp(12), dp(11), dp(12), dp(11));
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(0x2431465F);
+        g.setCornerRadius(dp(12));
+        g.setStroke(dp(1), 0x2E4E6E8E);
+        r.setBackground(g);
+        r.setOnClickListener(click);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(6);
+        r.setLayoutParams(lp);
+        return r;
     }
 
     /** The panel's font-size steppers now clamp through the studio model (14–36). */
@@ -3533,34 +3994,69 @@ public class PlayActivity extends Activity {
         flash("BG " + pct + "%");
     }
 
-    /** v2.2: 1-tap language switch — refetch in the new language (cached jobs
-     *  return instantly; the store keys per language). */
+    /**
+     * v2.2: 1-tap language switch — refetch in the new language (cached jobs
+     * return instantly; the store keys per language).
+     *
+     * <p>v3.4.6.m — THE CHIP-TAP CONTRACT (Part_0.04 04:29–05:17):
+     * <ul>
+     *   <li>"off" actually turns the subtitles OFF (the old tap was DEAD —
+     *       Langs.isKnown("off") is false, so it silently did nothing);</li>
+     *   <li>the choice is PERSISTED (AppPrefs.K_DEFAULT_LANG) so the next open
+     *       starts in the picked language;</li>
+     *   <li>the live feedback line reads "… · Fetching Tamil subtitles…" —
+     *       capital F, a real space before the language name (the audit's
+     *       "fetchingTamil subtitles..." concatenation typo is dead), real
+     *       ellipsis;</li>
+     *   <li>the TEST PLAYER lane honors the switch too (applyTestCuesForLang).</li>
+     * </ul>
+     */
     void switchLang(String code) {
+        if ("off".equals(code)) {
+            // v3.4.6.m — subtitles off for THIS session (the sheet's Off chip).
+            cues = new ArrayList<>();
+            enFallbackOn = false;
+            liveTranslateOn = false;
+            if (player != null) {
+                try {
+                    player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build());
+                } catch (Throwable t) { Diag.w("subs", "off track: " + t); }
+            }
+            if (subView != null) subView.setVisibility(View.GONE);
+            setState("off", Chrome.pick("උපසිරැසි ක්‍රියා විරහිත · subtitles off"));
+            armTicker();   // cues are gone → the HUD-hidden pump may park
+            return;
+        }
         if (!Langs.isKnown(code) || code.equals(activeLang)) return;
         activeLang = code;
+        // v3.4.6.m — persist the pick (K_DEFAULT_LANG): the chip tap survives.
+        try { prefs.edit().putString(AppPrefs.K_DEFAULT_LANG, code).apply(); } catch (Throwable ignored) { }
         applyLangStyle();                 // font + RTL direction follow the switch immediately
         polishWatchToken = null;
         polishHotSwapped = false;
         fetchGen++;
         fetching = false;
         cues = new ArrayList<>();
-        setState("fetching", Langs.nativeOf(code) + Chrome.pick(" උපසිරැසි ලබාගනිමින්… · fetching ") + Langs.englishOf(code) + " subtitles…");
+        setState("fetching", Langs.nativeOf(code) + " · Fetching " + Langs.englishOf(code) + " subtitles…");
+        if (testMode) {
+            applyTestCuesForLang(code);   // v3.4.6.m — the Test Player honors the switch
+            return;
+        }
         fetchSinhala();
         // v3.4.2 — the floating rows are gone; nothing to hide any more.
     }
 
-    /** v2.2: the full registry sheet (the "+ More" chip). */
+    /**
+     * v2.2: the full registry sheet (the "+ More" chip).
+     * v3.4.6.m — the SEARCHABLE dark-glass sheet (the old rectangular system dialog
+     * is dead): a filter field on top + the whole Langs registry as clean rows;
+     * tapping a row behaves exactly like a language chip (instant highlight +
+     * switchLang refetch — the Task-4 chip contract).
+     */
     private void showLangSheet() {
-        String[] labels = new String[Langs.ALL.size()];
-        for (int i = 0; i < Langs.ALL.size(); i++) {
-            Langs.Lang l = Langs.ALL.get(i);
-            labels[i] = l.nativeName + " (" + l.english + ")";
-        }
-        new android.app.AlertDialog.Builder(this)
-            .setTitle(Chrome.pick("Subtitle language · උපසිරැසි භාෂාව"))
-            .setItems(labels, (d, which) -> switchLang(Langs.ALL.get(which).code))
-            .setNegativeButton(android.R.string.cancel, null)
-            .show();
+        if (langSheet != null) { langSheet.dismiss(); langSheet = null; return; }
+        langSheet = CinemaSheets.languages(this, prefs, sheetOps());
     }
 
     /** v2.2: Spoken ⇄ Formal override (null = auto by genre). */
@@ -3676,11 +4172,8 @@ public class PlayActivity extends Activity {
                 if (player != null) { player.seekTo(targetMs); updateSnapshot(); }
                 if (scrubPill != null) scrubPill.setVisibility(View.GONE);
             }
-            @Override public void hideGesturePills() {
-                if (scrubPill != null) scrubPill.setVisibility(View.GONE);
-                if (brightCapsule != null) brightCapsule.setVisibility(View.GONE);
-                if (volCapsule != null) volCapsule.setVisibility(View.GONE);
-            }
+            @Override public void hideGesturePills() { PlayActivity.this.hideGesturePills(); }
+            @Override public boolean controlsAvailable() { return !locked; }   // v3.4.6.m — belt & braces for the lock
             @Override public void holdSpeedStart(float speed) {
                 try {
                     if (player != null) player.setPlaybackSpeed(speed);
@@ -3821,6 +4314,7 @@ public class PlayActivity extends Activity {
         applyImmersive(false);          // v3.4.2 — bars come back with the HUD
         anchorSubToHud();               // v3.4.6.j — the line glides up above the dock
         scheduleHudHide();
+        armTicker();                    // v3.4.6.m — HUD shows → the 4 Hz pump re-arms
     }
 
     void toggleControls() {
@@ -3829,6 +4323,7 @@ public class PlayActivity extends Activity {
             CinemaHud.hide(chrome);      // v3.4.6.l — the 220 ms cubic fade-out
             applyImmersive(true);        // v3.4.2 — TRUE fullscreen once the HUD is gone
             anchorSubToHud();            // v3.4.6.j — the line glides back to the compact anchor
+            armTicker();                 // v3.4.6.m — HUD hidden → 1 Hz / park cadence
         } else showControls();
     }
 
@@ -3865,6 +4360,7 @@ public class PlayActivity extends Activity {
                 CinemaHud.hide(chrome);   // v3.4.6.l — the 220 ms cubic fade-out
                 applyImmersive(true);     // v3.4.2 — hide status + navigation bars too
                 anchorSubToHud();         // v3.4.6.j — the auto-hide glides the line back down
+                armTicker();              // v3.4.6.m — HUD hidden → the cadence drops to 1 Hz / park
             }
         }
     };
@@ -4268,22 +4764,29 @@ public class PlayActivity extends Activity {
 
     /** v3.3.0 — the 🇱🇰 mini web-picker (Baiscope / Zoom.lk / PirateLK / SubDL / OS). */
     private void openLkFinder() {
+        // v3.4.6.m — the old rectangular system dialog is DEAD: the site picker is a
+        // clean dark-glass UiSheet (one row per site, one for the web search).
         final String q = LkSubFinder.query(title);
         final List<LkSubFinder.Site> sites = LkSubFinder.sites();
-        final String[] names = new String[sites.size() + 1];
-        for (int i = 0; i < sites.size(); i++)
-            names[i] = sites.get(i).name + (sites.get(i).sriLankan ? "  (Sri Lanka)" : "");
-        names[sites.size()] = "DuckDuckGo — \"" + q + "\" sinhala subtitles";
-        new android.app.AlertDialog.Builder(this)
-            .setTitle(t2("Find Sinhala subtitles") + " — " + q)
-            .setItems(names, (d, which) -> {
-                String target = which < sites.size()
-                    ? sites.get(which).urlFor(q)
-                    : "https://duckduckgo.com/?q=" + LkSubFinder.enc(q + " sinhala subtitles srt");
-                openInWebTab(target);
-            })
-            .setNegativeButton("Close", null)
-            .show();
+        ThemeEngine.Palette p = pal();
+        LinearLayout b = new LinearLayout(this);
+        b.setOrientation(LinearLayout.VERTICAL);
+        b.setPadding(dp(20), dp(6), dp(20), dp(10));
+        b.addView(UiSheet.header(this, p, t2("Find Sinhala subtitles"),
+            Chrome.pick("සොයන්න: ") + q), new LinearLayout.LayoutParams(-1, -2));
+        UiSheet.Handle h = UiSheet.show(this, p, prefs, b, 52, null);
+        b.setTag(h);
+        for (final LkSubFinder.Site site : sites) {
+            b.addView(sheetRow(site.name + (site.sriLankan ? "  (Sri Lanka)" : ""),
+                v -> {
+                    dismissSheetOf(b);
+                    openInWebTab(site.urlFor(q));
+                }), new LinearLayout.LayoutParams(-1, -2));
+        }
+        b.addView(sheetRow("DuckDuckGo — \"" + q + "\" sinhala subtitles", v -> {
+            dismissSheetOf(b);
+            openInWebTab("https://duckduckgo.com/?q=" + LkSubFinder.enc(q + " sinhala subtitles srt"));
+        }), new LinearLayout.LayoutParams(-1, -2));
     }
 
     /** Open the app's Web tab on {@code target}; any .zip/.srt it downloads is captured. */

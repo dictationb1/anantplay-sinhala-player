@@ -26,7 +26,7 @@ Future<void> warmLiveVersion() async {
 /// (AppInfo.VERSION_NAME — the same source the gate itself reads), with a
 /// last-resort literal ONLY if the channel is unreachable. The About page
 /// and every check-for-update pill can never show a stale version again.
-const String kVisibleVersionFallback = 'v3.4.6.l';
+const String kVisibleVersionFallback = 'v3.4.6.m';
 
 /// The live installed identity, cached after the first successful appInfo()
 /// read and shared by every surface that used to read the dead literal.

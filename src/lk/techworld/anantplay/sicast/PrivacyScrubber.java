@@ -85,6 +85,12 @@ public final class PrivacyScrubber {
      */
     static boolean vendorModelLooksReal(String span) {
         if (span == null || span.isEmpty()) return false;
+        // v3.4.6.m — the TECHNICAL-TERM WHITELIST (the Probes 73/76 corruption
+        // kill): SHA-256/SHA-1 digests, the 3-URL manifest, 16-KiB blocks,
+        // codec/playlist names and app version strings carry digits + capitals
+        // exactly like a model string and were being eaten into
+        // "<phone-model>"; real phone models / PII stay 100% scrubbed.
+        if (isTechnicalTerm(span)) return false;
         for (int i = 0; i < span.length(); i++) {
             char c = span.charAt(i);
             if (c >= '0' && c <= '9') return true;
@@ -106,6 +112,31 @@ public final class PrivacyScrubber {
         "IPV4", "IPV6", "DNS", "DOH", "MIME", "CODEC", "GOP", "PTS", "DTS2", "SEI"));
 
     /**
+     * v3.4.6.m — TECHNICAL TERMS, never phone models (the Probes 73/76
+     * corruption kill): SHA-256 / SHA-1 digests, the 3-URL manifest, 16-KiB
+     * blocks, H.264/H.265/AV1/VP9 codec names, HLS/DASH/M3U8 playlist types
+     * and the v3.4.6.x version strings all carry digits + capitals exactly
+     * like a vendor model tail — without this exact, case-insensitive
+     * whitelist the scrubber ate them into "&lt;phone-model&gt;" and the
+     * honest probes read corrupted. DELIBERATELY NARROW: no wildcards, no
+     * prefixes — only full-token matches, so real phone models / PII stay
+     * 100% scrubbed.
+     */
+    private static final java.util.Set<String> TECHNICAL_TERMS = new java.util.HashSet<>(java.util.Arrays.asList(
+        "SHA-256", "SHA-512", "SHA-384", "SHA-224", "SHA-2", "SHA-1", "SHA256", "SHA512", "SHA384", "SHA1",
+        "3-URL", "2-URL", "4-URL",
+        "16-KIB", "8-KIB", "32-KIB", "64-KIB", "128-KIB", "256-KIB", "1-MIB", "100-MIB",
+        "H.264", "H.265", "AV1", "VP9", "VP8", "AVC", "HEVC",
+        "HLS", "DASH", "M3U8", "M3U",
+        "V3.4.6", "V3.4.6.K", "V3.4.6.L", "V3.4.6.M"));
+
+    /** v3.4.6.m — TRUE when the span is a whitelisted technical term. */
+    static boolean isTechnicalTerm(String s) {
+        if (s == null) return false;
+        return TECHNICAL_TERMS.contains(s.trim().toUpperCase(java.util.Locale.ROOT));
+    }
+
+    /**
      * Is this candidate token a real phone hardware model?
      *
      * <p>Kept deliberately narrow — a false NEGATIVE here can leak a model, a false
@@ -118,6 +149,11 @@ public final class PrivacyScrubber {
         String t = tok.trim();
         if (t.length() < 5 || t.length() > 18) return false;
         if (IMDB_ID.matcher(t).matches()) return false;          // tt33764258 — NEVER
+        // v3.4.6.m — whitelisted technical terms + dotted version/codec
+        // strings ("v3.4.6", "H.264") are never hardware models; real vendor
+        // model strings carry no dots.
+        if (isTechnicalTerm(t)) return false;
+        if (t.indexOf('.') >= 0) return false;
         int upper = 0, digit = 0, letter = 0;
         for (int i = 0; i < t.length(); i++) {
             char c = t.charAt(i);

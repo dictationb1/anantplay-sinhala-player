@@ -34,8 +34,15 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <!-- AnantPlay's own Cast$Keep type (Cast.java:209-222): the same survival pattern -->
+    <!-- AnantPlay's own Cast$Keep type (Cast.java:209-222): the same survival pattern.
+         v3.4.6.m: mediaPlayback + dataSync join connectedDevice as the DECLARED
+         typed startForeground() fallback chain (ReceiverService.startInForeground)
+         so a vendor build that refuses connectedDevice still satisfies the
+         foreground-service contract immediately (the ForegroundServiceDidNot
+         StartInTimeException kill; the types carry their own permissions). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- v2.4.0: the built-in GitHub self-updater's download → PackageInstaller flow.
@@ -142,11 +149,15 @@
             </intent-filter>
         </activity>
 
-        <!-- THE receiver: a connectedDevice foreground service hosting the cast server
-             (AnantPlay's own Cast$Keep is declared exactly like this). exported=false:
+        <!-- THE receiver: a foreground service hosting the cast server
+             (AnantPlay's own Cast$Keep is declared exactly like this).
+             v3.4.6.m — the typed startForeground() chain: connectedDevice →
+             mediaPlayback → dataSync → untyped (ReceiverService tries them in
+             that order), so the 5 s foreground obligation is ALWAYS satisfied
+             first, whatever the OEM build accepts. exported=false:
              nothing outside this app can bind or start it with an Intent. -->
         <service android:name=".ReceiverService" android:exported="false"
-            android:foregroundServiceType="connectedDevice"/>
+            android:foregroundServiceType="connectedDevice|mediaPlayback|dataSync"/>
 
         <!-- v3.4.6.j — THE FLOATING ANANTPLAY SETUP COACH overlay: the draggable
              glass card that walks the 6-step guided setup over official AnantPlay

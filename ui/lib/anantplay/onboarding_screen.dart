@@ -50,13 +50,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   static const _pageCount = 6;
 
   /// v3.4.6.k — THE FORWARD-SWIPE LOCK GATE: the slides whose OS permission
-  /// is required before the user may advance — 2 Notifications, 3 Overlay,
-  /// 4 Allow App Updates (LAW #1's own grant). Slides 0/1/5 stay free
-  /// (Welcome / an optional install / the guided Sources walk).
+  /// is required before the user may advance. v3.4.6.m — now ALL required
+  /// slides are gated: 1 Install AnantPlay (officialInstalled), 2
+  /// Notifications, 3 Overlay, 4 Keep Cast ready (BOTH Background Activity
+  /// (Unrestricted) AND Allow App Updates). Backward swipe / Back stays free.
   static bool forwardBlocked(int page, OnboardingStatus s) => switch (page) {
+        1 => !s.official,
         2 => !s.notif,
         3 => !s.overlay,
-        4 => !s.installs,
+        4 => !s.battery || !s.installs,
         _ => false,
       };
 
@@ -248,6 +250,17 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   void _finish() {
+    final navigator = Navigator.of(context);
+    final bool pushedAsRoute = navigator.canPop();
+    // v3.4.6.m — THE HARD COACH GATE (belt-and-braces on top of the disabled
+    // button): on the ROOT-GATE first-run wizard NO path can finish before
+    // the Setup Coach's Step 10 `Finish Setup ✓` really completed
+    // (K_COACH_COMPLETED). The voluntary re-run keeps its own Close exit.
+    if (!pushedAsRoute && !_status.coach) {
+      showMornyeGlassNotification(
+          context, message: "Complete 'Open AnantPlay with User Guide' first");
+      return;
+    }
     // THE UNBREAKABLE FINISH: synchronous in-memory publish (ShellRoot flips
     // to HomeScreen this frame) + the dedicated native channel writer.
     // v3.4.6.i — THE DEAD Skip/Finish KILL (video_4 00:41–01:15): when the
@@ -257,8 +270,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     // The route (when one exists) is popped FIRST so the user lands on
     // HomeScreen immediately; the root-gate instance (first install) never
     // had a route to pop and keeps working exactly as before.
-    final navigator = Navigator.of(context);
-    final bool pushedAsRoute = navigator.canPop();
     if (pushedAsRoute) {
       navigator.pop();
     }
@@ -580,8 +591,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         _caption(_installState.isEmpty
             ? 'Live check passed: the official app is not on this device yet.'
             : _installState),
-        const SizedBox(height: 8),
-        _textButton('Continue without installing', () => _go(2)),
+        // v3.4.6.m — 'Continue without installing' is DELETED (the red-pen
+        // audit, Part_0.01 05:22): Slide 2 is a HARD gate — the only way
+        // forward is a real install (the forward-swipe lock above enforces
+        // the exact same contract on the swipe path).
       ],
     );
   }
@@ -665,13 +678,60 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         _caption('In AnantPlay: Settings → Sources → Add Index, paste, done.'),
         // v3.4.6.i — ONE clean full-width Finish (the ONE primary action of
         // the final slide — never a duplicate Finish + Next stack).
+        // v3.4.6.m — THE COACH-GATED FINISH (Part_0.02 03:21): `✓ Finish` is
+        // STRICTLY disabled — with the honest helper caption — until the
+        // Setup Coach's Step 10 `Finish Setup ✓` really ran
+        // (K_COACH_COMPLETED, live in _status.coach). Only then does it glow
+        // as the slide's unlocked primary action.
         const SizedBox(height: 8),
-        _pill(
-          label: 'Finish',
-          onTap: _finish,
-          prominent: true,
-          icon: mi.Icons.check_rounded,
-        ),
+        _status.coach
+            ? Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF7FCDD0).withValues(alpha: 0.45),
+                      blurRadius: 18,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                ),
+                child: _pill(
+                  label: '✓ Finish',
+                  onTap: _finish,
+                  prominent: true,
+                  icon: mi.Icons.check_rounded,
+                ),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  MornyeGlassPress(
+                    radius: 14,
+                    child: FilledButton.icon(
+                      onPressed: null, // strictly disabled until the coach completes
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0x14FFFFFF),
+                        foregroundColor: const Color(0x59F2F7F7),
+                        disabledBackgroundColor: const Color(0x14FFFFFF),
+                        disabledForegroundColor: const Color(0x59F2F7F7),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 13, horizontal: 18),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
+                      ),
+                      icon: const Icon(mi.Icons.lock_rounded,
+                          size: 18, color: Color(0x597FCDD0)),
+                      label: const Text('✓ Finish',
+                          style: TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _caption(
+                      "Complete 'Open AnantPlay with User Guide' first"),
+                ],
+              ),
       ],
     );
   }
@@ -721,11 +781,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         ),
       );
 
-  Widget _textButton(String label, VoidCallback onTap) => TextButton(
-        onPressed: onTap,
-        style: TextButton.styleFrom(foregroundColor: const Color(0x99F2F7F7)),
-        child: Text(label, style: const TextStyle(fontSize: 13.5)),
-      );
+  // v3.4.6.m — `_textButton` was deleted with 'Continue without
+  // installing' (the Slide-2 hard gate killed its only call site).
 
   Widget _caption(String text) => Text(
         text,

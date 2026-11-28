@@ -1,4 +1,4 @@
-# AnantPlay Player (SI Cast Receiver) v3.4.6.l (versionCode 30418)
+# AnantPlay Player (SI Cast Receiver) v3.4.6.m (versionCode 30419)
 
 > **v3.4.6.c — THE ZERO-DEAD-BUTTON MORNYE SHELL · REAL CINEMA PLAYER + BROWSER · 16 KB-PAGE ENGINE · 55 MB UPDATER TIER.**
 > Mornye Glass is now the default surface, with live 10–95% clarity, optional rim
@@ -629,7 +629,19 @@ Android 16, sdk 36). Full story: `docs/reports/V3_MASTER_ARCHITECTURE_AND_ANDROI
 
 ## License
 
-MIT (this app's code). `libs/` are the unmodified Apache-2.0 jars AnantPlay itself ships;
-`assets/fonts/NotoSansSinhala-Regular.ttf` is the SIL OFL font; `tools/core-lambda-stubs.jar`
-is GPL-2.0 + Classpath Exception and is used at build time only. Every bundled artifact and its
-license is listed in **THIRD_PARTY.md**.
+**GPL-3.0-only** — from **v3.4.6.m** (versionCode `30419`) onward this repository is licensed under
+the **GNU General Public License version 3 only** (`GPL-3.0-only`); the root `LICENSE` carries the
+verbatim GNU GPL v3.0 text, and every dependency below keeps its own license. Releases up to and
+including **v3.4.6.l** were published under the **MIT** license and keep that original release
+history.
+
+| Component | License |
+| --- | --- |
+| This app's code (v3.4.6.m+) | **GPL-3.0-only** |
+| Vendored **Mornye UI** (`ui/lib/mornye_ui/`, `ui/assets/mornye/`) | **LGPL-3.0-only** (untouched, with its own `LICENSE` / `COPYING` / `NOTICE`) |
+| Media3 / Guava (`libs/`) | Apache-2.0 |
+| `liquid_glass_easy` | MIT |
+| Noto Sans Sinhala + Inter + Google Sans Flex fonts | SIL OFL 1.1 |
+| `tools/core-lambda-stubs.jar` | GPL-2.0 + Classpath Exception (build time only) |
+
+Every bundled artifact and its license is listed in **THIRD_PARTY.md**.

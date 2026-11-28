@@ -58,7 +58,12 @@ public final class OtaConfigSync {
             + "@main/docs/ota/manifest.json";
     }
 
-    /** The whole sync (both CDNs + verify + apply) must fit in this budget. */
+    /** v3.4.6.m — EACH CDN fetch gets its OWN 4 s budget (the old single
+     *  shared 5 s wall-clock starved the fallback: a slow raw TLS handshake
+     *  on ISP DNS exhausted the deadline before jsDelivr was ever consulted,
+     *  and the About card read Pending on every launch — Part_0.04 02:46). */
+    static final long FETCH_BUDGET_MS = 4_000L;
+    /** Kept for the lab's timing contract: the nominal whole-sync budget. */
     static final long DEADLINE_MS = 5_000L;
     /** The manifest body cap (a config document, never an APK lane). */
     static final long MAX_MANIFEST_BYTES = 512L * 1024;
@@ -104,43 +109,54 @@ public final class OtaConfigSync {
 
     /**
      * v3.4.6.l — THE JSDELIVR FALLBACK (video_2 04:10, the real-phone
-     * "Remote config (signed): Pending"): the strict BOTH-CDN consensus is
-     * kept when jsDelivr answers, but a jsDelivr that is BLOCKED or
-     * unreachable (common on some Sri Lankan ISPs) used to fail the whole
-     * sync forever — the About card read Pending on every launch.
+     *     "Remote config (signed): Pending").
      *
-     * <p>The degraded lane stays honest: the raw GitHub origin is fetched
-     * TWICE and the two reads must be byte-identical (a live-CDN
-     * consistency check that survives a mid-flight rewrite), every payload
-     * byte must still re-hash to the declared SHA-256, and the manifest
-     * version + every URL must still pass the SSRF guard. Fail-closed is
-     * preserved on every malformed answer.
+     * <p>v3.4.6.m — THE PER-FETCH BUDGET REBALANCE (Part_0.04 02:46 — the
+     * card STILL read Pending on the real phone): the raw origin is fetched
+     * under its own 4 s budget; if it fails or times out on ISP DNS, the
+     * jsDelivr mirror runs under its own 4 s budget and its answer alone can
+     * carry the sync (the strict canonical SHA-256 digest inside the
+     * manifest IS the signature — plus the https/SSRF guard on every URL).
+     * When BOTH CDNs answer they must be byte-identical (the consensus
+     * lane), and when only raw answers it is re-read once for live-origin
+     * consistency (its own budget too). Fail-closed is preserved on every
+     * malformed answer.
      */
     static Map<String, Object> fetchVerified() throws Exception {
-        long deadlineAt = System.currentTimeMillis() + DEADLINE_MS;
-        String primary = fetch(rawManifestUrl(), deadlineAt);
-        if (primary == null || primary.trim().isEmpty())
-            throw new SecurityException("primary CDN returned an empty manifest");
+        String primary = null;
+        try {
+            primary = fetch(rawManifestUrl(), System.currentTimeMillis() + FETCH_BUDGET_MS);
+        } catch (Throwable rawUnavailable) {
+            // ISP DNS / firewall lane: the jsDelivr mirror below is the fix.
+            Diag.w("ota", "raw origin unreachable — trying the jsDelivr mirror: " + rawUnavailable);
+        }
+        if (primary == null || primary.trim().isEmpty()) primary = null;
         String mirror = null;
         try {
-            mirror = fetch(jsdelivrManifestUrl(), deadlineAt);
+            mirror = fetch(jsdelivrManifestUrl(), System.currentTimeMillis() + FETCH_BUDGET_MS);
         } catch (Throwable jsdelivrUnavailable) {
-            // the fallback lane below (raw double-read consistency)
-            Diag.w("ota", "jsDelivr unreachable — degraded single-origin lane: "
-                + jsdelivrUnavailable);
+            if (primary == null)
+                throw new SecurityException("both CDNs unreachable — keeping pinned defaults");
+            Diag.w("ota", "jsDelivr unreachable — degraded single-origin lane: " + jsdelivrUnavailable);
         }
         if (mirror != null && mirror.trim().isEmpty()) mirror = null;
-        if (mirror != null) {
+        if (primary != null && mirror != null) {
             if (!primary.equals(mirror))
                 throw new SecurityException("CDN consensus failed — raw and jsDelivr bodies differ");
             return parseVerified(primary);
         }
-        // the degraded lane: re-read the origin; both reads must agree.
-        long second = System.currentTimeMillis() + DEADLINE_MS;
-        String primaryAgain = fetch(rawManifestUrl(), second);
-        if (primaryAgain == null || !primary.equals(primaryAgain))
-            throw new SecurityException("raw origin double-read mismatch — keeping pinned defaults");
-        return parseVerified(primary);
+        // the fallback lane: exactly ONE CDN answered. Its bytes must still
+        // re-hash to the declared canonical SHA-256 (parseVerified) and pass
+        // the SSRF guard; when raw is the one that answered, the live-origin
+        // double-read consistency is kept (a mid-flight rewrite check) —
+        // under its own budget, never a shared starved one.
+        String body = primary != null ? primary : mirror;
+        if (primary != null) {
+            String again = fetch(rawManifestUrl(), System.currentTimeMillis() + FETCH_BUDGET_MS);
+            if (!body.equals(again))
+                throw new SecurityException("raw origin double-read mismatch — keeping pinned defaults");
+        }
+        return parseVerified(body);
     }
 
     /** Parse + SHA-256-verify a manifest body (the lab's seam for both paths). */
@@ -163,7 +179,7 @@ public final class OtaConfigSync {
         return (Map<String, Object>) payload;
     }
 
-    /** Fetch one URL under the shared deadline (https-only, size-capped). */
+    /** Fetch one URL under its own deadline (https-only, size-capped). */
     private static String fetch(String url, long deadlineAt) throws Exception {
         if (!SelfUpdateCore.safeRemoteUrl(url)) throw new SecurityException("unsafe manifest URL");
         Fetcher f = testFetcher;
@@ -173,8 +189,11 @@ public final class OtaConfigSync {
             c = (HttpURLConnection) new URL(url).openConnection(java.net.Proxy.NO_PROXY);
             long left = deadlineAt - System.currentTimeMillis();
             if (left <= 0) throw new java.net.SocketTimeoutException("ota deadline exceeded");
-            c.setConnectTimeout((int) Math.min(4_000, left));
-            c.setReadTimeout((int) Math.max(1_000, Math.min(5_000, left)));
+            // v3.4.6.m — connect + read each bounded by the per-fetch budget
+            // (max 4 s: a hanging raw handshake can no longer eat the
+            // jsDelivr fallback's whole window).
+            c.setConnectTimeout((int) Math.min(FETCH_BUDGET_MS, left));
+            c.setReadTimeout((int) Math.max(1_000, Math.min(FETCH_BUDGET_MS, left)));
             c.setInstanceFollowRedirects(true);
             int code = c.getResponseCode();
             if (code != 200) throw new SecurityException("HTTP " + code + " for the manifest");
@@ -211,7 +230,11 @@ public final class OtaConfigSync {
         if (d < 1 || d > 30) d = 7;
         e.putInt(AppPrefs.K_OTA_SUB_CACHE_DAYS, d);
         e.putLong(AppPrefs.K_OTA_SYNC_AT, System.currentTimeMillis());
-        e.apply();
+        // v3.4.6.m — commit() (not apply()): the Verified stamp + the live
+        // mirror/feed/rule counts are durable THE INSTANT the SHA-256 passed,
+        // so About & Licenses → Remote config (signed) flips to "Verified ✓"
+        // the same frame the sync lands — never a Pending ghost.
+        e.commit();
         // the 7-day local SRT cache sweep rides every successful sync
         try {
             new SubtitleStore(c.getFilesDir())
