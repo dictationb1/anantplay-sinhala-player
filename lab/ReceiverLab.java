@@ -1463,9 +1463,9 @@ public class ReceiverLab {
               updDir.listFiles() != null && updDir.listFiles().length == 0);
         dlFile.delete();
         // the version contract
-        check("v346k upd: versionCode 30417 strictly > 30416 (v3.4.6.j) and still v3.x — no Obtainium downgrade",
-              AppInfo.VERSION_CODE == 30417 && AppInfo.VERSION_CODE > 30416 && AppInfo.VERSION_CODE < 40000
-              && "3.4.6.k".equals(AppInfo.VERSION_NAME));
+        check("v346l upd: versionCode 30418 strictly > 30417 (v3.4.6.k) and still v3.x — no Obtainium downgrade",
+              AppInfo.VERSION_CODE == 30418 && AppInfo.VERSION_CODE > 30417 && AppInfo.VERSION_CODE < 40000
+              && "3.4.6.l".equals(AppInfo.VERSION_NAME));
         // v3.4.6.b — THE ALPHABETICAL LADDER is proven by execution, not assertion:
         // the updater must order 3.4.6 < .a < .b < .c < .d < 3.4.7 and never throw.
         try {
@@ -1565,9 +1565,10 @@ public class ReceiverLab {
         check("v3 pipe: .gitignore exists (the Arena.ai-ready repo carries dotfiles)",
               new java.io.File(".gitignore").exists());
         String buildSh = readRepoFile("build.sh");
-        check("v346k pipe: build.sh defaults match the shipped version (3.4.6.k / 30417 / targetSdk 36)",
-              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.k}")
-              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30417}")
+        check("v346l pipe: build.sh defaults match the shipped version (3.4.6.l / 30418 / targetSdk 36)",
+              buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.l}")
+              && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30418}")
+              && buildSh.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30417}")
               && buildSh.contains("TARGET_SDK=36"));
         String ps1 = readRepoFile("scripts/create-release-keystore.ps1");
         check("v3 pipe: the PowerShell script stays 5.1-compatible (no PS7-only operators)",
@@ -2615,8 +2616,11 @@ public class ReceiverLab {
         check("v31 prefs: seek step whitelist",
             AppPrefs.normalizeSeekStep(5000) == 5000 && AppPrefs.normalizeSeekStep(7000) == 10000
                 && AppPrefs.normalizeSeekStep(30000) == 30000);
-        check("v31 prefs: hud hide whitelist (2/4/6 s)",
-            AppPrefs.normalizeHudHide(2000) == 2000 && AppPrefs.normalizeHudHide(3500) == 4000 && AppPrefs.normalizeHudHide(6000) == 6000);
+        check("v346l prefs: hud hide whitelist (2/3/5 s, default 3.5 s)",
+            AppPrefs.normalizeHudHide(2000) == 2000 && AppPrefs.normalizeHudHide(3000) == 3000
+                && AppPrefs.normalizeHudHide(3500) == 3500 && AppPrefs.normalizeHudHide(5000) == 5000
+                && AppPrefs.normalizeHudHide(4000) == 3500 && AppPrefs.normalizeHudHide(6000) == 5000
+                && AppPrefs.normalizeHudHide(9999) == 3500);
         check("v31 prefs: sync step whitelist (0.1/0.25/0.5 s)",
             AppPrefs.normalizeSyncStep(100) == 100 && AppPrefs.normalizeSyncStep(300) == 250 && AppPrefs.normalizeSyncStep(500) == 500);
         check("v31 prefs: receiver name trims, strips newlines, caps at 64",
@@ -2776,8 +2780,8 @@ public class ReceiverLab {
 
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
         String buildYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346k sec: workflows and manifest enforce versionCode 30417 / 3.4.6.k",
-            buildYml.contains("30417") && buildYml.contains("3.4.6.k") && relYml.contains("3.4.6.k"));
+        check("v346l sec: workflows and manifest enforce versionCode 30418 / 3.4.6.l",
+            buildYml.contains("30418") && buildYml.contains("3.4.6.l") && relYml.contains("3.4.6.l"));
         // v3.1.1 — THE MANIFEST PARITY GUARD: the APK identity is declared
         // explicitly on <manifest> (not injected only by aapt2's --version-name),
         // so a badging dump of the un-built source agrees with AppInfo.java.
@@ -2787,12 +2791,12 @@ public class ReceiverLab {
         // in android/app/build.gradle; the manifest no longer carries a package
         // attribute, and build.sh passes --version-code/--version-name to aapt2.
         String hostGradle = readRepoFile("android/app/build.gradle");
-        check("v346k pipe: android/app/build.gradle declares the shipped 30417 / 3.4.6.k identity",
+        check("v346l pipe: android/app/build.gradle declares the shipped 30418 / 3.4.6.l identity",
             hostGradle.contains("applicationId = \"lk.techworld.anantplay.sicast\"")
-                && hostGradle.contains("versionCode = 30417")
-                && hostGradle.contains("versionName = \"3.4.6.k\"")
-                && "30417".equals(String.valueOf(AppInfo.VERSION_CODE))
-                && "3.4.6.k".equals(AppInfo.VERSION_NAME));
+                && hostGradle.contains("versionCode = 30418")
+                && hostGradle.contains("versionName = \"3.4.6.l\"")
+                && "30418".equals(String.valueOf(AppInfo.VERSION_CODE))
+                && "3.4.6.l".equals(AppInfo.VERSION_NAME));
         // v3.4.6 — AGP 9 forbids <uses-sdk> in the manifest: the SDK levels are
         // owned by android/app/build.gradle (and by build.sh's aapt2 flags).
         check("v346 pipe: the manifest drops BOTH the package attribute and <uses-sdk> (AGP 9)",
@@ -3884,8 +3888,10 @@ public class ReceiverLab {
         check("v346 host: custom links stay in the native browser engine (WebBrowserView)",
             readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java").contains("WebBrowserView"));
         String playSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
-        check("v320 cust: the in-player settings sheet ships (speed/aspect/live-style over the movie)",
-            playSrc.contains("buildSettingsSheet") && playSrc.contains("toggleSheet"));
+        check("v346l cust: the in-player settings sheets ship in the CinemaSheets module",
+            new java.io.File("src/lk/techworld/anantplay/sicast/CinemaSheets.java").isFile()
+                && readRepoFile("src/lk/techworld/anantplay/sicast/CinemaSheets.java").contains("customization")
+                && playSrc.contains("openSettingsSheet()") && playSrc.contains("openSubtitlesSheet()"));
         check("v320 cust: the edge-to-edge insets pad the HUD (statusBars|displayCutout + navigationBars)",
             playSrc.contains("WindowInsets.Type.statusBars()") && playSrc.contains("WindowInsets.Type.navigationBars()"));
     }
@@ -4010,12 +4016,13 @@ public class ReceiverLab {
         check("v346 host: the cast status re-pushes on every resume (the live invariant)",
             readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("onResume") && readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("pushCastStatus"));
 
-        check("v330 layout: the player HUD is THREE stacked zones (centre = height 0 + weight 1)",
-            playSrc.contains("box.addView(hudCenter, new LinearLayout.LayoutParams(-1, 0, 1f))"));
-        check("v330 layout: the player's top bar pads by the measured status inset",
-            playSrc.contains("hudTopBar.setPadding(dp(6), statusInset + dp(6), dp(6), dp(6))"));
-        check("v330 layout: the player's bottom bar pads by the measured nav inset",
-            playSrc.contains("navInset + dp(8)"));
+        String hudSrc = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/CinemaHud.java"));
+        check("v346l layout: the CinemaHud chrome is THREE stacked zones (centre = height 0 + weight 1)",
+            hudSrc.contains("zones.addView(center, new LinearLayout.LayoutParams(-1, 0, 1f))"));
+        check("v346l layout: the chrome's top bar pads by the measured status inset",
+            playSrc.contains("hudTopBar.setPadding(dp(16), statusInset + dp(8), dp(8), dp(8))"));
+        check("v346l layout: the chrome's bottom bar pads by the measured nav inset (20dp sheet contract)",
+            playSrc.contains("hudBottomBar.setPadding(dp(20), dp(4), dp(20), navInset + dp(10))"));
         check("v330 layout: the subtitle layer reserves the top AND bottom bar zones",
             playSrc.contains("subLayer.setPadding(0, statusInset + dp(40), 0, navInset + dp(96))"));
         check("v330 layout: the v3.2.0 fixed-64dp floating pill row (the '< Back' overlap) is gone",
@@ -4030,8 +4037,8 @@ public class ReceiverLab {
             playSrc.contains("VideoViewport.next(aspectMode)") && playSrc.contains("VideoViewport.modeLabel"));
         check("v330 layout: rotate + lock are 1-tap HUD actions",
             playSrc.contains("private void rotateScreen()") && playSrc.contains("private void setLocked(boolean on)"));
-        check("v330 layout: the lock swallows every touch",
-            playSrc.contains("if (locked) return true;"));
+        check("v346l layout: the lock swallows every touch",
+            playSrc.contains("locked") && playSrc.contains("unlockPill"));
         check("v330 layout: the error card never sits under the top bar (centred card, 4 fixes)",
             playSrc.contains("buildErrorCard") && playSrc.contains("Retry with alternate headers"));
     }
@@ -4342,8 +4349,9 @@ public class ReceiverLab {
             webSrc.contains("setDownloadListener") && webSrc.contains("captureSubtitle"));
         check("v330 subzip: the capture attaches to the LIVE player",
             webSrc.contains("attachCapturedSubs") && playSrc.contains("void attachCapturedSubs("));
-        check("v330 subzip: the player's 💬 sheet ships the 🇱🇰 Find Sinhala Sub button",
-            playSrc.contains("openLkFinder") && playSrc.contains("Find Sinhala Sub"));
+        check("v346l subzip: the player's subtitles sheet ships the Find SL Subs button",
+            playSrc.contains("openLkFinder")
+                && readRepoFile("src/lk/techworld/anantplay/sicast/CinemaSheets.java").contains("Find SL Subs (10 sites)"));
         check("v346 host: browser handoffs route through the browser channel into the native engine",
             readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java").contains("openWebTab"));
         check("v330 subzip: the download is capped (6 MB) and the unzip is 5 MB/64-entry bomb-safe",
@@ -4402,17 +4410,17 @@ public class ReceiverLab {
     static void v330VersionParityChecks() throws Exception {
         String manifest = readRepoFile("AndroidManifest.xml");
         String hostAppGradle = readRepoFile("android/app/build.gradle");
-        check("v346k parity: android/app/build.gradle says 3.4.6.k / 30417",
-            hostAppGradle.contains("versionCode = 30417") && hostAppGradle.contains("versionName = \"3.4.6.k\"")
+        check("v346l parity: android/app/build.gradle says 3.4.6.l / 30418",
+            hostAppGradle.contains("versionCode = 30418") && hostAppGradle.contains("versionName = \"3.4.6.l\"")
                 && hostAppGradle.contains("targetSdk = 36") && !manifest.contains("android:minSdkVersion"));
-        check("v346k parity: AppInfo says 3.4.6.k / 30417",
-            "3.4.6.k".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30417);
-        check("v346k parity: 30417 strictly > 30416 — an in-place update over v3.4.6.j, no downgrade",
-            AppInfo.VERSION_CODE == 30417 && AppInfo.VERSION_CODE > 30416);
+        check("v346l parity: AppInfo says 3.4.6.l / 30418",
+            "3.4.6.l".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30418);
+        check("v346l parity: 30418 strictly > 30417 — an in-place update over v3.4.6.k, no downgrade",
+            AppInfo.VERSION_CODE == 30418 && AppInfo.VERSION_CODE > 30417);
         String build = readRepoFile("build.sh");
-        check("v346k parity: build.sh defaults to 3.4.6.k / 30417 (previous 30416)",
-            build.contains("VERSION_NAME:-3.4.6.k") && build.contains("VERSION_CODE:-30417")
-                && build.contains("PREV_VERSION_CODE:-30416"));
+        check("v346l parity: build.sh defaults to 3.4.6.l / 30418 (previous 30417)",
+            build.contains("VERSION_NAME:-3.4.6.l") && build.contains("VERSION_CODE:-30418")
+                && build.contains("PREV_VERSION_CODE:-30417"));
         String latest = readRepoFile("docs/latest.json");
         boolean latestPrevious = latest.contains("\"version\":\"3.4.4\"")
             && latest.contains("\"code\":30404")
@@ -4487,28 +4495,34 @@ public class ReceiverLab {
             && latest.contains("\"code\":30417")
             && latest.contains("/download/v3.4.6.k/AnantPlay-Sinhala-Player-v3.4.6.k.apk")
             && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*");
+        // v3.4.6.l — the NEXT tier (the release workflow writes it when .l ships);
+        // THIS branch keeps docs/latest.json at the LIVE 3.4.6.k / 30417 tier.
+        boolean latestL = latest.contains("\"version\":\"3.4.6.l\"")
+            && latest.contains("\"code\":30418")
+            && latest.contains("/download/v3.4.6.l/AnantPlay-Sinhala-Player-v3.4.6.l.apk")
+            && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*");
         check("v346c parity: latest.json is a valid previous or current signed release",
-            (latestPrevious || latestCurrent || latestRelease || latestHotfix || latestA || latestPrevC || latestD || latestE || latestF || latestG || latestH || latestI || latestJ)
+            (latestPrevious || latestCurrent || latestRelease || latestHotfix || latestA || latestPrevC || latestD || latestE || latestF || latestG || latestH || latestI || latestJ || latestK || latestL)
                 && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
-        // v3.4.6.k — the branch KEEPS latest.json at the LIVE v3.4.6.j / 30416
-        // tier (the release workflow rewrites it to .k when v3.4.6.k ships);
-        // the widened gate accepts BOTH 3.4.6.j and 3.4.6.k.
-        check("v346k parity: latest.json still names the LIVE 3.4.6.j / 30416 tier (never touched on this branch)",
-            latestJ || latestK);
+        // v3.4.6.l — the branch KEEPS latest.json at the LIVE v3.4.6.k / 30417
+        // tier (the release workflow rewrites it to .l when v3.4.6.l ships);
+        // the widened gate accepts BOTH 3.4.6.k and 3.4.6.l.
+        check("v346l parity: latest.json still names the LIVE 3.4.6.k / 30417 tier (never touched on this branch)",
+            latestK || latestL);
         String readme = readRepoFile("README.md");
         String setupSi = readRepoFile("SETUP-SI.md");
-        check("v346k parity: README and Sinhala setup guide announce 3.4.6.k",
-            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.6.k")
-                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.k)"));
+        check("v346l parity: README and Sinhala setup guide announce 3.4.6.l",
+            readme.startsWith("# AnantPlay Player (SI Cast Receiver) v3.4.6.l")
+                && setupSi.startsWith("# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.l)"));
         String buildWf = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346k parity: build-apk.yml resolves and verifies the shared 3.4.6.k identity",
-            buildWf.contains("test \"$VERSION\" = \"3.4.6.k\"")
-                && buildWf.contains("test \"$CODE\" = \"30417\"")
+        check("v346l parity: build-apk.yml resolves and verifies the shared 3.4.6.l identity",
+            buildWf.contains("test \"$VERSION\" = \"3.4.6.l\"")
+                && buildWf.contains("test \"$CODE\" = \"30418\"")
                 && buildWf.contains("steps.app-version.outputs.version"));
         String relWf = readRepoFile(".github/workflows/release-apk.yml");
-        check("v346k parity: release workflow defaults to 3.4.6.k and publishes its computed checksum",
-            (relWf.contains("default: '3.4.6.k'")
-                || relWf.contains("default: \"3.4.6.k\""))
+        check("v346l parity: release workflow defaults to 3.4.6.l and publishes its computed checksum",
+            (relWf.contains("default: '3.4.6.l'")
+                || relWf.contains("default: \"3.4.6.l\""))
                 && relWf.contains("SHA=$(cut -d' ' -f1 dist/SHA256SUMS.txt)")
                 && relWf.contains("docs/latest.json"));
         check("v331 parity: strictly v3.x — no 4.x anywhere in the identity files",
@@ -4615,10 +4629,10 @@ public class ReceiverLab {
             + "LinearLayout parent)",
             playSrc.contains("final FrameLayout parent = rootView;")
                 && !playSrc.contains("(ViewGroup) hudCenter.getParent()"));
-        check("v331 crash1: the language strip is added to its HorizontalScrollView with "
-            + "FrameLayout.LayoutParams",
-            playSrc.contains("hs.addView(langRow, new FrameLayout.LayoutParams(-2, -2));")
-                && !playSrc.contains("hs.addView(langRow, new LinearLayout.LayoutParams("));
+        check("v346l crash1: the language chips WRAP in the Flow container (the overflow row is dead)",
+            new java.io.File("src/lk/techworld/anantplay/sicast/Flow.java").isFile()
+                && readRepoFile("src/lk/techworld/anantplay/sicast/CinemaSheets.java").contains("new Flow(a,")
+                && !readRepoFile("src/lk/techworld/anantplay/sicast/CinemaSheets.java").contains("HorizontalScrollView"));
         check("v331 crash1: applyVideoSize() never casts getLayoutParams() unchecked",
             playSrc.contains("surface.getLayoutParams() instanceof FrameLayout.LayoutParams")
                 && !playSrc.contains("FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) surface.getLayoutParams()"));
@@ -4857,8 +4871,9 @@ public class ReceiverLab {
             AppPrefs.normalizeBorderAlpha(999) == 60 && AppPrefs.normalizeBorderAlpha(-5) == 0);
         check("v340 A8: normalizeSubOutline clamps to 0..6",
             AppPrefs.normalizeSubOutline(99) == 6 && AppPrefs.normalizeSubOutline(-1) == 0);
-        check("v340 A8: normalizeVolumeBoost clamps to 0..150",
-            AppPrefs.normalizeVolumeBoost(400) == 150 && AppPrefs.normalizeVolumeBoost(-2) == 0);
+        check("v346l A8: normalizeVolumeBoost clamps to 0..200 (the +6 dB enhancer ceiling)",
+            AppPrefs.normalizeVolumeBoost(400) == 200 && AppPrefs.normalizeVolumeBoost(-2) == 0
+                && AppPrefs.normalizeVolumeBoost(200) == 200);
         check("v340 A8: normalizeOrientation", "landscape".equals(AppPrefs.normalizeOrientation("landscape"))
             && "auto".equals(AppPrefs.normalizeOrientation("sideways")));
         check("v340 A8: normalizeExternalPlayer", "vlc".equals(AppPrefs.normalizeExternalPlayer("vlc"))
@@ -4942,22 +4957,23 @@ public class ReceiverLab {
             readRepoFile("src/lk/techworld/anantplay/sicast/ScrubBar.java").contains("setBuffered")
                 && readRepoFile("src/lk/techworld/anantplay/sicast/ScrubBar.java").contains("24 * density"));
         check("v340 classes: the player uses ScrubBar, not the framework SeekBar",
-            playSrc.contains("seek = new ScrubBar(") && !playSrc.contains("seek = new SeekBar("));
-        check("v340 classes: the player's three sheets are UiSheets",
-            playSrc.contains("UiSheet.show(this") && countOf(playSrc, "UiSheet.show(this") >= 3);
+            playSrc.contains("chrome.seek") && !playSrc.contains("seek = new SeekBar("));
+        check("v346l classes: the player's sheets are UiSheets (in the CinemaSheets module)",
+            readRepoFile("src/lk/techworld/anantplay/sicast/CinemaSheets.java").contains("UiSheet.show(a, p, prefs, b,")
+                && countOf(readRepoFile("src/lk/techworld/anantplay/sicast/CinemaSheets.java"), "UiSheet.show(") >= 4);
         check("v340 classes: the browser overflow is a sheet, not a PopupMenu instance",
             !readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java")
                 .contains("new android.widget.PopupMenu"));
 
         System.out.println("== v3.4.0 A11 — version parity 3.4.0 / 30400 ==");
         String manifest340 = readRepoFile("AndroidManifest.xml");
-        check("v346k A11: the Gradle host declares 30417 / 3.4.6.k (AGP 9 owns the identity)",
-        readRepoFile("android/app/build.gradle").contains("versionCode = 30417")
-            && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.k\"")
+        check("v346l A11: the Gradle host declares 30418 / 3.4.6.l (AGP 9 owns the identity)",
+        readRepoFile("android/app/build.gradle").contains("versionCode = 30418")
+            && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.l\"")
                 && readRepoFile("android/app/build.gradle").contains("targetSdk = 36")
                 && !manifest340.contains("android:minSdkVersion"));
-        check("v346k A11: AppInfo is 3.4.6.k / 30417",
-            "3.4.6.k".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30417);
+        check("v346l A11: AppInfo is 3.4.6.l / 30418",
+            "3.4.6.l".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30418);
         check("v340 A11: still v3.x (never v4)",
             AppInfo.VERSION_CODE < 40000 && AppInfo.VERSION_NAME.startsWith("3."));
     }
@@ -5378,8 +5394,13 @@ public class ReceiverLab {
             && latest.contains("\"code\":30417")
             && latest.contains("/download/v3.4.6.k/AnantPlay-Sinhala-Player-v3.4.6.k.apk")
             && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*");
+        // v3.4.6.l lab: the .l tier this release publishes also counts.
+        boolean latestIsV346l = latest.contains("\"version\":\"3.4.6.l\"")
+            && latest.contains("\"code\":30418")
+            && latest.contains("/download/v3.4.6.l/AnantPlay-Sinhala-Player-v3.4.6.l.apk")
+            && latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*");
         check("v346c customize: latest.json points to a valid signed release",
-            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease || latestIsV346a || latestIsV346aPrior || latestIsV346c || latestIsV346cPrev || latestIsV346d || latestIsV346e || latestIsV346f || latestIsV346g || latestIsV346h || latestIsV346i || latestIsV346j || latestIsV346k));
+            (latestIsPriorSigned || latestIsCurrentSigned || latestIsCurrentRelease || latestIsV346a || latestIsV346aPrior || latestIsV346c || latestIsV346cPrev || latestIsV346d || latestIsV346e || latestIsV346f || latestIsV346g || latestIsV346h || latestIsV346i || latestIsV346j || latestIsV346k || latestIsV346l));
         check("v331 customize: docs/latest.json carries a 64-hex SHA-256",
             latest.matches("(?s).*\"sha256\":\"[0-9a-f]{64}\".*"));
 
@@ -5479,8 +5500,8 @@ public class ReceiverLab {
                 && relYml.contains("3.4.6.e must derive exactly 30411")
                 && relYml.contains("3.4.6.f must derive exactly 30412"),
             "no derived code may sit at or below 30412 (except the pinned .e/.f tiers)");
-        check("v346k LAW: build-apk.yml carries the 3.4.6.k / 30417 lock (the shipping identity)",
-        buildYml.contains("test \"$VERSION\" = \"3.4.6.k\"") && buildYml.contains("test \"$CODE\" = \"30417\""));
+        check("v346l LAW: build-apk.yml carries the 3.4.6.l / 30418 lock (the shipping identity)",
+        buildYml.contains("test \"$VERSION\" = \"3.4.6.l\"") && buildYml.contains("test \"$CODE\" = \"30418\""));
         check("v346d LAW: the lab itself proves the whole alphabet by execution (no ceiling in the lab)",
             readRepoFile("lab/ReceiverLab.java").contains("for (char ch = 'a'; ch < 'z'; ch++)")
                 && readRepoFile("lab/ReceiverLab.java").contains("the full a→z sweep is strictly increasing"));
@@ -5999,6 +6020,9 @@ public class ReceiverLab {
         System.out.println("== v3.4.5 UI — Mornye glass, icon-first player, clean chrome ==");
         String main = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
         String play = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        String hud = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/CinemaHud.java"));
+        String cinemaSheets = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/CinemaSheets.java"));
+        String cinemaGestures = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/CinemaGestures.java"));
         String glassIcon = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/UiGlassIcon.java"));
         String uiCard = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/UiCard.java"));
         String manifest = readRepoFile("AndroidManifest.xml");
@@ -6008,21 +6032,21 @@ public class ReceiverLab {
         String releaseWorkflow = readRepoFile(".github/workflows/release-apk.yml");
 
         // v3.4.6 — AGP 9 owns the app identity in android/app/build.gradle.
-        check("v346k identity: the Gradle host declares app version 3.4.6.k / code 30417",
-            readRepoFile("android/app/build.gradle").contains("versionCode = 30417") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.k\"")
+        check("v346l identity: the Gradle host declares app version 3.4.6.l / code 30418",
+            readRepoFile("android/app/build.gradle").contains("versionCode = 30418") && readRepoFile("android/app/build.gradle").contains("versionName = \"3.4.6.l\"")
                 && readRepoFile("android/app/build.gradle").contains("targetSdk = 36"));
-        check("v346k identity: AppInfo matches the manifest",
-            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6.k\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30417"));
-        check("v346k identity: build.sh defaults and downgrade floor use 3.4.6.k / 30417",
-            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6.k") && readRepoFile("build.sh").contains("VERSION_CODE:-30417") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30416"));
-        check("v346k identity: CI validates the manifest and emits dynamic version outputs",
-            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6.k\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30417\""));
+        check("v346l identity: AppInfo matches the manifest",
+            readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("\"3.4.6.l\"") && readRepoFile("src/lk/techworld/anantplay/sicast/AppInfo.java").contains("30418"));
+        check("v346l identity: build.sh defaults and downgrade floor use 3.4.6.l / 30418 (prev 30417)",
+            readRepoFile("build.sh").contains("VERSION_NAME:-3.4.6.l") && readRepoFile("build.sh").contains("VERSION_CODE:-30418") && readRepoFile("build.sh").contains("PREV_VERSION_CODE:-30417"));
+        check("v346l identity: CI validates the manifest and emits dynamic version outputs",
+            readRepoFile(".github/workflows/build-apk.yml").contains("test \"$VERSION\" = \"3.4.6.l\"") && readRepoFile(".github/workflows/build-apk.yml").contains("test \"$CODE\" = \"30418\""));
         check("v344 identity: CI artifact names use the resolved version",
             buildWorkflow.contains("AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}.apk")
                 && buildWorkflow.contains("name: AnantPlay-Sinhala-Player-v${{ steps.app-version.outputs.version }}-apk"));
-        check("v346k identity: release dispatch defaults to 3.4.6.k",
-            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6.k'")
-                || readRepoFile(".github/workflows/release-apk.yml").contains("default: \"3.4.6.k\""));
+        check("v346l identity: release dispatch defaults to 3.4.6.l",
+            readRepoFile(".github/workflows/release-apk.yml").contains("default: '3.4.6.l'")
+                || readRepoFile(".github/workflows/release-apk.yml").contains("default: \"3.4.6.l\""));
 
         check("v346 home: the visible app title is fixed to AnantPlay Player",
             readRepoFile("ui/lib/anantplay/home_screen.dart").contains("AnantPlay Player"));
@@ -6052,67 +6076,61 @@ public class ReceiverLab {
         check("v346 settings: the Appearance section opens the studio",
             readRepoFile("ui/lib/anantplay/settings_screen.dart").contains("Appearance"));
 
-        check("v344 player: dock has exactly five fixed actions in its dedicated helper",
-            countOf(play, "dock.addView(") == 5 && play.contains("dock.addView(speedDockControl(), dockWeight());"));
-        check("v344 player: dock order is subtitles, tracks, aspect, speed, search",
-            play.indexOf("dockIcon(R.drawable.ic_subtitles")
-                < play.indexOf("dockIcon(R.drawable.ic_audio_track")
-                && play.indexOf("dockIcon(R.drawable.ic_audio_track")
-                < play.indexOf("aspectDockButton = dockIcon")
-                && play.indexOf("aspectDockButton = dockIcon")
-                < play.indexOf("speedDockControl()")
-                && play.indexOf("speedDockControl()")
-                < play.indexOf("dockIcon(R.drawable.ic_search"));
+        // v3.4.6.l — the NEXT-LEVEL dock: six evenly weighted quick actions in
+        // CinemaHud (rotate, aspect, speed, PiP, external VLC, search subs), each
+        // an icon-only 44dp ripple target with its accessibility description.
+        check("v344 player: dock has exactly six fixed actions in the CinemaHud dock row",
+            countOf(hud, "dock.addView(") == 6 && hud.contains("dockWeight"));
+        check("v344 player: dock order is rotate, aspect, speed, PiP, external VLC, search",
+            hud.indexOf("R.drawable.ic_rotate")
+                < hud.indexOf("R.drawable.ic_aspect_fit")
+                && hud.indexOf("R.drawable.ic_aspect_fit")
+                < hud.indexOf("R.drawable.ic_speed")
+                && hud.indexOf("R.drawable.ic_speed")
+                < hud.indexOf("R.drawable.ic_pip")
+                && hud.indexOf("R.drawable.ic_pip")
+                < hud.indexOf("R.drawable.ic_vlc_external")
+                && hud.indexOf("R.drawable.ic_vlc_external")
+                < hud.indexOf("R.drawable.ic_search"));
         check("v344 player: bottom dock is fixed and does not use a horizontal scroll container",
-            play.contains("hudBottomBar.addView(dock, new LinearLayout.LayoutParams(-1, dp(52)));")
+            hud.contains("c.bottomBar.addView(dock, new LinearLayout.LayoutParams(-1, UiCard.dp(a, 52)));")
                 && !play.contains("HorizontalScrollView dock"));
-        check("v345 player: icon controls use accessible glass buttons at 44–48dp",
-            play.contains("UiGlassIcon.create(this, prefs, resId, Color.WHITE")
-                && glassIcon.contains("listener == null ? 32 : 44"));
+        check("v345 player: icon controls use accessible icon-only 44dp ripple targets",
+            hud.contains("plate.setMinimumWidth(dp48)")
+                && hud.contains("plate.setContentDescription(description)"));
         check("v345 player: dock labels are provided as accessibility descriptions",
-            glassIcon.contains("medallion.setContentDescription(description);")
-                && play.contains("Playback speed: "));
-        check("v344 player: subtitle-loaded status uses an accessible indicator",
-            play.contains("subtitleDockDot") && play.contains("Sinhala subtitles loaded"));
-        check("v344 player: top controls include lock, rotate, PiP, external player, and settings",
-            play.contains("icon(R.drawable.ic_lock, 20")
-                && play.contains("icon(R.drawable.ic_rotate, 20")
-                && play.contains("icon(R.drawable.ic_pip, 20")
-                && play.contains("icon(R.drawable.ic_vlc_external, 20")
-                && play.contains("icon(R.drawable.ic_settings, 20"));
+            hud.contains("\"Aspect ratio\"") && hud.contains("\"Rotate screen\""));
+        check("v344 player: subtitle-loaded status uses the compact accessible chrome badge",
+            hud.contains("announceSubtitles") && play.contains("paintSubtitleBadge()"));
+        check("v344 player: top controls include lock, audio tracks, subtitles, and settings",
+            hud.contains("R.drawable.ic_lock")
+                && hud.contains("R.drawable.ic_audio_track")
+                && hud.contains("R.drawable.ic_subtitles")
+                && hud.contains("R.drawable.ic_settings"));
         check("v344 player: PiP control calls the real Picture-in-Picture action",
-            play.contains("v -> enterPictureInPicture()") && play.contains("enterPictureInPictureMode"));
+            hud.contains("ops.onPip()") && play.contains("enterPictureInPictureMode"));
         check("v344 player: playback button description tracks play/pause state",
-            play.contains("playing ? \"Pause playback\" : \"Play playback\""));
-        check("v344 player: speed control includes 2.5x and exposes the chosen rate",
-            play.contains("2f, 2.5f") && play.contains("Playback speed: \" + value"));
+            hud.contains("playing ? \"Pause playback\" : \"Play playback\""));
+        check("v344 player: speed control exposes the chosen rate on the dock label",
+            hud.contains("c.speedLabel") && play.contains("chrome.speedLabel.setText"));
         check("v344 player: aspect sheet exposes Fit, Fill, 16:9, and Stretch",
-            play.contains("new String[]{\"Fit\", \"Fill\", \"16:9\", \"Stretch\"}"));
+            cinemaSheets.contains("new String[]{\"Fit\", \"Fill\", \"16:9\", \"Stretch\"}"));
         check("v344 player: sleep timer options persist and arm the timer",
-            play.contains("new String[]{\"Off\", \"15m\", \"30m\", \"60m\"}")
-                && play.contains("putLong(AppPrefs.K_SLEEP_TIMER_MS, values[i])")
-                && play.contains("armSleepTimer(values[i])"));
-        check("v344 player: subtitle settings panel uses the selected flat/glass surface",
-            play.contains("ThemeEngine.cardFill(palette, AppPrefs.glass(prefs))")
-                && play.contains("ThemeEngine.hairline(palette, AppPrefs.borderAlpha(prefs))")
-                && play.contains("if (AppPrefs.glass(prefs))"));
+            cinemaSheets.contains("new String[]{\"Off\", \"15m\", \"30m\", \"60m\"}")
+                && cinemaSheets.contains("ops.armSleep"));
+        check("v344 player: every sheet paints the selected flat/glass surface",
+            readRepoFile("src/lk/techworld/anantplay/sicast/UiCard.java").contains("if (glass)")
+                && readRepoFile("src/lk/techworld/anantplay/sicast/UiCard.java").contains("hairline"));
 
-        check("v344 subtitles: secondary tools start collapsed",
-            play.contains("moreBody.setVisibility(View.GONE);"));
-        check("v344 subtitles: More Tools has a single accessible expanded/collapsed state",
-            play.contains("More subtitle tools, collapsed")
-                && play.contains("More subtitle tools, expanded")
-                && play.contains("moreChevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO)"));
-        check("v344 subtitles: secondary providers and AI tools live below the disclosure",
-            play.indexOf("LinearLayout toolsRow = UiChip.stripRow(this);")
-                < play.indexOf("toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_sun, \"AI Studio\"")
-                && play.contains("NewZone translator") && play.contains("Audio → SRT (AI)"));
-        check("v344 subtitles: free translation is inside the collapsed tools row",
-            play.contains("toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate, t2(\"Free translate\")"));
-        check("v344 subtitles: sync controls and live style sliders remain in the primary sheet",
-            play.indexOf("LinearLayout syncRow = UiChip.stripRow(this);")
-                < play.indexOf("LinearLayout moreWrap = new LinearLayout(this);")
-                && play.contains("UiSlider.make(this, p, prefs"));
+        check("v346l subtitles: the primary sheet carries the sync stepper + live style sliders",
+            cinemaSheets.contains("step(a, \"−1s\"") && cinemaSheets.contains("UiSlider.make(a, p, prefs"));
+        check("v346l subtitles: the free translate + retry lanes are one tap away",
+            cinemaSheets.contains("Free Sinhala translate") && cinemaSheets.contains("Retry subtitles"));
+        check("v346l subtitles: the language flow carries every chip + More + Off",
+            cinemaSheets.contains("Langs.chips()") && cinemaSheets.contains("\"Off\"")
+                && cinemaSheets.contains("ops.openMoreTools()"));
+        check("v346l subtitles: the legacy More-tools registry stays reachable (showLangSheet)",
+            play.contains("showLangSheet()") && play.contains("private String t2(String s)"));
         check("v344 subtitles: UI translation helper routes bilingual text through Chrome",
             play.contains("private String t2(String s) { return Chrome.pick(s); }"));
 
@@ -6295,26 +6313,25 @@ public class ReceiverLab {
     // ═════════════════════════════════════════════════════════════════════════
     static void v342PlayerLayoutChecks() throws Exception {
         String play = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/PlayActivity.java"));
+        String hud = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/CinemaHud.java"));
+        String cinemaSheets = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/CinemaSheets.java"));
+        String cinemaGestures = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/CinemaGestures.java"));
         String main = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/MainActivity.java"));
         String web = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/WebBrowserView.java"));
         String manifest = readRepoFile("AndroidManifest.xml");
 
         // ── the giant-icon fix: 44dp plate, real padding, 20dp glyph ──
         String glassIcon = stripComments(readRepoFile("src/lk/techworld/anantplay/sicast/UiGlassIcon.java"));
-        check("v345 player: the HUD icon plate is 48dp and interactive targets never fall below 44dp",
-            play.contains("ICON_BOX_DP = 48")
-                && glassIcon.contains("Math.max(targetDp, listener == null ? 32 : 44)"));
-        check("v345 player: the HUD uses centered, accessible glass medallions",
-            play.contains("UiGlassIcon.create(this, prefs, resId")
-                && glassIcon.contains("glyphLp")
-                && glassIcon.contains("setContentDescription(description)")
-                && glassIcon.contains("GlassSurface.applyIcon"));
-        check("v342 player: every top-bar plate is added at ICON_BOX_DP (never a bare 36dp)",
-            !play.contains("new LinearLayout.LayoutParams(dp(36), dp(36))"));
-        check("v342 player: the top bar uses topIconParams() for all five right-side plates",
-            countOf(play, "hudTopBar.addView(") == 8
-                && countOf(play, "topIconParams()") == 6,     // 5 call sites + the definition
-            "addView=" + countOf(play, "hudTopBar.addView(") + " params=" + countOf(play, "topIconParams()"));
+        check("v346l player: the HUD icon targets are icon-only 44dp ripple plates (the gray medallions are retired)",
+            hud.contains("int dp48 = UiCard.dp(a, 48);")
+                && hud.contains("RippleDrawable")
+                && !hud.contains("GlassSurface.applyIcon"));
+        check("v346l player: every chrome glyph is a crisp 22-24dp white vector (zero 36dp plates)",
+            hud.contains("R.drawable.ic_back, 24") && hud.contains("R.drawable.ic_lock, 22")
+                && !hud.contains("new LinearLayout.LayoutParams(dp(36), dp(36))"));
+        check("v346l player: the top bar mounts back + title block + four 44dp icon targets",
+            countOf(hud, "c.topBar.addView(") == 6,
+            "topBar.addView=" + countOf(hud, "c.topBar.addView("));
 
         // ── subtitles at the BOTTOM, never the centre ──
         check("v342 player: subView's layout gravity is Gravity.BOTTOM | CENTER_HORIZONTAL",
@@ -6352,9 +6369,9 @@ public class ReceiverLab {
         check("v342 player: no pillBox.addView(subActions|langChips|extraActions) survives",
             !play.contains("pillBox.addView(subActions") && !play.contains("pillBox.addView(langChips")
                 && !play.contains("pillBox.addView(extraActions"));
-        check("v342 player: the deleted controls live in the Subtitles sheet instead",
-            play.contains("Retry") && play.contains("Provider") && play.contains("Spoken/Formal")
-                && play.contains("AI Studio") && play.contains("toolsRow"));
+        check("v346l player: the deleted controls live in the sheets + the legacy registry instead",
+            cinemaSheets.contains("Retry subtitles") && play.contains("openMoreTools()")
+                && play.contains("showLangSheet()"));
 
         // ── true immersive fullscreen ──
         check("v342 player: immersive mode hides statusBars() | navigationBars()",
@@ -6372,8 +6389,9 @@ public class ReceiverLab {
         check("v342 player: the orientation sheet offers Auto / Lock landscape / Lock portrait",
             play.contains("Auto-rotate (sensor)") && play.contains("Lock landscape")
                 && play.contains("Lock portrait"));
-        check("v342 player: the hold-to-2x boost exists and restores the previous speed",
-            play.contains("player.setPlaybackSpeed(2f)") && play.contains("speedBeforeBoost"));
+        check("v346l player: the hold-speed lane lives in CinemaGestures (1.5x/2.0x/2.5x)",
+            cinemaGestures.contains("longPressSpeedPerMille") && cinemaGestures.contains("holdSpeedStart")
+                && cinemaGestures.contains("holdSpeedEnd"));
         check("v342 player: the speed picker reaches 2.5x",
             play.contains("2.5f") && play.contains("0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 2.5f"));
 
@@ -7494,7 +7512,9 @@ public class ReceiverLab {
                 && main.contains("AppPrefs.K_ONBOARDING_VERSION.equals(key)"));
         check("v346f gap2: Dart exposes importBackup + visible feedback lanes",
             bridge.contains("invokeMethod('importBackup'")
-                && feedback.contains("Up to date ($kVisibleVersion)")
+                // v3.4.6.l — the stale-literal kill: the pill renders the LIVE
+                // kLiveVersion notifier (AppInfo.VERSION_NAME), never a literal.
+                && feedback.contains("Up to date (v${kLiveVersion.value})")
                 && feedback.contains("Worker unreachable · HTTP")
                 && feedback.contains("Imported $applied settings"));
 
@@ -7576,21 +7596,21 @@ public class ReceiverLab {
     }
 
     static void v346fVersionIdentityChecks() throws Exception {
-        check("v346k id: AppInfo is 3.4.6.k / 30417",
-            "3.4.6.k".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30417);
+        check("v346l id: AppInfo is 3.4.6.l / 30418",
+            "3.4.6.l".equals(AppInfo.VERSION_NAME) && AppInfo.VERSION_CODE == 30418);
         check("v346e id: the alphabetical ladder places .e strictly above .d",
             UpdateChecker.isNewer("3.4.6.e", "3.4.6.d") && !UpdateChecker.isNewer("3.4.6.d", "3.4.6.e"));
         String buildSh = readRepoFile("build.sh");
-        check("v346k id: build.sh defaults to 3.4.6.k / 30417 (prev 30416)",
-            buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.k}")
-            && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30417}")
-            && buildSh.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30416}"));
+        check("v346l id: build.sh defaults to 3.4.6.l / 30418 (prev 30417)",
+            buildSh.contains("VERSION_NAME=${VERSION_NAME:-3.4.6.l}")
+            && buildSh.contains("VERSION_CODE=${VERSION_CODE:-30418}")
+            && buildSh.contains("PREV_VERSION_CODE=${PREV_VERSION_CODE:-30417}"));
         String gradle = readRepoFile("android/app/build.gradle");
-        check("v346k id: gradle declares 30417 / \"3.4.6.k\"",
-            gradle.contains("versionCode = 30417") && gradle.contains("versionName = \"3.4.6.k\""));
+        check("v346l id: gradle declares 30418 / \"3.4.6.l\"",
+            gradle.contains("versionCode = 30418") && gradle.contains("versionName = \"3.4.6.l\""));
         String pubspec = readRepoFile("ui/pubspec.yaml");
-        check("v346k id: ui/pubspec.yaml is 3.4.6+30417 (pure integer build)",
-            pubspec.contains("version: 3.4.6+30417"));
+        check("v346l id: ui/pubspec.yaml is 3.4.6+30418 (pure integer build)",
+            pubspec.contains("version: 3.4.6+30418"));
         // docs/latest.json — THE TWO-LEG CONTRACT, WITHOUT A HARDCODED VERSION.
         // On a release branch it still points at the PREVIOUS live release (the
         // post-merge release job is the only writer). On main, after that job
@@ -7619,13 +7639,13 @@ public class ReceiverLab {
             latest.contains("/releases/download/v" + liveV + "/AnantPlay-Sinhala-Player-v" + liveV + ".apk"),
             "url does not derive from " + liveV);
         String relYml = readRepoFile(".github/workflows/release-apk.yml");
-        check("v346k id: the release workflow defaults to 3.4.6.k and keeps the monotonic ladder",
-            (relYml.contains("default: '3.4.6.k'") || relYml.contains("default: \"3.4.6.k\""))
+        check("v346l id: the release workflow defaults to 3.4.6.l and keeps the monotonic ladder",
+            (relYml.contains("default: '3.4.6.l'") || relYml.contains("default: \"3.4.6.l\""))
             && relYml.contains("3.4.6.f must derive exactly 30412"));
         String buildApkYml = readRepoFile(".github/workflows/build-apk.yml");
-        check("v346k id: build-apk.yml locks 3.4.6.k / 30417",
-            buildApkYml.contains("test \"$VERSION\" = \"3.4.6.k\"")
-            && buildApkYml.contains("test \"$CODE\" = \"30417\""));
+        check("v346l id: build-apk.yml locks 3.4.6.l / 30418",
+            buildApkYml.contains("test \"$VERSION\" = \"3.4.6.l\"")
+            && buildApkYml.contains("test \"$CODE\" = \"30418\""));
     }
 
     /** The compact cinema subtitle contract (the oversized fix). */

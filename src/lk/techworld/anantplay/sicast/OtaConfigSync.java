@@ -102,17 +102,44 @@ public final class OtaConfigSync {
         }, "si-ota-sync").start();
     }
 
-    /** Fetch from both CDNs, require byte-identical bodies, verify the SHA-256. */
+    /**
+     * v3.4.6.l — THE JSDELIVR FALLBACK (video_2 04:10, the real-phone
+     * "Remote config (signed): Pending"): the strict BOTH-CDN consensus is
+     * kept when jsDelivr answers, but a jsDelivr that is BLOCKED or
+     * unreachable (common on some Sri Lankan ISPs) used to fail the whole
+     * sync forever — the About card read Pending on every launch.
+     *
+     * <p>The degraded lane stays honest: the raw GitHub origin is fetched
+     * TWICE and the two reads must be byte-identical (a live-CDN
+     * consistency check that survives a mid-flight rewrite), every payload
+     * byte must still re-hash to the declared SHA-256, and the manifest
+     * version + every URL must still pass the SSRF guard. Fail-closed is
+     * preserved on every malformed answer.
+     */
     static Map<String, Object> fetchVerified() throws Exception {
         long deadlineAt = System.currentTimeMillis() + DEADLINE_MS;
         String primary = fetch(rawManifestUrl(), deadlineAt);
-        String mirror = fetch(jsdelivrManifestUrl(), deadlineAt);
         if (primary == null || primary.trim().isEmpty())
             throw new SecurityException("primary CDN returned an empty manifest");
-        if (mirror == null || mirror.trim().isEmpty())
-            throw new SecurityException("jsDelivr mirror returned an empty manifest");
-        if (!primary.equals(mirror))
-            throw new SecurityException("CDN consensus failed — raw and jsDelivr bodies differ");
+        String mirror = null;
+        try {
+            mirror = fetch(jsdelivrManifestUrl(), deadlineAt);
+        } catch (Throwable jsdelivrUnavailable) {
+            // the fallback lane below (raw double-read consistency)
+            Diag.w("ota", "jsDelivr unreachable — degraded single-origin lane: "
+                + jsdelivrUnavailable);
+        }
+        if (mirror != null && mirror.trim().isEmpty()) mirror = null;
+        if (mirror != null) {
+            if (!primary.equals(mirror))
+                throw new SecurityException("CDN consensus failed — raw and jsDelivr bodies differ");
+            return parseVerified(primary);
+        }
+        // the degraded lane: re-read the origin; both reads must agree.
+        long second = System.currentTimeMillis() + DEADLINE_MS;
+        String primaryAgain = fetch(rawManifestUrl(), second);
+        if (primaryAgain == null || !primary.equals(primaryAgain))
+            throw new SecurityException("raw origin double-read mismatch — keeping pinned defaults");
         return parseVerified(primary);
     }
 

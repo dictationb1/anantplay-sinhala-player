@@ -301,17 +301,30 @@ public class PlayActivity extends Activity {
 
     private ExoPlayer player;
     private SurfaceView surface;
+    // v3.4.6.l — the clamped loudness enhancer + its audio session (see
+    // applyVolumeBoost for the full buzz-kill contract).
+    private android.media.audiofx.LoudnessEnhancer boostFx;
+    private int audioSessionId;
     private TextView subView;         // the Sinhala (or fallback English) line
     private TextView notice;          // transient toasts ("+10 s", "Brightness 40%")
-    private TextView hudTitle, hudStatus;
+    private TextView hudTitle;        // v3.4.6.l — aliases into the CinemaHud chrome
     private TextView timeNow, timeTotal;
     private ScrubBar seek;
     private CapsuleBar brightCapsule, volCapsule;
     private View playPause;
     private View spinner;
-    private LinearLayout hud, panel, sheet;
-    private LinearLayout hudTopBar, hudBottomBar;
+    private FrameLayout hud;          // chrome.root (the full-screen HUD overlay)
+    private LinearLayout hudTopBar, hudBottomBar;   // chrome.topBar / bottomBar
     private TextView errorBox;
+    // ══ v3.4.6.l — THE MODULAR NEXT-LEVEL CINEMA ENGINE ═════════════════════
+    // CinemaHud (the chrome) + CinemaGestures (the gesture engine) +
+    // CinemaSheets (the dark-glass sheets). The v3.3 hand-rolled HUD, its gray
+    // medallion plates, the purple settings sheet and the inline gesture blob
+    // are RETIRED — the fields above (hudTitle/seek/timeNow/...) stay as live
+    // aliases into the chrome so the ticker / snapshot / statusJson surface
+    // below keeps its contract unchanged.
+    private CinemaHud.Chrome chrome;
+    private TextView scrubPill, speedPill, aspectPill;   // the gesture feedback pills
     /** v2.2: the language chip row + register/Option-C row (shown with the pill). */
     // v3.4.2 — langChips / extraActions / subActions are DELETED: their content moved
     // into the Subtitles sheet, off the video surface entirely.
@@ -379,14 +392,6 @@ public class PlayActivity extends Activity {
      *  FrameLayout. This was a LinearLayout.LayoutParams in v3.3.0: every
      *  measure pass died in FrameLayout.onMeasure(FrameLayout.java:195). */
     private FrameLayout.LayoutParams pillLp;
-    /** The five fixed, accessible bottom-dock controls. */
-    private View aspectDockButton, speedDockButton;
-    private View subtitleDockDot;
-    private TextView speedChip;
-    /** The compact "සිංහල ✓" badge in the top bar (ONE, never duplicated). */
-    private TextView badgeSub;
-    /** The gesture feedback pill + the double-tap ⏪/⏩ ripples. */
-    private TextView gesturePill, dblLeft, dblRight;
     /** The decoded video geometry (Media3 onVideoSizeChanged). */
     private int videoW, videoH;
     private float videoPar = 1f;
@@ -725,7 +730,6 @@ public class PlayActivity extends Activity {
     protected void onPause() {
         super.onPause();
         saveHistory();
-        if (boosting) boostOff();
     }
 
     @Override
@@ -829,6 +833,11 @@ public class PlayActivity extends Activity {
             currentInstance = null;
             snapshot = ReceiverServer.idleJson();
         }
+        if (boostFx != null) {
+            try { boostFx.setEnabled(false); } catch (Throwable ignored) { }
+            try { boostFx.release(); } catch (Throwable ignored) { }
+            boostFx = null;
+        }
         if (player != null) {
             try { player.release(); } catch (Throwable ignored) { }
             player = null;
@@ -841,8 +850,6 @@ public class PlayActivity extends Activity {
     public void onPictureInPictureModeChanged(boolean inPip, Configuration c) {
         super.onPictureInPictureModeChanged(inPip, c);
         if (hud != null) hud.setVisibility(inPip || !hudVisible ? View.GONE : View.VISIBLE);
-        if (panel != null) panel.setVisibility(View.GONE);      // never a floating subs panel
-        if (sheet != null) sheet.setVisibility(View.GONE);    // v3.2.0: never a floating settings sheet
     }
 
     /** Android 12+: let the system enter PiP itself (no onUserLeaveHint race).
@@ -1015,9 +1022,25 @@ public class PlayActivity extends Activity {
             DefaultRenderersFactory hardwareRenderers = new DefaultRenderersFactory(this)
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                     .setEnableDecoderFallback(true);
+            // v3.4.6.l — the AUDIO SESSION: claimed once per build so the clamped
+            // LoudnessEnhancer attaches to THIS player's own sink (the v3.4.0 bus
+            // buzz kill; see applyVolumeBoost). A rebuild (retry ladder) first
+            // detaches the previous enhancer — the old session dies with the old
+            // player and a dangling effect must never survive it.
+            if (boostFx != null) {
+                try { boostFx.setEnabled(false); } catch (Throwable ignored) { }
+                try { boostFx.release(); } catch (Throwable ignored) { }
+                boostFx = null;
+            }
+            audioSessionId = ((android.media.AudioManager) getSystemService(AUDIO_SERVICE))
+                    .generateAudioSessionId();
             player = new ExoPlayer.Builder(this)
                 .setRenderersFactory(hardwareRenderers)
-                .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS)
+                // v3.4.6.l — the frame-rate toggle (customization sheet + Flutter
+                // Playback settings): OFF keeps the platform default strategy.
+                .setVideoChangeFrameRateStrategy(AppPrefs.frameRateMatch(prefs)
+                    ? C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS
+                    : C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
                 .setLoadControl(new DefaultLoadControl.Builder()
                     .setBufferDurationsMs(30_000, 60_000, 2_500, 5_000)
                     .build())
@@ -1026,7 +1049,9 @@ public class PlayActivity extends Activity {
                 .setAudioAttributes(new AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
                 .build();
+            try { player.setAudioSessionId(audioSessionId); } catch (Throwable ignored) { }
             player.setWakeMode(C.WAKE_MODE_LOCAL);
+            applyVolumeBoost();
             player.setVideoSurfaceView(surface);
             player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build());   // our cues first, like AnantPlay
@@ -1200,18 +1225,28 @@ public class PlayActivity extends Activity {
         return statusJson();
     }
 
-    /** STATE_READY: the seek bar learns the duration; live shows AnantPlay's ● LIVE (PlayerActivity.java:1445-1448). */
+    /**
+     * STATE_READY: the seek bar learns the duration; live shows the LIVE mark.
+     * v3.4.6.l — THE HONEST DURATION CONTRACT (video_2 05:41, the broken
+     * "0:00:16 / 0:00" readout): the total is ONLY ever painted when
+     * {@code getDuration() != C.TIME_UNSET && > 0}; while metadata resolves the
+     * right-hand clock reads {@code --:--} and updates smoothly the moment the
+     * real duration lands (a 0 ms or TIME_UNSET total can never appear).
+     */
     private void onReady() {
         if (player == null) return;
         long dur = player.getDuration();
         live = dur == C.TIME_UNSET || player.isCurrentMediaItemLive();
         if (live) {
             seek.setVisibility(View.INVISIBLE);
-            timeTotal.setText("● LIVE");
-        } else {
+            timeTotal.setText("LIVE");
+        } else if (dur > 0) {
             seek.setVisibility(View.VISIBLE);
             seek.setDuration((long) Math.max(1, dur));
             timeTotal.setText(ReceiverServer.clock(dur));
+        } else {
+            seek.setVisibility(View.VISIBLE);
+            timeTotal.setText("--:--");
         }
         hudTitle.setText(title);
         showStatus();
@@ -1756,7 +1791,7 @@ public class PlayActivity extends Activity {
         cues = sorted;
         // a fresh track always resets the "first cue rendered" proof + the offset guard
         firstCueRendered = false;
-        paintSubtitleDock();
+        paintSubtitleBadge();
         cueRangeWarned = false;
         boolean hasEn = false;
         for (Cue c : sorted) if (c.en != null && !c.en.isEmpty()) { hasEn = true; break; }
@@ -1864,7 +1899,7 @@ public class PlayActivity extends Activity {
             subView.setVisibility(show.isEmpty() ? View.GONE : View.VISIBLE);
             if (!firstCueRendered && !show.isEmpty()) {
                 firstCueRendered = true;
-                paintSubtitleDock();
+                paintSubtitleBadge();
                 Diag.i("subs", "first cue rendered \u2713 (layer 4, stream CC)");
                 Troubleshooter.record("SUBS", "[SUBS] first cue rendered \u2713 · source=layer4 stream CC");
             }
@@ -2148,7 +2183,7 @@ public class PlayActivity extends Activity {
                     // v3.4.1 — the first painted cue is a PROOF, not an assumption
                     if (!firstCueRendered && text != null && !text.trim().isEmpty()) {
                         firstCueRendered = true;
-                        paintSubtitleDock();
+                        paintSubtitleBadge();
                         if (subView != null && (subView.getAlpha() < 1f
                                 || (subLayer != null && subLayer.getVisibility() != View.VISIBLE))) {
                             main.post(PlayActivity.this::repairSubtitleView);
@@ -2183,7 +2218,7 @@ public class PlayActivity extends Activity {
                     }
                 }
                 if (hudVisible) {
-                    timeNow.setText(ReceiverServer.clock(player.getCurrentPosition()));
+                    paintClock();
                     if (!dragging) seek.setPosition(Math.max(0, player.getCurrentPosition()));
                 }
                 // v3.4.6.j — the Auto-Resume cadence is now WALL-CLOCK guarded
@@ -2253,17 +2288,33 @@ public class PlayActivity extends Activity {
         }
     }
 
+    /** v3.4.6.l — the "first cue rendered" compact badge (the old green dock
+     *  dot is retired; the chrome badge under the title carries the same proof). */
+    private void paintSubtitleBadge() {
+        if (chrome == null) return;
+        List<Cue> c = cues;
+        String label = (c == null ? 0 : c.size()) + " cues · " + Langs.nativeOf(activeLang);
+        CinemaHud.announceSubtitles(chrome, main, label);
+    }
+
+    /** Failures surface their 1-tap fixes: the status pill lingers 6 s. */
+    private void showSubActions() {
+        if (statusPill != null) {
+            statusPill.setVisibility(View.VISIBLE);
+            statusPill.setAlpha(1f);
+            main.removeCallbacks(pillHide);
+            main.postDelayed(pillHide, 6000);   // failures stay a little longer
+        }
+    }
+
     /** The status pill state → bilingual line + color (the never-silent HUD).
      *  v3.2.0: the junk-title search state ("🔍 … තට්ටු කර සොයන්න") tints as a
      *  gentle action color and tapping it opens the title-search dialog. */
     private void showStatus() {
-        if (hudStatus != null) {
-            boolean good = "ready".equals(state) || "local".equals(state);
-            boolean warn = "fetching".equals(state) || "junk".equals(state);   // v3.4.1
-            hudStatus.setText(stateDetail);
-            hudStatus.setTextColor(good ? 0xFF8CFF8C : warn ? 0xFFF59E0B : 0xFFFFB3B3);
-            hudStatus.setVisibility(View.VISIBLE);
-            if (good) main.postDelayed(hudStatusHide, 3000);   // success auto-hides after 3 s
+        // v3.4.6.l — the compact auto-fading chrome badge (CinemaHud) replaces
+        // the v3.3 second banner line: ONE subtle badge under the title, 2.5 s.
+        if (chrome != null && stateDetail != null && !stateDetail.isEmpty()) {
+            CinemaHud.announceSubtitles(chrome, main, stateDetail);
         }
         if (statusPill != null) {
             boolean good = "ready".equals(state) || "local".equals(state);
@@ -2277,10 +2328,6 @@ public class PlayActivity extends Activity {
             if (good) main.postDelayed(pillHide, 2500);
         }
     }
-
-    private final Runnable hudStatusHide = new Runnable() {
-        @Override public void run() { if (hudStatus != null && ("ready".equals(state) || "local".equals(state))) hudStatus.setVisibility(View.INVISIBLE); }
-    };
 
     private final Runnable pillHide = new Runnable() {
         @Override public void run() {
@@ -2426,15 +2473,67 @@ public class PlayActivity extends Activity {
         spinner.setVisibility(View.GONE);
         root.addView(spinner, new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER));
 
-        // ── LAYER 4 — the 3-zone HUD ──────────────────────────────────────────
-        hud = buildHud();
+        // ── LAYER 4 — THE NEXT-LEVEL CINEMA HUD (v3.4.6.l, the modular engine) ──
+        // Gradient scrims + icon-only ripple targets + the tabular clock, built
+        // by CinemaHud; the HUD is an overlay on the SAME root, so the
+        // SurfaceView stays attached beneath it (never detached, never paused).
+        chrome = CinemaHud.build(this, prefs, hudOps());
+        hud = chrome.root;
+        hudTitle = chrome.title;
+        timeNow = chrome.timeNow;
+        timeTotal = chrome.timeTotal;
+        seek = chrome.seek;
+        playPause = chrome.playPause;
+        hudTopBar = chrome.topBar;
+        hudBottomBar = chrome.bottomBar;
         root.addView(hud, new FrameLayout.LayoutParams(-1, -1));
-        panel = buildPanel();
-        root.addView(panel, new FrameLayout.LayoutParams(dp(320), -2, Gravity.END | Gravity.CENTER_VERTICAL));
-        panel.setVisibility(View.GONE);
-        sheet = buildSettingsSheet();
-        root.addView(sheet, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
-        sheet.setVisibility(View.GONE);
+        seek.setListener(new ScrubBar.Listener() {
+            @Override public void onScrubStart() { dragging = true; }
+            @Override public void onScrub(long positionMs) {
+                if (timeNow != null) timeNow.setText(ReceiverServer.clock(positionMs));
+            }
+            @Override public void onScrubEnd(long positionMs) {
+                dragging = false;
+                if (player != null) { player.seekTo(positionMs); updateSnapshot(); }
+                boolean playing = false;
+                try { playing = player != null && player.isPlaying(); } catch (Throwable ignored) { }
+                if (!playing) paintCueOnce();
+            }
+        });
+        timeNow.setOnClickListener(v -> {
+            // v3.4.6.l — tap the clock: elapsed <-> remaining ("-10:16")
+            chrome.remainingTime = !chrome.remainingTime;
+            paintClock();
+        });
+
+        // ── the gesture feedback pills (scrub / hold-speed / pinch-aspect) ─────
+        scrubPill = CinemaGestures.scrubPill(this);
+        FrameLayout.LayoutParams scrubLp = new FrameLayout.LayoutParams(-2, -2,
+            Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        scrubLp.topMargin = dp(84);
+        root.addView(scrubPill, scrubLp);
+        speedPill = CinemaGestures.speedPill(this);
+        FrameLayout.LayoutParams speedLp = new FrameLayout.LayoutParams(-2, -2,
+            Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        speedLp.topMargin = dp(52);
+        root.addView(speedPill, speedLp);
+        aspectPill = CinemaGestures.aspectPill(this);
+        root.addView(aspectPill, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+
+        // the bright/volume capsules flank the transport inside the chrome's
+        // centre zone — mounted on the ROOT so they never re-measure the HUD.
+        LinearLayout capsuleRow = new LinearLayout(this);
+        capsuleRow.setOrientation(LinearLayout.HORIZONTAL);
+        capsuleRow.setGravity(Gravity.CENTER_VERTICAL);
+        brightCapsule = new CapsuleBar(this, R.drawable.ic_brightness, 0xFF0A0A14, 26, 104);
+        brightCapsule.setVisibility(View.GONE);
+        capsuleRow.addView(brightCapsule, new LinearLayout.LayoutParams(-2, -2));
+        capsuleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        capsuleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        volCapsule = new CapsuleBar(this, R.drawable.ic_volume, 0xFF0A0A14, 26, 104);
+        volCapsule.setVisibility(View.GONE);
+        capsuleRow.addView(volCapsule, new LinearLayout.LayoutParams(-2, -2));
+        root.addView(capsuleRow, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_VERTICAL | Gravity.CENTER_HORIZONTAL));
 
         // ── LAYER 5 — the non-intrusive error card (never under the top bar) ──
         errorCard = buildErrorCard();
@@ -2474,8 +2573,12 @@ public class PlayActivity extends Activity {
                 android.view.WindowInsets.Type.navigationBars() | android.view.WindowInsets.Type.displayCutout());
             statusInset = top.top;
             navInset = bottom.bottom;
-            if (hudTopBar != null) hudTopBar.setPadding(dp(6), statusInset + dp(6), dp(6), dp(6));
-            if (hudBottomBar != null) hudBottomBar.setPadding(dp(10), dp(4), dp(10), navInset + dp(8));
+            // v3.4.6.l — the chrome bars: display-cutout safe insets, ZERO clipping
+            // (the top bar sits strictly below statusBars|displayCutout + 8dp).
+            if (hudTopBar != null)
+                hudTopBar.setPadding(dp(16), statusInset + dp(8), dp(8), dp(8));
+            if (hudBottomBar != null)
+                hudBottomBar.setPadding(dp(20), dp(4), dp(20), navInset + dp(10));
             if (pillLp != null) { pillLp.topMargin = statusInset + dp(50); pillBox.setLayoutParams(pillLp); }
             if (subLayer != null) subLayer.setPadding(0, statusInset + dp(40), 0, navInset + dp(96));
             if (unlockPill != null) {
@@ -2483,8 +2586,6 @@ public class PlayActivity extends Activity {
                 ul.bottomMargin = navInset + dp(24);
                 unlockPill.setLayoutParams(ul);
             }
-            if (sheet != null) sheet.setPadding(dp(16), dp(12), dp(16), navInset + dp(16));
-            if (panel != null) panel.setPadding(dp(14), dp(12), dp(14), dp(12));
             applyVideoSize();
             return insets;
         });
@@ -2507,179 +2608,7 @@ public class PlayActivity extends Activity {
      * by the REAL window insets (statusBars|displayCutout on top, navigationBars at
      * the bottom) in buildUi's inset listener.
      */
-    private LinearLayout buildHud() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
 
-        // ══ ZONE 1 — TOP BAR ═══════════════════════════════════════════════════
-        hudTopBar = new LinearLayout(this);
-        hudTopBar.setOrientation(LinearLayout.HORIZONTAL);
-        hudTopBar.setGravity(Gravity.CENTER_VERTICAL);
-        hudTopBar.setMinimumHeight(dp(48));
-        GlassSurface.apply(hudTopBar, prefs, 0xFF101A30, 22);
-
-        View back = icon(R.drawable.ic_back, 20, v -> finish());   // v3.4.2 — 20dp glyph, 40dp plate
-        hudTopBar.addView(back, new LinearLayout.LayoutParams(dp(ICON_BOX_DP), dp(ICON_BOX_DP)));
-
-        LinearLayout titles = new LinearLayout(this);
-        titles.setOrientation(LinearLayout.VERTICAL);
-        hudTitle = new TextView(this);
-        hudTitle.setTextColor(Color.WHITE);
-        hudTitle.setTextSize(14.5f);
-        hudTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        hudTitle.setMaxLines(1);
-        hudTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        titles.addView(hudTitle, new LinearLayout.LayoutParams(-1, -2));
-        hudStatus = new TextView(this);
-        hudStatus.setTextColor(0xFF9FB0D8);
-        hudStatus.setTextSize(10.5f);
-        hudStatus.setMaxLines(1);
-        hudStatus.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        hudStatus.setVisibility(View.GONE);          // v3.3.0: ONE badge, not two banners
-        titles.addView(hudStatus, new LinearLayout.LayoutParams(-1, -2));
-        hudTopBar.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
-
-        badgeSub = new TextView(this);
-        badgeSub.setText("CC");
-        badgeSub.setContentDescription("Sinhala subtitles loaded");
-        badgeSub.setTextColor(0xFF86EFAC);
-        badgeSub.setTextSize(10.5f);
-        badgeSub.setPadding(dp(7), dp(3), dp(7), dp(3));
-        GradientDrawable badgeBg = new GradientDrawable();
-        badgeBg.setColor(0x3316A34A);
-        badgeBg.setCornerRadius(dp(9));
-        badgeSub.setBackground(badgeBg);
-        badgeSub.setVisibility(View.GONE);
-        hudTopBar.addView(badgeSub, new LinearLayout.LayoutParams(-2, -2));
-
-        // Every top-right control has a 44dp touch target with a small vector glyph.
-        View lock = icon(R.drawable.ic_lock, 20, v -> setLocked(true));
-        hudTopBar.addView(lock, topIconParams());
-        View rotate = icon(R.drawable.ic_rotate, 20, v -> showOrientationSheet());
-        hudTopBar.addView(rotate, topIconParams());
-        View pip = icon(R.drawable.ic_pip, 20, v -> enterPictureInPicture());
-        hudTopBar.addView(pip, topIconParams());
-        View vlc = icon(R.drawable.ic_vlc_external, 20, v -> openExternalPlayer());
-        hudTopBar.addView(vlc, topIconParams());
-        View gear = icon(R.drawable.ic_settings, 20, v -> toggleSheet());
-        hudTopBar.addView(gear, topIconParams());
-        box.addView(hudTopBar, new LinearLayout.LayoutParams(-1, -2));
-
-        // ══ ZONE 2 — CENTRE (transport + gesture feedback) ═════════════════════
-        hudCenter = new LinearLayout(this);
-        hudCenter.setOrientation(LinearLayout.VERTICAL);
-        hudCenter.setGravity(Gravity.CENTER);
-
-        final long stepMs = AppPrefs.seekStepMs(prefs);
-        final int stepLabel = (int) (stepMs / 1000);
-
-        LinearLayout transport = new LinearLayout(this);
-        transport.setOrientation(LinearLayout.HORIZONTAL);
-        transport.setGravity(Gravity.CENTER);
-        View minus = icon(R.drawable.ic_replay_10, 20, v -> skip(-stepMs));
-        transport.addView(minus, new LinearLayout.LayoutParams(dp(64), dp(52)));
-        playPause = icon(R.drawable.ic_play_filled, 24, v -> toggle());   // v3.4.1 — centre disc = 24dp
-        LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(dp(64), dp(64));
-        playLp.leftMargin = playLp.rightMargin = dp(18);
-        transport.addView(playPause, playLp);
-        View plus = icon(R.drawable.ic_forward_10, 20, v -> skip(stepMs));
-        transport.addView(plus, new LinearLayout.LayoutParams(dp(64), dp(52)));
-        hudCenter.addView(transport, new LinearLayout.LayoutParams(-2, -2));
-
-        gesturePill = new TextView(this);
-        gesturePill.setTextColor(Color.WHITE);
-        gesturePill.setTextSize(13);
-        gesturePill.setGravity(Gravity.CENTER);
-        gesturePill.setPadding(dp(14), dp(7), dp(14), dp(7));
-        gesturePill.setBackground(GlassSurface.drawable(this, prefs, 0xFF0E1424, 14,
-            AppPrefs.glass(prefs)));
-        gesturePill.setVisibility(View.GONE);
-        LinearLayout.LayoutParams gpl = new LinearLayout.LayoutParams(-2, -2);
-        gpl.topMargin = dp(14);
-        hudCenter.addView(gesturePill, gpl);
-
-        // v3.4.0 - the Apple-style capsules FLANK the transport inside zone 2, so they are
-        // always where the thumb already is and never need a second overlay parent.
-        hudCenter.removeView(transport);
-        LinearLayout capsuleRow = new LinearLayout(this);
-        capsuleRow.setOrientation(LinearLayout.HORIZONTAL);
-        capsuleRow.setGravity(Gravity.CENTER_VERTICAL);
-        capsuleRow.setPadding(dp(10), 0, dp(10), 0);
-        brightCapsule = new CapsuleBar(this, R.drawable.ic_brightness, 0xFF0A0A14, 26, 104);
-        brightCapsule.setVisibility(View.GONE);
-        capsuleRow.addView(brightCapsule, new LinearLayout.LayoutParams(-2, -2));
-        capsuleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
-        capsuleRow.addView(transport, new LinearLayout.LayoutParams(-2, -2));
-        capsuleRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
-        volCapsule = new CapsuleBar(this, R.drawable.ic_volume, 0xFF0A0A14, 26, 104);
-        volCapsule.setVisibility(View.GONE);
-        capsuleRow.addView(volCapsule, new LinearLayout.LayoutParams(-2, -2));
-        hudCenter.addView(capsuleRow, new LinearLayout.LayoutParams(-1, -2));
-
-        box.addView(hudCenter, new LinearLayout.LayoutParams(-1, 0, 1f));
-
-        // ══ ZONE 3 — BOTTOM (seek + times + the action chips) ══════════════════
-        hudBottomBar = new LinearLayout(this);
-        hudBottomBar.setOrientation(LinearLayout.VERTICAL);
-        GlassSurface.apply(hudBottomBar, prefs, 0xFF101A30, 24);
-
-        // v3.4.0 - the custom cinema scrub bar (3dp -> 6dp, buffered layer, drag preview)
-        seek = new ScrubBar(this, ThemeEngine.palette(
-            AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
-            AppPrefs.cardRadius(prefs)).accent);
-        seek.setListener(new ScrubBar.Listener() {
-            @Override public void onScrubStart() { dragging = true; }
-            @Override public void onScrub(long positionMs) {
-                if (timeNow != null) timeNow.setText(ReceiverServer.clock(positionMs));
-            }
-            @Override public void onScrubEnd(long positionMs) {
-                dragging = false;
-                if (player != null) { player.seekTo(positionMs); updateSnapshot(); }
-                // v3.4.6.j — a paused seek still re-paints the cue once (the pump
-                // is PARKED at 0 Hz while paused).
-                boolean playing = false;
-                try { playing = player != null && player.isPlaying(); } catch (Throwable ignored) { }
-                if (!playing) paintCueOnce();
-            }
-        });
-        hudBottomBar.addView(seek, new LinearLayout.LayoutParams(-1, -2));
-
-        LinearLayout times = new LinearLayout(this);
-        times.setOrientation(LinearLayout.HORIZONTAL);
-        times.setGravity(Gravity.CENTER_VERTICAL);
-        timeNow = new TextView(this);
-        timeNow.setTextColor(Color.WHITE);
-        timeNow.setTextSize(11.5f);
-        timeNow.setText("0:00");
-        times.addView(timeNow, new LinearLayout.LayoutParams(0, -2, 1f));
-        timeTotal = new TextView(this);
-        timeTotal.setTextColor(0xFFAAAAAA);
-        timeTotal.setTextSize(11.5f);
-        timeTotal.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        timeTotal.setText("0:00");
-        times.addView(timeTotal, new LinearLayout.LayoutParams(0, -2, 1f));
-        hudBottomBar.addView(times, new LinearLayout.LayoutParams(-1, -2));
-
-        // Fixed five-icon dock: each action keeps a 48dp touch target and no
-        // horizontal scrolling or duplicate rotate/external-player controls.
-        LinearLayout dock = new LinearLayout(this);
-        dock.setOrientation(LinearLayout.HORIZONTAL);
-        dock.setGravity(Gravity.CENTER);
-        dock.setPadding(dp(2), dp(2), dp(2), dp(2));
-        dock.addView(dockIcon(R.drawable.ic_subtitles, "Subtitles", v -> togglePanel()),
-            dockWeight());
-        dock.addView(dockIcon(R.drawable.ic_audio_track, "Audio tracks and video quality",
-            v -> showTrackSheet()), dockWeight());
-        aspectDockButton = dockIcon(R.drawable.ic_aspect_fit,
-            "Aspect ratio: " + VideoViewport.modeLabel(aspectMode), v -> cycleAspect());
-        dock.addView(aspectDockButton, dockWeight());
-        dock.addView(speedDockControl(), dockWeight());
-        dock.addView(dockIcon(R.drawable.ic_search, "Search for a title",
-            v -> openTitleSearch()), dockWeight());
-        hudBottomBar.addView(dock, new LinearLayout.LayoutParams(-1, dp(52)));
-        box.addView(hudBottomBar, new LinearLayout.LayoutParams(-1, -2));
-        return box;
-    }
 
     /** Legacy helper retained for the scrollable in-sheet tool rows. */
     private TextView chip(String text, View.OnClickListener click) {
@@ -2707,252 +2636,155 @@ public class PlayActivity extends Activity {
     private int radiusCard() { return dp(ThemeEngine.radii(AppPrefs.cardRadius(prefs))[1]); }
     private int radiusSheet() { return dp(ThemeEngine.radii(AppPrefs.cardRadius(prefs))[1]); }
 
-    private LinearLayout buildPanel() {
-        LinearLayout p = new LinearLayout(this);
-        p.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(radiusCard());
-        ThemeEngine.Palette palette = pal();
-        bg.setColor(ThemeEngine.cardFill(palette, AppPrefs.glass(prefs)));
-        if (AppPrefs.glass(prefs)) {
-            bg.setStroke(dp(1), ThemeEngine.hairline(palette, AppPrefs.borderAlpha(prefs)));
-        }
-        p.setBackground(bg);
-        p.setPadding(dp(14), dp(12), dp(14), dp(12));
 
-        p.addView(label(Chrome.pick("අකුරේ ප්‍රමාණය · Font size")));
-        p.addView(step("−", "+", () -> fontSp(-1), () -> fontSp(1)));
-        p.addView(label(Chrome.pick("පසුබිම් අඳුන · Mask")));
-        p.addView(step("−", "+", () -> mask(-10), () -> mask(10)));
-        p.addView(label(Chrome.pick("කාල ගැලපුම · Sync nudge")));
-        p.addView(step("−1s", "+1s", () -> nudge(-1000), () -> nudge(1000)));
-        final long syncStep = AppPrefs.syncStepMs(prefs);      // v3.1.0: 0.1/0.25/0.5 s
-        final String syncLabel = syncStep >= 1000 ? "1s" : (syncStep / 1000f) + "s";
-        p.addView(step("−" + syncLabel, "+" + syncLabel, () -> nudge(-syncStep), () -> nudge(syncStep)));
-
-        Button retry = btn(Chrome.pick("නැවත ලබාගන්න · Refetch subs"));
-        retry.setOnClickListener(v -> { panel.setVisibility(View.GONE); fetchSinhala(); });
-        p.addView(retry);
-
-        // v3.2.0 — the FREE keyless translator button (the zero-quota guarantee:
-        // whatever is showing can be translated RIGHT NOW, worker or not).
-        Button free = btn(R.drawable.ic_translate, t2("නොමිලේ පරිවර්තනය · Free translate now"));
-        free.setOnClickListener(v -> { panel.setVisibility(View.GONE); manualFreeTranslate(); });
-        p.addView(free);
-
-        // v3.2.0 — the URL-pasted .srt/.zip loader (Baiscope/Zoom/SubDL links:
-        // auto-download → auto-unzip → script check → auto-translate → attach).
-        final EditText urlIn = new EditText(this);
-        urlIn.setHint(Chrome.pick("subtitle URL (.srt/.zip) paste · සබ් URL"));
-        urlIn.setTextSize(13);
-        p.addView(urlIn, new LinearLayout.LayoutParams(-1, -2));
-        Button loadUrl = btn(R.drawable.ic_link,
-            Chrome.pick("Load subtitles from URL · URL උපසිරැසි එක ලබාගන්න"));
-        loadUrl.setOnClickListener(v -> {
-            String u = urlIn.getText().toString().trim();
-            if (u.startsWith("http://") || u.startsWith("https://")) {
-                panel.setVisibility(View.GONE);
-                loadSubsFromUrl(u);
-            }
-        });
-        p.addView(loadUrl);
-
-        final EditText in = new EditText(this);
-        in.setHint(Chrome.pick("Title override · නම අතින්"));
-        in.setTextSize(13);
-        in.setText(title);
-        p.addView(in, new LinearLayout.LayoutParams(-1, -2));
-        Button go = btn(Chrome.pick("Search for subtitles · Go — worker එකෙන් හාන්ගතකරන්න"));
-        go.setOnClickListener(v -> {
-            String t = in.getText().toString().trim();
-            if (t.length() >= 2) { panel.setVisibility(View.GONE); manualFetch(t, season, episode); }
-        });
-        p.addView(go);
-
-        // v3.3.0 — THE SRI LANKAN QUICK-FINDER (Baiscope / Zoom.lk / PirateLK /
-        // SubDL / OpenSubtitles + a DuckDuckGo fallback). One tap opens the app's
-        // Web tab on that site's real search for THIS movie; every .zip/.srt the
-        // user then taps is captured, unzipped and attached to this very player.
-        Button lk = btn(R.drawable.ic_srilanka_sub, Chrome.pick("Find Sinhala Sub (SL sites) · සිංහල සොයන්න"));
-        lk.setOnClickListener(v -> { panel.setVisibility(View.GONE); openLkFinder(); });
-        p.addView(lk);
-
-        Button load = btn("local .srt / .zip load");
-        load.setOnClickListener(v -> pickLocal());
-        p.addView(load);
-
-        Button close = btn(Chrome.pick("වසන්න · Close"));
-        close.setOnClickListener(v -> panel.setVisibility(View.GONE));
-        p.addView(close);
-        return p;
-    }
 
     // ── v3.2.0 — THE IN-PLAYER SETTINGS SHEET (the ⚙ button) ──────────────────
 
     /** The translucent bottom sheet: playback speed · aspect ratio · LIVE
      *  subtitle style · sync · free-translate · the language quick switch —
      *  everything customizable WITHOUT leaving the movie. */
-    private LinearLayout buildSettingsSheet() {
-        LinearLayout s = new LinearLayout(this);
-        s.setOrientation(LinearLayout.VERTICAL);
-        ThemeEngine.Palette p = pal();
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(radiusSheet());
-        bg.setColor(ThemeEngine.cardFill(p, AppPrefs.glass(prefs)));
-        if (AppPrefs.glass(prefs)) {
-            bg.setStroke(dp(1), ThemeEngine.hairline(p, AppPrefs.borderAlpha(prefs)));
-        } else {
-            bg.setStroke(0, 0);
-        }
-        s.setBackground(bg);
-        s.setPadding(dp(16), dp(12), dp(16), dp(16));
 
-        TextView head = new TextView(this);
-        head.setText(Chrome.pick("Player settings · ධාවක සැකසුම්"));
-        UiIcons.setCompound(head, R.drawable.ic_settings, 0xFFE2E8F0, 15, Gravity.START);
-        head.setTextColor(0xFFE2E8F0);
-        head.setTextSize(14);
-        head.setTypeface(Typeface.DEFAULT_BOLD);
-        s.addView(head, new LinearLayout.LayoutParams(-1, -2));
-
-        // playback speed — the LIVE parameter (0.5x..2.0x, applied instantly)
-        s.addView(label(Chrome.pick("ධාවන වේගය · Playback speed")));
-        LinearLayout speedRow = new LinearLayout(this);
-        speedRow.setOrientation(LinearLayout.HORIZONTAL);
-        final TextView speedVal = new TextView(this);
-        speedVal.setTextColor(0xFF9BE8FF);
-        speedVal.setTextSize(12.5f);
-        float cur = 1f;
-        try { cur = player == null ? 1f : player.getPlaybackParameters().speed; } catch (Throwable ignored) { }
-        final float curSpeed = cur;
-        speedVal.setText(String.format(Locale.US, "%.2fx", curSpeed));
-        s.addView(speedVal, new LinearLayout.LayoutParams(-1, -2));
-        for (final float f : new float[]{0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 2.5f}) {
-            Button b = btn(f == 1f ? "1x" : String.format(Locale.US, "%.2gx", f));
-            b.setTextSize(11.5f);
-            b.setOnClickListener(v -> {
-                try {
-                    if (player != null) player.setPlaybackSpeed(f);
-                    prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, Math.round(f * 100)).apply();
-                    speedVal.setText(String.format(Locale.US, "%.02fx", f));
-                    flash(String.format(Locale.US, "%.02fx", f));
-                } catch (Throwable t) { Diag.w("sheet", "speed: " + t); }
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
-            lp.rightMargin = dp(3);
-            speedRow.addView(b, lp);
-        }
-        s.addView(speedRow, new LinearLayout.LayoutParams(-1, -2));
-
-        // Exact aspect modes, available in one touch.
-        s.addView(label(Chrome.pick("රූප පරිමාණය · Aspect")));
-        s.addView(UiSegmented.make(this, p, prefs,
-            new String[]{"Fit", "Fill", "16:9", "Stretch"}, aspectMode,
-            this::setAspect), new LinearLayout.LayoutParams(-1, -2));
-
-        s.addView(label(Chrome.pick("නිදාගැනීමේ කාලය · Sleep timer")));
-        long sleepMs = AppPrefs.sleepTimerMs(prefs);
-        int sleepChoice = sleepMs >= 3600000L ? 3 : (sleepMs >= 1800000L ? 2
-            : (sleepMs >= 900000L ? 1 : 0));
-        s.addView(UiSegmented.make(this, p, prefs,
-            new String[]{"Off", "15m", "30m", "60m"}, sleepChoice, i -> {
-                long[] values = {0L, 900000L, 1800000L, 3600000L};
-                prefs.edit().putLong(AppPrefs.K_SLEEP_TIMER_MS, values[i]).apply();
-                armSleepTimer(values[i]);
-            }), new LinearLayout.LayoutParams(-1, -2));
-
-        // LIVE subtitle style sliders (the same studio knobs, applied instantly)
-        s.addView(label(Chrome.pick("අකුරු ප්‍රමාණය · Font size")));
-        s.addView(step("−", "+", () -> fontSp(-1), () -> fontSp(1)));
-        s.addView(label(Chrome.pick("පසුබිම් අඳුන · Mask")));
-        s.addView(step("−", "+", () -> mask(-10), () -> mask(10)));
-        s.addView(label(Chrome.pick("කාල ගැලපුම · Sync nudge")));
-        s.addView(step("−0.25s", "+0.25s", () -> nudge(-250), () -> nudge(250)));
-
-        // the language quick switch (8 chips, the "subs" essentials)
-        s.addView(label(Chrome.pick("භාෂාව · Language")));
-        LinearLayout langQuick = new LinearLayout(this);
-        langQuick.setOrientation(LinearLayout.HORIZONTAL);
-        for (final Langs.Lang l : Langs.chips()) {
-            Button b = btn(l.nativeName);
-            b.setTextSize(11.5f);
-            b.setOnClickListener(v -> switchLang(l.code));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
-            lp.rightMargin = dp(3);
-            langQuick.addView(b, lp);
-        }
-        s.addView(langQuick, new LinearLayout.LayoutParams(-1, -2));
-
-        Button close = btn(Chrome.pick("වසන්න · Done"));
-        close.setOnClickListener(v -> sheet.setVisibility(View.GONE));
-        s.addView(close);
-        return s;
-    }
 
     private UiSheet.Handle settingsSheet;
     private UiSheet.Handle trackSheet;
     private UiSheet.Handle subtitleSheet;
+    private UiSheet.Handle speedSheet;
 
-    /** v3.4.0 - Player settings as a real modal sheet (60% height: the video stays visible). */
-    private void toggleSheet() {
+    // ══ v3.4.6.l — THE CINEMA OPS SURFACES (CinemaHud + CinemaSheets) ═════════
+    // The chrome's one-click surface: every target routes to the SAME methods
+    // the v3.3 dock did (nothing about the player surface changed — only the
+    // look, the physics and the modularity).
+    private CinemaHud.Ops hudOps() {
+        return new CinemaHud.Ops() {
+            @Override public void onBack() { finish(); }
+            @Override public void onLock() { setLocked(true); }
+            @Override public void onAudioTracks() { openTrackSheet(); }
+            @Override public void onSubtitles() { openSubtitlesSheet(); }
+            @Override public void onPlayerSettings() { openSettingsSheet(); }
+            @Override public void onPlayPause() { toggle(); }
+            @Override public void onSeekRelative(long ms) { skip(ms); }
+            @Override public void onRotate() { showOrientationSheet(); }
+            @Override public void onCycleAspect() { cycleAspect(); }
+            @Override public void onCycleSpeed() { openSpeedSheet(); }
+            @Override public void onPip() { enterPictureInPicture(); }
+            @Override public void onExternalPlayer() { openExternalPlayer(); }
+            @Override public void onSearchSubs() { openTitleSearch(); }
+        };
+    }
+
+    /** v3.4.6.l — the Subtitles sheet (wrapping chip flow, sync stepper, live
+     *  style sliders): the video and the live subtitle stay visible above it. */
+    void openSubtitlesSheet() {
+        if (subtitleSheet != null) { subtitleSheet.dismiss(); subtitleSheet = null; return; }
+        subtitleSheet = CinemaSheets.subtitles(this, prefs, sheetOps());
+        applyStudioStyle();
+    }
+
+    /** v3.4.6.l — the Audio / Video tracks sheet. */
+    void openTrackSheet() {
+        if (trackSheet != null) { trackSheet.dismiss(); trackSheet = null; return; }
+        trackSheet = CinemaSheets.tracks(this, prefs, sheetOps());
+    }
+
+    /** v3.4.6.l — the Speed sheet (0.25x–3.0x slider + instant preset chips). */
+    void openSpeedSheet() {
+        if (speedSheet != null) { speedSheet.dismiss(); speedSheet = null; return; }
+        speedSheet = CinemaSheets.speed(this, prefs, sheetOps());
+    }
+
+    /** v3.4.6.l — the FULL Player Customization sheet, synced 1:1 with the
+     *  Flutter Playback & Subtitles settings page (same keys, same values). */
+    void openSettingsSheet() {
         if (settingsSheet != null) { settingsSheet.dismiss(); settingsSheet = null; return; }
-        ThemeEngine.Palette p = ThemeEngine.palette(
-            AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
-            AppPrefs.cardRadius(prefs));
-        LinearLayout body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.addView(UiSheet.header(this, p, t2("Player settings"),
-            t2("වේගය · රූප පරිමාණය · නිදාගැනීම · හඬ")), new LinearLayout.LayoutParams(-1, -2));
+        settingsSheet = CinemaSheets.customization(this, prefs, sheetOps());
+    }
 
-        // speed slider with detents
-        float cur = 1f;
-        try { cur = player == null ? 1f : player.getPlaybackParameters().speed; } catch (Throwable ignored) { }
-        body.addView(UiSlider.make(this, p, prefs, "ධාවන වේගය", "Playback speed",
-            25, 250, Math.round(cur * 100), "%", v -> {
+    /** The CinemaSheets surface: every knob lands through the canonical
+     *  AppPrefs-backed writers (putString/putInt/putLong), so the Flutter
+     *  shell's next getAll() agrees byte-for-byte with this sheet. */
+    private CinemaSheets.Ops sheetOps() {
+        return new CinemaSheets.Ops() {
+            @Override public void switchLang(String code) { PlayActivity.this.switchLang(code); }
+            @Override public void nudge(long ms) { PlayActivity.this.nudge(ms); }
+            @Override public void openLkFinder() { dismissSheets(); openLkFinder(); }
+            @Override public void pickLocalSubs() { dismissSheets(); pickLocal(); }
+            @Override public void freeTranslate() { dismissSheets(); manualFreeTranslate(); }
+            @Override public void retrySubs() {
+                dismissSheets();
+                fetchGen++; fetching = false; fetchSinhala();
+            }
+            @Override public void selectTrack(TrackGroup g, int index) {
                 try {
-                    if (player != null) player.setPlaybackSpeed(v / 100f);
-                    flash(String.format(Locale.US, "%.2fx", v / 100f));
+                    if (player != null) player.setTrackSelectionParameters(
+                        player.getTrackSelectionParameters().buildUpon()
+                            .setOverrideForType(new TrackSelectionOverride(g, index)).build());
+                    flash("track selected");
+                } catch (Throwable t) { Diag.w("tracks", "select: " + t); }
+            }
+            @Override public Player player() { return player; }
+            @Override public void setSpeed(float speed) {
+                try {
+                    if (player != null) player.setPlaybackSpeed(speed);
+                    prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, Math.round(speed * 100)).apply();
+                    if (chrome != null && chrome.speedLabel != null)
+                        chrome.speedLabel.setText(String.format(Locale.US, "%.2gx", speed));
+                    flash(String.format(Locale.US, "%.2gx", speed));
                 } catch (Throwable t) { Diag.w("sheet", "speed: " + t); }
-            }), new LinearLayout.LayoutParams(-1, -2));
-
-        body.addView(UiSegmented.row(this, p, prefs, "රූප පරිමාණය", "Aspect",
-            new String[]{t2("Fit"), t2("Fill"), "16:9", t2("Stretch")},
-            aspectIndex(), i -> {
-                String mode = new String[]{AppPrefs.ASPECT_FIT, AppPrefs.ASPECT_FILL,
-                    AppPrefs.ASPECT_169, AppPrefs.ASPECT_STRETCH}[i];
+            }
+            @Override public void applyAspect(String mode) {
                 prefs.edit().putString(AppPrefs.K_ASPECT_MODE, mode).apply();
                 aspectMode = VideoViewport.modeFrom(mode);
                 applyVideoSize();
-                paintAspectDock();
-            }), new LinearLayout.LayoutParams(-1, -2));
-
-        body.addView(UiSegmented.row(this, p, prefs, "නිදාගැනීමේ කාලය", "Sleep timer",
-            new String[]{t2("Off"), "15m", "30m", "60m"}, sleepIndex(), i -> {
-                long ms = new long[]{0L, 900000L, 1800000L, 3600000L}[i];
+                flash(VideoViewport.modeLabel(aspectMode));
+            }
+            @Override public void applyOrientation(String mode) {
+                prefs.edit().putString(AppPrefs.K_ORIENTATION, mode).apply();
+                PlayActivity.this.applyOrientation();
+                flash("Auto".equals(mode) ? "Orientation auto"
+                    : ("landscape".equals(mode) ? "Landscape" : "Portrait"));
+            }
+            @Override public void armSleep(long ms) {
                 prefs.edit().putLong(AppPrefs.K_SLEEP_TIMER_MS, ms).apply();
                 armSleepTimer(ms);
-            }), new LinearLayout.LayoutParams(-1, -2));
-
-        body.addView(UiSlider.make(this, p, prefs, "හඬ වැඩි කිරීම", "Volume boost",
-            0, 150, AppPrefs.volumeBoost(prefs), "%", v -> {
-                prefs.edit().putInt(AppPrefs.K_VOLUME_BOOST, v).apply();
+            }
+            @Override public void setVolumeBoost(int pct) {
+                prefs.edit().putInt(AppPrefs.K_VOLUME_BOOST, pct).apply();
                 applyVolumeBoost();
-            }), new LinearLayout.LayoutParams(-1, -2));
-
-        UiGroup.switchRow(this, body, p, prefs, R.drawable.ic_speed,
-            "දෙවරක් තට්ටු", "Double-tap to seek", AppPrefs.K_DOUBLE_TAP_SEEK, true);
-        UiGroup.switchRow(this, body, p, prefs, R.drawable.ic_brightness,
-            "තිරය දැල්වී", "Keep the screen on", AppPrefs.K_KEEP_SCREEN_ON, true);
-
-        Button done = btn(R.drawable.ic_check_circle, t2("Done"));
-        done.setOnClickListener(v -> { if (settingsSheet != null) settingsSheet.dismiss(); settingsSheet = null; });
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-1, -2);
-        dlp.topMargin = dp(10);
-        body.addView(done, dlp);
-
-        settingsSheet = UiSheet.show(this, p, prefs, body, 62, () -> settingsSheet = null);
-        showStatus();
+            }
+            @Override public void setDoubleTapSec(int sec) {
+                prefs.edit().putInt(AppPrefs.K_DOUBLE_TAP_SEC, sec).apply();
+                flash(sec + " s double-tap");
+            }
+            @Override public void setLongPressSpeedPerMille(int perMille) {
+                prefs.edit().putInt(AppPrefs.K_LONG_PRESS_SPEED, perMille).apply();
+                flash(String.format(Locale.US, "%.2gx hold", perMille / 1000f));
+            }
+            @Override public void setAutoHideMs(long ms) {
+                prefs.edit().putLong(AppPrefs.K_HUD_HIDE_MS, ms).apply();
+                scheduleHudHide();
+                flash((ms / 1000) + " s auto-hide");
+            }
+            @Override public void putBool(String key, boolean v) {
+                prefs.edit().putBoolean(key, v).apply();
+            }
+            @Override public boolean getBool(String key, boolean def) {
+                return prefs.getBoolean(key, def);
+            }
+            @Override public void openMoreTools() { dismissSheets(); showLangSheet(); }
+            @Override public void sheetOpened() { applyStudioStyle(); }
+        };
     }
+
+    private void dismissSheets() {
+        try { if (subtitleSheet != null) subtitleSheet.dismiss(); } catch (Throwable ignored) { }
+        try { if (trackSheet != null) trackSheet.dismiss(); } catch (Throwable ignored) { }
+        try { if (speedSheet != null) speedSheet.dismiss(); } catch (Throwable ignored) { }
+        try { if (settingsSheet != null) settingsSheet.dismiss(); } catch (Throwable ignored) { }
+        subtitleSheet = trackSheet = speedSheet = settingsSheet = null;
+    }
+
+    /** v3.4.0 - Player settings as a real modal sheet (60% height: the video stays visible). */
+
 
     /**
      * v3.3.0 — THE ASPECT-RATIO APPLIER (replaces v3.2.0's resize method, which
@@ -2989,11 +2821,12 @@ public class PlayActivity extends Activity {
         applyVideoSize();
     }
 
-    /** The 📐 chip: Fit → Fill → 16:9 → Stretch → Fit. */
+    /** v3.4.6.l — the aspect target: Fit → Fill → 16:9 → Stretch → Fit. */
     private void cycleAspect() {
         aspectMode = VideoViewport.next(aspectMode);
         prefs.edit().putString(AppPrefs.K_ASPECT_MODE, VideoViewport.modeName(aspectMode)).apply();
-        paintAspectDock();
+        if (chrome != null && chrome.aspectButton != null)
+            chrome.aspectButton.setContentDescription("Aspect ratio: " + VideoViewport.modeLabel(aspectMode));
         applyVideoSize();
         flash(VideoViewport.modeLabel(aspectMode));
     }
@@ -3009,8 +2842,8 @@ public class PlayActivity extends Activity {
         float f = steps[next];
         try { if (player != null) player.setPlaybackSpeed(f); } catch (Throwable ignored) { }
         prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, Math.round(f * 100)).apply();
-        if (speedChip != null) speedChip.setText(String.format(Locale.US, "%.2gx", f));
-        paintSpeedDock();
+        if (chrome != null && chrome.speedLabel != null)
+            chrome.speedLabel.setText(String.format(Locale.US, "%.2gx", f));
         flash(String.format(Locale.US, "%.2gx", f));
     }
 
@@ -3049,12 +2882,61 @@ public class PlayActivity extends Activity {
         }
     };
 
-    /** v3.4.0 - the volume boost (0..150%) applied through player.setVolume. No FFmpeg. */
+    /**
+     * v3.4.6.l — THE CLAMPED LOUDNESS ENHANCER (video_2 04:41–04:55, the
+     * horrible audio buzz + black-screen glitch on a real phone).
+     *
+     * <p>THE ROOT CAUSE: the v3.4.0 lane pushed the boost straight into
+     * {@code player.setVolume(1.5f)} — a raw amplitude multiply ABOVE 1.0 that
+     * clips the float PCM bus on nearly every Android 16 device (the buzz), and
+     * the > 1.0 value also destabilised the audio path on some sinks.
+     *
+     * <p>THE CONTRACT (LAW: never above 1.0 on the player bus):
+     * <ul>
+     *   <li>boost ≤ 100% — the enhancer is DISABLED and DETACHED, the player
+     *       volume stays exactly 1.0 (digital pass-through, zero DSP);</li>
+     *   <li>boost &gt; 100% — the player volume still stays 1.0 and the extra
+     *       headroom rides a real {@link android.media.audiofx.LoudnessEnhancer}
+     *       on the player's OWN audio session, with the gain clamped to a
+     *       safe +6 dB ceiling (200% is exactly +6.02 dB — anything above is
+     *       DSP clipping by definition, so it is unreachable by construction);</li>
+     *   <li>any failure of the effect (no enhancer on the build, a dead audio
+     *       session) degrades to the plain 1.0 bus — never a crash, never a buzz.</li>
+     * </ul>
+     */
     private void applyVolumeBoost() {
+        int pct = AppPrefs.volumeBoost(prefs);
         try {
-            if (player != null) player.setVolume(AppPrefs.volumeBoost(prefs) / 100f);
+            if (player != null) player.setVolume(1f);   // the bus NEVER exceeds 1.0
         } catch (Throwable t) {
             Diag.w("player", "volume boost: " + t);
+        }
+        // v3.4.6.l — the player's audio session id (attached in startPlayback).
+        int session = audioSessionId;
+        boolean wantFx = pct > 100 && session != 0;
+        try {
+            if (!wantFx) {
+                if (boostFx != null) {
+                    try { boostFx.setEnabled(false); } catch (Throwable ignored) { }
+                    boostFx.release();
+                    boostFx = null;
+                    Diag.i("player", "loudness enhancer disabled (boost " + pct + "%)");
+                }
+                return;
+            }
+            if (boostFx == null) {
+                boostFx = new android.media.audiofx.LoudnessEnhancer(session);
+            }
+            // the safe clamp: dB = 20*log10(pct/100), hard-capped at +6 dB
+            double db = 20d * Math.log10(pct / 100d);
+            int gainMb = (int) Math.round(Math.min(6.02, Math.max(0d, db)) * 1000d);
+            boostFx.setTargetGain(gainMb);
+            boostFx.setEnabled(true);
+            Diag.i("player", "loudness enhancer +" + (gainMb / 1000d) + " dB (boost " + pct + "%)");
+        } catch (Throwable t) {
+            // degrade to the plain bus: never a buzz, never a crash
+            boostFx = null;
+            Diag.w("player", "loudness enhancer unavailable — plain 1.0 bus: " + t);
         }
     }
 
@@ -3083,6 +2965,7 @@ public class PlayActivity extends Activity {
         locked = on;
         if (unlockPill != null) unlockPill.setVisibility(on ? View.VISIBLE : View.GONE);
         if (hud != null) hud.setVisibility(on ? View.GONE : View.VISIBLE);
+        if (chrome != null) chrome.root.setAlpha(1f);
         hudVisible = !on;
         if (!on) scheduleHudHide();
         flash(on ? "Locked" : "Unlocked");
@@ -3218,86 +3101,22 @@ public class PlayActivity extends Activity {
         return "Player control";
     }
 
-    private LinearLayout.LayoutParams dockWeight() {
-        return new LinearLayout.LayoutParams(0, dp(48), 1f);
-    }
 
-    private View dockIcon(int resId, String description, View.OnClickListener click) {
-        FrameLayout button = UiGlassIcon.create(this, prefs, resId, Color.WHITE, 20,
-            48, description, click);
-        if (resId == R.drawable.ic_subtitles) {
-            subtitleDockDot = new View(this);
-            GradientDrawable dot = new GradientDrawable();
-            dot.setShape(GradientDrawable.OVAL);
-            dot.setColor(0xFF4ADE80);
-            subtitleDockDot.setBackground(dot);
-            subtitleDockDot.setVisibility(firstCueRendered ? View.VISIBLE : View.GONE);
-            FrameLayout.LayoutParams dotLp = new FrameLayout.LayoutParams(dp(7), dp(7),
-                Gravity.END | Gravity.BOTTOM);
-            dotLp.rightMargin = dotLp.bottomMargin = dp(9);
-            button.addView(subtitleDockDot, dotLp);
-        }
-        return button;
-    }
 
-    private View speedDockControl() {
-        LinearLayout control = new LinearLayout(this);
-        control.setOrientation(LinearLayout.VERTICAL);
-        control.setGravity(Gravity.CENTER);
-        control.setMinimumWidth(dp(48));
-        control.setMinimumHeight(dp(48));
-        control.setFocusable(true);
-        control.setClickable(true);
-        control.setOnClickListener(v -> cycleSpeed());
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0x1AFFFFFF);
-        bg.setCornerRadius(dp(14));
-        control.setBackground(bg);
-        ImageView glyph = new ImageView(this);
-        glyph.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_speed, Color.WHITE, 18));
-        glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        control.addView(glyph, new LinearLayout.LayoutParams(dp(22), dp(22)));
-        speedChip = new TextView(this);
-        speedChip.setTextColor(Color.WHITE);
-        speedChip.setGravity(Gravity.CENTER);
-        speedChip.setTextSize(10.5f);
-        speedChip.setTypeface(Typeface.DEFAULT_BOLD);
-        float initial = 1f;
-        try { if (player != null) initial = player.getPlaybackParameters().speed; }
-        catch (Throwable ignored) { }
-        speedChip.setText(String.format(Locale.US, "%.2gx", initial));
-        control.addView(speedChip, new LinearLayout.LayoutParams(-1, -2));
-        speedDockButton = control;
-        paintSpeedDock();
-        return control;
-    }
 
-    private void paintSubtitleDock() {
-        if (subtitleDockDot != null) {
-            subtitleDockDot.setVisibility(firstCueRendered ? View.VISIBLE : View.GONE);
-        }
-    }
 
-    private void paintAspectDock() {
-        if (aspectDockButton != null) {
-            aspectDockButton.setContentDescription("Aspect ratio: " + VideoViewport.modeLabel(aspectMode));
-        }
-    }
 
-    private void paintSpeedDock() {
-        if (speedDockButton == null) return;
-        String value = speedChip == null ? "1x" : speedChip.getText().toString();
-        speedDockButton.setContentDescription("Playback speed: " + value);
-    }
 
-    /** The transport disc swaps between play and pause - it never did before v3.4.0. */
+
+
+
+
+
+
+    /** v3.4.6.l — the hero disc glyph swap lives in CinemaHud (24dp, ONE place). */
     private void setPlayPauseIcon(boolean playing) {
-        if (!(playPause instanceof ImageView)) return;
-        // v3.4.1 — the transport disc is 24dp, the same as the button that was built.
-        // v3.4.0 drew it at 26dp and the first play/pause swap silently resized it.
-        ((ImageView) playPause).setImageDrawable(UiIcons.tinted(this,
-            playing ? R.drawable.ic_pause_filled : R.drawable.ic_play_filled, Color.WHITE, 24));
-        playPause.setContentDescription(playing ? "Pause playback" : "Play playback");
+        if (chrome == null) return;
+        CinemaHud.paintPlayPause(this, chrome.playPause, playing);
     }
 
     /** A pill button with a leading vector (replaces pillBtn("\uD83D\uDCAC Subtitles")). */
@@ -3346,13 +3165,7 @@ public class PlayActivity extends Activity {
      * means exactly two things: the single status pill stays readable, and the
      * Subtitles chip is one tap away. Nothing is ever laid over the transport.
      */
-    private void showSubActions() {
-        if (statusPill != null) {
-            statusPill.setVisibility(View.VISIBLE);
-            main.removeCallbacks(pillHide);
-            main.postDelayed(pillHide, 6000);   // failures stay a little longer
-        }
-    }
+
 
     /**
      * v2.2 script-safe styling — the ONE place the subtitle view's typeface and
@@ -3580,32 +3393,12 @@ public class PlayActivity extends Activity {
         }
     }
 
-    // ── HOLD-TO-2x SPEED BOOST (YouTube / VLC) ────────────────────────────────
+    // ── HOLD SPEED (v3.4.6.l — CinemaGestures owns the hold lane now) ────────
 
-    private boolean boosting;
-    private float speedBeforeBoost = 1f;
-
-    private final Runnable boostStart = new Runnable() {
-        @Override public void run() {
-            if (locked || player == null) return;
-            try {
-                speedBeforeBoost = player.getPlaybackParameters().speed;
-                player.setPlaybackSpeed(2f);
-                boosting = true;
-                flash("2.0× Speed");
-            } catch (Throwable t) { Diag.w("player", "boost: " + t); }
-        }
-    };
+;
 
     /** Release the boost and restore exactly the speed the user had. */
-    private void boostOff() {
-        if (!boosting) return;
-        boosting = false;
-        try {
-            if (player != null) player.setPlaybackSpeed(speedBeforeBoost);
-        } catch (Throwable ignored) { }
-        if (gesturePill != null) gesturePill.setVisibility(View.GONE);
-    }
+
 
     /** One speed setter for the picker AND the chip cycle (0.5× … 2.5×). */
     private void setSpeed(float f) {
@@ -3613,8 +3406,8 @@ public class PlayActivity extends Activity {
             if (player != null) player.setPlaybackSpeed(f);
         } catch (Throwable ignored) { }
         prefs.edit().putInt(AppPrefs.K_PLAY_SPEED, Math.round(f * 100)).apply();
-        if (speedChip != null) speedChip.setText(String.format(Locale.US, "%.2g×", f));
-        paintSpeedDock();
+        if (chrome != null && chrome.speedLabel != null)
+            chrome.speedLabel.setText(String.format(Locale.US, "%.2gx", f));
         flash(String.format(Locale.US, "%.2g×", f));
     }
 
@@ -3848,121 +3641,86 @@ public class PlayActivity extends Activity {
      *   · pinch             → Fit ⇄ Fill
      * While LOCKED only the unlock pill is touchable (the overlay is GONE).
      */
+    /** v3.4.6.l — the modular gesture engine (CinemaGestures.wire): the whole
+     *  inline v3.3 blob is retired; the engine's Ops surface is implemented
+     *  here, backed by the SAME AudioManager/WindowManager/seek lanes. */
     private void wireGestures(FrameLayout root) {
-        final boolean swipes = AppPrefs.gestures(prefs);
-        final ScaleGestureDetector pinch = new ScaleGestureDetector(this,
-            new ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                @Override public boolean onScale(ScaleGestureDetector d) {
-                    if (d.getScaleFactor() > 1.15f) { setAspect(VideoViewport.FILL); return true; }
-                    if (d.getScaleFactor() < 0.87f) { setAspect(VideoViewport.FIT); return true; }
-                    return false;
-                }
-            });
-
-        // the swipe state
-        final float[] startY = {0f}, startX = {0f};
-        final long[] startPos = {0L}, previewTo = {-1L};
-        final int[] mode = {0};   // 0 none · 1 brightness · 2 volume · 3 seek
-
-        final GestureDetector gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            @Override public boolean onSingleTapConfirmed(MotionEvent e) {
-                toggleControls();
-                return true;
+        CinemaGestures.wire(this, root, prefs, new CinemaGestures.Ops() {
+            @Override public void toggleControls() { PlayActivity.this.toggleControls(); }
+            @Override public long playerPositionMs() {
+                try { return player == null ? 0 : player.getCurrentPosition(); }
+                catch (Throwable t) { return 0; }
             }
-            @Override public boolean onDoubleTap(MotionEvent e) {
-                if (!AppPrefs.doubleTapSeek(prefs)) { toggleControls(); return true; }
-                long step = AppPrefs.seekStepMs(prefs);
-                boolean right = e.getX() > root.getWidth() / 2f;
-                skip(right ? step : -step);
-                ripple(right, (right ? "+" : "−") + (step / 1000) + "s");
-                return true;
+            @Override public long playerDurationMs() {
+                try {
+                    long d = player == null ? 0 : player.getDuration();
+                    return d == androidx.media3.common.C.TIME_UNSET ? 0 : d;
+                } catch (Throwable t) { return 0; }
             }
-            @Override public boolean onDown(MotionEvent e) { return true; }
-        });
-
-        root.setOnTouchListener((v, e) -> {
-            if (locked) return true;                       // 🔒 swallow everything
-            pinch.onTouchEvent(e);
-            gd.onTouchEvent(e);
-            switch (e.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    startX[0] = e.getX();
-                    startY[0] = e.getY();
-                    startPos[0] = player == null ? 0 : player.getCurrentPosition();
-                    previewTo[0] = -1;
-                    mode[0] = 0;
-                    scheduleHudHide();
-                    // v3.4.2 — arm the YouTube/VLC-style HOLD-TO-2x speed boost
-                    main.removeCallbacks(boostStart);
-                    main.postDelayed(boostStart, 550);
-                    return true;
-                case MotionEvent.ACTION_MOVE: {
-                    float dx = e.getX() - startX[0], dy = e.getY() - startY[0];
-                    if (mode[0] == 0) {
-                        if (Math.abs(dy) > dp(18) && Math.abs(dy) > Math.abs(dx) * 1.4f) {
-                            boolean right = startX[0] > root.getWidth() / 2f;
-                            if (right && AppPrefs.swipeVolume(prefs)) mode[0] = 2;
-                            else if (!right && AppPrefs.swipeBrightness(prefs)) mode[0] = 1;
-                            else if (swipes) mode[0] = right ? 2 : 1;
-                        } else if (Math.abs(dx) > dp(24) && Math.abs(dx) > Math.abs(dy) * 1.4f) {
-                            if (AppPrefs.swipeSeek(prefs)) mode[0] = 3;
-                        }
-                    }
-                    // any real movement means the user is swiping, not holding
-                    if (Math.abs(dx) > dp(16) || Math.abs(dy) > dp(16)) {
-                        main.removeCallbacks(boostStart);
-                        boostOff();
-                    }
-                    if (mode[0] == 1) brightness(dy - dp(40));
-                    else if (mode[0] == 2) volume(dy - dp(40));
-                    else if (mode[0] == 3 && player != null) {
-                        long dur = player.getDuration();
-                        long delta = (long) ((dx / Math.max(1f, root.getWidth())) * 120000L);   // full width = 2 min
-                        long to = Math.max(0, Math.min(dur > 0 ? dur : Long.MAX_VALUE, startPos[0] + delta));
-                        previewTo[0] = to;
-                        gesture((delta >= 0 ? "+" : "−") + ReceiverServer.clock(to)
-                            + "  (" + (delta >= 0 ? "+" : "") + (delta / 1000) + "s)");
-                    }
-                    return true;
+            @Override public void seekBy(long ms) { skip(ms); }
+            @Override public void ripple(boolean right, String label) { PlayActivity.this.ripple(right, label); }
+            @Override public void brightnessBy(float dy) { brightness(dy); }
+            @Override public void volumeBy(float dy) { volume(dy); }
+            @Override public void brightnessPct(int pct) { }
+            @Override public void volumePct(int pct) { }
+            @Override public void scrubPreview(long targetMs, long deltaMs) {
+                String line = ReceiverServer.clock(targetMs) + "  ("
+                    + (deltaMs >= 0 ? "+" : "−") + (Math.abs(deltaMs) / 1000) + " s)";
+                if (scrubPill != null) {
+                    scrubPill.setText(line);
+                    scrubPill.setVisibility(View.VISIBLE);
                 }
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    if (mode[0] == 3 && previewTo[0] >= 0 && player != null) player.seekTo(previewTo[0]);
-                    if (mode[0] != 0) hideGesture();
-                    mode[0] = 0;
-                    main.removeCallbacks(boostStart);
-                    boostOff();                       // v3.4.2 — release → normal speed
-                    return true;
-                default:
-                    return false;
+                if (seek != null && player != null) seek.setPosition(targetMs);
+            }
+            @Override public void scrubCommit(long targetMs) {
+                if (player != null) { player.seekTo(targetMs); updateSnapshot(); }
+                if (scrubPill != null) scrubPill.setVisibility(View.GONE);
+            }
+            @Override public void hideGesturePills() {
+                if (scrubPill != null) scrubPill.setVisibility(View.GONE);
+                if (brightCapsule != null) brightCapsule.setVisibility(View.GONE);
+                if (volCapsule != null) volCapsule.setVisibility(View.GONE);
+            }
+            @Override public void holdSpeedStart(float speed) {
+                try {
+                    if (player != null) player.setPlaybackSpeed(speed);
+                    if (speedPill != null) {
+                        speedPill.setText(String.format(Locale.US, "%.2gx speed", speed));
+                        speedPill.setVisibility(View.VISIBLE);
+                    }
+                } catch (Throwable t) { Diag.w("player", "hold speed: " + t); }
+            }
+            @Override public void holdSpeedEnd() {
+                try {
+                    if (player != null) {
+                        float prev = Math.max(1, AppPrefs.safeGetInt(prefs, AppPrefs.K_PLAY_SPEED, 100)) / 100f;
+                        player.setPlaybackSpeed(prev);
+                    }
+                } catch (Throwable t) { Diag.w("player", "hold speed end: " + t); }
+                if (speedPill != null) speedPill.setVisibility(View.GONE);
+            }
+            @Override public void pinchZoom(boolean out) {
+                setAspect(out ? VideoViewport.FILL : VideoViewport.FIT);
+                if (aspectPill != null) {
+                    aspectPill.setText(VideoViewport.modeLabel(out ? VideoViewport.FILL : VideoViewport.FIT));
+                    aspectPill.setVisibility(View.VISIBLE);
+                    main.removeCallbacks(hideAspectPill);
+                    main.postDelayed(hideAspectPill, 900);
+                }
+            }
+            @Override public void pinchLabel(String text) {
+                if (aspectPill != null) aspectPill.setText(text);
             }
         });
     }
 
-    private void setAspect(int mode) {
-        aspectMode = mode;
-        prefs.edit().putString(AppPrefs.K_ASPECT_MODE, VideoViewport.modeName(mode)).apply();
-        paintAspectDock();
-        applyVideoSize();
-        flash(VideoViewport.modeLabel(mode));
-    }
+    private final Runnable hideAspectPill = () -> {
+        if (aspectPill != null) aspectPill.setVisibility(View.GONE);
+    };
 
-    /** The centre gesture pill (brightness / volume / seek preview). */
-    private void gesture(String text) {
-        if (gesturePill == null) return;
-        gesturePill.setText(text);
-        gesturePill.setVisibility(View.VISIBLE);
-        main.removeCallbacks(hideGestureRunnable);
-        main.postDelayed(hideGestureRunnable, 900);
-    }
-
-    private void hideGesture() {
-        if (gesturePill != null) gesturePill.setVisibility(View.GONE);
-    }
-
-    private final Runnable hideGestureRunnable = this::hideGesture;
-
-    /** The ⏪/⏩ double-tap ripple (a translucent pill on the tapped half). */
+    /** v3.4.6.l — the double-tap curved ripple: a translucent pill on the tapped
+     *  half, mounted on the ROOT FrameLayout (the v3.3.1 crash-prevention law:
+     *  the ripple's LayoutParams describe its real parent). */
     private void ripple(boolean right, String text) {
         TextView t = new TextView(this);
         t.setText(text);
@@ -3977,16 +3735,27 @@ public class PlayActivity extends Activity {
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(120), dp(72),
             Gravity.CENTER_VERTICAL | (right ? Gravity.END : Gravity.START));
         lp.leftMargin = lp.rightMargin = dp(24);
-        // v3.3.1 — THE CRASH #1 SOURCE. v3.3.0 mounted the ripple on
-        // hudCenter.getParent() — a LinearLayout — with FrameLayout.LayoutParams,
-        // so LinearLayout.measureVertical threw ClassCastException on the very
-        // next frame. The ripple is a full-screen overlay: it belongs on the ROOT
-        // FrameLayout, which is exactly the parent its LayoutParams describe.
         final FrameLayout parent = rootView;
         if (parent == null) return;
         parent.addView(t, lp);
         main.postDelayed(() -> { try { parent.removeView(t); } catch (Throwable ignored) { } }, 550);
     }
+
+    private void setAspect(int mode) {
+        aspectMode = mode;
+        prefs.edit().putString(AppPrefs.K_ASPECT_MODE, VideoViewport.modeName(mode)).apply();
+        if (chrome != null && chrome.aspectButton != null)
+            chrome.aspectButton.setContentDescription("Aspect ratio: " + VideoViewport.modeLabel(mode));
+        applyVideoSize();
+        flash(VideoViewport.modeLabel(mode));
+    }
+
+    /** The centre gesture pill (brightness / volume / seek preview). */
+
+
+
+
+
 
     private void volume(float dy) {
         try {
@@ -3996,7 +3765,7 @@ public class PlayActivity extends Activity {
             int step = Math.round(-dy / dp(140));
             int v = Math.max(0, Math.min(max, cur + step));
             if (v != cur) am.setStreamVolume(AudioManager.STREAM_MUSIC, v, 0);
-            gesture("Volume " + Math.round(v * 100f / max) + "%");
+            flash("Volume " + Math.round(v * 100f / max) + "%");
             if (volCapsule != null) {
                 volCapsule.setValue(max <= 0 ? 0 : v / max);
                 volCapsule.setVisibility(View.VISIBLE);
@@ -4012,7 +3781,7 @@ public class PlayActivity extends Activity {
             WindowManager.LayoutParams lp = getWindow().getAttributes();
             lp.screenBrightness = v;
             getWindow().setAttributes(lp);
-            gesture("Brightness " + Math.round(v * 100) + "%");
+            flash("Brightness " + Math.round(v * 100) + "%");
             if (brightCapsule != null) {
                 brightCapsule.setValue(Math.max(0f, Math.min(1f, v / 255f)));
                 brightCapsule.setVisibility(View.VISIBLE);
@@ -4047,168 +3816,41 @@ public class PlayActivity extends Activity {
 
     void showControls() {
         hudVisible = true;
-        hud.setVisibility(View.VISIBLE);
+        // v3.4.6.l — the 220 ms cubic fade + subtle vertical slide (CinemaHud)
+        CinemaHud.show(chrome);
         applyImmersive(false);          // v3.4.2 — bars come back with the HUD
         anchorSubToHud();               // v3.4.6.j — the line glides up above the dock
         scheduleHudHide();
     }
 
     void toggleControls() {
-        if (panel != null && panel.getVisibility() == View.VISIBLE) { panel.setVisibility(View.GONE); return; }
-        if (sheet != null && sheet.getVisibility() == View.VISIBLE) { sheet.setVisibility(View.GONE); return; }
         if (hudVisible) {
             hudVisible = false;
-            hud.setVisibility(View.GONE);
-            applyImmersive(true);       // v3.4.2 — TRUE fullscreen once the HUD is gone
-            anchorSubToHud();           // v3.4.6.j — the line glides back to the compact anchor
+            CinemaHud.hide(chrome);      // v3.4.6.l — the 220 ms cubic fade-out
+            applyImmersive(true);        // v3.4.2 — TRUE fullscreen once the HUD is gone
+            anchorSubToHud();            // v3.4.6.j — the line glides back to the compact anchor
         } else showControls();
     }
 
     /** v3.4.0 - the Subtitles sheet: the video (and the live subtitle) stay visible above it. */
-    private void togglePanel() {
-        if (subtitleSheet != null) { subtitleSheet.dismiss(); subtitleSheet = null; return; }
-        ThemeEngine.Palette p = ThemeEngine.palette(
-            AppPrefs.themeMode(prefs), 0, AppPrefs.accent(prefs), AppPrefs.accentHex(prefs),
-            AppPrefs.cardRadius(prefs));
-        LinearLayout body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.addView(UiSheet.header(this, p, t2("Subtitles"),
-            t2("භාෂාව · විලාසය · සමමුහුර්තකරණය")), new LinearLayout.LayoutParams(-1, -2));
 
-        // 18 language chips
-        LinearLayout langRow = UiChip.stripRow(this);
-        for (final Langs.Lang l : Langs.chips()) {
-            langRow.addView(UiChip.make(this, p, prefs, 0, l.nativeName,
-                l.code.equals(activeLang), v -> { switchLang(l.code); }));
+
+    /**
+     * v3.4.6.l — THE TABULAR CLOCK (00:18 left, tap toggles −10:16 remaining,
+     * 10:34 right): tnum digits never jitter; the remaining lane subtracts the
+     * playhead from the real duration (never a negative 0:00).
+     */
+    private void paintClock() {
+        if (player == null || timeNow == null) return;
+        long pos = Math.max(0, player.getCurrentPosition());
+        long dur = player.getDuration();
+        boolean hasDur = dur != C.TIME_UNSET && dur > 0;
+        if (chrome != null && chrome.remainingTime && hasDur) {
+            long left = Math.max(0, dur - pos);
+            timeNow.setText("−" + ReceiverServer.clock(left));
+        } else {
+            timeNow.setText(ReceiverServer.clock(pos));
         }
-        langRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_plus, t2("More"),
-            false, v -> showLangSheet()));
-        android.widget.HorizontalScrollView hs = UiChip.strip(this);
-        hs.addView(langRow, new FrameLayout.LayoutParams(-2, -2));
-        body.addView(hs, new LinearLayout.LayoutParams(-1, -2));
-
-        body.addView(UiSegmented.row(this, p, prefs, "වහර", "Register",
-            new String[]{t2("Auto"), t2("Spoken"), t2("Formal")}, registerIndex(), i -> {
-                prefs.edit().putString(AppPrefs.K_REGISTER,
-                    i == 1 ? "spoken" : (i == 2 ? "formal" : null)).apply();
-                fetchGen++;
-                fetchSinhala();
-            }), new LinearLayout.LayoutParams(-1, -2));
-
-        // SL sub sites quick launch
-        LinearLayout slRow = UiChip.stripRow(this);
-        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_srilanka_sub,
-            t2("SL Sub Sites"), true, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openLkFinder(); }));
-        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_folder_zip,
-            "Local .srt", false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; pickLocal(); }));
-        slRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_search,
-            t2("Title search"), false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openTitleSearch(); }));
-        android.widget.HorizontalScrollView hs2 = UiChip.strip(this);
-        hs2.addView(slRow, new FrameLayout.LayoutParams(-2, -2));
-        body.addView(hs2, new LinearLayout.LayoutParams(-1, -2));
-
-        // Keep the sync strip and live style controls visible in the primary sheet.
-        LinearLayout syncRow = UiChip.stripRow(this);
-        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_replay_10, "−0.25s", false, v -> nudge(-250)));
-        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_forward_10, "+0.25s", false, v -> nudge(250)));
-        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_replay_10, "−1s", false, v -> nudge(-1000)));
-        syncRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_forward_10, "+1s", false, v -> nudge(1000)));
-        body.addView(syncRow, new LinearLayout.LayoutParams(-1, -2));
-
-        // Live style studio — every change repaints the subtitle behind the sheet.
-        body.addView(UiSlider.make(this, p, prefs, "අකුරේ ප්‍රමාණය", "Font size",
-            12, 36, AppPrefs.fontSp(prefs), "sp", v -> {
-                prefs.edit().putInt(AppPrefs.K_FONT_SP, v).apply();
-                applyStudioStyle();
-            }), new LinearLayout.LayoutParams(-1, -2));
-        body.addView(UiSlider.make(this, p, prefs, "පසුබිම් අඳුන", "Mask opacity",
-            0, 95, AppPrefs.subBgOpacity(prefs), "%", v -> {
-                prefs.edit().putInt(AppPrefs.K_SUB_BG_OPACITY, v).apply();
-                applyStudioStyle();
-            }), new LinearLayout.LayoutParams(-1, -2));
-        body.addView(UiSlider.make(this, p, prefs, "පේළි පරතරය", "Line spacing",
-            100, 150, AppPrefs.subLineSpacing(prefs), "%", v -> {
-                prefs.edit().putInt(AppPrefs.K_SUB_LINE_SPACING, v).apply();
-                applyStudioStyle();
-            }), new LinearLayout.LayoutParams(-1, -2));
-
-        // Secondary providers, AI helpers and speed choices stay available but are
-        // collapsed on first open so the subtitle sheet remains short and focused.
-        LinearLayout moreWrap = new LinearLayout(this);
-        moreWrap.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout moreHeader = new LinearLayout(this);
-        moreHeader.setGravity(Gravity.CENTER_VERTICAL);
-        moreHeader.setPadding(dp(4), dp(8), dp(4), dp(4));
-        moreHeader.setFocusable(true);
-        moreHeader.setClickable(true);
-        moreHeader.setContentDescription("More subtitle tools, collapsed");
-        TextView moreTitle = new TextView(this);
-        moreTitle.setText(t2("තවත් මෙවලම් · More tools"));
-        moreTitle.setTextColor(p.title);
-        UiTokens.cardTitle(moreTitle);
-        moreHeader.addView(moreTitle, new LinearLayout.LayoutParams(0, -2, 1f));
-        ImageView moreChevron = new ImageView(this);
-        moreChevron.setImageDrawable(UiIcons.tinted(this, R.drawable.ic_chevron_down, p.desc, 18));
-        moreChevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        moreHeader.addView(moreChevron, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        LinearLayout moreBody = new LinearLayout(this);
-        moreBody.setOrientation(LinearLayout.VERTICAL);
-        moreBody.setVisibility(View.GONE);
-
-        LinearLayout toolsRow = UiChip.stripRow(this);
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_refresh, t2("Retry"),
-            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
-                fetchGen++; fetching = false; fetchSinhala(); }));
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_globe, t2("Provider"),
-            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null;
-                fetchGen++; fetching = false;
-                prefs.edit().putBoolean("preferCastSubs", true).apply(); fetchSinhala(); }));
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate, t2("Spoken/Formal"),
-            false, v -> toggleRegister()));
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_translate, t2("Free translate"),
-            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; manualFreeTranslate(); }));
-        toolsRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_sun, "AI Studio",
-            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openAiStudioBridge(); }));
-        android.widget.HorizontalScrollView toolsScroll = UiChip.strip(this);
-        toolsScroll.addView(toolsRow, new FrameLayout.LayoutParams(-2, -2));
-        moreBody.addView(toolsScroll, new LinearLayout.LayoutParams(-1, -2));
-
-        LinearLayout aiRow = UiChip.stripRow(this);
-        aiRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_globe, t2("NewZone translator"),
-            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; openNewZoneTranslator(); }));
-        aiRow.addView(UiChip.make(this, p, prefs, R.drawable.ic_audio_track, t2("Audio → SRT (AI)"),
-            false, v -> { subtitleSheet.dismiss(); subtitleSheet = null; showAudioToSrtHelper(); }));
-        android.widget.HorizontalScrollView aiScroll = UiChip.strip(this);
-        aiScroll.addView(aiRow, new FrameLayout.LayoutParams(-2, -2));
-        moreBody.addView(aiScroll, new LinearLayout.LayoutParams(-1, -2));
-
-        LinearLayout speedRow = UiChip.stripRow(this);
-        for (final float f : new float[]{0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 2.5f}) {
-            float cur = 1f;
-            try { cur = player == null ? 1f : player.getPlaybackParameters().speed; }
-            catch (Throwable ignored) { }
-            speedRow.addView(UiChip.make(this, p, prefs, 0,
-                String.format(Locale.US, "%.2g×", f), Math.abs(cur - f) < 0.01f,
-                v -> setSpeed(f)));
-        }
-        android.widget.HorizontalScrollView speedScroll = UiChip.strip(this);
-        speedScroll.addView(speedRow, new FrameLayout.LayoutParams(-2, -2));
-        moreBody.addView(speedScroll, new LinearLayout.LayoutParams(-1, -2));
-
-        moreHeader.setOnClickListener(v -> {
-            boolean open = moreBody.getVisibility() != View.VISIBLE;
-            moreBody.setVisibility(open ? View.VISIBLE : View.GONE);
-            moreChevron.setImageDrawable(UiIcons.tinted(this,
-                open ? R.drawable.ic_chevron_up : R.drawable.ic_chevron_down, p.desc, 18));
-            moreHeader.setContentDescription(open
-                ? "More subtitle tools, expanded" : "More subtitle tools, collapsed");
-        });
-        moreWrap.addView(moreHeader, new LinearLayout.LayoutParams(-1, -2));
-        moreWrap.addView(moreBody, new LinearLayout.LayoutParams(-1, -2));
-        body.addView(moreWrap, new LinearLayout.LayoutParams(-1, -2));
-
-        subtitleSheet = UiSheet.show(this, p, prefs, body, 66, () -> subtitleSheet = null);
-        showStatus();
     }
 
     private void scheduleHudHide() {
@@ -4218,13 +3860,11 @@ public class PlayActivity extends Activity {
 
     private final Runnable hudHide = new Runnable() {
         @Override public void run() {
-            if (player != null && player.getPlayWhenReady() && !dragging
-                && (panel == null || panel.getVisibility() != View.VISIBLE)
-                && (sheet == null || sheet.getVisibility() != View.VISIBLE)) {
+            if (player != null && player.getPlayWhenReady() && !dragging) {
                 hudVisible = false;
-                hud.setVisibility(View.GONE);
-                applyImmersive(true);   // v3.4.2 — hide status + navigation bars too
-                anchorSubToHud();       // v3.4.6.j — the auto-hide glides the line back down
+                CinemaHud.hide(chrome);   // v3.4.6.l — the 220 ms cubic fade-out
+                applyImmersive(true);     // v3.4.2 — hide status + navigation bars too
+                anchorSubToHud();         // v3.4.6.j — the auto-hide glides the line back down
             }
         }
     };
@@ -4494,45 +4134,7 @@ public class PlayActivity extends Activity {
     }
 
     /** 🔊 Audio / Quality — the REAL Media3 track picker (audio languages + video qualities). */
-    private void showTrackSheet() {
-        if (player == null) return;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.addView(UiSheet.header(this, pal(), t2("Audio / Quality"),
-            t2("ධාවන පථ · විභේදනය · භාෂාව")), new LinearLayout.LayoutParams(-1, -2));
-        boolean any = false;
-        try {
-            Tracks tracks = player.getCurrentTracks();
-            for (final Tracks.Group g : tracks.getGroups()) {
-                if (g.getType() != C.TRACK_TYPE_AUDIO && g.getType() != C.TRACK_TYPE_VIDEO) continue;
-                for (int i = 0; i < g.length; i++) {
-                    final TrackGroup tg = g.getMediaTrackGroup();
-                    final int idx = i;
-                    String label = trackLabel(g.getType(), g.getTrackFormat(i));
-                    Button b = btn(label);
-                    if (g.isTrackSelected(i)) UiIcons.setCompound(b, R.drawable.ic_check_circle, 0xFF86EFAC, 15, Gravity.START);
-                    b.setOnClickListener(v -> {
-                        try {
-                            player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
-                                .setOverrideForType(new TrackSelectionOverride(tg, idx)).build());
-                            flash(label);
-                        } catch (Throwable t) { Diag.w("tracks", "select: " + t); }
-                    });
-                    box.addView(b, new LinearLayout.LayoutParams(-1, -2));
-                    any = true;
-                }
-            }
-        } catch (Throwable t) {
-            Diag.w("tracks", "read: " + t);
-        }
-        if (!any) {
-            box.addView(UiGroup.empty(this, pal(),
-                R.drawable.ic_audio_track, t2("One track only"),
-                t2("This stream carries no alternate audio or quality tracks.")),
-                new LinearLayout.LayoutParams(-1, -2));
-        }
-        trackSheet = UiSheet.show(this, pal(), prefs, box, 60, () -> trackSheet = null);
-    }
+
 
     /** The palette for a sheet (the player is always dark, so this is cheap and safe). */
     private ThemeEngine.Palette pal() {

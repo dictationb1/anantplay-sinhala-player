@@ -11,9 +11,27 @@ import 'package:anantplay_ui/mornye_ui/widgets/mornye_glass_notification.dart';
 import 'app_state.dart';
 import 'bridge.dart';
 
-/// The installed identity used in the "Up to date" reply. Kept as a literal
-/// ONLY for this user-facing label; the updater's gate itself reads appInfo.
-const String kVisibleVersion = 'v3.4.6.j';
+/// v3.4.6.l — resolve the LIVE installed version once (AppInfo, never a
+/// literal) and keep [kLiveVersion] fresh for every user-facing label.
+Future<void> warmLiveVersion() async {
+  try {
+    final info = await AnantPlay.instance.appInfo();
+    if (info.versionName.isNotEmpty) kLiveVersion.value = info.versionName;
+  } catch (_) {/* the fallback literal stays */}
+}
+
+/// v3.4.6.l — THE STALE-VERSION KILL (video_2 04:10: v3.4.6.k showed "Up to
+/// date (v3.4.6.j)"). The old literal outlived every release; the label now
+/// resolves the LIVE installed identity from the native appInfo channel
+/// (AppInfo.VERSION_NAME — the same source the gate itself reads), with a
+/// last-resort literal ONLY if the channel is unreachable. The About page
+/// and every check-for-update pill can never show a stale version again.
+const String kVisibleVersionFallback = 'v3.4.6.l';
+
+/// The live installed identity, cached after the first successful appInfo()
+/// read and shared by every surface that used to read the dead literal.
+final ValueNotifier<String> kLiveVersion =
+    ValueNotifier<String>(kVisibleVersionFallback);
 
 void _say(BuildContext context, String message) {
   // v3.4.6.j — THE TOP FLOATING GLASS PILL (the SnackBar is dead): slides
@@ -37,9 +55,15 @@ Future<void> checkForUpdateWithFeedback(BuildContext context) async {
 
   sub = AnantPlay.instance.updateGateEvents().listen((e) {
     if (e.gate == 'uptodate') {
-      finish('Up to date ($kVisibleVersion)');
+      // v3.4.6.l — the LIVE installed version (never the stale literal that
+      // showed v3.4.6.j on a running v3.4.6.k).
+      warmLiveVersion().then((_) {
+        if (!completer.isCompleted) {
+          finish('Up to date (v${kLiveVersion.value})');
+        }
+      });
     } else if (e.gate == 'available') {
-      finish('Update available · ${e.next.isEmpty ? kVisibleVersion : e.next}');
+      finish('Update available · ${e.next.isEmpty ? kLiveVersion.value : e.next}');
     } else if (e.gate == 'failed') {
       finish('Check failed · ${e.reason.isEmpty ? "network" : e.reason}');
     }

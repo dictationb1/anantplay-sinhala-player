@@ -103,8 +103,11 @@ android {
         applicationId = "lk.techworld.anantplay.sicast"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30417
-        versionName = "3.4.6.k"
+        versionCode = 30418
+        versionName = "3.4.6.l"
+        // v3.4.6.l — the previous release identity (3.4.6.k / 30417) is the
+        // LIVE updater tier until this build ships; build.sh enforces
+        // PREV_VERSION_CODE = 30417 so an in-place update can never downgrade.
         multiDexEnabled = true
 
         // v3.4.6 — the CI contract is ONE arm64 artifact below 50 MiB. The Flutter

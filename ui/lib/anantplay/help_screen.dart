@@ -183,16 +183,20 @@ class _HelpScreenState extends State<HelpScreen> {
       // duplicate ids, zero overwritten rows.
       dartLayer = await DartLayerAuditor.run(
         scope,
+        // v3.4.6.l — THE PROBE-#84–#92 NAME FIX (video_2 03:35–04:01): the
+        // Dart Layer-2 frames now carry their REAL human-readable titles into
+        // _feedNames — every row #1..#92 renders its own name (zero "Probe
+        // #84" fallbacks, zero generic labels).
         onStart: (id, name) {
           if (!mounted) return;
-          _upsertFeed(id, '▶ Checking #$id $name…', done: false);
+          _upsertFeed(id, '▶ Checking #$id $name…', done: false, name: name);
         },
         onDone: (o) {
           if (!mounted) return;
           setState(() => _done = o.id);
           _upsertFeed(o.id,
               '${o.pass ? '✓' : '✗'} #${o.id} ${o.pass ? 'PASS' : 'FAIL'} (${o.ms.round()} ms)',
-              done: true);
+              done: true, name: o.name);
         },
       );
     } catch (_) {
@@ -608,6 +612,13 @@ class _ProbeStatusRow extends StatelessWidget {
   /// v3.4.6.j — the probe's own title (from its Checking line).
   final String name;
 
+  /// v3.4.6.l — THE ARROW-FREE TITLE (video_2 03:45–03:53): the raw Unicode
+  /// arrows native probe titles carry ("→", "↔") are stripped to crisp
+  /// plain-text separators for the visual row (the clipboard report keeps the
+  /// original spelling — only the SCREEN chrome is arrow-free).
+  static String _cleanTitle(String raw) =>
+      raw.replaceAll('→', '·').replaceAll('↔', '·').replaceAll('⇄', '·');
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -616,7 +627,9 @@ class _ProbeStatusRow extends StatelessWidget {
     final checking = line.startsWith('▶');
     final id = RegExp(r'#(\d+)').firstMatch(line)?.group(1) ?? '';
     final ms = RegExp(r'\((\d+) ms\)').firstMatch(line)?.group(1) ?? '';
-    final title = name.isNotEmpty ? name : (checking ? line : '');
+    final title = name.isNotEmpty
+        ? _cleanTitle(name)
+        : (checking ? _cleanTitle(line) : '');
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(

@@ -36,6 +36,6 @@ echo "sources: $(wc -l < /tmp/srcs.txt)"
 # transitive classpath entries the Flutter embedding's FlutterActivity API
 # surface needs; AGP provides them from maven in the real build).
 "$JDK/bin/javac" -encoding UTF-8 -nowarn \
-  -cp "$AJAR:$FLUTTER_JAR:libs/*:/tmp/rout:$EXTRA_CP/lifecycle-common-jvm.jar:$EXTRA_CP/lifecycle-runtime.jar:$EXTRA_CP/annotation.jar" \
+  -cp "$AJAR:$FLUTTER_JAR:libs/*:/tmp/rout:$EXTRA_CP/lifecycle-common-jvm.jar:$EXTRA_CP/lifecycle-common.jar:$EXTRA_CP/lifecycle-runtime.jar:$EXTRA_CP/annotation.jar" \
   -d /tmp/javac-out @/tmp/srcs.txt 2>&1 | grep -v "^Note:" | head -80
 echo "COMPILE OK: $(find /tmp/javac-out -name '*.class' | wc -l) classes"

@@ -432,16 +432,21 @@ void main() {
   });
 
   group('v3.4.6.h version identity', () {
-    test('pubspec carries 3.4.6+30417 (pure integer build number)', () {
+    test('pubspec carries 3.4.6+30418 (pure integer build number)', () {
       final pubspec = File('pubspec.yaml').readAsStringSync();
-      expect(RegExp(r'^version: 3\.4\.6\+30417$', multiLine: true).hasMatch(pubspec), isTrue);
+      expect(RegExp(r'^version: 3\.4\.6\+30418$', multiLine: true).hasMatch(pubspec), isTrue);
       expect(pubspec.contains('3.4.6.h+30414'), isFalse,
           reason: 'pub-semver forbids the 4-part core in the version field');
     });
 
-    test('the visible version literal matches the 3.4.6.j release identity', () {
+    test('v3.4.6.l — the visible version is LIVE (the stale-literal is dead)', () {
       final feedback = File('lib/anantplay/action_feedback.dart').readAsStringSync();
-      expect(feedback.contains("kVisibleVersion = 'v3.4.6.j'"), isTrue);
+      // v3.4.6.l — the dead literal was the "Up to date (v3.4.6.j)" bug: the
+      // label now resolves the LIVE appInfo channel (kLiveVersion) with a
+      // fallback that matches the current release.
+      expect(feedback.contains('kLiveVersion'), isTrue);
+      expect(feedback.contains("kVisibleVersion = 'v3.4.6"), isFalse);
+      expect(feedback.contains("kVisibleVersionFallback = 'v3.4.6.l'"), isTrue);
     });
   });
 }

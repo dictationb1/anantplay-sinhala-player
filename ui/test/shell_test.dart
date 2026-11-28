@@ -38,6 +38,14 @@ void main() {
   bool onboardingDone = false;
   int onboardingVersion = 0;
   final settingsPuts = <String, Object>{};
+  // v3.4.6.l — the mutable permission state (the mandatory forward gates:
+  // the finish-contract test flips these instead of hopping 'Continue anyway').
+  final mockPerms = <String, bool>{
+    'overlay': false,
+    'notif': false,
+    'battery': false,
+    'installs': false,
+  };
   // v3.4.6.j — the anantplay/player 'open' call counter (the native-cinema
   // launch assertions read it).
   int playerOpens = 0;
@@ -55,6 +63,11 @@ void main() {
     playerOpens = 0;
     playerNativeLane = true;
     settingsPuts.clear();
+    mockPerms
+      ..['overlay'] = false
+      ..['notif'] = false
+      ..['battery'] = false
+      ..['installs'] = false;
     mock.setMockMethodCallHandler(const MethodChannel('anantplay/settings'), (call) async {
       switch (call.method) {
         case 'getAll':
@@ -99,10 +112,10 @@ void main() {
         case 'onboardingStatus':
           return <String, Object>{
             't': 'onboardingStatus',
-            'overlay': false,
-            'notif': false,
-            'battery': false,
-            'installs': false,
+            'overlay': mockPerms['overlay'] ?? false,
+            'notif': mockPerms['notif'] ?? false,
+            'battery': mockPerms['battery'] ?? false,
+            'installs': mockPerms['installs'] ?? false,
             'official': false,
           };
         case 'canRequestPackageInstalls':
@@ -294,13 +307,32 @@ void main() {
         await tester.pumpAndSettle();
       }
 
+      /// v3.4.6.l — flip a mock permission ON and simulate the native
+      /// grant push the way the real phone delivers it: a lifecycle RESUME
+      /// (the auto-return contract) — the wizard's observer re-queries, the
+      /// flipped slide springs its Enabled badge and auto-advances.
+      Future<void> grant(String perm) async {
+        mockPerms[perm] = true;
+        final binding = TestWidgetsFlutterBinding.instance;
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        // the re-query round-trip + the 600 ms glide + the settle
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 700));
+        await tester.pumpAndSettle();
+      }
+
       await hop('Get started');
-      await hop('Continue without installing'); // slide 2 → slide 3
-      await hop('Continue anyway'); // slide 3 → slide 4
-      await hop('Continue anyway'); // slide 4 → slide 5
-      // v3.4.6.i — slide 5's redesign: ONE full-width Continue under the
-      // two permission rows (no second 'Continue anyway').
-      await hop('Continue'); // slide 5 → slide 6
+      // v3.4.6.l — THE MANDATORY GATES: 'Continue anyway' is dead on the
+      // permission slides; each GRANT (delivered as a resume, exactly the
+      // real auto-return contract) auto-advances the wizard instead.
+      await hop('Continue without installing'); // slide 1 → slide 2
+      await grant('notif'); // slide 2 (Notifications) auto-advances
+      await grant('overlay'); // slide 3 (Auto-open on cast) auto-advances
+      await grant('battery'); // slide 4: battery half of the stability gate
+      await grant('installs'); // slide 4: the Allow-App-Updates half — BOTH
+      // stability grants are mandatory before the slide-4 Continue exists,
+      // so the wizard completes the day-one LAW #3 contract and reaches 5.
 
       expect(find.text('Finish'), findsOneWidget);
       await tester.ensureVisible(find.text('Finish'));
@@ -1383,10 +1415,15 @@ void main() {
           case 'officialVersion':
             return '';
           case 'onboardingStatus':
+            // v3.4.6.l — read the LIVE mockPerms so the grant() flip below
+            // actually lands (the auto-advance contract).
             return <String, Object>{
               't': 'onboardingStatus',
-              'overlay': false, 'notif': false, 'battery': false,
-              'installs': false, 'official': false,
+              'overlay': mockPerms['overlay'] ?? false,
+              'notif': mockPerms['notif'] ?? false,
+              'battery': mockPerms['battery'] ?? false,
+              'installs': mockPerms['installs'] ?? false,
+              'official': false,
             };
           default:
             return <String, Object>{'up': false, 'port': -1, 'discoverable': false, 'mdns': false};
@@ -1394,10 +1431,25 @@ void main() {
       });
       await tester.pumpWidget(quiet(const OnboardingScreen()));
       await tester.pump();
-      for (var i = 0; i < 3; i++) {
-        await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+      // v3.4.6.l — the forward flings are GATED: hop the two free slides,
+      // grant Notifications (auto-advance to the Auto-open slide).
+      Future<void> hop(String label) async {
+        final target = find.text(label).first;
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        await tester.tap(target, warnIfMissed: false);
         await tester.pumpAndSettle();
       }
+
+      await hop('Get started');
+      await hop('Continue without installing');
+      mockPerms['notif'] = true;
+      final binding = TestWidgetsFlutterBinding.instance;
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Enable Auto-Open'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Enable Auto-Open'), warnIfMissed: false);
@@ -1762,6 +1814,10 @@ void main() {
     testWidgets('slide 5 offers the Allow App Updates card (granted → Enabled ✓)',
         (tester) async {
       var unknownSourcesOpens = 0;
+      // v3.4.6.l — this scenario's contract: battery + installs BOTH already
+      // granted (setUp resets mockPerms to all-false, so set them HERE).
+      mockPerms['battery'] = true;
+      mockPerms['installs'] = true;
       mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
         switch (call.method) {
           case 'openUnknownSources':
@@ -1774,10 +1830,15 @@ void main() {
           case 'officialVersion':
             return '';
           case 'onboardingStatus':
+            // v3.4.6.l — read mockPerms (the grant() lane) so the scenario
+            // markers above + the auto-advance grants stay live.
             return <String, Object>{
               't': 'onboardingStatus',
-              'overlay': false, 'notif': false, 'battery': true,
-              'installs': true, 'official': false,
+              'overlay': mockPerms['overlay'] ?? false,
+              'notif': mockPerms['notif'] ?? false,
+              'battery': mockPerms['battery'] ?? false,
+              'installs': mockPerms['installs'] ?? false,
+              'official': false,
             };
           default:
             return <String, Object>{
@@ -1787,15 +1848,31 @@ void main() {
       });
       await tester.pumpWidget(quiet(const OnboardingScreen()));
       await tester.pumpAndSettle();
-      // Glide to slide 5 (Keep Cast ready): slides 1..4.
-      await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
-      await tester.pumpAndSettle();
-      await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
-      await tester.pumpAndSettle();
-      await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
-      await tester.pumpAndSettle();
-      await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
-      await tester.pumpAndSettle();
+      // v3.4.6.l — the forward flings are GATED now (the real onPageChanged
+      // lock). Drive the wizard the way the real phone does: hop the two
+      // free slides, then GRANT notifications + overlay (each auto-advances).
+      Future<void> hop(String label) async {
+        final target = find.text(label).first;
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        await tester.tap(target, warnIfMissed: false);
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> grant(String perm) async {
+        mockPerms[perm] = true;
+        final binding = TestWidgetsFlutterBinding.instance;
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 700));
+        await tester.pumpAndSettle();
+      }
+
+      await hop('Get started');
+      await hop('Continue without installing');
+      await grant('notif');    // slide 2 → slide 3
+      await grant('overlay');  // slide 3 → slide 4 (Keep Cast ready)
       expect(find.text('Keep Cast ready'), findsOneWidget);
       // The install-updates grant IS already true (the mock) → both cards show
       // Enabled ✓ — the day-one guarantee the LAW #3 onboarding half demands.
@@ -1808,6 +1885,10 @@ void main() {
     testWidgets('ungranted installs offers Allow App Updates → openUnknownSources fires',
         (tester) async {
       var unknownSourcesOpens = 0;
+      // v3.4.6.l — this scenario's contract: battery granted, installs NOT
+      // (setUp resets mockPerms to all-false; set the scenario markers HERE).
+      mockPerms['battery'] = true;
+      mockPerms['installs'] = false;
       mock.setMockMethodCallHandler(const MethodChannel('anantplay/cast'), (call) async {
         switch (call.method) {
           case 'openUnknownSources':
@@ -1820,10 +1901,14 @@ void main() {
           case 'officialVersion':
             return '';
           case 'onboardingStatus':
+            // v3.4.6.l — read mockPerms (the grant() lane).
             return <String, Object>{
               't': 'onboardingStatus',
-              'overlay': false, 'notif': false, 'battery': true,
-              'installs': false, 'official': false,
+              'overlay': mockPerms['overlay'] ?? false,
+              'notif': mockPerms['notif'] ?? false,
+              'battery': mockPerms['battery'] ?? false,
+              'installs': mockPerms['installs'] ?? false,
+              'official': false,
             };
           default:
             return <String, Object>{
@@ -1833,11 +1918,31 @@ void main() {
       });
       await tester.pumpWidget(quiet(const OnboardingScreen()));
       await tester.pumpAndSettle();
-      for (var i = 0; i < 4; i++) {
-        await tester.fling(find.byType(PageView), const Offset(-380, 0), 900);
+      // v3.4.6.l — the forward flings are GATED (the onPageChanged lock);
+      // drive with the hop + grant lane exactly like the real phone.
+      Future<void> hop(String label) async {
+        final target = find.text(label).first;
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        await tester.tap(target, warnIfMissed: false);
         await tester.pumpAndSettle();
       }
-      // v3.4.6.i — the redesigned slide 5: the row label + its [Enable]
+
+      Future<void> grant(String perm) async {
+        mockPerms[perm] = true;
+        final binding = TestWidgetsFlutterBinding.instance;
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 700));
+        await tester.pumpAndSettle();
+      }
+
+      await hop('Get started');
+      await hop('Continue without installing');
+      await grant('notif');    // slide 2 → slide 3
+      await grant('overlay');  // slide 3 → slide 4 (Keep Cast ready)
+      // v3.4.6.i — the redesigned slide 4: the row label + its [Enable]
       // button (the prominent-pill layout is gone).
       expect(find.text('Allow App Updates'), findsOneWidget);
       await tester.ensureVisible(find.text('Allow App Updates'));

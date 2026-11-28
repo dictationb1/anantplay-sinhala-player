@@ -180,7 +180,17 @@ public final class WatchHistory {
     public static List<Item> upsert(List<Item> current, Item add) {
         List<Item> out = new ArrayList<>();
         if (current != null) out.addAll(current);
+        // v3.4.6.l — THE PROBE #91 ROOT-CAUSE KILL (the real-phone FAIL): a
+        // Continue-Watching row WITHOUT a URL is unplayable garbage — it can
+        // never be resumed, it breaks the history read-back round-trip probe
+        // (H13, "empty url or negative position") and it was written by the
+        // historyAdd channel whenever a caller passed a null URL alongside a
+        // real title. Rows without a URL are refused at the ONE writer gate.
         if (add == null || (add.title.trim().isEmpty() && add.url.trim().isEmpty())) return out;
+        if (add.url.trim().isEmpty()) {
+            Diag.w("history", "refused a URL-less row: " + add.title);
+            return out;
+        }
         sanitize(add);                                  // v3.4.3 — no secrets, relay flagged
         String k = add.key();
         Item prev = null;

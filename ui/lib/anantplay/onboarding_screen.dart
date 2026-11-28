@@ -144,9 +144,22 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     // installer) re-queries native state and lets _applyStatus decide the
     // auto-advance.
     if (state == AppLifecycleState.resumed) {
+      // v3.4.6.l — THE SLIDE-1 RESET KILL (video_3 02:46/03:03/03:36): a
+      // resume NEVER re-initializes _pageController (the persisted stage stays
+      // the single source of truth — the controller was built from it exactly
+      // once in initState) and NEVER resets _page. The stage was persisted at
+      // EVERY page change AND below, right before any settings page opened, so
+      // this resume is a pure re-query — the wizard stays on its slide.
       _requeryStatus();
       _requeryOfficialVersion();
     }
+  }
+
+  /// v3.4.6.l — the pre-leave persistence: called right before any callback
+  /// opens a system settings page. The stage is ALREADY persisted at every
+  /// page change; this is the belt-and-braces lane the auto-return relies on.
+  void _persistStageBeforeLeaving() {
+    AppState.of(context).scope.setOnboardingStage(_page);
   }
 
   Future<void> _requeryStatus() async {
@@ -206,10 +219,32 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   void _onPageChanged(int page) {
+    // v3.4.6.l — THE REAL FORWARD LOCK (video_3 01:30–01:58).
+    //
+    // ROOT CAUSE of the v3.4.6.k bypass: PageView wraps any custom `physics`
+    // with PageScrollPhysics + _ForceImplicitScrollPhysics, and NEITHER of
+    // those chains applyPhysicsToUserOffset down to the inner physics — the
+    // v3.4.6.k _ForwardBlockedScrollPhysics class was therefore a SILENT
+    // NO-OP (a forward fling sailed straight through on a real phone). The
+    // gate now lives at the ONE place the framework guarantees a forward
+    // arrival must pass through: onPageChanged. A forward arrival while the
+    // CURRENT slide's required OS permission is ungranted snaps STRAIGHT
+    // back; backward arrivals (page < _page) are always free.
+    if (page > _page && forwardBlocked(_page, _status)) {
+      _pages.jumpToPage(_page);
+      _announceForwardLock();
+      return;
+    }
     setState(() => _page = page);
     // v3.4.6.k — persist the stage THE INSTANT the slide changes (swipes
     // included): the auto-return / remount path resumes on the EXACT slide.
     AppState.of(context).scope.setOnboardingStage(page);
+  }
+
+  /// The honest little hint that the slide's grant is still missing.
+  void _announceForwardLock() {
+    showMornyeGlassNotification(context,
+        message: "Grant this slide's permission to continue");
   }
 
   void _finish() {
@@ -438,7 +473,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         2 => _permissionActions(
             granted: _status.notif,
             openLabel: 'Enable Notifications',
-            onOpen: () => AnantPlay.instance.requestNotifications(),
+            onOpen: () async {
+              _persistStageBeforeLeaving();   // v3.4.6.l — persist BEFORE the dialog
+              await AnantPlay.instance.requestNotifications();
+            },
             onContinue: () => _go(3)),
         // v3.4.6.d — the overlay slide ALSO arms the 30-second return
         // watcher: the instant the user flips the toggle in Android Settings
@@ -447,6 +485,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             granted: _status.overlay,
             openLabel: 'Enable Auto-Open',
             onOpen: () async {
+              _persistStageBeforeLeaving();   // v3.4.6.l — persist BEFORE leaving
               await AnantPlay.instance.openOverlaySettings();
               await AnantPlay.instance.watchOverlayGrant();
             },
@@ -478,17 +517,26 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           onBattery: () {
             // v3.4.6.j — the 90 s / 400 ms bounded watcher + the BAL snap-back
             // fire with the deep link (the ESET-style instant return).
+            _persistStageBeforeLeaving();   // v3.4.6.l — persist BEFORE leaving
             AnantPlay.instance.openBatteryOptimization();
             AnantPlay.instance.watchBatteryGrant();
           },
           onInstalls: () {
             // v3.4.6.j — the same watcher contract for the install grant.
+            _persistStageBeforeLeaving();   // v3.4.6.l — persist BEFORE leaving
             AnantPlay.instance.openUnknownSources();
             AnantPlay.instance.watchInstallPermission();
           },
         ),
         const SizedBox(height: 10),
-        _pill(label: 'Continue', onTap: () => _go(5), prominent: true),
+        // v3.4.6.l — the mandatory gate (video_3 01:30–01:58): the Continue
+        // action only appears once BOTH stability grants are real. Until then
+        // the honest instruction line says exactly what is still missing.
+        _status.battery && _status.installs
+            ? _pill(label: 'Continue', onTap: () => _go(5), prominent: true)
+            : _caption(
+                '${_status.battery ? 'Battery: On' : 'Grant No restrictions'} · '
+                '${_status.installs ? 'App updates: allowed' : 'Grant Allow app updates'}'),
       ],
     );
   }
@@ -572,15 +620,18 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         ],
       );
     }
-    // v3.4.6.i — first-time guidance: the primary action is the grant
-    // button; 'Continue anyway' stays the de-emphasized escape (never
-    // removed — accessibility) so a new user is gently steered to grant.
+    // v3.4.6.l — THE FORWARD-LOCK'S SECOND HALF (video_3 01:30–01:58):
+    // 'Continue anyway' is DELETED from the mandatory first-time permission
+    // slides (Notifications · Auto-open on cast). A slide whose OS grant the
+    // whole receiver depends on is completed properly — the ONLY way forward
+    // is the grant (or the hardware Back, which stays free). The voluntary
+    // re-run keeps no escape either: the wizard is re-entered by choice.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _pill(label: openLabel, onTap: () => onOpen(), prominent: true),
         const SizedBox(height: 8),
-        _textButton('Continue anyway', onContinue),
+        _caption('Grant it to continue — Back stays free.'),
       ],
     );
   }
@@ -2005,18 +2056,21 @@ class _ForwardBlockedScrollPhysics extends BouncingScrollPhysics {
 
   @override
   double applyPhysicsToUserOffset(ScrollMetrics position, double offset) {
-    // FORWARD = toward the next page (a positive user drag offset). While the
-    // gate is unmet the forward offset is frozen at zero — the page cannot
-    // start moving forward. Backward offsets fall through to the parent
-    // (free bounce + free backward swiping).
-    if (blockForward && offset > 0) return 0;
+    // FORWARD = toward the next page. The framework hands this method the
+    // pointer's own primary delta (v3.4.6.l note: a FORWARD horizontal drag
+    // — finger moving LEFT — arrives here as a NEGATIVE offset), so the
+    // forward freeze is the NEGATIVE branch; the positive branch (finger
+    // right = BACKWARD) falls through to the parent for free back-swiping.
+    if (blockForward && offset < 0) return 0;
     return super.applyPhysicsToUserOffset(position, offset);
   }
 
   @override
   Simulation? createBallisticSimulation(ScrollMetrics position, double velocity) {
-    // A forward FLING (velocity > 0) is neutralized while the gate is unmet —
-    // no momentum carry-over can sneak the page forward.
+    // A forward FLING lands here as a POSITIVE velocity (the framework
+    // negates the pointer delta for the ballistic phase); it is neutralized
+    // while the gate is unmet — no momentum carry-over can sneak the page
+    // forward. Backward flings (negative velocities) stay live.
     final double v = (blockForward && velocity > 0) ? 0 : velocity;
     return super.createBallisticSimulation(position, v);
   }

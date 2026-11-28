@@ -97,7 +97,7 @@ void main() {
       // the preview card is the FIRST child of the Playback & Subtitles page
       final pageAt =
           settings.indexOf("title: 'Playback & Subtitles'");
-      final cardAt = settings.indexOf('_LiveSubtitlePreviewCard(s: s)');
+      final cardAt = settings.indexOf('_LiveSubtitlePreviewCard(');
       expect(pageAt, greaterThan(-1));
       expect(cardAt, greaterThan(pageAt),
           reason: 'the live preview card must render below the page title');
@@ -113,9 +113,11 @@ void main() {
       final settings = repo('lib/anantplay/settings_screen.dart');
       // the rows write to the channel ONLY in onCommit — never per-frame
       expect(settings.contains('required this.onCommit,'), isTrue);
-      expect(settings.contains('onChanged: (x) => setState(() => _draft = x)'),
-          isTrue,
-          reason: 'the drag updates ONLY the local draft (no channel writes)');
+      // v3.4.6.l — the drag STILL updates only the local draft channel-wise;
+      // the live-preview lane (onPreview) is a LOCAL ValueNotifier, so no
+      // channel write happens per frame either.
+      expect(settings.contains('setState(() => _draft = x)'), isTrue,
+          reason: 'the drag updates the local draft (never the channel)');
       for (final key in [
         'SettingsMirror.kGlassClarity',
         'SettingsMirror.kSubBgOpacity',
@@ -183,8 +185,12 @@ void main() {
       final onboarding = repo('lib/anantplay/onboarding_screen.dart');
       expect(
           onboarding.contains('class _ForwardBlockedScrollPhysics'), isTrue);
-      expect(onboarding.contains('blockForward && offset > 0'), isTrue,
-          reason: 'a forward drag offset is frozen at zero while gated');
+      expect(onboarding.contains('blockForward && offset < 0'), isTrue,
+          reason: 'a forward drag offset is frozen at zero while gated '
+              '(the pointer delta arrives inverted; v3.4.6.l)');
+      expect(onboarding.contains('page > _page && forwardBlocked(_page, _status)'), isTrue,
+          reason: 'v3.4.6.l — the REAL gate: onPageChanged snaps forward '
+              'arrivals back (custom physics is bypassed by PageView)');
       expect(onboarding.contains('static bool forwardBlocked'), isTrue);
       expect(
           onboarding.contains('''

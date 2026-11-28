@@ -75,6 +75,15 @@ public final class AppPrefs {
     public static final String K_SWIPE_VOLUME = "swipeVolume";          // v3.3.0: bool (right-half vertical swipe)
     public static final String K_SWIPE_SEEK = "swipeSeek";              // v3.3.0: bool (horizontal swipe seek)
     public static final String K_LOCK_ON_START = "lockOnStart";         // v3.3.0: bool (start with the HUD locked)
+    // ══ v3.4.6.l — THE NEXT-LEVEL CINEMA PLAYER CUSTOMIZATION KEYS ═══════════
+    // The deep customization surface of the rebuilt CinemaHud/CinemaGestures
+    // engine; every key is mirrored 1:1 into Flutter's Playback & Subtitles
+    // page (SettingsMirror) so the Java sheet and the Dart settings page are
+    // the same controls, the same values, the same writer lane.
+    public static final String K_DOUBLE_TAP_SEC = "doubleTapSeekSec";   // 5|10|15|30 (s per double-tap)
+    public static final String K_LONG_PRESS_SPEED = "longPressSpeedX";  // 150|200|250 per-mille (1.5x/2.0x/2.5x)
+    public static final String K_PINCH_ZOOM = "pinchZoom";               // bool (2-finger Fit/Fill cycle)
+    public static final String K_FRAME_RATE_MATCH = "frameRateMatch";   // bool (24/30/60 Hz display sync)
     /** v3.4.1 — the first-time 3-step Quick-Start banner was dismissed ("Got it"). */
     public static final String K_QUICKSTART_DONE = "quickstartDone";
     /**
@@ -371,6 +380,8 @@ public final class AppPrefs {
         K_SYNC_STEP_MS, K_SEEK_STEP_MS, K_GESTURES, K_DOUBLE_TAP_SEEK, K_AUTO_PIP, K_KEEP_SCREEN_ON,
         K_AUTO_RESUME, K_HUD_HIDE_MS, K_PLAY_SPEED, K_ASPECT_MODE,
         K_SWIPE_BRIGHTNESS, K_SWIPE_VOLUME, K_SWIPE_SEEK, K_LOCK_ON_START, K_QUICKSTART_DONE,
+        // v3.4.6.l — the next-level cinema customization keys ride the same lossless backup
+        K_DOUBLE_TAP_SEC, K_LONG_PRESS_SPEED, K_PINCH_ZOOM, K_FRAME_RATE_MATCH,
         K_DOH_DIAG, K_RECEIVER_NAME, K_RECEIVER_PORT, K_DLNASTART, K_MDNS,
         K_WORKER_URL, K_AUTO_UPDATE, K_AUTO_OPEN_SNIFFED, K_WEB_DESKTOP_UA,
         K_AD_BLOCK, K_WEB_LINKS, K_FREE_TRANSLATOR,
@@ -521,8 +532,13 @@ public final class AppPrefs {
         return v == 5000 || v == 15000 || v == 30000 ? v : 10000;
     }
 
+    /** v3.4.6.l — the cinema auto-hide set (video_1/2: the old 2/4/6/8 s
+     *  ladder had no 3 s or 3.5 s lane). New set 2/3/5 s, default 3.5 s; the
+     *  legacy stored values map onto it (4000->3500, 6000/8000->5000). */
     public static long normalizeHudHide(long v) {
-        return v == 2000 || v == 6000 || v == 8000 ? v : 4000;
+        if (v == 2000 || v == 3000 || v == 3500 || v == 5000) return v;
+        if (v == 6000 || v == 8000) return 5000;
+        return 3500;
     }
 
     /** v3.2.0 — default playback speed stored as per-mille (50..200). */
@@ -668,7 +684,9 @@ public final class AppPrefs {
     public static int normalizeSpeedDialCols(int v) { return clampTo(v, 2, 4); }
     public static int normalizeBorderAlpha(int v) { return clampTo(v, 0, 60); }
     public static int normalizeSubOutline(int v) { return clampTo(v, 0, 6); }
-    public static int normalizeVolumeBoost(int v) { return clampTo(v, 0, 150); }
+    /** v3.4.6.l — the ceiling is 200% (the +6 dB LoudnessEnhancer clamp);
+     *  legacy stored values above 200 fold down to it. */
+    public static int normalizeVolumeBoost(int v) { return clampTo(v, 0, 200); }
     public static String normalizeSearchEngine(String v) {
         // v3.4.6.d — all FOUR known engines round-trip (ddg included — it was
         // missing from the old accepted list, so a ddg-persisted preference
@@ -963,6 +981,21 @@ public final class AppPrefs {
     public static boolean swipeBrightness(SharedPreferences p) { return p.getBoolean(K_SWIPE_BRIGHTNESS, true); }
     public static boolean swipeVolume(SharedPreferences p) { return p.getBoolean(K_SWIPE_VOLUME, true); }
     public static boolean swipeSeek(SharedPreferences p) { return p.getBoolean(K_SWIPE_SEEK, true); }
+    // ══ v3.4.6.l — the next-level cinema engine's custom knobs (clamped) ═════
+    /** The double-tap seek step in SECONDS (5/10/15/30, default 10). */
+    public static int doubleTapSec(SharedPreferences p) {
+        int v = safeGetInt(p, K_DOUBLE_TAP_SEC, 10);
+        return v == 5 || v == 10 || v == 15 || v == 30 ? v : 10;
+    }
+    /** The long-press hold speed in per-mille (150/200/250 -> 1.5x/2.0x/2.5x, default 200). */
+    public static int longPressSpeedPerMille(SharedPreferences p) {
+        int v = safeGetInt(p, K_LONG_PRESS_SPEED, 200);
+        return v == 150 || v == 200 || v == 250 ? v : 200;
+    }
+    /** 2-finger pinch-to-zoom (Fit <-> Fill cycle) enabled (default true). */
+    public static boolean pinchZoom(SharedPreferences p) { return p.getBoolean(K_PINCH_ZOOM, true); }
+    /** 24/30/60 Hz seamless display-rate matching enabled (default true). */
+    public static boolean frameRateMatch(SharedPreferences p) { return p.getBoolean(K_FRAME_RATE_MATCH, true); }
     public static boolean lockOnStart(SharedPreferences p) { return p.getBoolean(K_LOCK_ON_START, false); }
     /** v3.4.1 — has the first-time Quick-Start banner been dismissed? */
     public static boolean quickStartDone(SharedPreferences p) { return p.getBoolean(K_QUICKSTART_DONE, false); }

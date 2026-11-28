@@ -27,6 +27,14 @@ package lk.techworld.anantplay.sicast;
  *  script-ratio validation) + the Mornye/Apple-grade customization hub + the
  *  dedicated 10-point Troubleshooter. Strictly v3.x — never v4. */
 final class AppInfo {
+    // v3.4.6.l (code 30418): THE NEXT-LEVEL NATIVE HARDWARE CINEMA PLAYER
+    // (PlayActivity rebuilt on the modular CinemaHud / CinemaGestures /
+    // CinemaSheets engine: gradient scrims, icon-only ripple targets, the
+    // tabular --:-- duration contract, the clamped LoudnessEnhancer boost,
+    // wrapping chip sheets with zero right-edge clipping) + the live-version
+    // About fix (AppInfo, never a stale literal) + the OTA jsDelivr fallback
+    // + the video_1/2/3 bug sweep (onboarding forward lock, coach auto-return,
+    // live subtitle preview, probe #84-92 names, history empty-url kill).
     // v3.4.6.k (code 30417): THE SILENT ZERO-PROMPT SELF-UPDATE (LAW #1:
     // UPDATE_PACKAGES_WITHOUT_USER_ACTION + USER_ACTION_NOT_REQUIRED on API
     // 31+, two-lane letter-patch/major versioning, the 2–3× installer-loop
@@ -47,8 +55,8 @@ final class AppInfo {
     // v3.4.6.e→v3.4.6.e self-lock, the background multi-download, the
     // `No active stream to cancel` EventChannel collision, and the fake
     // PASSes in the deep troubleshooter (Probe 47's HTTP 0 lie).
-    static final String VERSION_NAME = "3.4.6.k";
-    static final int VERSION_CODE = 30417;
+    static final String VERSION_NAME = "3.4.6.l";
+    static final int VERSION_CODE = 30418;
     static final String NAME = "AnantPlay Sinhala Player";
     private AppInfo() { }
 }
