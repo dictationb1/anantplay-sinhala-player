@@ -63,6 +63,10 @@ final class CinemaGestures {
         void holdSpeedEnd();
         void pinchZoom(boolean out);                // true = spread = Fill
         void pinchLabel(String text);               // the floating aspect pill
+        /** v3.4.6.m — REAL LOCK belt & braces: false while the host is locked
+         *  (the host's dispatchTouchEvent is the primary law — this gate just
+         *  makes the gesture engine itself agree with it). */
+        boolean controlsAvailable();
     }
 
     // ── BUILD & WIRE ────────────────────────────────────────────────────────
@@ -127,6 +131,10 @@ final class CinemaGestures {
         };
 
         root.setOnTouchListener((v, e) -> {
+            // v3.4.6.m — REAL LOCK: while the host is locked every gesture is
+            // swallowed by the host's top-level interceptor; this guard keeps
+            // the engine itself dead too (no callbacks, no hold timers).
+            if (!ops.controlsAvailable()) return false;
             pinch.onTouchEvent(e);
             gd.onTouchEvent(e);
             switch (e.getActionMasked()) {

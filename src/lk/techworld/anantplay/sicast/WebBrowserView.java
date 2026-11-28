@@ -280,6 +280,37 @@ public class WebBrowserView extends FrameLayout {
         + "setInterval(tick,350);tick();})();";
 
     /**
+     * v3.4.6.m — THE FLOATING ▶ PLAY-BUTTON OBSERVER (Part_01 00:45–01:44,
+     * Part_02 04:17–05:12). A lightweight page script that finds the FIRST
+     * sizeable visible <video> (any site — YouTube, Shorts, any HTML5 player),
+     * reads its CSS-px rect, and reports {src, rect, viewport} through the
+     * ONE registered bridge (window.SniJS.onVideoRect). Throttled by the
+     * key-change dedupe + the Java-side 300 ms rail limit; posts an empty
+     * rect when the last video disappears (scroll / navigation / fullscreen).
+     * It never touches playback, never blocks a tap — it only OBSERVES.
+     */
+    static final String VIDEO_RECT_HOOK_JS =
+        "(function(){if(window.__siVideoRect)return;window.__siVideoRect=1;"
+        + "if(window.top!==window)return;"
+        + "var last='';"
+        + "function post(s,l,t,w,h){try{if(!isFinite(l)||!isFinite(t)||!isFinite(w)||!isFinite(h))return;"
+        + "if(window.SniJS)SniJS.onVideoRect(String(s),l,t,w,h,"
+        + "((document.documentElement&&document.documentElement.clientWidth)||window.innerWidth||0));}catch(e){}}"
+        + "function pick(){try{"
+        + "var vs=document.querySelectorAll('video');var best=null;var br=null;"
+        + "for(var i=0;i<vs.length;i++){var v=vs[i];var r=v.getBoundingClientRect();"
+        + "if(r.width>=120&&r.height>=80&&(!best||r.width*r.height>br.width*br.height)){best=v;br=r;}}"
+        + "if(best){var s=best.currentSrc||best.src||'';"
+        + "var k=Math.round(br.left)+','+Math.round(br.top)+','+Math.round(br.width)+','+Math.round(br.height)+','+String(s);"
+        + "if(k!==last){last=k;post(s,Math.round(br.left),Math.round(br.top),Math.round(br.width),Math.round(br.height));}return;}"
+        + "if(last){last='';post('',0,0,0,0);}}catch(e){}}"
+        + "document.addEventListener('play',function(){pick()},true);"
+        + "document.addEventListener('loadedmetadata',function(){pick()},true);"
+        + "window.addEventListener('scroll',function(){last='';pick()},true);"
+        + "window.addEventListener('resize',function(){last='';pick()},true);"
+        + "setInterval(pick,900);pick();})();";
+
+    /**
      * v3.4.6.k — THE YOUTUBE RENDERER-CRASH SHIELD (the Part_05 00:20 hard
      * crash kill). Android 12+ runs the WebView in a sandboxed RENDERER
      * process; a heavy YouTube page can OOM-kill it, and the DEFAULT
@@ -655,6 +686,10 @@ public class WebBrowserView extends FrameLayout {
                     try {
                         MainActivity.shellRoute(act, "sniff-clear", url == null ? "" : url,
                             "", "", false, 0L);
+                        // v3.4.6.m — the floating ▶ leaves with the page too
+                        // (a previous video's play button NEVER lingers).
+                        MainActivity.shellRoute(act, "video-clear", url == null ? "" : url,
+                            "", "", false, 0L);
                     } catch (Throwable ignored) { }
                 } else {
                     try { if (pillRow != null) pillRow.setVisibility(View.GONE); } catch (Throwable ignored) { }
@@ -687,6 +722,14 @@ public class WebBrowserView extends FrameLayout {
                     "document.addEventListener('play',function(e){f(e.target)},true);" +
                     "document.addEventListener('loadedmetadata',function(e){f(e.target)},true);" +
                     "var l=document.querySelectorAll('video,source');for(var i=0;i<l.length;i++)f(l[i]);})()", null);
+                // v3.4.6.m — THE FLOATING ▶ OBSERVER: the video-rect hook rides
+                // every page finish (idempotent — the page flag survives
+                // re-injection; scroll/resize/play all re-pick the rect).
+                try {
+                    v.evaluateJavascript(VIDEO_RECT_HOOK_JS, null);
+                } catch (Throwable t) {
+                    Diag.w("web", "video-rect hook: " + t);
+                }
                 injectBlobHook(v);
                 // ══ v3.4.6.k — THE COSMETIC YOUTUBE AD-SKIP/MUTE JS (LAW #3, the
                 // Part_05 00:17 + Part_06 00:09 in-preview overlays): when Ad
@@ -1420,6 +1463,143 @@ public class WebBrowserView extends FrameLayout {
         });
     }
 
+    // ══ v3.4.6.m — THE FLOATING ▶ RAIL (the video-detected push surface) ════
+
+    /** The last pushed video-rect payload JSON ("" = no live video). */
+    private volatile String lastVideoRectJson = "";
+    /** The last rail push's uptime ms (the 300 ms rail rate limit). */
+    private volatile long lastVideoPushAt;
+
+    /**
+     * v3.4.6.m — THE FLOATING ▶ RAIL HANDLER (main thread): turns the JS
+     * observer's CSS-px rect into a dp-space payload for the Flutter overlay
+     * and pushes it as t='video-detected' (JSON in the url slot — the same
+     * shape the 'yt' lane uses); the empty rect pushes t='video-clear'.
+     *
+     * <p>Contract details:
+     * <ul>
+     *   <li>only while the Flutter shell is actually ON SCREEN (a backgrounded
+     *       observer must never relaunch the app through the route pump);</li>
+     *   <li>CSS px → logical dp through the WebView's own width (the platform
+     *       view's coordinate space IS Flutter logical px);</li>
+     *   <li>the playable url: a real http(s) source, else the newest sniffed
+     *       hit (a blob: video's real stream), else the page URL on a
+     *       YouTube watch/shorts page (the ad-free lane resolves it);</li>
+     *   <li>dedupe (a scroll-jitter re-report of the same rect is dropped) +
+     *       the 300 ms rail rate limit.</li>
+     * </ul>
+     */
+    void onVideoRectFromJs(final String src, final int left, final int top,
+                           final int width, final int height, final int viewportCss) {
+        act.runOnUiThread(() -> {
+            try {
+                if (!headless) return;          // the Flutter capture dock owns the surface
+                if (!MainActivity.shellVisible()) return;   // never a background relaunch
+                // v3.4.6.m — THE GEOMETRY GUARD: a NaN/Infinity or a negative
+                // rect can never become overlay geometry (the JS side already
+                // drops non-finite numbers; the int bridge collapses them to 0,
+                // which this bounds check treats as "no live video").
+                boolean live = width >= 120 && height >= 80
+                        && left >= 0 && top >= 0 && width <= 100000 && height <= 100000;
+                if (!live) {
+                    if (!lastVideoRectJson.isEmpty()) {
+                        lastVideoRectJson = "";
+                        MainActivity.shellRoute(act, "video-clear", "", "", "", false, 0L);
+                    }
+                    return;
+                }
+                int viewPx = web == null ? 0 : web.getWidth();
+                float density = getResources().getDisplayMetrics().density;
+                float viewDp = viewPx > 0 && density > 0f ? viewPx / density : 0f;
+                float scale = viewportCss > 0 && viewDp > 0f ? viewDp / viewportCss : 1f;
+                String s = src == null ? "" : src.trim();
+                String url = s.startsWith("http://") || s.startsWith("https://") ? s : "";
+                if (url.isEmpty()) {
+                    StreamSniffer.Hit newest = null;
+                    synchronized (hits) { for (StreamSniffer.Hit h : hits.values()) newest = h; }
+                    if (newest != null) url = newest.url;
+                }
+                String page = null;
+                try { page = web == null ? null : web.getUrl(); } catch (Throwable ignored) { }
+                String pageUrl = page == null ? "" : page;
+                boolean yt = YouTubeExtractor.videoIdOf(pageUrl) != null;
+                if (yt && url.isEmpty()) url = pageUrl;   // the page IS the handoff
+                // v3.4.6.m — THE HANDOFF GUARD (SSRF / credential hygiene): the
+                // rail only ever hands Flutter a PUBLIC http(s) URL. Loopback,
+                // private, link-local, multicast and `localhost`/`.local` hosts,
+                // a non-http scheme and any embedded `user:pass@` credential are
+                // dropped here, so a page can never steer the player (or the
+                // user's next tap) at an internal address or leak a token. No
+                // header, cookie or Authorization value is ever placed in the
+                // payload — only kind/url/title/geometry.
+                if (!isPublicHttpUrl(url)) url = "";
+                String title = "";
+                try { title = web == null ? "" : String.valueOf(web.getTitle()); } catch (Throwable ignored) { }
+                Map<String, Object> m = new LinkedHashMap<String, Object>();
+                m.put("kind", yt ? "youtube" : "html5");
+                m.put("url", url);
+                m.put("title", title == null ? "" : title);
+                m.put("left", left * scale);
+                m.put("top", top * scale);
+                m.put("width", width * scale);
+                m.put("height", height * scale);
+                m.put("adFree", yt);
+                String json = MiniJson.write(m);
+                if (json.equals(lastVideoRectJson)) return;   // dedupe (scroll jitter)
+                long now = android.os.SystemClock.uptimeMillis();
+                if (now - lastVideoPushAt < 300) return;      // the rail rate limit
+                lastVideoPushAt = now;
+                lastVideoRectJson = json;
+                MainActivity.shellRoute(act, "video-detected", json, "", "", false, 0L);
+            } catch (Throwable t) {
+                Diag.w("web", "video-rect push: " + t);
+            }
+        });
+    }
+
+    /**
+     * v3.4.6.m — THE PUBLIC-HTTP GUARD for the floating-▶ rail (SSRF / XSS
+     * hygiene). True only for an {@code http://} or {@code https://} URL with a
+     * real host that is NOT loopback, private (10/8, 172.16/12, 192.168/16),
+     * link-local (169.254/16), multicast/reserved, {@code localhost} or
+     * {@code *.local}. Any embedded userinfo credential (the {@code user:pass@}
+     * form) is refused outright, so a token can never be forwarded through the
+     * bridge. An empty/absent URL is false — the caller then falls back to its
+     * own sniffed hit.
+     */
+    static boolean isPublicHttpUrl(String u) {
+        if (u == null) return false;
+        String s = u.trim();
+        if (s.isEmpty()) return false;
+        String lower = s.toLowerCase(java.util.Locale.ROOT);
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) return false;
+        try {
+            java.net.URL url = new java.net.URL(s);
+            String host = url.getHost();
+            if (host == null) return false;
+            String h = host.trim().toLowerCase(java.util.Locale.ROOT);
+            if (h.isEmpty()) return false;
+            if (url.getUserInfo() != null && !url.getUserInfo().isEmpty()) return false;
+            if (h.startsWith("[") && h.endsWith("]") && h.length() > 2) h = h.substring(1, h.length() - 1);
+            if (h.equals("localhost") || h.endsWith(".localhost") || h.endsWith(".local")
+                    || h.equals("0.0.0.0") || h.equals("::") || h.equals("::1")) return false;
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$").matcher(h);
+            if (m.matches()) {
+                int a = Integer.parseInt(m.group(1));
+                int b = Integer.parseInt(m.group(2));
+                if (a == 0 || a == 10 || a == 127) return false;              // this-host / private / loopback
+                if (a == 169 && b == 254) return false;                        // link-local
+                if (a == 172 && b >= 16 && b <= 31) return false;              // private
+                if (a == 192 && b == 168) return false;                        // private
+                if (a >= 224) return false;                                    // multicast + reserved
+            }
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     /** The user-controlled ⚡Auto-Open: a NEW stream opens the player by itself
      *  (1.5 s debounce so a burst of segments/pickers reports only one play). */
     private void maybeAutoOpen(StreamSniffer.Hit hit) {
@@ -1473,6 +1653,18 @@ public class WebBrowserView extends FrameLayout {
             if (!StreamSniffer.shouldReport(s, null, -1)) return;
             String kind = StreamSniffer.classify(s, null);
             report(new StreamSniffer.Hit().url(s).kind(kind == null ? "VIDEO" : kind));
+        }
+
+        /**
+         * v3.4.6.m — THE FLOATING ▶ RAIL: the VIDEO_RECT_HOOK_JS observer's
+         * report — a visible <video>'s CSS-px rect (+ viewport width), or the
+         * empty rect when the last video left the screen. Runs on the JS
+         * bridge thread; the handler hops to the UI thread itself.
+         */
+        @JavascriptInterface
+        public void onVideoRect(final String src, final int left, final int top,
+                                final int width, final int height, final int viewportCss) {
+            WebBrowserView.this.onVideoRectFromJs(src, left, top, width, height, viewportCss);
         }
 
         /**

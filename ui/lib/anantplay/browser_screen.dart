@@ -20,6 +20,8 @@
 import 'dart:async';
 import 'dart:convert' show jsonDecode;
 import 'dart:io' show Platform;
+import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, StandardMessageCodec;
@@ -85,6 +87,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
   /// the dock lights up `▶ Play Ad-Free in Cinema` for it.
   Map<dynamic, dynamic>? _yt;
 
+  /// v3.4.6.m — THE FLOATING VIDEO ▶ BUTTON's payload (the decoded
+  /// 'video-detected' frame): the video element's rect in logical dp inside
+  /// the platform view + the playable url/title/kind/adFree flag. The native
+  /// side clears it on navigation ('video-clear') and on sniff clears.
+  Map<dynamic, dynamic>? _videoPlay;
+
   @override
   void initState() {
     super.initState();
@@ -100,6 +108,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
         setState(() {
           _hits = const [];
           _yt = null;
+          // v3.4.6.m — every navigation also folds the floating video ▶
+          // button (a previous page's video element never lingers).
+          _videoPlay = null;
         });
       } else if (m['t'] == 'yt') {
         try {
@@ -112,6 +123,25 @@ class _BrowserScreenState extends State<BrowserScreen> {
         } on FormatException {
           debugPrint('yt payload parse failed');
         }
+      } else if (m['t'] == 'video-detected') {
+        // v3.4.6.m — THE FLOATING VIDEO ▶ BUTTON (native contract): m['url']
+        // is a JSON-encoded STRING payload {url, title, kind, left, top,
+        // width, height, adFree} — the rect is in logical dp INSIDE the
+        // AndroidView's coordinate space (decoded exactly like the 'yt'
+        // lane, guarded the same way).
+        try {
+          final inner = m['url'] is String && (m['url'] as String).isNotEmpty
+              ? jsonDecode(m['url'] as String)
+              : null;
+          if (inner is Map) {
+            setState(() => _videoPlay = inner);
+          }
+        } on FormatException {
+          debugPrint('video-detected payload parse failed');
+        }
+      } else if (m['t'] == 'video-clear') {
+        // v3.4.6.m — the page navigated away from the video element.
+        setState(() => _videoPlay = null);
       }
     });
     if (widget.initialUrl != null && widget.initialUrl!.isNotEmpty) {
@@ -176,58 +206,84 @@ class _BrowserScreenState extends State<BrowserScreen> {
             // the dock + a placeholder instead (an unmocked platform_views
             // channel would buffer forever and hang the suite).
             Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 78),
-                      child: Platform.isAndroid
-                          ? AndroidView(
-                              viewType: _viewType,
-                              creationParams: <String, Object?>{
-                                if (widget.initialUrl != null)
-                                  'url': widget.initialUrl,
-                              },
-                              creationParamsCodec: const StandardMessageCodec(),
-                            )
-                          : const ColoredBox(color: Color(0xFF0B1020)),
-                    ),
-                  ),
-                  // ── THE FLOATING LIQUID-GLASS CAPTURE DOCK ──────────────
-                  Positioned(
-                    left: 16,
-                    right: 16,
-                    bottom: MediaQuery.paddingOf(context).bottom + 10,
-                    child: _CaptureDock(
-                      hits: _hits,
-                      open: _dockOpen,
-                      yt: _yt,
-                      onToggle: () => setState(() => _dockOpen = !_dockOpen),
-                      onPlay: (url, title, headers) {
-                        // v3.4.6.c — a sniffed stream opens the MORNYE CINEMA
-                        // PLAYER in the shell (was: the raw Java PlayActivity).
-                        ShellRootState.of(context).pushPlayer(
-                            PlayRequest(url: url, title: title, headers: headers));
-                      },
-                      onPlayAdFree: (url, title, captionUrl, segments) {
-                        // v3.4.6.k — the ZERO-AD YouTube lane: the ad-free muxed
-                        // stream + YouTube captions (auto-translated to Sinhala
-                        // in-player) + SponsorBlock auto-skip, straight into the
-                        // native hardware cinema player.
-                        AnantPlay.instance.playAdFreeCinema(url,
-                            title: title,
-                            captionUrl: captionUrl,
-                            segments: segments);
-                      },
-                      onTranslate: () {
-                        // v3.4.6.g — the NewZone Translator Automation lane: the
-                        // dock opens tools.newzone.top in the same native view —
-                        // grab or translate subtitles in 1–2 taps.
-                        AnantPlay.instance.openNativeWeb('https://tools.newzone.top');
-                      },
-                    ),
-                  ),
-                ],
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // v3.4.6.m — the viewport box the video rect is clamped
+                  // against (the FAB can never leave the platform view).
+                  final double viewWidth = constraints.maxWidth;
+                  final double viewHeight = constraints.maxHeight;
+                  final video = _videoPlay;
+                  // the decoded video element rect (logical dp, native side)
+                  final double rectLeft =
+                      ((video?['left'] as num?) ?? 0).toDouble();
+                  final double rectWidth =
+                      ((video?['width'] as num?) ?? 0).toDouble();
+                  final double rectTop =
+                      ((video?['top'] as num?) ?? 0).toDouble();
+                  final double maxFabLeft = math.max(0.0, viewWidth - 52);
+                  final double maxFabTop = math.max(0.0, viewHeight - 52);
+                  return Stack(
+                    children: [
+                      Positioned.fill(
+                        child: Padding(
+                          // v3.4.6.m — THE ZERO DEAD BLACK BAND (field video):
+                          // the shell already reserves the floating nav bar
+                          // zone below the tab body, so the old 78 dp reserve
+                          // stacked a band of bare scaffold between the
+                          // webview's edge and the bar. The page now runs to
+                          // the viewport's bottom edge; the floating capture
+                          // dock overlays it as glass over content.
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Platform.isAndroid
+                              ? AndroidView(
+                                  viewType: _viewType,
+                                  creationParams: <String, Object?>{
+                                    if (widget.initialUrl != null)
+                                      'url': widget.initialUrl,
+                                  },
+                                  creationParamsCodec:
+                                      const StandardMessageCodec(),
+                                )
+                              : const ColoredBox(color: Color(0xFF0B1020)),
+                        ),
+                      ),
+                      // ── THE FLOATING LIQUID-GLASS CAPTURE DOCK ──────────
+                      Positioned(
+                        left: 16,
+                        right: 16,
+                        bottom: MediaQuery.paddingOf(context).bottom + 10,
+                        child: _CaptureDock(
+                          hits: _hits,
+                          open: _dockOpen,
+                          yt: _yt,
+                          onToggle: () =>
+                              setState(() => _dockOpen = !_dockOpen),
+                          onPlay: _playSniffed,
+                          onPlayAdFree: _playAdFree,
+                          onTranslate: () {
+                            // v3.4.6.g — the NewZone Translator Automation lane: the
+                            // dock opens tools.newzone.top in the same native view —
+                            // grab or translate subtitles in 1–2 taps.
+                            AnantPlay.instance
+                                .openNativeWeb('https://tools.newzone.top');
+                          },
+                        ),
+                      ),
+                      // ── v3.4.6.m — THE FLOATING CIRCULAR VIDEO ▶ BUTTON ──
+                      // The LAST child of the Stack (above the dock): a 52 dp
+                      // Liquid-Glass play FAB anchored at the detected video
+                      // element's top-right corner — left = rect.right - 52
+                      // - 12, top = rect.top + 12, clamped to the viewport.
+                      if (video != null && Platform.isAndroid)
+                        Positioned(
+                          left:
+                              (rectLeft + rectWidth - 52 - 12).clamp(0.0, maxFabLeft),
+                          top: (rectTop + 12).clamp(0.0, maxFabTop),
+                          child: _VideoPlayFab(onTap: _onVideoPlayTap),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
           ],
@@ -239,6 +295,59 @@ class _BrowserScreenState extends State<BrowserScreen> {
   void _home() {
     // v3.4.6.i — the bar's Home button: HOME_URL through the native lane.
     AnantPlay.instance.openBrowserHome();
+  }
+
+  // ── v3.4.6.m — THE SHARED PLAY LANES (the capture dock's own handlers,
+  // reused verbatim by the floating video ▶ FAB — never a new channel
+  // method) ────────────────────────────────────────────────────────────────
+
+  /// v3.4.6.c — a sniffed stream opens the MORNYE CINEMA PLAYER in the
+  /// shell (was: the raw Java PlayActivity). The dock's `Play in Cinema`
+  /// pill and the floating ▶ FAB route through this one lane.
+  void _playSniffed(String url, String title, String headers) {
+    ShellRootState.of(context).pushPlayer(
+        PlayRequest(url: url, title: title, headers: headers));
+  }
+
+  /// v3.4.6.k — the ZERO-AD YouTube lane: the ad-free muxed stream + YouTube
+  /// captions (auto-translated to Sinhala in-player) + SponsorBlock
+  /// auto-skip, straight into the native hardware cinema player. The dock's
+  /// `Play Ad-Free in Cinema` pill and the floating ▶ FAB route through this
+  /// one lane.
+  void _playAdFree(String url, String title, String? captionUrl,
+      List<Map<dynamic, dynamic>>? segments) {
+    AnantPlay.instance.playAdFreeCinema(url,
+        title: title, captionUrl: captionUrl, segments: segments);
+  }
+
+  /// v3.4.6.m — THE FLOATING ▶ FAB's tap routing (the native side clears the
+  /// button itself when the player opens — the FAB stays visible here):
+  ///   · ad-free YouTube payload live (_yt non-null AND the payload's
+  ///     adFree flag) → the dock's ad-free lane with _yt's url/title/
+  ///     captionUrl/segments;
+  ///   · else a non-empty http(s) payload url → the dock's sniffed lane with
+  ///     (url, title, '');
+  ///   · blob / no URL → nothing (a blob element has no playable URL yet).
+  void _onVideoPlayTap() {
+    final video = _videoPlay;
+    if (video == null) return;
+    final yt = _yt;
+    if (yt != null && video['adFree'] == true) {
+      _playAdFree(
+        (yt['url'] as String?) ?? '',
+        (yt['title'] as String?) ?? '',
+        (yt['captionUrl'] as String?) ?? '',
+        (yt['segments'] as List?)
+            ?.cast<Map<dynamic, dynamic>>()
+            .toList(),
+      );
+      return;
+    }
+    final url = (video['url'] as String?) ?? '';
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      _playSniffed(url, (video['title'] as String?) ?? '', '');
+    }
+    // blob / empty URL: guard — nothing to hand the player yet.
   }
 }
 
@@ -1337,6 +1446,98 @@ class _CaptureDock extends StatelessWidget {
                 color: scheme.onSurfaceVariant,
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// v3.4.6.m — THE FLOATING CIRCULAR VIDEO ▶ BUTTON: a 52 dp Liquid-Glass
+/// play FAB anchored at the detected video element's top-right corner — a
+/// frosted backdrop-blur circle (sigma 14) with a translucent white fill,
+/// a thin light rim, a glowing accent play triangle
+/// (Icons.play_arrow_rounded, scheme.primary, 26 dp), and a slow ~1.2 s
+/// scale pulse (1.0 → 1.06) with a breathing accent glow, so it reads as
+/// the one obvious "play this video" affordance over the page. The tap
+/// routes through the SAME play lanes the capture dock owns
+/// (_playSniffed / _playAdFree in the host state — never a new channel
+/// method); the native side clears the button when the player opens.
+class _VideoPlayFab extends StatefulWidget {
+  const _VideoPlayFab({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  State<_VideoPlayFab> createState() => _VideoPlayFabState();
+}
+
+class _VideoPlayFabState extends State<_VideoPlayFab>
+    with SingleTickerProviderStateMixin {
+  /// The slow pulse (repeats forward+reverse for the whole FAB lifetime).
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: AnimatedBuilder(
+        animation: _pulse,
+        builder: (context, child) {
+          final t = Curves.easeInOut.transform(_pulse.value);
+          return Transform.scale(
+            scale: 1.0 + 0.06 * t,
+            child: Container(
+              width: 52,
+              height: 52,
+              // the breathing accent glow (the dock's glowing pills idiom)
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: scheme.primary
+                        .withValues(alpha: 0.25 + 0.30 * t),
+                    blurRadius: 18 + 6 * t,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: child,
+            ),
+          );
+        },
+        child: ClipOval(
+          // the frosted Liquid-Glass circle (the app's glass idiom: a
+          // backdrop blur clipped to the shape over a translucent fill)
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+            child: Container(
+              width: 52,
+              height: 52,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: dark
+                    ? Colors.white.withValues(alpha: 0.16)
+                    : Colors.white.withValues(alpha: 0.55),
+                // the thin light rim
+                border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.5), width: 0.8),
+              ),
+              child: Icon(mi.Icons.play_arrow_rounded,
+                  size: 26, color: scheme.primary),
+            ),
           ),
         ),
       ),

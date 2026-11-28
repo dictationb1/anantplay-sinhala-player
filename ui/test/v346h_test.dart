@@ -18,7 +18,8 @@
 //     (isNewerVersion truth table; the installed identity never gates on
 //     itself)
 //   · the 14-audit Dart layer of the 87-probe Debug Engine (H1..H14,
-//     ids 79–92, after the v3.4.6.i native Domain I (65–73) + the v3.4.6.k Domain K (74–78))
+//     ids 85–98, after the v3.4.6.i Domain I (65–73), the v3.4.6.k Domain K
+//     (74–78) and the v3.4.6.m Domain M (79–84))
 import 'dart:io' show File;
 
 import 'package:flutter/services.dart';
@@ -350,21 +351,21 @@ void main() {
     });
   });
 
-  group('v3.4.6.h the 92-probe Debug Engine (Dart layer H1..H14, ids 79–92)', () {
+  group('v3.4.6.h the 98-probe Debug Engine (Dart layer H1..H14, ids 85–98)', () {
     test('the Dart layer runs EXACTLY 14 audits with unique sequential ids', () async {
       final scope = AppStateNotifier();
       final out = await DartLayerAuditor.run(scope).timeout(
           const Duration(seconds: 60), onTimeout: () => <DeepOutcome>[]);
-      expect(out.length, 14, reason: 'H1..H14 (ids 79–92)');
+      expect(out.length, 14, reason: 'H1..H14 (ids 85–98)');
       final ids = out.map((o) => o.id).toSet();
       expect(ids.length, 14, reason: 'zero duplicate ids');
-      expect(ids.reduce((a, b) => a < b ? a : b), 79);
-      expect(ids.reduce((a, b) => a > b ? a : b), 92);
-      // v3.4.6.k — THE ID-PARITY LAW: the native layer owns 1..78 (A–G +
-      // Domain I at 65–73 + the new Domain K at 74–78), so no Dart id may
-      // ever land in 1..78.
-      expect(ids.every((i) => i >= 79), isTrue,
-          reason: 'Dart ids must never collide with the native 1..78');
+      expect(ids.reduce((a, b) => a < b ? a : b), 85);
+      expect(ids.reduce((a, b) => a > b ? a : b), 98);
+      // v3.4.6.m — THE ID-PARITY LAW: the native layer owns 1..84 (A–G +
+      // Domain I at 65–73 + Domain K at 74–78 + the new Domain M at 79–84),
+      // so no Dart id may ever land in 1..84.
+      expect(ids.every((i) => i >= 85), isTrue,
+          reason: 'Dart ids must never collide with the native 1..84');
       // the NEW visual audits exist by name
       final names = out.map((o) => o.name).toSet();
       expect(names, contains('Light Mode visual integrity (LIVE ThemeData)'));
@@ -432,21 +433,22 @@ void main() {
   });
 
   group('v3.4.6.h version identity', () {
-    test('pubspec carries 3.4.6+30418 (pure integer build number)', () {
+    test('pubspec carries 3.4.6+30419 (pure integer build number)', () {
       final pubspec = File('pubspec.yaml').readAsStringSync();
-      expect(RegExp(r'^version: 3\.4\.6\+30418$', multiLine: true).hasMatch(pubspec), isTrue);
+      expect(RegExp(r'^version: 3\.4\.6\+30419$', multiLine: true).hasMatch(pubspec), isTrue);
       expect(pubspec.contains('3.4.6.h+30414'), isFalse,
           reason: 'pub-semver forbids the 4-part core in the version field');
     });
 
-    test('v3.4.6.l — the visible version is LIVE (the stale-literal is dead)', () {
+    test('v3.4.6.m — the visible version is LIVE (the stale-literal is dead)', () {
       final feedback = File('lib/anantplay/action_feedback.dart').readAsStringSync();
       // v3.4.6.l — the dead literal was the "Up to date (v3.4.6.j)" bug: the
       // label now resolves the LIVE appInfo channel (kLiveVersion) with a
       // fallback that matches the current release.
       expect(feedback.contains('kLiveVersion'), isTrue);
       expect(feedback.contains("kVisibleVersion = 'v3.4.6"), isFalse);
-      expect(feedback.contains("kVisibleVersionFallback = 'v3.4.6.l'"), isTrue);
+      expect(feedback.contains("kVisibleVersionFallback = 'v3.4.6.m'"), isTrue);
+      expect(feedback.contains("kVisibleVersionFallback = 'v3.4.6.l'"), isFalse);
     });
   });
 }

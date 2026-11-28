@@ -1056,12 +1056,27 @@ public final class SelfUpdater {
             //   · major/minor (3.5.0, 3.6.0…) → the full-screen
             //     non-dismissible ForceUpdateScreen (PopScope(canPop: false)),
             //     committing with USER_ACTION_NOT_REQUIRED on the tap.
-            persistRequiredVer(c, rel.version);
-            gateAvailable(AppInfo.VERSION_NAME, rel.version);
+            //
+            // v3.4.6.m — THE GATE-ORDERING KILL (the 3.4.6.k → .l real-phone
+            // defect): v3.4.6.l armed persistRequiredVer + gateAvailable HERE,
+            // BEFORE the letter-patch lane ran — so a 3.4.6.x patch ALREADY
+            // pushed the blocking "Update required" ForceUpdateScreen (the
+            // gate event flips the shell's lock on), and only then fell into
+            // the silent lane. The gate now arms ONLY on the lanes that truly
+            // need it: a letter patch WITH the install permission NEVER arms
+            // it (the silent lane runs instead); it arms when the patch lane
+            // cannot run (install permission missing) or for a MAJOR/MINOR
+            // release (≥ 3.5.0) — the user's Rule #1 exactly.
+            boolean silentPatchLane = !forceDownload
+                    && UpdateChecker.isLetterPatch(rel.version, AppInfo.VERSION_NAME)
+                    && canRequestInstalls(c);
+            if (!silentPatchLane) {
+                persistRequiredVer(c, rel.version);
+                gateAvailable(AppInfo.VERSION_NAME, rel.version);
+            }
 
             if (!forceDownload) {
-                if (UpdateChecker.isLetterPatch(rel.version, AppInfo.VERSION_NAME)
-                        && canRequestInstalls(c)) {
+                if (silentPatchLane) {
                     fire("Updating to v" + rel.version + "…");
                     Diag.i("selfupd", "letter patch " + rel.version
                         + " — SILENT lane: download once + verify + zero-prompt commit");
@@ -1307,6 +1322,11 @@ public final class SelfUpdater {
             PendingIntent piOk = PendingIntent.getBroadcast(c, sid, ok,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
             session.commit(piOk.getIntentSender());
+            // v3.4.6.m — the Apple Liquid Glass pill's second act: the state
+            // text glides "Updating to vX…" → "Installing update…" the exact
+            // moment the PackageInstaller session commits (the silent lane's
+            // ONLY visible surface — never a blocking screen).
+            try { fire("Installing update…"); } catch (Throwable ignored) { }
             // v3.4.6.k — the pending-resume flags clear THE INSTANT the commit
             // fires: neither onResume() nor the 90 s watcher may re-commit this
             // session (the 2–3× installer loop's second and third legs).

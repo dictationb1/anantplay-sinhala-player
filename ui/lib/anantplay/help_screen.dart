@@ -5,16 +5,17 @@
 // Customizations · D Browser · E Cinema Player & Subtitles · F Permissions &
 // Privacy · G the v3.4.6.g real-phone fix contracts · I the v3.4.6.i
 // video-audit contracts · K the v3.4.6.k silent-update contracts —
-// 78 live probes) with
+// 84 live probes) with
 // live progress, PLUS the Dart layer (H — 8 live Flutter UI audits executed
-// inside Dart against the live AppState & AnantPlayBridge hubs, ids 79–92 —
+// inside Dart against the live AppState & AnantPlayBridge hubs, ids 85–98 —
 // v3.4.6.h grew the Dart layer from 8 to 14 audits: live Light/AMOLED theme
 // integrity, the Material You interlock, the 4 subtitle fonts, the semantic
 // icon registry and the zero-uncaught-error session check).
-// The merged run is 92 unique sequential ids (1..92) across 10 domains (78
+// The merged run is 98 unique sequential ids (1..98) across 11 domains (84
 // native A–G + I, plus 14 Dart H). v3.4.6.i closed the LAST id collision: the
 // native Domain I (the nine video-audit fix contracts) owns ids 65–73, so the
-// Dart layer moved from 65–78 to 79–92 — zero duplicate ids, zero gaps. The merged verdict highlights EVERY
+// Dart layer moved from 65–78 to 79–92, and to 85–98 with the six v3.4.6.m
+// Domain M probes (79–84) — zero duplicate ids, zero gaps. The merged verdict highlights EVERY
 // FAIL ✗ at the very top of the report — nothing is ever hidden — and the
 // full privacy-safe report is copied to the clipboard AUTOMATICALLY
 // (native ClipboardManager + Flutter Clipboard) the instant the run ends,
@@ -52,14 +53,23 @@ class _HelpScreenState extends State<HelpScreen> {
   String _report = '';
   StreamSubscription<dynamic>? _probeSub;
   StreamSubscription<Map<dynamic, dynamic>>? _progressSub;
-  /// The live progress counter (n of 92 probes — 78 native (69 through
-  /// v3.4.6.h, the 9 v3.4.6.i Domain I video-audit probes and the 5
-  /// v3.4.6.k Domain K silent-update probes) plus the
-  /// 14 Dart-layer audits, ids 1..92 with zero gaps).
+  /// The live progress counter (n of 98 probes — 84 native (69 through
+  /// v3.4.6.h, the 9 v3.4.6.i Domain I video-audit probes, the 5
+  /// v3.4.6.k Domain K silent-update probes and the 6 v3.4.6.m Domain M
+  /// silent-glass-player probes) plus the
+  /// 14 Dart-layer audits, ids 1..98 with zero gaps).
   int _done = 0;
   final Map<String, bool> _expanded = {};
   /// v3.4.6.e — the watchdog Timer (owned; cancelled in dispose).
   Timer? _watchdog;
+  /// v3.4.6.m — THE SINGLE COMPLETION BANNER LEDGER (Part_0.04 03:29: the
+  /// field video caught TWO stacked toasts at the troubleshoot finish): the
+  /// sequence number of the deep run whose final payload was already
+  /// accepted. A duplicate final frame for the SAME run (some embeddings
+  /// deliver the outcome list twice — the raw JSON string AND a pre-decoded
+  /// List, and decodeDeepOutcomes routes both) re-fires nothing.
+  int _runSeq = 0;
+  int? _finishRun;
 
   @override
   void initState() {
@@ -160,15 +170,21 @@ class _HelpScreenState extends State<HelpScreen> {
   /// honest Flutter-UI layer), merge them with the native outcomes, compose
   /// the honest report (EVERY FAIL ✗ at the very top), and auto-copy it.
   Future<void> _runDartLayerAndFinish(List<DeepOutcome> nativeOutcomes) async {
+    if (!mounted) return;
+    // v3.4.6.m — the FIRST final payload owns the run: a duplicate frame for
+    // the same run refreshes nothing and fires no second completion banner
+    // (the ONE banner lands only after the FULL two-layer run below).
+    final int run = _runSeq;
+    if (_finishRun == run) return;
+    _finishRun = run;
     // The native layer is COMPLETE: render its domain cards + auto-copy the
     // report IMMEDIATELY (the native verdict already stands and must never be
     // gated behind the Dart round-trips), THEN run the 8 live Dart audits
-    // (Domain H, ids 79–92) and merge them in as they land.
+    // (Domain H, ids 85–98) and merge them in as they land.
     // v3.4.6.i — ONE TOAST AT THE VERY END (Law #2): the intermediate
     // auto-copy (the native-layer landing) is SILENT — no mid-run
     // `8/10`/`21/24`-style snackbar; the ONE completion banner fires only
     // after the FULL two-layer run lands.
-    if (!mounted) return;
     setState(() {
       _results = nativeOutcomes;
       _ranOnce = true;
@@ -178,14 +194,14 @@ class _HelpScreenState extends State<HelpScreen> {
     try {
       final scope = AppState.of(context).scope;
       // v3.4.6.g — the Dart layer streams into the SAME live step-by-step feed
-      // as the native probes, so the ticker covers all 92 unique sequential ids
-      // (▶ Checking #79 … → ✓ #79 PASS) and the counter climbs 78 → 92. Zero
+      // as the native probes, so the ticker covers all 98 unique sequential ids
+      // (▶ Checking #85 … → ✓ #85 PASS) and the counter climbs 84 → 98. Zero
       // duplicate ids, zero overwritten rows.
       dartLayer = await DartLayerAuditor.run(
         scope,
         // v3.4.6.l — THE PROBE-#84–#92 NAME FIX (video_2 03:35–04:01): the
         // Dart Layer-2 frames now carry their REAL human-readable titles into
-        // _feedNames — every row #1..#92 renders its own name (zero "Probe
+        // _feedNames — every row #1..#98 renders its own name (zero "Probe
         // #84" fallbacks, zero generic labels).
         onStart: (id, name) {
           if (!mounted) return;
@@ -250,12 +266,14 @@ class _HelpScreenState extends State<HelpScreen> {
     // the FULL run (the intermediate native-layer landing passes silent).
     // v3.4.6.j — the completion banner rides the TOP floating glass pill
     // (the SnackBar is dead — Law #2). The honest PASS/FAIL counts stay.
+    // v3.4.6.m — ONE Apple Liquid Glass banner with the bold title/caption
+    // hierarchy (never two stacked — the run ledger above guarantees it).
     if (mounted && !silent) {
       showMornyeGlassNotification(
         context,
-        message:
-            '$passed/${all.length} PASS · $failed FAIL — honest report '
-            'auto-copied ✓${failed > 0 ? ' (see every FAIL at the top)' : ''}',
+        message: '$passed/${all.length} PASS · $failed FAIL',
+        caption: 'Honest report auto-copied to the clipboard'
+            '${failed > 0 ? ' — every FAIL is at the top' : ''}',
         error: failed > 0,
       );
     }
@@ -287,6 +305,7 @@ class _HelpScreenState extends State<HelpScreen> {
       _feedIds.clear();
       _feedLines.clear();   // v3.4.6.g — the ticker restarts with the run
       _feedNames.clear();   // v3.4.6.j — the name ledger restarts too
+      _runSeq++;            // v3.4.6.m — a fresh run owns a fresh completion
     });
     try {
       await AnantPlay.instance.runDeepProbe();
@@ -392,13 +411,13 @@ class _HelpScreenState extends State<HelpScreen> {
             child: _ActionCard(
               icon: mornyeIconFor(Icons.health_and_safety_rounded),
               title: _running
-                  ? 'Running 92 deep feature probes… $_done/92'
+                  ? 'Running 98 deep feature probes… $_done/98'
                   : _ranOnce || total > 0
                       ? 'Run full app troubleshoot again'
                       : 'Run full app troubleshoot',
               subtitle: _running
                   ? 'Live audit of every feature — settings are restored after.'
-                  : 'Every feature · 78 native + 14 Dart-layer probes · 10 domains · honest results.',
+                  : 'Every feature · 84 native + 14 Dart-layer probes · 11 domains · honest results.',
               onTap: _running ? null : _run,
             ),
           ),
@@ -422,7 +441,7 @@ class _HelpScreenState extends State<HelpScreen> {
                           // total as the counter (the v3.4.6.h bar divided by
                           // 72 while the counter read /78 — the bar visibly
                           // lagged behind 100% at the end).
-                          value: (_done / 92).clamp(0.0, 1.0),
+                          value: (_done / 98).clamp(0.0, 1.0),
                           backgroundColor: scheme.surfaceContainerHigh,
                         ),
                       ),

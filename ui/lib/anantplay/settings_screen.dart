@@ -173,7 +173,14 @@ class _SettingsHubState extends State<_SettingsHub> {
     final matched =
         _query.trim().isEmpty ? const <SettingEntry>[] : _search(_query);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
+      // v3.4.6.m — THE ZERO BOTTOM GAP (field video: a large dead black
+      // band above the floating nav bar): the shell already reserves the
+      // floating bar zone below every tab body (main.dart's pageBottom =
+      // safe-area inset + the bar), so the scroll view's own final padding
+      // is exactly the 12 dp breathing gap — the old 32 stacked ~20 dp of
+      // pure dead space above the bar. The content itself scrolls all the
+      // way down behind the glass bar with the last row still clearing it.
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
       children: [
         // ── THE SEARCH FIELD (live-filtering every setting) ──────────────
         Padding(
@@ -412,7 +419,10 @@ class _SettingsSubPage extends StatelessWidget {
         surfaceTintColor: Colors.transparent,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
+        // v3.4.6.m — THE ZERO BOTTOM GAP (same audit fix as the hub): no
+        // oversized trailing spacer — the final row ends 12 dp above the
+        // scroll edge, never a dead band.
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
         children: children,
       ),
     );
@@ -634,6 +644,16 @@ class _PlaybackSubtitlesPageState extends State<_PlaybackSubtitlesPage> {
             value: s.b(SettingsMirror.kContinueWatching, true),
             onChanged: (v) => scope.putBool(
                 SettingsMirror.kContinueWatching, v),
+          ),
+          // v3.4.6.m — LOW DATA MODE (AppPrefs.K_LOW_DATA_MODE mirror twin):
+          // the same bool lane every other toggle on this page writes — the
+          // 480p / 1.2 Mbps cinema cap with efficient audio.
+          _SwitchRow(
+            title: 'Low Data Mode',
+            subtitle: 'Caps playback at 480p / 1.2 Mbps with efficient audio',
+            value: s.lowDataMode,
+            onChanged: (v) =>
+                scope.putBool(SettingsMirror.kLowDataMode, v),
           ),
         ]),
         _SectionHeader('Player controls'),
@@ -1036,8 +1056,14 @@ class _AboutPage extends StatelessWidget {
         ]),
         _SectionHeader('Licenses'),
         SettingsGroup(children: [
+          // v3.4.6.m — THE MIT → GPL-3.0-only LICENSE SWITCH, said out loud:
+          // the project's own code is GPL-3.0-only from this release on, while
+          // every bundled component keeps its own license (the vendored Mornye
+          // UI stays LGPL-3.0-only with its LICENSE/COPYING/NOTICE untouched).
           _ActionRow(
-            title: 'Open-source licenses (LGPL-3.0-only)',
+            title: 'Project license: GPL-3.0-only',
+            subtitle: 'Mornye UI: LGPL-3.0-only · Media3/Guava: Apache-2.0 · '
+                'liquid_glass_easy: MIT · Fonts: OFL-1.1',
             onTap: () => _aboutPageLicenses(context),
           ),
           const _VersionFooter(),

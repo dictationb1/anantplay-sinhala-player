@@ -595,6 +595,27 @@ class ShellRoot extends StatefulWidget {
 class ShellRootState extends State<ShellRoot> {
   int _tab = 0;
 
+  /// v3.4.6.m — THE SYNCHRONOUS INITIAL ROUTE (the Welcome-flash kill):
+  /// the native host's getInitialRoute() answers BEFORE Flutter renders
+  /// frame 1 — '/home' (onboarding complete: never a single frame of
+  /// Welcome, on cold start, warm resume, or a PiP-exit recreate) or
+  /// '/onboarding?stage=N' (resume mid-wizard on the EXACT persisted slide).
+  /// Read once, synchronously, from the platform dispatcher.
+  final String _initialRoute =
+      WidgetsBinding.instance.platformDispatcher.defaultRouteName;
+
+  /// v3.4.6.m — the stage the wizard resumes on, parsed from the native
+  /// route (identical to the persisted K_ONBOARDING_STAGE the host read).
+  late final int _initialOnboardingStage = _parseOnboardingStage(_initialRoute);
+
+  static int _parseOnboardingStage(String route) {
+    final int q = route.indexOf('?stage=');
+    if (q < 0) return 0;
+    final String tail = route.substring(q + 7);
+    final int amp = tail.indexOf('&');
+    return int.tryParse(amp < 0 ? tail : tail.substring(0, amp))?.clamp(0, 5) ?? 0;
+  }
+
   /// The in-flight player session (pushed as a full-screen route ABOVE the
   /// tab shell so the immersive HUD owns the whole display).
   PlayRequest? _activePlay;
@@ -674,11 +695,23 @@ class ShellRootState extends State<ShellRoot> {
     // with NO version stamp, so upgraders were silently skipped — the exact
     // complaint #4. K_ONBOARDING_VERSION (default 1 for a legacy install,
     // 0 for a fresh one) < 2 shows the 6-slide interactive wizard ONCE.
+    // v3.4.6.m — THE SLIDE-1 RESET KILL: the old callback wrote stage 0 on
+    // PRE-HYDRATION DEFAULTS (onboardingCurrent reads false before getAll()
+    // lands), so every cold launch / PiP-exit remount dragged a mid-wizard
+    // user back to Slide 1 and reset the persisted stage. The reset now runs
+    // ONLY AFTER hydration, ONLY while the wizard is truly owed, and ONLY
+    // for the legacy v3.4.6.a finisher — everyone else resumes on the native
+    // route's exact stage.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final state = AppState.of(context);
-      if (!state.settings.onboardingCurrent) {
-        state.scope.setOnboardingStage(0);
+      if (!state.settings.onboardingCurrent && state.hydrated) {
+        // legacyFinish: the v3.4.6.a upgrader (no stamp + done) starts the
+        // 6-slide wizard at 0; a fresh or mid-wizard user resumes on the
+        // native route's EXACT persisted stage — never a blind 0 again.
+        final bool legacyFinish = state.settings.onboardingVersion == 1;
+        state.scope.setOnboardingStage(
+            legacyFinish ? 0 : _initialOnboardingStage);
       }
     });
   }

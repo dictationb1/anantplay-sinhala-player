@@ -11,7 +11,9 @@ import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -148,6 +150,18 @@ public class AnantPlayCoachService extends Service {
     private Button backButton, nextButton;
     private ArrowView arrowView;
     private int step = 0;
+
+    // ── v3.4.6.m — THE FLOATING TARGET POINTER ARROW OVERLAY ─────────────
+    // A SECOND, strictly non-blocking overlay window: a glowing directional
+    // arrow pointing RIGHT toward the exact target zone on screen (the
+    // top-right ⚙ on Step 1, the upper list on Steps 2–4, the dialog URL
+    // field on Steps 5–7, the Connection/IPTV/Player rows on Steps 8–10).
+    // FLAG_NOT_TOUCHABLE | FLAG_NOT_FOCUSABLE: it intercepts ZERO touches —
+    // the user taps straight through it onto the real target underneath.
+    private TargetPointerView targetPointer;
+
+    /** The main-thread scheduler (the copy auto-advance + finish choreography). */
+    private final Handler main = new Handler(Looper.getMainLooper());
 
     /** True when the overlay permission is granted (the only precondition). */
     public static boolean canCoach(Context c) {
@@ -363,6 +377,55 @@ public class AnantPlayCoachService extends Service {
         } catch (Throwable t) {
             Diag.w("coach", "reposition: " + t);
         }
+        // v3.4.6.m — the floating target pointer follows its step's zone.
+        repositionTargetPointer();
+    }
+
+    // ── v3.4.6.m — THE FLOATING TARGET POINTER ARROW ───────────────────────
+
+    /**
+     * The per-step vertical anchor of the floating target arrow — a fraction
+     * of the screen height, right-edge anchored, pointing RIGHT at the exact
+     * target zone: the top-right ⚙ (Step 1), the upper list (Steps 2–4), the
+     * dialog URL field (Steps 5–7), the Connection/IPTV/Player rows (8–10).
+     */
+    private static float targetPointerYFrac(int step) {
+        if (step == 0) return 0.10f;                 // the top-right ⚙
+        if (step >= 1 && step <= 3) return 0.26f;    // the upper settings list
+        if (step >= 4 && step <= 6) return 0.44f;    // the Add-index dialog URL field
+        return 0.30f + 0.08f * (step - 7);           // the rows: 0.30 / 0.38 / 0.46
+    }
+
+    private int screenHeight() {
+        try {
+            return getResources().getDisplayMetrics().heightPixels;
+        } catch (Throwable t) {
+            return 1920;
+        }
+    }
+
+    private WindowManager.LayoutParams pointerParams() {
+        WindowManager.LayoutParams p = new WindowManager.LayoutParams(
+                dp(72), dp(52), windowType(),
+                Gravity.TOP | Gravity.END, PixelFormat.TRANSLUCENT);
+        p.x = dp(6);
+        p.y = Math.round(screenHeight() * targetPointerYFrac(step));
+        // THE NON-BLOCKING LAW: the pointer NEVER intercepts a single touch —
+        // taps pass straight through onto the real target underneath.
+        p.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        return p;
+    }
+
+    private void repositionTargetPointer() {
+        if (targetPointer == null || wm == null) return;
+        try {
+            wm.updateViewLayout(targetPointer, pointerParams());
+        } catch (Throwable t) {
+            Diag.w("coach", "pointer reposition: " + t);
+        }
     }
 
     private void back() {
@@ -378,6 +441,20 @@ public class AnantPlayCoachService extends Service {
             showStep();
             return;
         }
+        // v3.4.6.m — THE FINISH CONTRACT (the coach-gated `✓ Finish`):
+        // K_COACH_COMPLETED = true AND K_ONBOARDING_STAGE = 5 are stamped
+        // SYNCHRONOUSLY (commit(), before EITHER overlay view leaves the
+        // screen) so the moment MainActivity lands in front the wizard's
+        // Slide 6 re-queries the live status and its `✓ Finish` button
+        // unlocks + glows — never Slide 1, never a dead Finish, never a
+        // stamp lost to a HyperOS process kill right after the tap.
+        try {
+            android.content.SharedPreferences p = getSharedPreferences("sicast", MODE_PRIVATE);
+            AppPrefs.setCoachCompleted(p, true);
+            p.edit().putInt(AppPrefs.K_ONBOARDING_STAGE, 5).commit();
+        } catch (Throwable t) {
+            Diag.w("coach", "finish stamp: " + t);
+        }
         // v3.4.6.l — THE FINISH AUTO-RETURN (video_2 00:50): tapping Finish
         // Setup ✓ removes the overlay AND immediately relaunches OUR
         // MainActivity to the foreground — the BAL-allowed, NO-CLEAR_TOP lane
@@ -385,11 +462,11 @@ public class AnantPlayCoachService extends Service {
         // shell instance lands via onNewIntent with zero recreation. A
         // first-time wizard (onboarding still current) therefore resumes on
         // the EXACT persisted slide — Slide 6 (Sources & Index) with its own
-        // Finish ready.
+        // unlocked + glowing Finish ready.
         Diag.i("coach", "guided setup finished (" + STEPS.length + "/" + STEPS.length
-                + ") — auto-returning to the shell");
+                + ") — K_COACH_COMPLETED committed, auto-returning to the shell (Slide 6)");
         Troubleshooter.record("COACH", "guided AnantPlay setup finished · all "
-                + STEPS.length + " steps · auto-return fired");
+                + STEPS.length + " steps · K_COACH_COMPLETED committed · stage=5 · auto-return fired");
         stopSelf();
         returnToShell();
     }
@@ -431,6 +508,18 @@ public class AnantPlayCoachService extends Service {
             Diag.i("coach", "copied: " + url);
             if (nextButton != null && step < STEPS.length - 1)
                 nextButton.setText("Copied ✓ — Next step");
+            // v3.4.6.m — 1-TAP-COPY AUTO-ADVANCE on the URL steps (Steps 5 & 6,
+            // indices 4/5): the copy IS the step's action, so the coach glides
+            // on ~0.8 s after the URL lands in the clipboard (the user sees the
+            // ✓ first — never a dead Next tap on the paste steps).
+            if (step == 4 || step == 5) {
+                final int atStep = step;
+                main.postDelayed(() -> {
+                    try {
+                        if (step == atStep && (atStep == 4 || atStep == 5)) advance();
+                    } catch (Throwable ignored) { }
+                }, 800);
+            }
         } catch (Throwable t) {
             Diag.w("coach", "copy: " + t);
         }
@@ -463,14 +552,54 @@ public class AnantPlayCoachService extends Service {
             // Android 14–16 can revoke the grant between the check and addView.
             Diag.w("coach", "overlay attach DENIED: " + denied);
             stopSelf();
+            return;
         } catch (Throwable t) {
             Diag.w("coach", "overlay attach: " + t);
             stopSelf();
+            return;
+        }
+        // v3.4.6.m — the second, strictly non-blocking target pointer window.
+        // THE GRANT IS RE-CHECKED HERE TOO: Android 14–16 can revoke
+        // SYSTEM_ALERT_WINDOW between the card attach and this one, and a
+        // second addView() without the live grant is exactly the
+        // BadTokenException/SecurityException pair. The card legitimately
+        // stays; only the arrow is skipped.
+        if (!canCoach(this)) {
+            Diag.w("coach", "overlay grant lost before the target pointer — card stays, arrow skipped");
+            return;
+        }
+        try {
+            targetPointer = new TargetPointerView(this);
+            wm.addView(targetPointer, pointerParams());
+        } catch (android.view.WindowManager.BadTokenException | SecurityException denied) {
+            Diag.w("coach", "target pointer attach DENIED (card stays): " + denied);
+            removePointer();   // v3.4.6.m — zero leaked ghost arrow
+        } catch (Throwable t) {
+            Diag.w("coach", "target pointer attach: " + t);
+            removePointer();
         }
     }
 
+    /**
+     * v3.4.6.m — detach the target pointer ALONE (the card keeps its step).
+     * Every lane (a denied second addView, Finish Setup, onDestroy) goes
+     * through here, so a partially-attached arrow can never survive as a
+     * ghost window on top of another app.
+     */
+    private void removePointer() {
+        try {
+            if (targetPointer != null) wm.removeView(targetPointer);
+        } catch (Throwable ignored) { }
+        targetPointer = null;
+    }
+
     private void removeOverlay() {
-        try { wm.removeView(card); } catch (Throwable ignored) { }
+        // v3.4.6.m — BOTH windows leave cleanly (the card AND the target
+        // pointer); each removal is independently guarded so one failing can
+        // never leak the other.
+        try { if (card != null) wm.removeView(card); } catch (Throwable ignored) { }
+        removePointer();
+        card = null;
     }
 
     /**
@@ -601,6 +730,77 @@ public class AnantPlayCoachService extends Service {
     }
 
     // ── tiny view helpers (no res dependencies — the coach stays self-earned) ──
+
+    /**
+     * v3.4.6.m — THE FLOATING TARGET POINTER: a glowing RIGHT-pointing arrow
+     * (the direction of the target zone on screen) with the same 4 Hz alpha
+     * pulse discipline as the card's own arrow — a small 72×52 dp window that
+     * intercepts ZERO touches (FLAG_NOT_TOUCHABLE) and never takes focus.
+     */
+    private static final class TargetPointerView extends View {
+        private final android.graphics.Paint paint =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint glow =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final ValueAnimator pulse;
+
+        TargetPointerView(Context c) {
+            super(c);
+            paint.setColor(0xFF7DD3FC);
+            paint.setStyle(android.graphics.Paint.Style.STROKE);
+            paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+            glow.setColor(0x667DD3FC);
+            glow.setStyle(android.graphics.Paint.Style.STROKE);
+            glow.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+            pulse = ValueAnimator.ofFloat(0f, 1f);
+            pulse.setDuration(500);
+            pulse.setRepeatCount(ValueAnimator.INFINITE);
+            pulse.setRepeatMode(ValueAnimator.REVERSE);
+            pulse.addUpdateListener(a -> invalidate());
+        }
+
+        @Override protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            try { pulse.start(); } catch (Throwable ignored) { }
+        }
+
+        @Override protected void onDetachedFromWindow() {
+            try { pulse.cancel(); } catch (Throwable ignored) { }
+            super.onDetachedFromWindow();
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas canvas) {
+            try {
+                final float w = getWidth(), h = getHeight();
+                if (w <= 0 || h <= 0) return;
+                float t = pulse.getAnimatedFraction();
+                float alpha = 0.55f + 0.45f * t;   // the 4 Hz glow pulse
+                final float cy = h * 0.5f;
+                // the arrow points RIGHT (toward the target zone on screen).
+                float len = w * 0.52f;
+                float head = len * 0.5f;
+                float x0 = w * 0.18f, x1 = x0 + len;
+                glow.setStrokeWidth(9f);
+                glow.setAlpha((int) (255 * 0.45f * alpha));
+                paint.setStrokeWidth(4.5f);
+                paint.setAlpha((int) (255 * alpha));
+                canvas.drawLine(x0, cy, x1, cy, glow);
+                canvas.drawLine(x0, cy, x1, cy, paint);
+                for (int side = 0; side < 2; side++) {
+                    double a = (side == 0 ? Math.toRadians(150) : Math.toRadians(-150));
+                    float hx = x1 + (float) Math.cos(a) * head;
+                    float hy = cy + (float) Math.sin(a) * head;
+                    canvas.drawLine(x1, cy, hx, hy, glow);
+                    canvas.drawLine(x1, cy, hx, hy, paint);
+                }
+                // the glow dot riding just ahead of the tip (the tap zone cue).
+                glow.setStyle(android.graphics.Paint.Style.FILL);
+                glow.setAlpha((int) (255 * 0.5f * alpha));
+                canvas.drawCircle(x1 + 6f, cy, 6f * t + 2.5f, glow);
+                glow.setStyle(android.graphics.Paint.Style.STROKE);
+            } catch (Throwable ignored) { }
+        }
+    }
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);

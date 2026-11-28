@@ -82,13 +82,15 @@ void main() {
     test('ForceUpdateScreen: honest labels + no follow-up network check', () {
       final dart = repo('lib/anantplay/force_update_screen.dart');
       expect(dart.contains("'Install Downloaded Update'"), isTrue);
-      // v3.4.6.j — the installer handoff label contract: 'Installer Open…'
-      // (disabled 3 s) → 'Install Downloaded Update' (< 50 ms cached-APK
-      // re-open; the red 'Update Now' flash from video_6 03:20 is dead).
-      expect(dart.contains("'Installer Open…'"), isTrue);
+      // v3.4.6.m — the installer handoff label contract: 'Installer Active…'
+      // (disabled 8 s, Part_0.01 04:46–05:15) → 'Install Downloaded Update'
+      // (< 50 ms cached-APK re-open; the red 'Update Now' flash from video_6
+      // 03:20 is dead).
+      expect(dart.contains("'Installer Active…'"), isTrue);
+      expect(dart.contains("'Installer Open…'"), isFalse,
+          reason: 'v3.4.6.m: the label is Installer Active… (8 s disabled)');
       expect(dart.contains("'Open Installer Again'"), isFalse);
-      expect(dart.contains("'Opening installer…'"), isFalse,
-          reason: 'v3.4.6.j: the label is Installer Open… (3 s disabled)');
+      expect(dart.contains("'Opening installer…'"), isFalse);
       expect(dart.contains('ZERO-DOUBLE-DOWNLOAD'), isTrue);
       expect(dart.contains('if (!pending.pending) {\n      await AnantPlay.instance.checkForUpdate();'), isFalse,
           reason: 'the v3.4.6.h follow-up checkForUpdate network leg is dead');
@@ -357,28 +359,28 @@ void main() {
   });
 
   group('v3.4.6.i — version identity', () {
-    test('pubspec is 3.4.6+30418 (pure integer build)', () {
+    test('pubspec is 3.4.6+30419 (pure integer build)', () {
       final pubspec = repo('pubspec.yaml');
       expect(
-          RegExp(r'^version: 3\.4\.6\+30418$', multiLine: true)
+          RegExp(r'^version: 3\.4\.6\+30419$', multiLine: true)
               .hasMatch(pubspec),
           isTrue);
     });
 
-    test('AppInfo declares 3.4.6.l / 30418', () {
+    test('AppInfo declares 3.4.6.m / 30419', () {
       final appInfo =
           repo('../src/lk/techworld/anantplay/sicast/AppInfo.java');
-      expect(appInfo.contains('"3.4.6.l"'), isTrue);
-      expect(appInfo.contains('30418'), isTrue);
+      expect(appInfo.contains('"3.4.6.m"'), isTrue);
+      expect(appInfo.contains('30419'), isTrue);
     });
 
-    test('docs/latest.json stays at the LIVE 3.4.6.k / 30417 tier', () {
+    test('docs/latest.json stays at the LIVE 3.4.6.l / 30418 tier', () {
       final latest = repo('../docs/latest.json');
-      // v3.4.6.l — the LIVE tier is 3.4.6.k / 30417 (this branch NEVER
-      // touches latest.json; the release workflow rewrites it to .l / 30418
-      // only when v3.4.6.l ships).
-      expect(latest.contains('"version":"3.4.6.k"'), isTrue);
-      expect(latest.contains('"code":30417'), isTrue);
+      // v3.4.6.m — the LIVE tier is 3.4.6.l / 30418 (this branch NEVER
+      // touches latest.json; the release workflow rewrites it to .m / 30419
+      // only when v3.4.6.m ships).
+      expect(latest.contains('"version":"3.4.6.l"'), isTrue);
+      expect(latest.contains('"code":30418'), isTrue);
     });
 
     test('the bridge exposes the raw getString/getInt lanes', () {

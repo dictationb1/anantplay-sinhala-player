@@ -6,7 +6,7 @@
 //   3. the REAL Midnight dimmer scrim (root IgnorePointer, Dark/AMOLED only)
 //   4. the top-floating Mornye glass notification (bottom SnackBars are gone)
 //   5. first-run Onboarding hides Skip; a voluntary re-run shows Close
-//   6. ForceUpdateScreen's Installer Open… → Install Downloaded Update ladder
+//   6. ForceUpdateScreen's Installer Active… → Install Downloaded Update ladder
 //   7. the five audit-trap fixes stay fixed
 //   8. the #87 diagnostic classification stays HONEST
 //
@@ -115,11 +115,13 @@ void main() {
   });
 
   group('v3.4.6.j Law #1 — the mandatory updater handoff', () {
-    test('Installer Open… (3 s disabled) → Install Downloaded Update', () {
+    test('Installer Active… (8 s disabled) → Install Downloaded Update', () {
       final dart = repo('lib/anantplay/force_update_screen.dart');
-      expect(dart.contains("'Installer Open…'"), isTrue);
+      expect(dart.contains("'Installer Active…'"), isTrue);
       expect(dart.contains("'Install Downloaded Update'"), isTrue);
-      expect(dart.contains('const Duration(seconds: 3)'), isTrue);
+      // v3.4.6.m — the disabled window grew 3 s → 8 s (Part_0.01 04:46–05:15).
+      expect(dart.contains('const Duration(seconds: 8)'), isTrue);
+      expect(dart.contains('const Duration(seconds: 3)'), isFalse);
       expect(dart.contains('ZERO-DOUBLE-DOWNLOAD'), isTrue);
       expect(dart.contains("'Open Installer Again'"), isFalse,
           reason: 'no red Update Now flash after the installer handoff');

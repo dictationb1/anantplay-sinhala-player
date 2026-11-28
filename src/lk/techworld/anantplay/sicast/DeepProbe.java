@@ -351,6 +351,13 @@ public final class DeepProbe {
             out.add(guarded(id++, "K", "Signed OTA manifest verification", () -> probeK3(l), l));
             out.add(guarded(id++, "K", "Force liquid blur toggle persistence", () -> probeK4(h, l), l));
             out.add(guarded(id++, "K", "Onboarding forward-swipe lock + slide persistence", () -> probeK5(l), l));
+            // ══ DOMAIN M — THE v3.4.6.m SILENT-GLASS-PLAYER CONTRACTS ═══════
+            out.add(guarded(id++, "M", "ReceiverService zero-FGSDidNotStartInTime", () -> probeM1(l), l));
+            out.add(guarded(id++, "M", "Lock-mode touch-swallow contract", () -> probeM2(l), l));
+            out.add(guarded(id++, "M", "CodecPolicy HW-first + Low Data Mode", () -> probeM3(l), l));
+            out.add(guarded(id++, "M", "OverlayPortal unclipped slider bubble", () -> probeM4(l), l));
+            out.add(guarded(id++, "M", "iOS 26 Liquid Glass single-queue banner", () -> probeM5(l), l));
+            out.add(guarded(id++, "M", "Browser floating video play button", () -> probeM6(l), l));
             List<Outcome> snap = java.util.Collections.unmodifiableList(new ArrayList<>(out));
             if (l != null) try { l.onAllDone(snap); } catch (Throwable ignored) { }
             return snap;
@@ -1096,9 +1103,25 @@ public final class DeepProbe {
         String conjunct = Cue.stripMarkup("<i>ශ්‍රී ලංකා</i>\u200b");
         boolean zwj = conjunct.equals("ශ්‍රී ලංකා") && conjunct.indexOf('\u200D') >= 0;
         boolean langSwitch = playerLanguageSwitchWired();
-        o.pass = shaping && zwj && langSwitch;
+        // v3.4.6.m — THE REAL SUBTITLE-CHIP CONTRACT (Part_0.04 04:29–05:17):
+        // a language chip tap must flip the ACTIVE purple/accent highlight on
+        // the SAME tap (the chip selection painter + UiChip.setSelected),
+        // persist K_DEFAULT_LANG through switchLang, and the fetching toast
+        // carries the space the audit caught missing — "Fetching Tamil
+        // subtitles…", NEVER "fetchingTamil subtitles...".
+        String sheets = readOrEmpty("src/lk/techworld/anantplay/sicast/CinemaSheets.java");
+        String play = playActivitySource();
+        boolean chipContract = sourceProvable(sheets) && sourceProvable(play)
+            && sheets.contains("selectLangChip")
+            && sheets.contains("UiChip.setSelected")
+            && sheets.contains("ops.switchLang(code)")
+            && sheets.contains("activeLangOf")
+            && play.contains("\"Fetching \" + name");
+        o.pass = shaping && zwj && langSwitch && chipContract;
         o.detail = "ZWJ ශ්‍රී survives ✓ · language switch channel "
-            + (langSwitch ? "✓" : "✗");
+            + (langSwitch ? "✓" : "✗")
+            + " · instant chip highlight + persisted K_DEFAULT_LANG + \"Fetching \" space "
+            + (chipContract ? "✓" : "✗");
         return o;
     }
 
@@ -1133,8 +1156,27 @@ public final class DeepProbe {
         boolean modes = AppPrefs.normalizeOrientation("landscape").equals("landscape")
             && AppPrefs.normalizeOrientation("portrait").equals("portrait")
             && AppPrefs.normalizeOrientation("junk").equals("auto");
-        o.pass = wired && modes;
-        o.detail = "setOrientation handler " + (wired ? "✓" : "✗") + " · modes normalize ✓";
+        // v3.4.6.m — THE FIRST-TAP ORIENTATION + ZERO-AlertDialog CONTRACT
+        // (Part_0.04 04:13, Part_01 02:19, Part_02 00:45): the orientation
+        // control is the CinemaSheets dark-glass sheet whose rows apply +
+        // highlight on the FIRST tap, and NO rectangular system
+        // android.app.AlertDialog remains anywhere in the Cinema Player.
+        String sheets = readOrEmpty("src/lk/techworld/anantplay/sicast/CinemaSheets.java");
+        String play = playActivitySource();
+        String hud = readOrEmpty("src/lk/techworld/anantplay/sicast/CinemaHud.java");
+        boolean provable = sourceProvable(sheets) && sourceProvable(play) && sourceProvable(hud);
+        boolean firstTap = provable
+            && sheets.contains("static UiSheet.Handle orientation(")
+            && sheets.contains("first tap: apply + highlight")
+            && sheets.contains("setRequestedOrientation");
+        boolean zeroDialogs = provable
+            && !sheets.contains("AlertDialog")
+            && !play.contains("AlertDialog")
+            && !hud.contains("AlertDialog");
+        o.pass = wired && modes && firstTap && zeroDialogs;
+        o.detail = "setOrientation handler " + (wired ? "✓" : "✗") + " · modes normalize ✓"
+            + " · orientation sheet applies on the 1st tap " + (firstTap ? "✓" : "✗")
+            + " · zero AlertDialog in the Cinema Player " + (zeroDialogs ? "✓" : "✗");
         return o;
     }
 
@@ -1732,11 +1774,13 @@ public final class DeepProbe {
             && dart.contains("ZERO-DOUBLE-DOWNLOAD")
             && !dart.contains("if (!pending.pending) {\n      await AnantPlay.instance.checkForUpdate();")
             && dart.contains("'Install Downloaded Update'")
-            // v3.4.6.j — the installer handoff contract: 'Installer Open…'
-            // (3 s disabled) → 'Install Downloaded Update' (the < 50 ms
-            // cached-APK re-open; the red 'Update Now' flash is dead).
-            && dart.contains("'Installer Open…'")
-            && !dart.contains("'Open Installer Again'");
+            // v3.4.6.m — the installer handoff contract: 'Installer Active…'
+            // (8 s disabled, Part_0.01 04:46–05:15 — the re-clickable double-tap
+            // kill) → 'Install Downloaded Update' (the < 50 ms cached-APK
+            // re-open; the red 'Update Now' flash is dead).
+            && dart.contains("'Installer Active…'")
+            && !dart.contains("'Open Installer Again'")
+            && !dart.contains("'Installer Open…'");
         boolean cacheReuse = upd.contains("cached APK already matches SHA-256");
         o.pass = handoffSurvives && dartNoRecheck && cacheReuse;
         o.detail = "handoff keeps cache+metadata " + (handoffSurvives ? "✓" : "✗")
@@ -2051,9 +2095,10 @@ public final class DeepProbe {
     public static String ciDomainLine(List<Outcome> results) {
         // v3.4.6.i — Domain I (the nine video-audit fix contracts) joins the
         // roll-up the CI job summary renders. v3.4.6.k — Domain K (the five
-        // silent-update + video-audit contracts) joins it too.
+        // silent-update + video-audit contracts) joins it too. v3.4.6.m —
+        // Domain M (the six silent-glass-player contracts) joins it.
         StringBuilder sb = new StringBuilder(96);
-        for (String d : new String[]{"A", "B", "C", "D", "E", "F", "G", "I", "K"}) {
+        for (String d : new String[]{"A", "B", "C", "D", "E", "F", "G", "I", "K", "M"}) {
             int n = 0, p = 0;
             if (results != null) {
                 for (Outcome o : results) {
@@ -2287,12 +2332,27 @@ public final class DeepProbe {
             && !UpdateChecker.isLetterPatch("3.5.0", "3.4.6.k")
             && !UpdateChecker.isLetterPatch("3.4.7", "3.4.6.k")
             && UpdateChecker.isNewer("3.4.6.l", "3.4.6.k");
-        o.pass = manifestOk && selfOk && weblockOk && lock && lanes;
+        // v3.4.6.m — THE GATE-ORDERING LAW (the 3.4.6.k → .l real-phone
+        // defect): a letter-suffix patch WITH the install permission NEVER
+        // arms the blocking ForceUpdateScreen — persistRequiredVer /
+        // gateAvailable run ONLY on the major/minor lane or when the silent
+        // patch lane cannot run. The silentPatchLane guard is the shipped
+        // proof, and the Dart gate obeys the same strict-newer rule.
+        String dartGate = readOrEmpty("ui/lib/anantplay/force_update_screen.dart");
+        boolean gateOrder = sourceProvable(upd) && sourceProvable(dartGate)
+            && upd.contains("silentPatchLane")
+            && upd.contains("THE GATE-ORDERING KILL")
+            && upd.contains("if (!silentPatchLane)")
+            && upd.contains("fire(\"Installing update…\")")
+            && dartGate.contains("'Installer Active…'")
+            && dartGate.contains("Duration(seconds: 8)");
+        o.pass = manifestOk && selfOk && weblockOk && lock && lanes && gateOrder;
         o.detail = "manifest grant " + (manifestOk ? "✓" : "✗")
             + " · USER_ACTION_NOT_REQUIRED (self + installer-of-record) "
             + (selfOk && weblockOk ? "✓" : "✗")
             + " · single-flight + 15 s cooldown " + (lock ? "✓" : "✗")
-            + " · two-lane patch/major split " + (lanes ? "✓" : "✗");
+            + " · two-lane patch/major split " + (lanes ? "✓" : "✗")
+            + " · letter-patch gate-ordering + 8 s Installer Active " + (gateOrder ? "✓" : "✗");
         return o;
     }
 
@@ -2416,6 +2476,20 @@ public final class DeepProbe {
         boolean lock = provable && dart.contains("class _ForwardBlockedScrollPhysics")
             && dart.contains("blockForward && offset < 0")
             && dart.contains("static bool forwardBlocked");
+        // v3.4.6.m — THE COMPLETE GATING (Part_0.01 05:22, Part_0.02 02:03,
+        // 03:21): Slide 2 (Install AnantPlay) blocks until the official app
+        // is REALLY installed (1 => !s.official), Slide 5 (Keep Cast ready)
+        // blocks until BOTH Battery-Unrestricted AND app-update grants
+        // (4 => !s.battery || !s.installs), 'Continue without installing' is
+        // DELETED, and Slide 6's ✓ Finish is coach-gated on K_COACH_COMPLETED
+        // with the honest helper caption.
+        boolean fullGate = provable
+            && dart.contains("1 => !s.official")
+            && dart.contains("4 => !s.battery || !s.installs")
+            && dart.contains("'Continue without installing' is DELETED")
+            && dart.contains("Complete 'Open AnantPlay with User Guide' first")
+            && dart.contains("K_COACH_COMPLETED")
+            && dart.contains("_status.coach");
         boolean persist = provable
             && dart.contains("setOnboardingStage(page)")
             && dart.contains("settings.onboardingStage.clamp(0, 5)")
@@ -2423,10 +2497,200 @@ public final class DeepProbe {
         boolean flash = provable && main.contains("_HydrationBackdrop")
             && main.contains("!state.hydrated")
             && state.contains("hydrated = true");
-        o.pass = lock && persist && flash;
+        // v3.4.6.m — THE SYNCHRONOUS getInitialRoute() CONTRACT: the native
+        // host answers '/home' or '/onboarding?stage=N' BEFORE frame 1, and
+        // the Dart shell reads platformDispatcher.defaultRouteName + never
+        // writes stage 0 on pre-hydration defaults (the Slide-1 reset kill).
+        String host = readOrEmpty("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        boolean syncRoute = sourceProvable(host) && provable
+            && host.contains("public String getInitialRoute()")
+            && host.contains("\"/home\"")
+            && host.contains("\"/onboarding?stage=\"")
+            && host.contains("AppPrefs.onboardingStage")
+            && main.contains("platformDispatcher.defaultRouteName")
+            && main.contains("_initialOnboardingStage")
+            && main.contains("legacyFinish ? 0 : _initialOnboardingStage");
+        o.pass = lock && fullGate && persist && flash && syncRoute;
         o.detail = "forward-swipe lock physics " + (lock ? "✓" : "✗")
+            + " · slides 2/3/4/5 + coach-gated Finish " + (fullGate ? "✓" : "✗")
             + " · stage persisted on every page change " + (persist ? "✓" : "✗")
-            + " · no cold-launch wizard flash (hydration gate) " + (flash ? "✓" : "✗");
+            + " · no cold-launch wizard flash (hydration gate) " + (flash ? "✓" : "✗")
+            + " · synchronous getInitialRoute " + (syncRoute ? "✓" : "✗");
+        return o;
+    }
+
+    // ═══ DOMAIN M — THE v3.4.6.m SILENT-GLASS-PLAYER CONTRACTS ═════════════
+    // Every v3.4.6.m fix gets its own honest probe: the ReceiverService
+    // zero-ForegroundServiceDidNotStartInTimeException contract, the REAL
+    // Lock-mode touch swallow, zero AlertDialogs in the Cinema Player (E8
+    // doubles it), the CodecPolicy hardware-first decoder + Low Data Mode,
+    // the OverlayPortal unclipped slider bubble, the Apple Liquid Glass
+    // single-queue notification, and the browser floating ▶ video button.
+
+    /** M1 — ReceiverService zero-ForegroundServiceDidNotStartInTimeException. */
+    static Outcome probeM1(Listener l) {
+        Outcome o = new Outcome(0, "M", "");
+        String svc = readOrEmpty("src/lk/techworld/anantplay/sicast/ReceiverService.java");
+        String mf = manifestSource();
+        boolean provable = sourceProvable(svc) && sourceProvable(mf);
+        // THE CONTRACT: startForeground() is satisfied FIRST on EVERY lane —
+        // onCreate (before the user-stop veto), onStartCommand (before the
+        // ACTION_STOP teardown), the duplicate-instance no-op — via the
+        // idempotent ensureForegroundSatisfied(); the teardown lane stopNow()
+        // removes the notification inside the 5 s window; ACTION_STOP is
+        // NEVER dispatched with startForegroundService(); and the typed
+        // startForeground chain covers connectedDevice → mediaPlayback →
+        // dataSync (declared in the manifest with their permissions).
+        boolean contract = provable
+            && svc.contains("ensureForegroundSatisfied()")
+            && svc.contains("private volatile boolean fgsStarted")
+            && svc.contains("ForegroundServiceDidNotStartInTimeException")
+            && svc.contains("FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK")
+            && svc.contains("FOREGROUND_SERVICE_TYPE_DATA_SYNC")
+            && svc.contains("NEVER startForegroundService() for ACTION_STOP")
+            && svc.contains("if (running != null)")
+            && mf.contains("connectedDevice|mediaPlayback|dataSync")
+            && mf.contains("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK")
+            && mf.contains("android.permission.FOREGROUND_SERVICE_DATA_SYNC");
+        o.pass = contract;
+        o.detail = "startForeground first on every lane (veto/STOP/duplicate) + typed chain "
+            + (contract ? "✓" : "✗");
+        return o;
+    }
+
+    /** M2 — the PlayActivity Lock-mode touch-swallow contract. */
+    static Outcome probeM2(Listener l) {
+        Outcome o = new Outcome(0, "M", "");
+        String play = playActivitySource();
+        String gest = readOrEmpty("src/lk/techworld/anantplay/sicast/CinemaGestures.java");
+        boolean provable = sourceProvable(play) && sourceProvable(gest);
+        // THE CONTRACT: while locked, dispatchTouchEvent swallows EVERY event
+        // except the unlock pill's own lane (insideUnlockPill), every
+        // swallowed touch re-offers the pill for 2.5 s (revealUnlockPill),
+        // and the gesture layer belt-and-braces early-returns while locked.
+        boolean swallow = provable
+            && play.contains("public boolean dispatchTouchEvent")
+            && play.contains("insideUnlockPill(e)")
+            && play.contains("revealUnlockPill()")
+            && play.contains("postDelayed(hideUnlockPill, 2500)")
+            && gest.contains("locked");
+        o.pass = swallow;
+        o.detail = "locked = every gesture swallowed except the unlock pill "
+            + (swallow ? "✓" : "✗");
+        return o;
+    }
+
+    /** M3 — CodecPolicy hardware-first decoding + Low Data Mode. */
+    static Outcome probeM3(Listener l) {
+        Outcome o = new Outcome(0, "M", "");
+        String codec = readOrEmpty("src/lk/techworld/anantplay/sicast/CodecPolicy.java");
+        String play = playActivitySource();
+        String prefsSrc = readOrEmpty("src/lk/techworld/anantplay/sicast/AppPrefs.java");
+        String settingsDart = readOrEmpty("ui/lib/anantplay/settings_screen.dart");
+        boolean provable = sourceProvable(codec) && sourceProvable(play)
+            && sourceProvable(prefsSrc) && sourceProvable(settingsDart);
+        // THE CONTRACT: MediaCodecList(REGULAR_CODECS) + isHardwareAccelerated
+        // drive a hardware-first MediaCodecSelector (no resolution downgrade,
+        // software fallback kept); Low Data Mode caps ABR at 1.2 Mbps / 480p
+        // (854x480) and is toggleable (AppPrefs key + Settings row + the
+        // live re-apply listener in PlayActivity).
+        boolean hw = provable
+            && codec.contains("MediaCodecList.REGULAR_CODECS")
+            && codec.contains("isHardwareAccelerated")
+            && codec.contains("hardwareFirstSelector")
+            && play.contains("CodecPolicy.applyHardwareFirst")
+            && play.contains("\"engine: \" + (CodecPolicy.summary()");
+        boolean lowData = provable
+            && codec.contains("setMaxVideoBitrate(1_200_000)")
+            && codec.contains("854")
+            && play.contains("AppPrefs.lowDataMode")
+            && prefsSrc.contains("K_LOW_DATA_MODE")
+            && settingsDart.contains("lowDataMode");
+        o.pass = hw && lowData;
+        o.detail = "hardware-first MediaCodecSelector (no downgrade) " + (hw ? "✓" : "✗")
+            + " · Low Data Mode 480p / 1.2 Mbps + toggle " + (lowData ? "✓" : "✗");
+        return o;
+    }
+
+    /** M4 — the MornyeBubbleSlider OverlayPortal unclipped bubble. */
+    static Outcome probeM4(Listener l) {
+        Outcome o = new Outcome(0, "M", "");
+        String dart = readOrEmpty("ui/lib/mornye_ui/widgets/mornye_bubble_slider.dart");
+        boolean provable = sourceProvable(dart);
+        // THE CONTRACT: the value bubble renders through OverlayPortal +
+        // CompositedTransformTarget / CompositedTransformFollower in the app
+        // Overlay (showWhenUnlinked: false — a dead anchor never strands it),
+        // completely escaping every ancestor SettingsGroup clip; shown only
+        // while the thumb actively drags.
+        boolean unclipped = provable
+            && dart.contains("OverlayPortalController")
+            && dart.contains("overlayChildBuilder")
+            && dart.contains("CompositedTransformFollower")
+            && dart.contains("CompositedTransformTarget")
+            && dart.contains("showWhenUnlinked: false");
+        o.pass = unclipped;
+        o.detail = "bubble rides the app Overlay (zero card clipping) "
+            + (unclipped ? "✓" : "✗");
+        return o;
+    }
+
+    /** M5 — the Apple iOS 26 Liquid Glass single-queue notification. */
+    static Outcome probeM5(Listener l) {
+        Outcome o = new Outcome(0, "M", "");
+        String dart = readOrEmpty("ui/lib/mornye_ui/widgets/mornye_glass_notification.dart");
+        String help = readOrEmpty("ui/lib/anantplay/help_screen.dart");
+        boolean provable = sourceProvable(dart) && sourceProvable(help);
+        // THE CONTRACT: ONE frosted banner (BackdropFilter sigma 22), the
+        // luminous _SpecularRimPainter rim, the 24dp squircle + icon badge
+        // + title/caption hierarchy, and a STRICT SINGLE-QUEUE: exactly one
+        // OverlayEntry app-wide, replaced in-place through the
+        // AnimatedSwitcher — a new notification can NEVER stack a second
+        // banner (the duplicate two-toast stack is dead).
+        boolean glass = provable
+            && dart.contains("sigmaX: 22, sigmaY: 22")
+            && dart.contains("_SpecularRimPainter")
+            && dart.contains("AnimatedSwitcher")
+            && dart.contains("OverlayEntry? _activeGlassNotification");
+        boolean singleQueue = provable
+            && dart.contains("exactly ONE")
+            && help.contains("_finishRun");
+        o.pass = glass && singleQueue;
+        o.detail = "frosted rim + specular + 2-line hierarchy " + (glass ? "✓" : "✗")
+            + " · single-queue replacement (help fires ONE banner) "
+            + (singleQueue ? "✓" : "✗");
+        return o;
+    }
+
+    /** M6 — the browser floating ▶ video play button. */
+    static Outcome probeM6(Listener l) {
+        Outcome o = new Outcome(0, "M", "");
+        String dart = readOrEmpty("ui/lib/anantplay/browser_screen.dart");
+        String web = readOrEmpty("src/lk/techworld/anantplay/sicast/WebBrowserView.java");
+        String host = readOrEmpty("src/lk/techworld/anantplay/sicast/MainActivity.java");
+        boolean provable = sourceProvable(dart) && sourceProvable(web) && sourceProvable(host);
+        // THE CONTRACT: WebBrowserView's VIDEO_RECT_HOOK_JS observer reports
+        // every visible <video> rect through the SniJS bridge; the headless
+        // rail converts CSS→dp, pushes t='video-detected' (JSON payload:
+        // kind/url/title/left/top/width/height/adFree) through the shell
+        // route (guarded by shellVisible — never a background relaunch),
+        // and the Flutter 52dp pulsing frosted ▶ rides the rect's top-right
+        // corner — 1 tap into the Cinema Player.
+        boolean rail = provable
+            && web.contains("VIDEO_RECT_HOOK_JS")
+            && web.contains("onVideoRect(final String src")
+            && web.contains("video-detected")
+            && web.contains("video-clear")
+            && host.contains("static boolean shellVisible()");
+        boolean button = provable
+            && dart.contains("m['t'] == 'video-detected'")
+            && dart.contains("m['t'] == 'video-clear'")
+            && dart.contains("_videoPlay")
+            && dart.contains("- 52")
+            && dart.contains("play_arrow_rounded");
+        o.pass = rail && button;
+        o.detail = "video-rect observer + shell rail (video-detected/clear) "
+            + (rail ? "✓" : "✗")
+            + " · the 52dp pulsing frosted ▶ overlay " + (button ? "✓" : "✗");
         return o;
     }
 

@@ -53,9 +53,14 @@ done
 # (v3.4.6: no silent platform fallback — the release always compiles against android-36)
 TARGET_SDK=36
 LIBS=$(ls libs/*.jar | tr '\n' ':')
-VERSION_NAME=${VERSION_NAME:-3.4.6.l}
-VERSION_CODE=${VERSION_CODE:-30418}
-PREV_VERSION_CODE=${PREV_VERSION_CODE:-30417}   # v3.4.6.l — the last released build (v3.4.6.k)
+VERSION_NAME=${VERSION_NAME:-3.4.6.m}
+VERSION_CODE=${VERSION_CODE:-30419}
+PREV_VERSION_CODE=${PREV_VERSION_CODE:-30418}   # v3.4.6.m — the last released build (v3.4.6.l)
+# v3.4.6.m — THE PROBE IDENTITY this APK must still satisfy (98 total, one
+# sequential sequence with zero collisions): 84 NATIVE probes (DeepProbe ids
+# 1..84, run live on the Android 36 emulator) + 14 Dart audits (ids 85..98,
+# `flutter test` / HelpScreen's "$_done/98" counter). The 100 MiB cap is
+# 104,857,600 bytes, enforced by the workflows and verify_apk_launch_integrity.
 VERSION="--version-code $VERSION_CODE --version-name $VERSION_NAME"
 
 die() { echo "ERROR: $*" >&2; exit 1; }

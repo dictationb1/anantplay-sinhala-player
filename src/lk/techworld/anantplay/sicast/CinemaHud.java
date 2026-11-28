@@ -3,7 +3,10 @@ package lk.techworld.anantplay.sicast;
 import android.app.Activity;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
@@ -67,6 +70,11 @@ final class CinemaHud {
         FrameLayout topScrim;
         FrameLayout bottomScrim;
         boolean remainingTime = false;
+        // v3.4.6.m — THE CENTER BUFFERING RING state (paintBuffering owns it):
+        // while STATE_BUFFERING the ring owns the hero disc (glyph hidden).
+        View bufferRing;
+        boolean buffering = false;
+        boolean lastPlaying = false;
     }
 
     /** The one-click surface the HUD needs from its host. */
@@ -224,13 +232,22 @@ final class CinemaHud {
             "Seek back", v -> ops.onSeekRelative(-seekMs(prefs)));
         c.forward = target(a, R.drawable.ic_forward_10, 22, false,
             "Seek forward", v -> ops.onSeekRelative(seekMs(prefs)));
+        // v3.4.6.m — THE CENTER BUFFERING RING: the hero disc is now a
+        // FrameLayout carrying the play/pause ImageView AND the spinning ring
+        // view on top, so the ring is CENTERED ON the disc by construction (the
+        // old root-mounted spinner rendered BEHIND the translucent disc).
+        FrameLayout discWrap = new FrameLayout(a);
         c.playPause = heroDisc(a);
         c.playPause.setOnClickListener(v -> ops.onPlayPause());
+        discWrap.addView(c.playPause, new FrameLayout.LayoutParams(-1, -1));
+        c.bufferRing = new BufferRing(a);
+        c.bufferRing.setVisibility(View.GONE);
+        discWrap.addView(c.bufferRing, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(
             UiCard.dp(a, 64), UiCard.dp(a, 64));
         heroLp.leftMargin = heroLp.rightMargin = UiCard.dp(a, 28);
         center.addView(c.rewind, new LinearLayout.LayoutParams(UiCard.dp(a, 48), UiCard.dp(a, 48)));
-        center.addView(c.playPause, heroLp);
+        center.addView(discWrap, heroLp);
         center.addView(c.forward, new LinearLayout.LayoutParams(UiCard.dp(a, 48), UiCard.dp(a, 48)));
         zones.addView(center, new LinearLayout.LayoutParams(-1, 0, 1f));
 
@@ -315,12 +332,113 @@ final class CinemaHud {
         return v > 0 ? v : 10_000L;
     }
 
-    /** Swap the hero disc glyph (24dp, the ONE 24dp+ glyph in the chrome). */
-    static void paintPlayPause(Activity a, ImageView disc, boolean playing) {
-        disc.setImageDrawable(UiIcons.tinted(a,
+    /**
+     * Swap the hero disc glyph (24dp, the ONE 24dp+ glyph in the chrome).
+     * v3.4.6.m — the Chrome carries the state so the glyph can stand down
+     * while the ring owns the disc (see paintBuffering).
+     */
+    static void paintPlayPause(Chrome c, boolean playing) {
+        if (c == null || c.playPause == null) return;
+        c.lastPlaying = playing;
+        if (c.buffering) return;   // the ring owns the disc while buffering
+        Activity a = (c.playPause.getContext() instanceof Activity)
+            ? (Activity) c.playPause.getContext() : null;
+        if (a == null) return;
+        c.playPause.setImageDrawable(UiIcons.tinted(a,
             playing ? R.drawable.ic_pause_filled : R.drawable.ic_play_filled, Color.WHITE, 24));
-        disc.setContentDescription(playing ? "Pause playback" : "Play playback");
+        c.playPause.setContentDescription(playing ? "Pause playback" : "Play playback");
         // the tactile spring: 0.90 on press is owned by the host's touch pass
+    }
+
+    /**
+     * v3.4.6.m — THE CENTER BUFFERING RING CONTRACT: BUFFERING → the ring spins
+     * centered on the hero disc and the play/pause glyph HIDES; anything else
+     * → the ring is gone and the glyph repaints per the last play state. The
+     * host calls this from onPlaybackStateChanged (its `spinner` field aliases
+     * the ring view, so both lanes drive the same contract).
+     */
+    static void paintBuffering(Chrome c, boolean buffering) {
+        if (c == null) return;
+        c.buffering = buffering;
+        if (c.bufferRing != null) {
+            try {
+                c.bufferRing.setVisibility(buffering ? View.VISIBLE : View.GONE);
+                if (c.bufferRing instanceof BufferRing) {
+                    ((BufferRing) c.bufferRing).setSpinning(buffering);
+                }
+            } catch (Throwable ignored) { }
+        }
+        if (c.playPause != null) {
+            if (buffering) {
+                c.playPause.setImageDrawable(null);   // the glyph stands down
+            } else {
+                paintPlayPause(c, c.lastPlaying);     // the glyph returns per play state
+            }
+        }
+    }
+
+    /**
+     * v3.4.6.m — the spinning circular-progress ring: an arc sweep drawn by an
+     * 8 Hz self-repost (125 ms — zero animator allocation, zero GPU blur),
+     * centered on the hero disc and sized to it. The spin starts and stops
+     * with visibility (setSpinning), so a parked ring costs zero invalidates.
+     */
+    static final class BufferRing extends View {
+        private static final long FRAME_MS = 125L;      // 8 Hz
+        private static final float SWEEP_STEP = 42f;    // degrees per frame
+        private float sweep = 0f;
+        private boolean spinning = false;
+        private final Runnable spin = new Runnable() {
+            @Override public void run() {
+                sweep = (sweep + SWEEP_STEP) % 360f;
+                invalidate();
+                if (spinning) postDelayed(spin, FRAME_MS);
+            }
+        };
+
+        BufferRing(Activity a) {
+            super(a);
+            setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            setContentDescription("Buffering");
+        }
+
+        /** Start/stop the 8 Hz pump (idempotent). */
+        void setSpinning(boolean on) {
+            if (spinning == on) return;
+            spinning = on;
+            if (on) {
+                removeCallbacks(spin);
+                post(spin);
+            } else {
+                removeCallbacks(spin);
+            }
+        }
+
+        @Override protected void onDetachedFromWindow() {
+            spinning = false;
+            removeCallbacks(spin);
+            super.onDetachedFromWindow();
+        }
+
+        @Override protected void onDraw(Canvas canvas) {
+            try {
+                float inset = UiCard.dp(getContext(), 9);
+                float stroke = UiCard.dp(getContext(), 3);
+                RectF box = new RectF(inset, inset, getWidth() - inset, getHeight() - inset);
+                Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(stroke);
+                paint.setStrokeCap(Paint.Cap.ROUND);
+                paint.setColor(0xFF7DD3FC);          // the chrome's active accent tint
+                canvas.drawArc(box, sweep, 300f, false, paint);
+                // the soft under-arc so the sweep reads as progress, not a slash
+                Paint soft = new Paint(Paint.ANTI_ALIAS_FLAG);
+                soft.setStyle(Paint.Style.STROKE);
+                soft.setStrokeWidth(stroke);
+                soft.setColor(0x33FFFFFF);
+                canvas.drawArc(box, sweep + 300f, 60f, false, soft);
+            } catch (Throwable ignored) { }
+        }
     }
 
     // ── the 220 ms show/hide with the subtle vertical slide ───────────────────

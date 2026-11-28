@@ -114,6 +114,8 @@ class SettingsMirror {
   static const kOnboardingStage = 'onboardingStage';
   static const kOnboardingVersion = 'onboardingVersion';
   static const kQuickstartDone = 'quickstartDone';
+  /// v3.4.6.m — the Setup Coach completion stamp (AppPrefs.K_COACH_COMPLETED).
+  static const kCoachCompleted = 'coachCompleted';
   static const kShowWebTab = 'showWebTab';
   static const kShowQuickActions = 'showQuickActions';
   static const kAutoUpdate = 'autoUpdate';
@@ -133,6 +135,8 @@ class SettingsMirror {
   static const kAutoTranslateNonSi = 'autoTranslateNonSi';
   static const kAutoZip = 'autoZip';
   static const kFreeTranslator = 'freeTranslator';
+  /// v3.4.6.m — Low Data Mode (AppPrefs.K_LOW_DATA_MODE): 480p / 1.2 Mbps cap.
+  static const kLowDataMode = 'lowDataMode';
   static const kMidnightDimmer = 'midnightDimmer';
   static const kMidnightDimPct = 'midnightDimPct';
   static const kIndexUrl = 'indexUrl';
@@ -209,6 +213,12 @@ class SettingsMirror {
   int get onboardingVersion => i(kOnboardingVersion, onboardingDone ? 1 : 0);
   bool get onboardingCurrent => onboardingVersion >= 2;
   bool get quickstartDone => b(kQuickstartDone, false);
+
+  /// v3.4.6.m — the Setup Coach completion stamp (AppPrefs.K_COACH_COMPLETED).
+  bool get coachCompleted => b(kCoachCompleted, false);
+
+  /// v3.4.6.m — Low Data Mode (AppPrefs.K_LOW_DATA_MODE): 480p / 1.2 Mbps cap.
+  bool get lowDataMode => b(kLowDataMode, false);
   bool get showWebTab => b(kShowWebTab, true);
   bool get autoUpdate => b(kAutoUpdate, true);
   bool get motionEnabled => b(kMotion, true);

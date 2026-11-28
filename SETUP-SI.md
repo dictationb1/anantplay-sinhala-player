@@ -1,4 +1,4 @@
-# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.l) — versionCode 30418
+# AnantPlay Player — Xiaomi HyperOS සැකසුම් මාර්ගෝපදේශය (v3.4.6.m) — versionCode 30419
 
 > **v3.4.5 අලුත් දේ (Sinhala):**
 >
@@ -341,3 +341,23 @@ sign වන නිසා Android එක එය "same app" ලෙස හඳුන
 
 ඇප් එක තුළ **"⬆ Check for updates (GitHub)"** බොත්තම — අලුත් release එකක් ඇත්නම්
 Release පිටුව විවෘත වේ (Obtainium එකේදී එය ස්වයංක්‍රීයවම සිදු වේ).
+
+---
+
+## 10 · බලපත්‍රය — MIT → **GPL-3.0-only** (v3.4.6.m සිට)
+
+**v3.4.6.m** (versionCode `30419`) සිට මෙම repository එකේ මුල් කේතය **GNU General Public
+License v3.0 only — `GPL-3.0-only`** යටතේ නිකුත් වේ. සම්පූර්ණ නිල පෙළ root `LICENSE`
+ගොනුවේ ඇත (verbatim GNU GPL v3.0). **v3.4.6.l** සහ ඊට පෙර නිකුතු ඒවායේ මුල් **MIT**
+බලපත්‍ර ඉතිහාසය රැක ගනී.
+
+| කොටස | බලපත්‍රය |
+| --- | --- |
+| මෙම ඇප් එකේ කේතය (v3.4.6.m+) | **GPL-3.0-only** |
+| Vendored **Mornye UI** (`ui/lib/mornye_ui/`, `ui/assets/mornye/`) | **LGPL-3.0-only** — එහි `LICENSE` / `COPYING` / `NOTICE` **වෙනස් නොකර** ඇත |
+| Media3 / Guava (`libs/`) | Apache-2.0 |
+| `liquid_glass_easy` | MIT |
+| Noto Sans Sinhala / Inter / Google Sans Flex fonts | SIL OFL 1.1 |
+
+ඇප් එක තුළ **Settings → About & Licenses** තිරයේද මෙම බලපත්‍ර තොරතුරු පෙන්වයි;
+සියලු third-party artifacts සඳහා **THIRD_PARTY.md** බලන්න.

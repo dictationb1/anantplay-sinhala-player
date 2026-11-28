@@ -241,6 +241,7 @@ class OnboardingStatus {
     required this.battery,
     required this.installs,
     required this.official,
+    this.coach = false,
   });
 
   final bool overlay;
@@ -248,6 +249,10 @@ class OnboardingStatus {
   final bool battery;
   final bool installs;
   final bool official;
+
+  /// v3.4.6.m — the Setup Coach completion stamp (K_COACH_COMPLETED):
+  /// Slide 6's `✓ Finish` stays disabled until this is TRUE.
+  final bool coach;
 
   static OnboardingStatus get unknown => const OnboardingStatus(
         overlay: false, notif: false, battery: false, installs: false, official: false);
@@ -260,6 +265,7 @@ class OnboardingStatus {
       battery: map['battery'] == true,
       installs: map['installs'] == true,
       official: map['official'] == true,
+      coach: map['coach'] == true,
     );
   }
 }

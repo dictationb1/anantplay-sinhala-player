@@ -231,10 +231,18 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         setUserStop(c, true);   // v3.4.6.f — persisted across restarts/reboots
         try { Troubleshooter.record("APP", "receiver stop requested (user)"); } catch (Throwable ignored) { }
         android.content.Intent stop = new Intent(c, ReceiverService.class).setAction(ACTION_STOP);
-        try { c.startService(stop); } catch (Throwable t) {
-            // A background start may be refused; the stopService lane below is
-            // still there, and running is already null (the honest state).
-            Diag.w("service", "ACTION_STOP start refused: " + t);
+        // v3.4.6.m — NEVER startForegroundService() for ACTION_STOP (that would
+        // arm the 5 s startForeground obligation on a lane whose whole purpose
+        // is teardown), and never startService() when nothing is running (it
+        // would materialise a fresh instance just to stop it): only a LIVE
+        // instance gets the in-place startService() delivery; the stopService()
+        // lane below plus the synchronous stopNow() cover every other state.
+        if (running != null) {
+            try { c.startService(stop); } catch (Throwable t) {
+                // A background start may be refused; the stopService lane below is
+                // still there, and running is already null (the honest state).
+                Diag.w("service", "ACTION_STOP start refused: " + t);
+            }
         }
         try { c.stopService(new Intent(c, ReceiverService.class)); } catch (Throwable ignored) { }
         ReceiverService s = running;
@@ -246,7 +254,11 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         return stop;
     }
 
-    /** v3.4.6.e — the in-object synchronous teardown (requestStop's core). */
+    /** v3.4.6.e — the in-object synchronous teardown (requestStop's core).
+     *  v3.4.6.m — also the FGS-contract-safe teardown lane for the user-stop
+     *  veto, the duplicate-instance no-op and ACTION_STOP: every caller has
+     *  already satisfied startForeground() FIRST, so this only removes the
+     *  notification and stops the service (never an unsatisfied FGS start). */
     private void stopNow() {
         try {
             if (Build.VERSION.SDK_INT >= 24) {
@@ -256,6 +268,7 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
             }
         } catch (Throwable ignored) { }
         if (running == this) running = null;   // v3.4.6.h — no ghost registration
+        fgsStarted = false;   // v3.4.6.m — a future re-delivery must re-satisfy the FGS contract
         stopSelf();
     }
 
@@ -280,6 +293,15 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
     @Override
     public void onCreate() {
         super.onCreate();
+        // v3.4.6.m — THE ForegroundServiceDidNotStartInTimeException KILL
+        // (FAIL 56 / FAIL 92, process killed at probe 80/92): EVERY delivery that
+        // arrived through Context.startForegroundService() must see
+        // Service.startForeground() called — even when a persisted user-stop
+        // veto, an ACTION_STOP, or a duplicate-instance no-op tears this
+        // instance down right afterwards. This is therefore the FIRST statement
+        // of onCreate: before the veto can return, before any port scan, before
+        // any mDNS work. Idempotent (a live foreground instance no-ops).
+        ensureForegroundSatisfied();
         restoreUserStop(this);   // process restart / START_STICKY resurrection
         armCore();
     }
@@ -305,13 +327,27 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
             // v3.4.6.e — the zombie veto: a START_STICKY resurrection after the
             // user's explicit stop must NOT re-announce on the LAN. Tear down
             // quietly; a future arm() clears the veto and re-arms for real.
+            // v3.4.6.m — startForeground() was ALREADY satisfied in onCreate(),
+            // so this teardown removes the notification and stops the service
+            // INSIDE the 5 s window — the exact lane that used to return before
+            // startForeground() and end in ForegroundServiceDidNotStartInTime
+            // Exception (the arm-after-persisted-stop race: BootReceiver / tile
+            // / app start call arm() while the in-process flag is still false,
+            // the service then restores userStop=true and used to bail).
             Diag.w("service", "armCore refused: standing user stop — refusing to re-arm");
-            if (running == this) running = null;
-            try { stopSelf(); } catch (Throwable ignored) { }
+            stopNow();
             return;
         }
         if (running != null && running != this && running.serverLive()) {
-            Diag.i("service", "armCore: another live instance already serving — no-op");
+            // v3.4.6.m — a duplicate startForegroundService() delivery landed on a
+            // FRESH instance while the original still serves. The old code just
+            // returned here: the duplicate NEVER called startForeground() →
+            // Android 12+ killed the WHOLE process ~5 s later (the real-phone
+            // RemoteServiceException). onCreate() already satisfied the FGS
+            // contract on this duplicate, so it now removes its notification and
+            // stops itself cleanly — the serving instance keeps the LAN alive.
+            Diag.i("service", "armCore: another live instance already serving — duplicate tears down");
+            stopNow();
             return;
         }
         running = this;
@@ -443,6 +479,13 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // v3.4.6.m — THE FGS CONTRACT ON EVERY DELIVERY: a start that arrived via
+        // startForegroundService() but was routed to a still-live instance whose
+        // onCreate() will NOT re-run must STILL see startForeground() called
+        // (idempotent — a no-op when already satisfied). This runs before the
+        // ACTION_STOP teardown for exactly that reason: even a stop delivery
+        // honors the 5 s obligation first, then removes the notification.
+        ensureForegroundSatisfied();
         String a = intent == null ? null : intent.getAction();
         // v3.4.6.h — THE RE-ATTACH LEG: a start delivered to an instance whose
         // onCreate() will not run again (stopSelf still in flight) must re-arm
@@ -455,19 +498,16 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         if (ACTION_STOP.equals(a)) {
             Diag.i("service", "stop by user");
             setUserStop(this, true);   // the notification Stop is also explicit
-            // v3.4.6.e — REMOVE the foreground notification (the old bare
-            // stopSelf() left the persistent "ready for cast" notification
-            // alive after the receiver was down — the ghost a user reads as
-            // "the stop did nothing").
-            try {
-                if (Build.VERSION.SDK_INT >= 24) {
-                    stopForeground(android.app.Service.STOP_FOREGROUND_REMOVE);
-                } else {
-                    stopForeground(true);
-                }
-            } catch (Throwable ignored) { }
-            if (running == this) running = null;   // v3.4.6.h — the honest state NOW
-            stopSelf();
+            // v3.4.6.m — startForeground() was just re-satisfied at the top of
+            // onStartCommand(), so this teardown can never leave an unsatisfied
+            // FGS start behind (the ForegroundServiceDidNotStartInTimeException
+            // lane). NOTE: ACTION_STOP itself is NEVER dispatched through
+            // startForegroundService() — requestStop() only uses the stopService()
+            // / live-instance startService() lanes. stopNow() also removes the
+            // v3.4.6.e ghost notification (the old bare stopSelf() left the
+            // persistent "ready for cast" notification alive after the receiver
+            // was down).
+            stopNow();
             return START_NOT_STICKY;
         }
         // v3.1.0 — the Cast & Network settings page pokes this after a change
@@ -495,6 +535,58 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         return START_STICKY;
     }
 
+    /** v3.4.6.m — TRUE once THIS instance has called startForeground() (the FGS
+     *  contract). stopNow() resets it so a re-delivery re-satisfies it. */
+    private volatile boolean fgsStarted;
+
+    /**
+     * v3.4.6.m — THE ForegroundServiceDidNotStartInTimeException KILLER.
+     *
+     * <p>Android 12–16 contract: EVERY start that arrived through
+     * {@code Context.startForegroundService()} must see
+     * {@code Service.startForeground()} called within the ~5 s window — even
+     * when the service is about to stop itself (a persisted user-stop veto, an
+     * ACTION_STOP delivery, a duplicate-instance no-op). The v3.4.6.l field
+     * crashes (FAIL 56 / FAIL 92, the process killed at probe 80/92) were
+     * exactly these lanes returning before startForeground().
+     *
+     * <p>onCreate() and onStartCommand() both route here FIRST; the method is
+     * idempotent (a live foreground instance is never re-posted).
+     */
+    /**
+     * v3.4.6.m — THE ANDROID 15/16 FOREGROUND-SERVICE TIMEOUT CONTRACT.
+     *
+     * <p>Android 14 (API 34) added {@code Service.onTimeout(int startId)} and Android 15
+     * (API 35) added {@code Service.onTimeout(int startId, int fgsType)}. The platform
+     * calls them when a foreground-service type that carries a time budget runs past its
+     * limit — most importantly {@code dataSync}, the LAST resort in the typed
+     * {@code startForeground()} chain above. The default implementation THROWS, so a
+     * long-lived dataSync fallback would end in a RemoteServiceException / ANR kill.
+     * Answering the callback with a clean {@code stopSelf()} means: zero crash, zero
+     * timeout exception, zero orphaned notification — the capability watchdog re-arms a
+     * fresh instance (with a fresh budget) the moment the receiver is asked for again.
+     */
+    @Override
+    public void onTimeout(int startId) {
+        Diag.w("service", "FGS onTimeout(startId=" + startId + ") — stopping cleanly");
+        try { stopNow(); } catch (Throwable ignored) { }
+        stopSelf();
+    }
+
+    @Override
+    public void onTimeout(int startId, int fgsType) {
+        Diag.w("service", "FGS onTimeout(startId=" + startId + ", fgsType=" + fgsType
+                + ") — stopping cleanly (zero ForegroundServiceDidNotStartInTimeException)");
+        try { stopNow(); } catch (Throwable ignored) { }
+        stopSelf();
+    }
+
+    private void ensureForegroundSatisfied() {
+        if (fgsStarted) return;
+        startInForeground();
+        fgsStarted = true;
+    }
+
     private void startInForeground() {
         Notification n;
         try {
@@ -519,16 +611,31 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
             Diag.w("service", "notification: " + t);
             n = new Notification.Builder(this, App.CHANNEL).setSmallIcon(R.drawable.ic_stat_si).build();
         }
-        try {
-            if (Build.VERSION.SDK_INT >= 29)
-                startForeground(1, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
-            else startForeground(1, n);
-        } catch (Throwable t) {
-            // The connectedDevice type is what AnantPlay itself uses; if a vendor build
-            // refuses it, fall back to the untyped call (still a foreground service).
-            Diag.w("service", "typed startForeground failed, falling back: " + t);
-            try { startForeground(1, n); } catch (Throwable t2) { Diag.e("service", "startForeground: " + t2); }
+        // v3.4.6.m — THE TYPED startForeground() CHAIN: connectedDevice first
+        // (the LAN receiver's true type — AnantPlay's own Cast$Keep pattern,
+        // satisfied by the normal CHANGE_WIFI_STATE / CHANGE_NETWORK_STATE
+        // grants), then FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK, then
+        // FOREGROUND_SERVICE_TYPE_DATA_SYNC (both declared in the manifest with
+        // their FOREGROUND_SERVICE_* permissions for exactly this fallback),
+        // then the untyped call. Whatever an Android 16 / HyperOS build
+        // accepts, the FGS contract is satisfied IMMEDIATELY — a refusing type
+        // can never leave the 5 s window open.
+        if (Build.VERSION.SDK_INT >= 29) {
+            int[] types = new int[]{
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            };
+            for (int type : types) {
+                try {
+                    startForeground(1, n, type);
+                    return;
+                } catch (Throwable t) {
+                    Diag.w("service", "startForeground type " + type + " refused, trying next: " + t);
+                }
+            }
         }
+        try { startForeground(1, n); } catch (Throwable t2) { Diag.e("service", "startForeground: " + t2); }
     }
 
     @Override
@@ -789,7 +896,7 @@ public class ReceiverService extends Service implements ReceiverServer.Backend {
         m.put("dlnaSearches", dlnaRenderer == null ? 0 : dlnaRenderer.searchesSeen());
         m.put("mdnsAnnouncer", nsd == null ? "disabled (Settings)" : "on");
         m.put("receiverName", AppPrefs.receiverName(getSharedPreferences("sicast", MODE_PRIVATE)));
-        m.put("fgsType", "connectedDevice");
+        m.put("fgsType", "connectedDevice|mediaPlayback|dataSync (v3.4.6.m chain)");
         m.put("notifPerm", Miui.notifGranted(this));
         m.put("castPolicy", "local-device-only; http/https + permitted file://");
         m.put("playerOpen", PlayActivity.current() != null);
